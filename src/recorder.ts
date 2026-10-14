@@ -203,7 +203,7 @@ export class Recorder {
   status() {
     return {
       startedAt: this.startedAt,
-      window: this.marketWindow,
+      window: this.markWindow,
       listed: Boolean(this.market && this.marketWindow === windowStart()),
       snapshots: this.snapshots,
       windowsDone: this.windowsDone,
