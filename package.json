@@ -1,0 +1,21 @@
+{
+  "name": "pred-bot",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Prediction-market bot v2. Records the 5-minute BTC market first; trades only when the data shows an edge.",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "start": "tsx src/supervisor.ts",
+    "start:once": "tsx src/index.ts",
+    "probe": "tsx src/probe.ts",
+    "report": "tsx src/report.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test src/*.test.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "tsx": "^4.23.15",
+    "typescript": "^5.9.3"
+  }
+}
