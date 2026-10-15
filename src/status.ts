@@ -49,7 +49,7 @@ const cents=(n)=>n==null?"—":Math.round(n*100)+"¢";
 async function poll(){try{const s=await (await fetch("/api/status")).json();
 const b=s.lastBook;const left=s.window?Math.max(0,s.window+300-Math.floor(Date.now()/1000)):0;
 el("sub").textContent="build "+s.build+" · window "+(s.window?new Date(s.window*1000).toISOString().slice(11,19):"—")+" · "+(s.listed?"listed":"not listed yet")+" · "+String(Math.floor(left/60))+":"+String(left%60).padStart(2,"0")+" left"+(s.lastError?" · error: "+s.lastError:"");
-const pairs=[["windows recorded",s.windowsDone],["settled",s.windowsResolved],["waiting for settlement",s.pending],["book snapshots",s.snapshots],["open",money(b&&b.open)],["chainlink",money(b&&b.chainlink)],["up ask",cents(b&&b.upAsk)],["down ask",cents(b&&b.downAsk)]];
+const pairs=[["windows recorded",s.windowsDone],["settled",s.windowsResolved],["waiting for settlement",s.pending],["book snapshots",s.snapshots],["open",money(b&&b.open)],["chainlink",money(b&&b.chainlink)],["up ask",cents(b&&b.upAsk)],["down ask",cents(b&&b.downAsk)],["jev picks",s.jev&&s.jev.enabled?s.jev.answered+"/"+s.jev.asked+(s.jev.last&&s.jev.last.pickUp!=null?" · last "+(s.jev.last.pickUp?"UP":"DOWN")+" "+s.jev.last.ms+"ms":""):"off"]];
 el("strip").innerHTML=pairs.map(([k,v])=>'<div><div class="k">'+k+'</div><div class="v">'+v+'</div></div>').join("");
 el("feeds").innerHTML=s.feeds.map(f=>'<tr><td>'+f.name+'</td><td class="'+(f.healthy?"ok":"bad")+'">'+(f.healthy?"live":"down")+'</td><td class="r">'+money(f.last&&f.last.price)+'</td><td class="r">'+(f.last?Math.round((Date.now()-f.last.t)/1000)+"s":"—")+'</td><td class="r">'+f.ticks+'</td><td class="r">'+f.connects+'</td></tr>').join("");
 }catch(e){el("sub").textContent="status unavailable"}}

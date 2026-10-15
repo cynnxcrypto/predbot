@@ -1,3 +1,4 @@
+import type { JevRow } from "./jev.js";
 import type { WindowRow } from "./recorder.js";
 import { readAll } from "./store.js";
 
@@ -66,6 +67,45 @@ for (const [left, slot] of [...byLeft.entries()].sort((a, b) => b[0] - a[0])) {
   console.log(`  ${String(left).padStart(4)} ${String(slot.n).padStart(4)}   ${cents(median(slot.winnerAsk)).padStart(18)}   ${pct(slot.favWon, slot.n).padStart(12)}   ${cents(median(slot.favAsk)).padStart(22)}   ${cents(median(slot.sum)).padStart(13)}`);
 }
 console.log("\nRead it like this: if the favourite wins less often than its ask (plus 4 to 8 cents of cost), buying the favourite loses. If 'both asks sum' is under $1, a maker on both sides is being paid.");
+
+const settled = new Map(rows.map((row) => [row.window, row.resolvedUp as boolean]));
+const jev = readAll<JevRow>("jev").filter((j) => j.pickUp != null && settled.has(j.window));
+if (jev.length) {
+  console.log("\nJEV shadow picks (nothing traded). Profit is per $1 share, buying JEV's side at the ask, minus Polymarket's fee (7% x p x (1-p)):");
+  console.log("  model          left    n   JEV right   favourite right   JEV side ask (avg)   profit/share");
+  const groups = new Map<string, JevRow[]>();
+  for (const j of jev) {
+    const key = `${j.model ?? "?"}|${j.left}`;
+    groups.set(key, [...(groups.get(key) ?? []), j]);
+  }
+  for (const [key, list] of [...groups.entries()].sort((a, b) => a[1][0].model?.localeCompare(b[1][0].model ?? "") || b[1][0].left - a[1][0].left)) {
+    const [model, left] = key.split("|");
+    let right = 0;
+    let fav = 0;
+    let favN = 0;
+    let asks = 0;
+    let pnl = 0;
+    let priced = 0;
+    for (const j of list) {
+      const won = settled.get(j.window) === j.pickUp;
+      if (won) right += 1;
+      if (j.upAsk != null && j.downAsk != null) {
+        favN += 1;
+        if (j.upAsk >= j.downAsk === settled.get(j.window)) fav += 1;
+      }
+      const ask = j.pickUp ? j.upAsk : j.downAsk;
+      if (ask != null) {
+        priced += 1;
+        asks += ask;
+        pnl += (won ? 1 : 0) - ask - 0.07 * ask * (1 - ask);
+      }
+    }
+    const avgAsk = priced ? asks / priced : null;
+    const perShare = priced ? `${pnl / priced >= 0 ? "+" : ""}${(pnl / priced * 100).toFixed(1)}¢` : "—";
+    console.log(`  ${model.padEnd(13)} ${left.padStart(4)} ${String(list.length).padStart(4)}   ${pct(right, list.length).padStart(9)}   ${pct(fav, favN).padStart(15)}   ${cents(avgAsk).padStart(18)}   ${perShare.padStart(12)}`);
+  }
+  console.log("Read it like this: JEV only helps if its profit per share stays above zero once spread is added (2 to 5 cents), over hundreds of windows.");
+}
 
 function cmp(a: number | null, b: number | null): boolean | null {
   return a != null && b != null ? a >= b : null;
