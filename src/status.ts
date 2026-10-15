@@ -2,7 +2,10 @@ import { createServer } from "node:http";
 import { STATUS_PORT } from "./config.js";
 import type { Recorder } from "./recorder.js";
 
-/** A one-page status view on 127.0.0.1 so you can see the recorder is alive without reading logs. */
+/**
+ * A one-page status view on 127.0.0.1 so you can see the recorder is alive without reading logs.
+ * Resolves once the port is bound; rejects (with code EADDRINUSE) when another copy holds it.
+ */
 export function serveStatus(recorder: Recorder, build: string) {
   const server = createServer((req, res) => {
     if (req.url === "/api/status") {
@@ -13,8 +16,13 @@ export function serveStatus(recorder: Recorder, build: string) {
     res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
     res.end(PAGE);
   });
-  server.listen(STATUS_PORT, "127.0.0.1");
-  return server;
+  return new Promise<typeof server>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(STATUS_PORT, "127.0.0.1", () => {
+      server.off("error", reject);
+      resolve(server);
+    });
+  });
 }
 
 const PAGE = `<!doctype html><html><head><meta charset="utf-8"><title>Pred bot</title>

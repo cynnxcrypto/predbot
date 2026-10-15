@@ -15,6 +15,7 @@ import { ROOT } from "./config.js";
 const CHECK_MIN = Number(process.env.UPDATE_EVERY_MIN ?? 3);
 const auto = (process.env.AUTO_UPDATE ?? "true") !== "false";
 const bin = (name: string) => join(ROOT, "node_modules", ".bin", name);
+
 const say = (m: string) => console.log(`\x1b[90m${new Date().toISOString().slice(11, 19)}\x1b[0m \x1b[36mUPDATE\x1b[0m ${m}`);
 
 let child: ChildProcess | null = null;
@@ -41,7 +42,9 @@ function lockHash() {
 
 function start() {
   startedAt = Date.now();
-  child = spawn(bin("tsx"), ["src/index.ts"], { cwd: ROOT, stdio: "inherit", env: process.env });
+  // Run node directly with tsx as a loader (not the tsx CLI, which wraps node in a child process and
+  // only passes SIGINT/SIGTERM through), so the restart signal below reaches the bot itself.
+  child = spawn(process.execPath, ["--import", "tsx", "src/index.ts"], { cwd: ROOT, stdio: "inherit", env: process.env });
   child.on("exit", (code) => {
     child = null;
     if (stopping) process.exit(0);

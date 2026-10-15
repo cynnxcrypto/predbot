@@ -1,4 +1,5 @@
 import { execSync } from "node:child_process";
+import type { Server } from "node:http";
 import { ROOT, STATUS_PORT } from "./config.js";
 import { Recorder } from "./recorder.js";
 import { serveStatus } from "./status.js";
@@ -11,8 +12,50 @@ function build() {
   }
 }
 
-const recorder = new Recorder().start();
-const server = serveStatus(recorder, build());
+/** The process holding our status port, if any (macOS and Linux have lsof). */
+function portHolder(): number | null {
+  try {
+    const out = execSync(`lsof -ti tcp:${STATUS_PORT} -sTCP:LISTEN`, { stdio: ["ignore", "pipe", "ignore"] }).toString().trim();
+    const pid = Number(out.split("\n")[0]);
+    return pid > 0 && pid !== process.pid ? pid : null;
+  } catch {
+    return null;
+  }
+}
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * Bind the status port. If an older copy of the bot still holds it (for example one left behind by
+ * a restart), ask it to stop at the next window edge and wait for it, so two copies never record at once.
+ */
+async function takeOver(recorder: Recorder): Promise<Server> {
+  let asked: number | null = null;
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await serveStatus(recorder, build());
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== "EADDRINUSE" || attempt > 240) throw err;
+      const pid = portHolder();
+      if (pid && pid !== asked) {
+        console.log(`an older copy (pid ${pid}) is still recording; asking it to stop at the next window edge`);
+        try {
+          process.kill(pid, "SIGUSR2");
+        } catch {
+          /* already gone */
+        }
+        asked = pid;
+      } else if (attempt === 0) {
+        console.log(`port ${STATUS_PORT} is busy; waiting for it`);
+      }
+      await sleep(2000);
+    }
+  }
+}
+
+const recorder = new Recorder();
+const server = await takeOver(recorder);
+recorder.start();
 console.log(`Pred bot recorder ${build()}. Status: http://127.0.0.1:${STATUS_PORT}. Nothing trades.`);
 
 let stopping = false;
