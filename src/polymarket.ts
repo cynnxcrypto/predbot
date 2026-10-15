@@ -91,7 +91,10 @@ export async function resolution(start: number): Promise<Resolution> {
 }
 
 /** Polymarket's own open and close prints for the window, from the endpoint its page uses. */
-export async function officialPrices(start: number): Promise<{ open: number | null; close: number | null }> {
+export type OfficialPrices = { open: number | null; close: number | null; raw: unknown };
+
+/** Polymarket's own open/close prints for the window. `raw` is the untouched response, kept so the settlement rule can be audited. */
+export async function officialPrices(start: number): Promise<OfficialPrices> {
   const from = new Date(start * 1000).toISOString();
   const to = new Date((start + WINDOW_SEC) * 1000).toISOString();
   const body = await getJson<{ openPrice?: number | null; closePrice?: number | null }>(
@@ -99,5 +102,5 @@ export async function officialPrices(start: number): Promise<{ open: number | nu
     5000,
   );
   const ok = (n: unknown) => (typeof n === "number" && n > 1000 ? n : null);
-  return { open: ok(body.openPrice), close: ok(body.closePrice) };
+  return { open: ok(body.openPrice), close: ok(body.closePrice), raw: body };
 }

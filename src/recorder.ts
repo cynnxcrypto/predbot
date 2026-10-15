@@ -28,11 +28,19 @@ export type BookRow = {
 export type WindowRow = {
   window: number;
   title: string | null;
+  /** Polymarket's market description, verbatim, since it states the resolution source. */
+  description: string | null;
   listedAt: number | null;
   snapshots: number;
   /** Polymarket's own open/close prints. */
   open: number | null;
   close: number | null;
+  /** The first open/close we fetched (about 20s after close), to see whether the print changes later. */
+  firstOpen: number | null;
+  firstClose: number | null;
+  /** When the final open/close were fetched, and the raw response, so the settlement rule can be audited. */
+  pricesAt: number | null;
+  pricesRaw: unknown;
   /** Candidate settlement prices from our own feeds, so the rule can be checked. */
   chainlinkAtOpen: number | null;
   chainlinkAtClose: number | null;
@@ -148,10 +156,15 @@ export class Recorder {
     const row: WindowRow = {
       window: start,
       title: this.marketWindow === start ? (this.market?.title ?? null) : null,
+      description: this.marketWindow === start ? (this.market?.description ?? null) : null,
       listedAt: this.listedAt,
       snapshots: [...this.marks.keys()].length,
       open: null,
       close: null,
+      firstOpen: null,
+      firstClose: null,
+      pricesAt: null,
+      pricesRaw: null,
       chainlinkAtOpen: chainlink.at(openMs)?.price ?? null,
       chainlinkAtClose: chainlink.at(closeMs)?.price ?? null,
       chainlinkTwap60: mean(last60),
@@ -170,25 +183,36 @@ export class Recorder {
     saveJson("pending.json", this.pending);
   }
 
-  /** Fetch the official prices and the resolution for closed windows; give up after about an hour. */
+  /**
+   * Fetch the official prices and the resolution for closed windows; give up after about an hour.
+   * The prices are only trusted once they were fetched after the market resolved and at least two
+   * minutes after close, because the first print can be provisional.
+   */
   private async settle() {
     const now = Date.now();
     const due = this.pending.filter((p) => p.nextAt <= now).slice(0, 2);
     for (const item of due) {
       item.tries += 1;
       const [prices, res] = await Promise.allSettled([officialPrices(item.window), resolution(item.window)]);
-      if (prices.status === "fulfilled") {
-        item.row.open = prices.value.open ?? item.row.open;
-        item.row.close = prices.value.close ?? item.row.close;
-      }
       if (res.status === "fulfilled") {
         item.row.status = res.value.status;
         if (res.value.resolvedUp != null) {
           item.row.resolvedUp = res.value.resolvedUp;
-          item.row.resolvedAt = Date.now();
+          item.row.resolvedAt ??= Date.now();
         }
       }
-      const done = item.row.resolvedUp != null && item.row.close != null;
+      if (prices.status === "fulfilled") {
+        if (item.row.firstOpen == null) item.row.firstOpen = prices.value.open;
+        if (item.row.firstClose == null) item.row.firstClose = prices.value.close;
+        item.row.open = prices.value.open ?? item.row.open;
+        item.row.close = prices.value.close ?? item.row.close;
+        item.row.pricesRaw = prices.value.raw;
+        item.row.pricesAt = Date.now();
+      }
+      const closeMs = (item.window + WINDOW_SEC) * 1000;
+      const pricesFinal =
+        item.row.close != null && item.row.pricesAt != null && item.row.resolvedAt != null && item.row.pricesAt >= item.row.resolvedAt && item.row.pricesAt >= closeMs + 120000;
+      const done = item.row.resolvedUp != null && pricesFinal;
       if (done || item.tries >= 40) {
         append("windows", item.row, item.window * 1000);
         this.pending = this.pending.filter((p) => p !== item);
