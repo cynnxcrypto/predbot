@@ -1,6 +1,7 @@
 import { CHECKPOINTS, WINDOW_SEC, windowStart } from "./config.js";
 import { binance, chainlink, coinbase, feeds, startFeeds } from "./feeds/index.js";
 import { book, marketFor, officialPrices, resolution, type Book, type Market } from "./polymarket.js";
+import { jevStats, maybeAskJev } from "./jev.js";
 import { append, loadJson, saveJson } from "./store.js";
 
 /** One book snapshot row, written every second while a window is listed. */
@@ -143,6 +144,7 @@ export class Recorder {
     append("book", row);
     this.lastBook = row;
     this.snapshots += 1;
+    maybeAskJev(row);
     const checkpoint = CHECKPOINTS.find((cp) => cp >= left && !this.marks.has(cp) && cp - left <= 2);
     if (checkpoint != null) this.marks.set(checkpoint, [checkpoint, row.upAsk, row.upBid, row.downAsk, row.downBid, row.chainlink, row.binance]);
   }
@@ -235,6 +237,7 @@ export class Recorder {
       pending: this.pending.length,
       lastBook: this.lastBook,
       lastError: this.lastError,
+      jev: jevStats,
       feeds: feeds.map((feed) => ({ name: feed.name, healthy: feed.healthy(), last: feed.last(60000), ticks: feed.ticks.length, connects: feed.connects, errors: feed.errors })),
     };
   }
