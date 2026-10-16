@@ -40,6 +40,7 @@ td,th{padding:8px 14px;border-top:1px solid var(--line);text-align:left;font-wei
 </style></head><body><main>
 <h1>Pred bot <span class="acc">recorder</span></h1><div class="sub" id="sub">loading</div>
 <div class="strip" id="strip"></div>
+<table style="margin-bottom:20px"><thead><tr><th>Paper variant</th><th>Rule</th><th class="r">Trades</th><th class="r">Won</th><th class="r">Net</th><th class="r">Open</th><th class="r">No ask</th></tr></thead><tbody id="papers"></tbody></table>
 <table><thead><tr><th>Feed</th><th>State</th><th class="r">Last price</th><th class="r">Age</th><th class="r">Ticks</th><th class="r">Reconnects</th></tr></thead><tbody id="feeds"></tbody></table>
 <p class="sub" style="margin-top:16px" id="note">Nothing trades for real. This records the book, three BTC feeds and every settlement, and paper-trades the projection rule. Data is in the data/ folder next to the app.</p>
 </main><script>
@@ -52,6 +53,7 @@ el("sub").textContent="build "+s.build+" · window "+(s.window?new Date(s.window
 const pairs=[["windows recorded",s.windowsDone],["settled",s.windowsResolved],["waiting for settlement",s.pending],["book snapshots",s.snapshots],["open",money(b&&b.open)],["chainlink",money(b&&b.chainlink)],["up ask",cents(b&&b.upAsk)],["down ask",cents(b&&b.downAsk)],["paper trades",s.paper.trades+(s.paper.open?" (+"+s.paper.open+" open)":"")],["paper won",s.paper.trades?Math.round(s.paper.won/s.paper.trades*100)+"%":"—"],["paper net",(s.paper.net<0?"-":"+")+"$"+Math.abs(s.paper.net).toFixed(2)],["no ask under cap",s.paper.noAsk]];
 el("note").textContent="Nothing trades for real. Paper rule: "+s.paper.rule+". Data is in the data/ folder next to the app.";
 el("strip").innerHTML=pairs.map(([k,v])=>'<div><div class="k">'+k+'</div><div class="v">'+v+'</div></div>').join("");
+el("papers").innerHTML=(s.papers||[]).map(p=>'<tr><td>'+p.name+'</td><td>'+p.rule+'</td><td class="r">'+p.trades+'</td><td class="r">'+(p.trades?Math.round(p.won/p.trades*100)+"%":"—")+'</td><td class="r '+(p.net<0?"bad":"ok")+'">'+(p.net<0?"-":"+")+"$"+Math.abs(p.net).toFixed(2)+'</td><td class="r">'+p.open+'</td><td class="r">'+p.noAsk+'</td></tr>').join("");
 el("feeds").innerHTML=s.feeds.map(f=>'<tr><td>'+f.name+'</td><td class="'+(f.healthy?"ok":"bad")+'">'+(f.healthy?"live":"down")+'</td><td class="r">'+money(f.last&&f.last.price)+'</td><td class="r">'+(f.last?Math.round((Date.now()-f.last.t)/1000)+"s":"—")+'</td><td class="r">'+f.ticks+'</td><td class="r">'+f.connects+'</td></tr>').join("");
 }catch(e){el("sub").textContent="status unavailable"}}
 poll();setInterval(poll,2000);

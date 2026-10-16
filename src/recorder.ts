@@ -1,6 +1,6 @@
 import { CHECKPOINTS, WINDOW_SEC, windowStart } from "./config.js";
 import { binance, chainlink, coinbase, feeds, startFeeds } from "./feeds/index.js";
-import { PaperTrader } from "./paperlive.js";
+import { PaperTrader, VARIANTS } from "./paperlive.js";
 import { book, marketFor, officialPrices, resolution, type Book, type Market } from "./polymarket.js";
 import { append, loadJson, saveJson } from "./store.js";
 
@@ -72,7 +72,7 @@ export class Recorder {
   windowsResolved = 0;
   lastBook: BookRow | null = null;
   lastError: string | null = null;
-  paper = new PaperTrader();
+  papers = VARIANTS.map((v) => new PaperTrader(v));
   startedAt = Date.now();
   private marks = new Map<number, (number | null)[]>();
   private markWindow = 0;
@@ -148,7 +148,7 @@ export class Recorder {
     append("book", row);
     this.lastBook = row;
     this.snapshots += 1;
-    this.paper.consider(row);
+    for (const p of this.papers) p.consider(row);
     const checkpoint = CHECKPOINTS.find((cp) => cp >= left && !this.marks.has(cp) && cp - left <= 2);
     if (checkpoint != null) this.marks.set(checkpoint, [checkpoint, row.upAsk, row.upBid, row.downAsk, row.downBid, row.chainlink, row.binance]);
   }
@@ -207,7 +207,7 @@ export class Recorder {
         if (res.value.resolvedUp != null) {
           item.row.resolvedUp = res.value.resolvedUp;
           item.row.resolvedAt ??= Date.now();
-          this.paper.settle(item.window, res.value.resolvedUp);
+          for (const p of this.papers) p.settle(item.window, res.value.resolvedUp);
         }
       }
       if (prices.status === "fulfilled") {
@@ -223,7 +223,7 @@ export class Recorder {
         item.row.close != null && item.row.pricesAt != null && item.row.resolvedAt != null && item.row.pricesAt >= item.row.resolvedAt && item.row.pricesAt >= closeMs + 120000;
       const done = item.row.resolvedUp != null && pricesFinal;
       if (done || item.tries >= 40) {
-        if (item.row.resolvedUp == null) this.paper.abandon(item.window);
+        if (item.row.resolvedUp == null) for (const p of this.papers) p.abandon(item.window);
         append("windows", item.row, item.window * 1000);
         this.pending = this.pending.filter((p) => p !== item);
         if (item.row.resolvedUp != null) this.windowsResolved += 1;
@@ -245,7 +245,8 @@ export class Recorder {
       pending: this.pending.length,
       lastBook: this.lastBook,
       lastError: this.lastError,
-      paper: this.paper.status(),
+      paper: this.papers[0].status(),
+      papers: this.papers.map((p) => p.status()),
       feeds: feeds.map((feed) => ({ name: feed.name, healthy: feed.healthy(), last: feed.last(60000), ticks: feed.ticks.length, connects: feed.connects, errors: feed.errors })),
     };
   }
