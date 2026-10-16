@@ -13,6 +13,10 @@ Data goes in `data/` next to the app as plain JSON lines (`data/book/<day>.jsonl
 2. how close windows finish to the open,
 3. what the book charged for the eventual winner at each checkpoint, and how often the price favourite won.
 
+The market settles on the 60-second average of the Chainlink feed ending at close, compared with the 60-second average ending at open (the minute before the window). Found from the data on 16 Oct 2026: 401 of 402 windows.
+
+`npm run paper -- --left 30 --cap 0.9 --size 20` replays the recorded book with the projection rule (at 30s left, half of the closing average is already known; buy the side the projection favours if its ask is at or under 90c, up to $20 taken from the levels on the book, fees included). It prints trades, win rate, net result by day and the worst trades. It reads `data/` only and sends nothing anywhere.
+
 `npm run probe` checks every feed and endpoint once. Run it first on a new computer.
 
 ## Updates are automatic
