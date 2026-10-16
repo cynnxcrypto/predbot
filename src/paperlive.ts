@@ -13,7 +13,7 @@ import { append, loadJson, saveJson } from "./store.js";
  * dollars from the ask levels actually on the book. One trade per window. Fee 7% * p * (1-p).
  * Settled trades go to data/paper[-variant]/<day>.jsonl; open ones survive a restart in data/paper[-variant]-open.json.
  */
-export type Variant = { name: string; left: number; cap: number; size: number };
+export type Variant = { name: string; left: number; cap: number; size: number; floor?: number };
 
 /** The variants run side by side. "base" keeps the original file names; the env vars tune it. */
 export const VARIANTS: Variant[] = [
@@ -22,6 +22,9 @@ export const VARIANTS: Variant[] = [
   { name: "late20", left: 20, cap: 0.9, size: 20 },
   { name: "late15", left: 15, cap: 0.9, size: 20 },
   { name: "cheap70", left: 30, cap: 0.7, size: 20 },
+  // Only buy when the book already leans the same way (ask 80c to 90c): the one band that was positive on all three recorded days.
+  { name: "band80", left: 45, floor: 0.8, cap: 0.9, size: 20 },
+  { name: "band80-30", left: 30, floor: 0.8, cap: 0.9, size: 20 },
 ];
 
 export type PaperTrade = {
@@ -92,7 +95,8 @@ export class PaperTrader {
     const projected = knownAverage * frac + row.chainlink * (1 - frac);
     const up = projected >= openAverage;
     const levels = up ? row.upAsks : row.downAsks;
-    if (!levels.length || levels[0][0] > CAP) {
+    const FLOOR = this.v.floor ?? 0;
+    if (!levels.length || levels[0][0] > CAP || levels[0][0] < FLOOR) {
       if (this.lastNoAskWindow !== row.window) {
         this.lastNoAskWindow = row.window;
         this.noAsk += 1;
@@ -159,6 +163,6 @@ export class PaperTrader {
 
   status() {
     const { left: LEFT, cap: CAP, size: SIZE } = this.v;
-    return { name: this.v.name, rule: `<=${LEFT}s, ask <= ${Math.round(CAP * 100)}c, $${SIZE}`, trades: this.trades, won: this.won, net: Math.round(this.net * 100) / 100, open: this.open.length, noAsk: this.noAsk };
+    return { name: this.v.name, rule: `<=${LEFT}s, ask ${this.v.floor ? Math.round(this.v.floor * 100) + "c to " : "<= "}${Math.round(CAP * 100)}c, $${SIZE}`, trades: this.trades, won: this.won, net: Math.round(this.net * 100) / 100, open: this.open.length, noAsk: this.noAsk };
   }
 }
