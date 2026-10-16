@@ -17,6 +17,8 @@ The market settles on the 60-second average of the Chainlink feed ending at clos
 
 `npm run paper -- --left 30 --cap 0.9 --size 20` replays the recorded book with the projection rule (at 30s left, half of the closing average is already known; buy the side the projection favours if its ask is at or under 90c, up to $20 taken from the levels on the book, fees included). It prints trades, win rate, net result by day and the worst trades. It reads `data/` only and sends nothing anywhere.
 
+The recorder also paper-trades that rule live (no order is ever sent): from 30s before close it buys the projected side on paper if its ask is at or under 90c, $20 per window, filled from the levels on the book. Settled paper trades go to `data/paper/<day>.jsonl`; the status page shows the running count, win rate and net. Tune with `PAPER_LEFT`, `PAPER_CAP`, `PAPER_SIZE` in the environment.
+
 `npm run probe` checks every feed and endpoint once. Run it first on a new computer.
 
 ## Updates are automatic

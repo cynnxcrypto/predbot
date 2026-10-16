@@ -41,7 +41,7 @@ td,th{padding:8px 14px;border-top:1px solid var(--line);text-align:left;font-wei
 <h1>Pred bot <span class="acc">recorder</span></h1><div class="sub" id="sub">loading</div>
 <div class="strip" id="strip"></div>
 <table><thead><tr><th>Feed</th><th>State</th><th class="r">Last price</th><th class="r">Age</th><th class="r">Ticks</th><th class="r">Reconnects</th></tr></thead><tbody id="feeds"></tbody></table>
-<p class="sub" style="margin-top:16px">Nothing trades. This records the book, three BTC feeds and every settlement so the next step can be measured instead of guessed. Data is in the data/ folder next to the app.</p>
+<p class="sub" style="margin-top:16px" id="note">Nothing trades for real. This records the book, three BTC feeds and every settlement, and paper-trades the projection rule. Data is in the data/ folder next to the app.</p>
 </main><script>
 const el=(id)=>document.getElementById(id);
 const money=(n)=>n==null?"—":"$"+n.toLocaleString("en-US",{maximumFractionDigits:2});
@@ -49,7 +49,8 @@ const cents=(n)=>n==null?"—":Math.round(n*100)+"¢";
 async function poll(){try{const s=await (await fetch("/api/status")).json();
 const b=s.lastBook;const left=s.window?Math.max(0,s.window+300-Math.floor(Date.now()/1000)):0;
 el("sub").textContent="build "+s.build+" · window "+(s.window?new Date(s.window*1000).toISOString().slice(11,19):"—")+" · "+(s.listed?"listed":"not listed yet")+" · "+String(Math.floor(left/60))+":"+String(left%60).padStart(2,"0")+" left"+(s.lastError?" · error: "+s.lastError:"");
-const pairs=[["windows recorded",s.windowsDone],["settled",s.windowsResolved],["waiting for settlement",s.pending],["book snapshots",s.snapshots],["open",money(b&&b.open)],["chainlink",money(b&&b.chainlink)],["up ask",cents(b&&b.upAsk)],["down ask",cents(b&&b.downAsk)]];
+const pairs=[["windows recorded",s.windowsDone],["settled",s.windowsResolved],["waiting for settlement",s.pending],["book snapshots",s.snapshots],["open",money(b&&b.open)],["chainlink",money(b&&b.chainlink)],["up ask",cents(b&&b.upAsk)],["down ask",cents(b&&b.downAsk)],["paper trades",s.paper.trades+(s.paper.open?" (+"+s.paper.open+" open)":"")],["paper won",s.paper.trades?Math.round(s.paper.won/s.paper.trades*100)+"%":"—"],["paper net",(s.paper.net<0?"-":"+")+"$"+Math.abs(s.paper.net).toFixed(2)],["no ask under cap",s.paper.noAsk]];
+el("note").textContent="Nothing trades for real. Paper rule: "+s.paper.rule+". Data is in the data/ folder next to the app.";
 el("strip").innerHTML=pairs.map(([k,v])=>'<div><div class="k">'+k+'</div><div class="v">'+v+'</div></div>').join("");
 el("feeds").innerHTML=s.feeds.map(f=>'<tr><td>'+f.name+'</td><td class="'+(f.healthy?"ok":"bad")+'">'+(f.healthy?"live":"down")+'</td><td class="r">'+money(f.last&&f.last.price)+'</td><td class="r">'+(f.last?Math.round((Date.now()-f.last.t)/1000)+"s":"—")+'</td><td class="r">'+f.ticks+'</td><td class="r">'+f.connects+'</td></tr>').join("");
 }catch(e){el("sub").textContent="status unavailable"}}
