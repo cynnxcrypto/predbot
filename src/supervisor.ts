@@ -16,6 +16,7 @@ const CHECK_MIN = Number(process.env.UPDATE_EVERY_MIN ?? 3);
 const auto = (process.env.AUTO_UPDATE ?? "true") !== "false";
 const bin = (name: string) => join(ROOT, "node_modules", ".bin", name);
 
+const quiet = (m: string) => console.log(`\x1b[90m${new Date().toISOString().slice(11, 19)} ${m}\x1b[0m`);
 const say = (m: string) => console.log(`\x1b[90m${new Date().toISOString().slice(11, 19)}\x1b[0m \x1b[36mUPDATE\x1b[0m ${m}`);
 
 let child: ChildProcess | null = null;
@@ -80,7 +81,10 @@ async function checkForUpdate() {
   try {
     const fetched = git(["fetch", "--quiet", "origin", "main"]);
     if (!fetched.ok) {
-      say(`could not reach GitHub (${fetched.out.split("\n")[0]}). Will try again.`);
+      // Usually the laptop is just offline (lid closed, moving). Not an error; the recorder keeps going.
+      const offline = /resolve host|Could not connect|Network is unreachable|timed out/i.test(fetched.out);
+      if (offline) quiet("offline, update check skipped; the recorder keeps running and the next check is in " + CHECK_MIN + " min");
+      else say(`could not reach GitHub (${fetched.out.split("\n")[0]}). Will try again.`);
       return;
     }
     const local = head();
