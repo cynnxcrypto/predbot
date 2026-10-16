@@ -11,7 +11,7 @@ import { append, loadJson, saveJson } from "./store.js";
  * average (the part of the final minute already seen, plus the current price for the rest), pick the
  * side it favours, and if that side's best ask is at or under PAPER_CAP, "buy" up to PAPER_SIZE
  * dollars from the ask levels actually on the book. One trade per window. Fee 7% * p * (1-p).
- * Settled trades go to data/paper/<day>.jsonl; open ones survive a restart in data/paper-open.json.
+ * Settled trades go to data/paper[-variant]/<day>.jsonl; open ones survive a restart in data/paper[-variant]-open.json.
  */
 export type Variant = { name: string; left: number; cap: number; size: number };
 
@@ -65,7 +65,8 @@ export class PaperTrader {
     this.openFile = `paper${suffix}-open.json`;
     this.totalsFile = `paper${suffix}-totals.json`;
     this.open = loadJson<PaperTrade[]>(this.openFile, []);
-    for (const t of loadJson<PaperTrade[]>(this.totalsFile, [])) this.count(t);
+    // Rows from other variants are skipped: one build wrote every variant into the base files.
+    for (const t of loadJson<PaperTrade[]>(this.totalsFile, [])) if ((t.variant ?? "base") === v.name) this.count(t);
   }
 
   private count(t: PaperTrade) {
@@ -141,10 +142,10 @@ export class PaperTrader {
     trade.pnl = (trade.won ? trade.shares : 0) - trade.cost - trade.fee;
     this.open = this.open.filter((t) => t !== trade);
     this.count(trade);
-    append("paper", trade, window * 1000);
-    const totals = loadJson<PaperTrade[]>("paper-totals.json", []);
+    append(this.kind, trade, window * 1000);
+    const totals = loadJson<PaperTrade[]>(this.totalsFile, []);
     totals.push(trade);
-    saveJson("paper-totals.json", totals);
+    saveJson(this.totalsFile, totals);
     saveJson(this.openFile, this.open);
     console.log(`paper ${this.v.name}: ${trade.side} ${trade.won ? "won" : "lost"} ${trade.pnl >= 0 ? "+" : "-"}$${Math.abs(trade.pnl).toFixed(2)}; running ${this.won}/${this.trades}, net ${this.net >= 0 ? "+" : "-"}$${Math.abs(this.net).toFixed(2)}`);
   }
