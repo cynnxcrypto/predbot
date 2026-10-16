@@ -44,7 +44,10 @@ export type WindowRow = {
   /** Candidate settlement prices from our own feeds, so the rule can be checked. */
   chainlinkAtOpen: number | null;
   chainlinkAtClose: number | null;
+  /** 60s average of the Chainlink feed ending at close: what the market settles on. */
   chainlinkTwap60: number | null;
+  /** 60s average of the Chainlink feed ending at open (the minute before the window): the "price at the beginning". */
+  chainlinkTwap60AtOpen: number | null;
   chainlinkMean: number | null;
   binanceAtOpen: number | null;
   binanceAtClose: number | null;
@@ -152,6 +155,7 @@ export class Recorder {
     const closeMs = openMs + WINDOW_SEC * 1000;
     const inWindow = chainlink.between(openMs, closeMs);
     const last60 = chainlink.between(closeMs - 60000, closeMs);
+    const before60 = chainlink.between(openMs - 60000, openMs);
     const mean = (ticks: { price: number }[]) => (ticks.length ? ticks.reduce((sum, t) => sum + t.price, 0) / ticks.length : null);
     const row: WindowRow = {
       window: start,
@@ -168,6 +172,7 @@ export class Recorder {
       chainlinkAtOpen: chainlink.at(openMs)?.price ?? null,
       chainlinkAtClose: chainlink.at(closeMs)?.price ?? null,
       chainlinkTwap60: mean(last60),
+      chainlinkTwap60AtOpen: mean(before60),
       chainlinkMean: mean(inWindow),
       binanceAtOpen: binance.at(openMs)?.price ?? null,
       binanceAtClose: binance.at(closeMs)?.price ?? null,

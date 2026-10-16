@@ -17,6 +17,7 @@ console.log(`Settled windows: ${rows.length} (${new Date(rows[0].window * 1000).
 
 console.log("\nSettlement rule check: 'UP' means close >= open under that rule. Agreement with Polymarket's result:");
 const rules: [string, (r: WindowRow) => boolean | null][] = [
+  ["chainlink 60s avg at close vs 60s avg at open (the market's rule)", (r) => cmp(r.chainlinkTwap60, r.chainlinkTwap60AtOpen)],
   ["official close vs official open", (r) => cmp(r.close, r.open)],
   ["chainlink last tick vs chainlink at open", (r) => cmp(r.chainlinkAtClose, r.chainlinkAtOpen)],
   ["chainlink last tick vs official open", (r) => cmp(r.chainlinkAtClose, r.open)],
