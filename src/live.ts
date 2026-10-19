@@ -128,9 +128,11 @@ export class LiveTrader {
         this.wallet = signer.address;
         this.ready = true;
         this.lastError = null;
+        saveJson("live-state.json", { at: Date.now(), ...this.status() });
         console.log(`live: ${this.config.mode.toUpperCase()} mode, signer ${signer.address}, funder ${this.config.funder}, balance $${this.balance.toFixed(2)}, ${this.config.variant} at $${this.config.size} per window, stop after -$${this.config.maxLossPerDay} in a day`);
       } catch (error) {
         this.lastError = error instanceof Error ? error.message : String(error);
+        saveJson("live-state.json", { at: Date.now(), ...this.status() });
         console.log(`live: not ready (${this.lastError})`);
       } finally {
         this.starting = null;
@@ -202,6 +204,7 @@ export class LiveTrader {
       this.lastError = row.error;
       console.log(`live: order failed (${row.error})`);
     }
+    saveJson("live-state.json", { at: Date.now(), ...this.status(), lastTrade: row });
     if (row.ok && (row.dry || row.shares > 0)) {
       this.open.push(row);
       saveJson("live-open.json", this.open);
