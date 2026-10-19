@@ -61,6 +61,7 @@ h1{font-size:20px;margin:0;font-weight:700;letter-spacing:.2px}
 .v.big{font-size:26px;font-weight:700}
 .stats{display:flex;gap:26px;flex-wrap:wrap}
 .ok{color:var(--up)}.bad{color:var(--down)}.acc{color:var(--acc)}.mut{color:var(--mut)}
+a{color:var(--fg);text-decoration:none;border-bottom:1px dotted var(--mut)}a:hover{color:var(--acc);border-color:var(--acc)}
 .ph{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:12px}
 .ph .k{margin:0}
 table{width:100%;border-collapse:collapse}
@@ -147,7 +148,9 @@ el("today").textContent=signed(L.todayNet);el("today").className="v big "+cls(L.
 el("net").textContent=signed(L.net);el("net").className="v big "+cls(L.net);
 el("ltr").textContent=L.trades==null?"—":L.trades;
 el("lwon").textContent=L.trades?Math.round(L.won/L.trades*100)+"%":"—";
-el("lstate").textContent=L.mode==="off"?"Real orders are off. Nothing trades for real.":(L.ready?"Wallet ready, signer "+(L.wallet||"").slice(0,6)+"… funds in "+(L.funder||"").slice(0,6)+"…":"Wallet not ready"+(L.lastError?": "+L.lastError:""))+(L.lastError&&L.ready?" · "+L.lastError:"");
+function esc(x){return String(x).replace(/[&<>"]/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]})}
+function addr(a,label){if(!a)return label+" —";return label+' <a href="https://polygonscan.com/address/'+a+'" target="_blank" rel="noopener" title="'+a+'">'+a.slice(0,6)+"…"+a.slice(-4)+'</a>'}
+el("lstate").innerHTML=L.mode==="off"?"Real orders are off. Nothing trades for real.":(L.ready?"Wallet ready · "+addr(L.funder,"funds")+" · "+addr(L.wallet,"signer"):"Wallet not ready"+(L.lastError?": "+esc(L.lastError):""))+(L.lastError&&L.ready?" · "+esc(L.lastError):"");
 el("lopen").textContent=L.open?L.open+" open":"";
 var rows=(L.recent||[]);
 el("log").innerHTML=rows.length?rows.map(function(t){var res=t.pnl==null?(t.ok?(t.dry?"dry":"open"):"no fill"):signed(t.pnl);var c=t.pnl==null?"mut":cls(t.pnl);var px=t.shares>0?Math.round(t.cost/t.shares*100)+"¢":cents(t.ask);return '<tr class="'+(t.ok?"":"dim")+'"><td>'+hhmm(t.window)+'</td><td class="'+(t.side==="UP"?"ok":"bad")+'">'+t.side+'</td><td>'+px+(t.shares>0?" × "+t.shares.toFixed(1):"")+'</td><td class="r">'+(t.cost>0?money(t.cost):"")+'</td><td class="r '+c+'">'+res+'</td></tr>'}).join(""):'<tr><td class="empty" colspan="5">no real orders yet</td></tr>';
