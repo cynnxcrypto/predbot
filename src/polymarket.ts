@@ -10,6 +10,7 @@ async function getJson<T>(url: string, timeoutMs = 8000): Promise<T> {
 
 type GammaMarket = {
   question?: string;
+  conditionId?: string;
   clobTokenIds?: string;
   eventStartTime?: string;
   endDate?: string;
@@ -21,7 +22,7 @@ type GammaMarket = {
 };
 type GammaEvent = { title?: string; description?: string; markets?: GammaMarket[] };
 
-export type Market = { start: number; title: string | null; upToken: string; downToken: string; description: string | null };
+export type Market = { start: number; title: string | null; upToken: string; downToken: string; description: string | null; conditionId: string | null };
 
 const markets = new Map<number, Market | null>();
 
@@ -39,7 +40,7 @@ export async function marketFor(start: number): Promise<Market | null> {
     tokens = [];
   }
   if (tokens.length < 2) return null;
-  const row: Market = { start, title: events[0]?.title ?? market.question ?? null, upToken: tokens[0], downToken: tokens[1], description: events[0]?.description ?? null };
+  const row: Market = { start, title: events[0]?.title ?? market.question ?? null, upToken: tokens[0], downToken: tokens[1], description: events[0]?.description ?? null, conditionId: market.conditionId ?? null };
   markets.set(start, row);
   if (markets.size > 50) markets.delete([...markets.keys()][0]);
   return row;

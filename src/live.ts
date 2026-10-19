@@ -212,7 +212,7 @@ export class LiveTrader {
         row.ok = Boolean(res?.success);
         row.orderId = res?.orderID ?? null;
         row.status = res?.status ?? null;
-        row.error = res?.success ? null : (res?.errorMsg || "order rejected");
+        row.error = res?.success ? null : (res?.errorMsg || (res?.error ? JSON.stringify(res.error).slice(0, 200) : "order rejected"));
         row.cost = Number(res?.makingAmount) || 0;
         row.shares = Number(res?.takingAmount) || 0;
         this.lastOrderAt = Date.now();
