@@ -81,17 +81,20 @@ export class Recorder {
   private listedAt: number | null = null;
   private pending: Pending[] = loadJson<Pending[]>("pending.json", []);
   private timer: NodeJS.Timeout | null = null;
+  private balanceTimer: NodeJS.Timeout | null = null;
   private busy = false;
 
   start() {
     startFeeds();
     void this.live.start();
+    this.balanceTimer = setInterval(() => void this.live.refreshBalance(), 60000);
     this.timer = setInterval(() => void this.tick(), 1000);
     return this;
   }
 
   stop() {
     if (this.timer) clearInterval(this.timer);
+    if (this.balanceTimer) clearInterval(this.balanceTimer);
     for (const feed of feeds) feed.stop();
     saveJson("pending.json", this.pending);
   }

@@ -141,6 +141,21 @@ export class LiveTrader {
     return this.starting;
   }
 
+  /** Re-read the collateral balance (called about once a minute by the recorder). */
+  async refreshBalance() {
+    this.config = liveConfig();
+    if (this.config.mode === "off") return;
+    if (!this.ready) return this.start();
+    if (!this.client) return;
+    try {
+      const bal = await this.client.getBalanceAllowance({ asset_type: AssetType.COLLATERAL });
+      this.balance = Number(bal.balance) / 1e6;
+      saveJson("live-state.json", { at: Date.now(), ...this.status() });
+    } catch (error) {
+      this.lastError = error instanceof Error ? error.message : String(error);
+    }
+  }
+
   /** Called when a paper variant takes a trade. Mirrors it for real when that variant is the live one. */
   async onPaperTrade(trade: PaperTrade, market: Market, cap: number) {
     this.config = liveConfig();
