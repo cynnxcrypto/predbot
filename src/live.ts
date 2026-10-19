@@ -70,6 +70,9 @@ const RPC = "https://polygon-bor-rpc.publicnode.com";
 const CTF = "0x4D97DCd97eC945f40cF65F87097ACe5EA0476045";
 const COLLATERALS = ["0xc011a7e12a19f7b1f670d46f03b03f3342e82dfb", "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174", "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359"];
 const ZERO32 = `0x${"0".repeat(64)}`;
+const TOKEN_NAMES = ["pUSD", "USDC.e", "USDC"];
+const erc20 = new Interface(["function balanceOf(address owner) view returns (uint256)"]);
+const provider = new StaticJsonRpcProvider(RPC, 137);
 const ctfAbi = new Interface(["function redeemPositions(address collateralToken, bytes32 parentCollectionId, bytes32 conditionId, uint256[] indexSets)"]);
 const DEFAULT: LiveConfig = { mode: "off", variant: "band80-30", size: 5, maxLossPerDay: 25, funder: "" };
 
@@ -105,6 +108,8 @@ export class LiveTrader {
   /** Wins waiting to be turned back into pUSD. */
   redeems: Redeem[] = loadJson<Redeem[]>("live-redeem.json", []);
   lastRedeem: { window: number; tx: string | null; at: number; error: string | null } | null = null;
+  /** What the funds wallet holds on chain, by token, read straight from Polygon. */
+  chain: Record<string, number> | null = null;
   private client: ClobClient | null = null;
   private signer: Wallet | null = null;
   private creds: ApiKeyCreds | null = null;
@@ -191,12 +196,23 @@ export class LiveTrader {
     if (!this.ready) return this.start();
     if (!this.client) return;
     try {
+      // The exchange caches balances; ask it to look again before reading.
+      await this.client.updateBalanceAllowance({ asset_type: AssetType.COLLATERAL }).catch(() => undefined);
       const bal = await this.client.getBalanceAllowance({ asset_type: AssetType.COLLATERAL });
       this.balance = Number(bal.balance) / 1e6;
-      saveJson("live-state.json", { at: Date.now(), ...this.status() });
     } catch (error) {
       this.lastError = error instanceof Error ? error.message : String(error);
     }
+    try {
+      const data = erc20.encodeFunctionData("balanceOf", [this.config.funder]);
+      const raw = await Promise.all(COLLATERALS.map((token) => provider.call({ to: token, data })));
+      const chain: Record<string, number> = {};
+      raw.forEach((hex, i) => { chain[TOKEN_NAMES[i]] = Number(BigInt(hex)) / 1e6; });
+      this.chain = chain;
+    } catch {
+      // chain read is best effort
+    }
+    saveJson("live-state.json", { at: Date.now(), ...this.status() });
   }
 
   /** Called when a paper variant takes a trade. Mirrors it for real when that variant is the live one. */
@@ -313,7 +329,7 @@ export class LiveTrader {
       const keys = loadJson<{ wallet?: string }>("polygon-keys.json", {});
       const pk = String(keys.wallet ?? "").trim();
       if (!pk || !this.config.funder) throw new Error("keys or funder missing");
-      const signer = new Wallet(pk.startsWith("0x") ? pk : `0x${pk}`, new StaticJsonRpcProvider(RPC, 137));
+      const signer = new Wallet(pk.startsWith("0x") ? pk : `0x${pk}`, provider);
       const relay = new RelayClient(RELAYER, 137, signer, new BuilderConfig({ localBuilderCreds: { key: builder.key, secret: builder.secret, passphrase: builder.passphrase } }));
       const calls = COLLATERALS.map((collateral) => ({
         target: CTF,
@@ -373,6 +389,7 @@ export class LiveTrader {
       open: this.open.length,
       lastError: this.lastError,
       lastOrderAt: this.lastOrderAt,
+      chain: this.chain,
       pendingRedeems: this.redeems.length,
       lastRedeem: this.lastRedeem,
       recent: this.recent.slice(0, 20),
