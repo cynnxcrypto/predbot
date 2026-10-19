@@ -71,7 +71,11 @@ const CTF = "0x4D97DCd97eC945f40cF65F87097ACe5EA0476045";
 const COLLATERALS = ["0xc011a7e12a19f7b1f670d46f03b03f3342e82dfb", "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174", "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359"];
 const ZERO32 = `0x${"0".repeat(64)}`;
 const TOKEN_NAMES = ["pUSD", "USDC.e", "USDC"];
-const erc20 = new Interface(["function balanceOf(address owner) view returns (uint256)"]);
+const USDC_E = COLLATERALS[1];
+/** Polymarket's CollateralOnramp: converts USDC.e into pUSD 1:1 (claimed winnings come out of the CTF as USDC.e). */
+const ONRAMP = "0x93070a847efEf7F70739046A929D47a521F5B8ee";
+const erc20 = new Interface(["function balanceOf(address owner) view returns (uint256)", "function approve(address spender, uint256 amount) returns (bool)"]);
+const onrampAbi = new Interface(["function wrap(address _asset, address _to, uint256 _amount)"]);
 const provider = new StaticJsonRpcProvider(RPC, 137);
 const ctfAbi = new Interface(["function redeemPositions(address collateralToken, bytes32 parentCollectionId, bytes32 conditionId, uint256[] indexSets)"]);
 const DEFAULT: LiveConfig = { mode: "off", variant: "band80-30", size: 5, maxLossPerDay: 25, funder: "" };
@@ -110,6 +114,8 @@ export class LiveTrader {
   lastRedeem: { window: number; tx: string | null; at: number; error: string | null } | null = null;
   /** What the funds wallet holds on chain, by token, read straight from Polygon. */
   chain: Record<string, number> | null = null;
+  lastWrap: { amount: number; tx: string | null; at: number; error: string | null } | null = null;
+  private wrapping = false;
   private client: ClobClient | null = null;
   private signer: Wallet | null = null;
   private creds: ApiKeyCreds | null = null;
@@ -310,6 +316,49 @@ export class LiveTrader {
     }
   }
 
+  /** A relayer client that runs gasless transactions from the deposit wallet, signed by our key. */
+  private relay() {
+    const builder = loadJson<{ key?: string; secret?: string; passphrase?: string }>("polygon-builder.json", {});
+    if (!builder.key || !builder.secret || !builder.passphrase) throw new Error("data/polygon-builder.json is missing; claim on polymarket.com instead");
+    const keys = loadJson<{ wallet?: string }>("polygon-keys.json", {});
+    const pk = String(keys.wallet ?? "").trim();
+    if (!pk || !this.config.funder) throw new Error("keys or funder missing");
+    const signer = new Wallet(pk.startsWith("0x") ? pk : `0x${pk}`, provider);
+    return new RelayClient(RELAYER, 137, signer, new BuilderConfig({ localBuilderCreds: { key: builder.key, secret: builder.secret, passphrase: builder.passphrase } }));
+  }
+
+  /**
+   * Claimed winnings arrive as USDC.e, which the exchange does not trade with. Convert any USDC.e in the funds
+   * wallet into pUSD through Polymarket's onramp (1:1). Called about once a minute, after the chain balances.
+   */
+  async wrapPending() {
+    const usdce = this.chain?.["USDC.e"] ?? 0;
+    if (this.wrapping || this.config.mode === "off" || usdce < 0.5) return;
+    if (this.lastWrap && !this.lastWrap.tx && Date.now() - this.lastWrap.at < 300000) return;
+    this.wrapping = true;
+    const units = BigInt(Math.floor(usdce * 1e6));
+    try {
+      const relay = this.relay();
+      const calls = [
+        { target: USDC_E, value: "0", data: erc20.encodeFunctionData("approve", [ONRAMP, units]) },
+        { target: ONRAMP, value: "0", data: onrampAbi.encodeFunctionData("wrap", [USDC_E, this.config.funder, units]) },
+      ];
+      const sent = await relay.executeDepositWalletBatch(calls, this.config.funder, String(Math.floor(Date.now() / 1000) + 600));
+      const done = await sent.wait();
+      const hash = done?.transactionHash || sent.transactionHash || null;
+      if (!hash) throw new Error(`relayer did not confirm (state ${done?.state ?? sent.state ?? "unknown"})`);
+      this.lastWrap = { amount: usdce, tx: hash, at: Date.now(), error: null };
+      console.log(`live: converted $${usdce.toFixed(2)} of claimed winnings into pUSD (${hash})`);
+      await this.refreshBalance();
+    } catch (error) {
+      this.lastWrap = { amount: usdce, tx: null, at: Date.now(), error: error instanceof Error ? error.message : String(error) };
+      console.log(`live: converting winnings into pUSD failed (${this.lastWrap.error}), retrying later`);
+    } finally {
+      this.wrapping = false;
+      saveJson("live-state.json", { at: Date.now(), ...this.status() });
+    }
+  }
+
   /**
    * Turn settled winning shares back into pUSD. Called about once a minute by the recorder.
    * One redeemPositions call per collateral Polymarket has used; the ones that do not match the market are
@@ -324,13 +373,7 @@ export class LiveTrader {
       due.tries += 1;
       const market = await marketFor(due.window);
       if (!market?.conditionId) throw new Error("market has no condition id yet");
-      const builder = loadJson<{ key?: string; secret?: string; passphrase?: string }>("polygon-builder.json", {});
-      if (!builder.key || !builder.secret || !builder.passphrase) throw new Error("data/polygon-builder.json is missing; claim on polymarket.com instead");
-      const keys = loadJson<{ wallet?: string }>("polygon-keys.json", {});
-      const pk = String(keys.wallet ?? "").trim();
-      if (!pk || !this.config.funder) throw new Error("keys or funder missing");
-      const signer = new Wallet(pk.startsWith("0x") ? pk : `0x${pk}`, provider);
-      const relay = new RelayClient(RELAYER, 137, signer, new BuilderConfig({ localBuilderCreds: { key: builder.key, secret: builder.secret, passphrase: builder.passphrase } }));
+      const relay = this.relay();
       const calls = COLLATERALS.map((collateral) => ({
         target: CTF,
         value: "0",
@@ -391,6 +434,7 @@ export class LiveTrader {
       lastOrderAt: this.lastOrderAt,
       chain: this.chain,
       pendingRedeems: this.redeems.length,
+      lastWrap: this.lastWrap,
       lastRedeem: this.lastRedeem,
       recent: this.recent.slice(0, 20),
     };
