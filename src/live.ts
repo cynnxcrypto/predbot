@@ -77,13 +77,21 @@ export class LiveTrader {
   wallet: string | null = null;
   balance: number | null = null;
   ready = false;
+  /** The last real orders, newest first, for the status page (settled, open and failed). */
+  recent: LiveTrade[] = [];
   private client: ClobClient | null = null;
   private signer: Wallet | null = null;
   private creds: ApiKeyCreds | null = null;
   private starting: Promise<void> | null = null;
 
   constructor() {
-    for (const t of loadJson<LiveTrade[]>("live-totals.json", [])) this.count(t);
+    const totals = loadJson<LiveTrade[]>("live-totals.json", []);
+    for (const t of totals) this.count(t);
+    this.recent = [...totals.slice(-30).reverse(), ...this.open];
+  }
+
+  private remember(row: LiveTrade) {
+    this.recent = [row, ...this.recent.filter((t) => t !== row)].slice(0, 40);
   }
 
   private count(t: LiveTrade) {
@@ -219,6 +227,7 @@ export class LiveTrader {
       this.lastError = row.error;
       console.log(`live: order failed (${row.error})`);
     }
+    this.remember(row);
     saveJson("live-state.json", { at: Date.now(), ...this.status(), lastTrade: row });
     if (row.ok && (row.dry || row.shares > 0)) {
       this.open.push(row);
@@ -236,6 +245,7 @@ export class LiveTrader {
     trade.pnl = trade.dry ? 0 : (trade.won ? trade.shares : 0) - trade.cost;
     this.open = this.open.filter((t) => t !== trade);
     this.count(trade);
+    this.remember(trade);
     append("live", trade, window * 1000);
     const totals = loadJson<LiveTrade[]>("live-totals.json", []);
     totals.push(trade);
@@ -268,6 +278,7 @@ export class LiveTrader {
       open: this.open.length,
       lastError: this.lastError,
       lastOrderAt: this.lastOrderAt,
+      recent: this.recent.slice(0, 20),
     };
   }
 }
