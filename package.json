@@ -22,6 +22,7 @@
     "typescript": "^5.9.3"
   },
   "dependencies": {
+    "@ethersproject/providers": "^5.8.0",
     "@ethersproject/wallet": "^5.8.0",
     "@polymarket/builder-relayer-client": "^0.0.10",
     "@polymarket/builder-signing-sdk": "^0.0.8",

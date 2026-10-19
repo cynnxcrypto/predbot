@@ -20,6 +20,7 @@
  * Trades go to data/live/<day>.jsonl and are settled with the window like paper trades.
  */
 import { Interface } from "@ethersproject/abi";
+import { StaticJsonRpcProvider } from "@ethersproject/providers";
 import { Wallet } from "@ethersproject/wallet";
 import { RelayClient } from "@polymarket/builder-relayer-client";
 import { BuilderConfig } from "@polymarket/builder-signing-sdk";
@@ -63,6 +64,8 @@ export type Redeem = { window: number; shares: number; tries: number; nextAt: nu
 
 const HOST = "https://clob.polymarket.com";
 const RELAYER = "https://relayer-v2.polymarket.com";
+/** The relayer client wants a signer with a chain connection, even though the relayer pays the gas. */
+const RPC = "https://polygon-bor-rpc.publicnode.com";
 /** Polymarket's conditional-token contract on Polygon and the collaterals its markets have used. */
 const CTF = "0x4D97DCd97eC945f40cF65F87097ACe5EA0476045";
 const COLLATERALS = ["0xc011a7e12a19f7b1f670d46f03b03f3342e82dfb", "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174", "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359"];
@@ -310,7 +313,7 @@ export class LiveTrader {
       const keys = loadJson<{ wallet?: string }>("polygon-keys.json", {});
       const pk = String(keys.wallet ?? "").trim();
       if (!pk || !this.config.funder) throw new Error("keys or funder missing");
-      const signer = this.signer ?? new Wallet(pk.startsWith("0x") ? pk : `0x${pk}`);
+      const signer = new Wallet(pk.startsWith("0x") ? pk : `0x${pk}`, new StaticJsonRpcProvider(RPC, 137));
       const relay = new RelayClient(RELAYER, 137, signer, new BuilderConfig({ localBuilderCreds: { key: builder.key, secret: builder.secret, passphrase: builder.passphrase } }));
       const calls = COLLATERALS.map((collateral) => ({
         target: CTF,
