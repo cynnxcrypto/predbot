@@ -13,6 +13,11 @@ export function serveStatus(recorder: Recorder, build: string) {
       res.end(JSON.stringify({ build, ...recorder.status() }));
       return;
     }
+    if (req.url === "/favicon.svg" || req.url === "/favicon.ico") {
+      res.writeHead(200, { "content-type": "image/svg+xml", "cache-control": "max-age=86400" });
+      res.end(FAVICON);
+      return;
+    }
     res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
     res.end(PAGE);
   });
@@ -25,7 +30,15 @@ export function serveStatus(recorder: Recorder, build: string) {
   });
 }
 
+// Dark navy tile with a rising green line ending in an orange "live" dot, matching the page colours.
+const FAVICON = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+<rect x="1" y="1" width="30" height="30" rx="7" fill="#151922" stroke="#2a3042" stroke-width="2"/>
+<polyline points="7,22 12,17 16,19 23,10" fill="none" stroke="#3ddc84" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+<circle cx="24" cy="9" r="3.5" fill="#f7931a"/>
+</svg>`;
+
 const PAGE = `<!doctype html><html><head><meta charset="utf-8"><title>Pred bot</title>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <style>
 :root{--bg:#0f1117;--panel:#151922;--line:#232838;--fg:#e8eaf0;--mut:#7b8294;--up:#3ddc84;--down:#ff6b6b;--acc:#f7931a}
 body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.5 ui-monospace,Menlo,monospace}
