@@ -87,7 +87,10 @@ export class Recorder {
   start() {
     startFeeds();
     void this.live.start();
-    this.balanceTimer = setInterval(() => void this.live.refreshBalance(), 60000);
+    this.balanceTimer = setInterval(() => {
+      void this.live.refreshBalance();
+      void this.live.redeemPending();
+    }, 60000);
     this.timer = setInterval(() => void this.tick(), 1000);
     return this;
   }
