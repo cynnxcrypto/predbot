@@ -1,6 +1,7 @@
 import { CHECKPOINTS, WINDOW_SEC, windowStart } from "./config.js";
 import { binance, chainlink, coinbase, feeds, startFeeds } from "./feeds/index.js";
 import { PaperTrader, VARIANTS } from "./paperlive.js";
+import { LiveTrader } from "./live.js";
 import { book, marketFor, officialPrices, resolution, type Book, type Market } from "./polymarket.js";
 import { append, loadJson, saveJson } from "./store.js";
 
@@ -73,6 +74,7 @@ export class Recorder {
   lastBook: BookRow | null = null;
   lastError: string | null = null;
   papers = VARIANTS.map((v) => new PaperTrader(v));
+  live = new LiveTrader();
   startedAt = Date.now();
   private marks = new Map<number, (number | null)[]>();
   private markWindow = 0;
@@ -83,6 +85,7 @@ export class Recorder {
 
   start() {
     startFeeds();
+    void this.live.start();
     this.timer = setInterval(() => void this.tick(), 1000);
     return this;
   }
@@ -148,7 +151,10 @@ export class Recorder {
     append("book", row);
     this.lastBook = row;
     this.snapshots += 1;
-    for (const p of this.papers) p.consider(row);
+    for (const p of this.papers) {
+      p.onTrade = (trade) => void this.live.onPaperTrade(trade, market, p.v.cap);
+      p.consider(row);
+    }
     const checkpoint = CHECKPOINTS.find((cp) => cp >= left && !this.marks.has(cp) && cp - left <= 2);
     if (checkpoint != null) this.marks.set(checkpoint, [checkpoint, row.upAsk, row.upBid, row.downAsk, row.downBid, row.chainlink, row.binance]);
   }
@@ -208,6 +214,7 @@ export class Recorder {
           item.row.resolvedUp = res.value.resolvedUp;
           item.row.resolvedAt ??= Date.now();
           for (const p of this.papers) p.settle(item.window, res.value.resolvedUp);
+          this.live.settle(item.window, res.value.resolvedUp);
         }
       }
       if (prices.status === "fulfilled") {
@@ -223,7 +230,10 @@ export class Recorder {
         item.row.close != null && item.row.pricesAt != null && item.row.resolvedAt != null && item.row.pricesAt >= item.row.resolvedAt && item.row.pricesAt >= closeMs + 120000;
       const done = item.row.resolvedUp != null && pricesFinal;
       if (done || item.tries >= 40) {
-        if (item.row.resolvedUp == null) for (const p of this.papers) p.abandon(item.window);
+        if (item.row.resolvedUp == null) {
+          for (const p of this.papers) p.abandon(item.window);
+          this.live.abandon(item.window);
+        }
         append("windows", item.row, item.window * 1000);
         this.pending = this.pending.filter((p) => p !== item);
         if (item.row.resolvedUp != null) this.windowsResolved += 1;
@@ -247,6 +257,7 @@ export class Recorder {
       lastError: this.lastError,
       paper: this.papers[0].status(),
       papers: this.papers.map((p) => p.status()),
+      live: this.live.status(),
       feeds: feeds.map((feed) => ({ name: feed.name, healthy: feed.healthy(), last: feed.last(60000), ticks: feed.ticks.length, connects: feed.connects, errors: feed.errors })),
     };
   }

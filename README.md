@@ -33,3 +33,14 @@ On the Mac, double-click `Start Pred bot.command`. It needs Node 22+ and git.
 2. Confirm the settlement rule from the data.
 3. Build fair value from the recorded windows and measure where the book is wrong after costs.
 4. Only if an edge survives costs: one strategy, one bet per window, maker orders where possible, on Polymarket's book directly from the Polygon wallet.
+
+## Real orders (off by default)
+
+`src/live.ts` can mirror one paper variant with real fill-or-kill buys on Polymarket. It does nothing unless `data/live.json` exists:
+
+```json
+{ "mode": "dry", "variant": "band80-30", "size": 5, "maxLossPerDay": 25, "funder": "0x<polymarket deposit wallet>" }
+```
+
+`mode` is `off`, `dry` (sign the order, send nothing, log what would be sent) or `live`. The file is re-read before every order, so setting `mode` to `off` is the kill switch. Orders are signed with the key in `data/polygon-keys.json` (`{ "wallet": "<private key>", "address": "0x..." }`, the same file Afterclose used); the `funder` is the Polymarket deposit wallet that holds the USDC. Neither file is in git. The order pays at most the variant's cap (the seen ask plus 2c, capped at 90c for band80-30); after `maxLossPerDay` of realised loss in a UTC day no more orders go out until the next day. Real trades are written to `data/live/<day>.jsonl` and shown on the status page.
+

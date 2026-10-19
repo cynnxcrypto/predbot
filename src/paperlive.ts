@@ -60,6 +60,8 @@ export class PaperTrader {
   /** Windows where the rule wanted to buy but nothing was on offer under the cap. */
   noAsk = 0;
   private lastNoAskWindow = 0;
+  /** Called right after a paper trade is taken (the live trader mirrors one variant). */
+  onTrade: ((trade: PaperTrade) => void) | null = null;
 
   constructor(v: Variant) {
     this.v = v;
@@ -134,6 +136,7 @@ export class PaperTrader {
     };
     this.open.push(trade);
     saveJson(this.openFile, this.open);
+    this.onTrade?.(trade);
     console.log(`paper ${this.v.name}: ${trade.side} at ${Math.round(trade.ask * 100)}c with ${trade.left}s left, ${shares.toFixed(1)} shares for $${cost.toFixed(2)} (projected ${projected.toFixed(2)} vs ${openAverage.toFixed(2)})`);
   }
 
