@@ -239,7 +239,7 @@ export class LiveTrader {
     const token = trade.side === "UP" ? market.upToken : market.downToken;
     // Fill rule from the recorded books (62 paper windows, 16-19 Oct): the fill-or-kill at ask+2c filled the
     // windows where the ask had fallen since the snapshot (76% won) and missed the ones where it had jumped
-    // (100% won). So take a fresh look at the book, skip when the ask fell, and otherwise pay up to the cap.
+    // (100% won). So take a fresh look at the book, skip when the ask fell by 1c or more (sub-cent dips are noise), and otherwise pay up to the cap.
     let freshAsk: number | null = null;
     try {
       freshAsk = (await book(token)).bestAsk;
@@ -268,7 +268,7 @@ export class LiveTrader {
       won: null,
       pnl: null,
     };
-    if (freshAsk != null && freshAsk < trade.ask - 0.001) {
+    if (freshAsk != null && freshAsk <= trade.ask - 0.01 + 1e-9) {
       row.status = "skipped";
       row.error = `ask fell to ${Math.round(freshAsk * 100)}c`;
       console.log(`live: skipped ${trade.side}, ask fell from ${Math.round(trade.ask * 100)}c to ${Math.round(freshAsk * 100)}c`);
