@@ -124,7 +124,7 @@ export class PaperTrader {
     const FLOOR = this.v.floor ?? 0;
     if (this.v.noFall) {
       const before = up ? prev?.up : prev?.down;
-      if (before != null && levels.length && levels[0][0] < before - 0.001) return;
+      if (before != null && levels.length && levels[0][0] <= before - 0.01 + 1e-9) return;
     }
     if (!levels.length || levels[0][0] > CAP || levels[0][0] < FLOOR) {
       if (this.lastNoAskWindow !== row.window) {
