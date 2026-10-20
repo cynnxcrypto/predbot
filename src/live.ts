@@ -5,7 +5,8 @@
  *   { "mode": "off" | "dry" | "live", "variant": "band80-30", "size": 5, "maxLossPerDay": 25, "funder": "0x..." }
  *   - off:  nothing happens (the default when the file is missing).
  *   - dry:  signs the order and logs what it would send, posts nothing.
- *   - live: posts a fill-and-kill buy for `size` dollars whenever `variant` takes a paper trade.
+ *   - live: posts a fill-and-kill buy for `size` dollars, up to the variant's cap, whenever `variant` takes a paper
+ *     trade and the ask has not fallen since (see onPaperTrade).
  *   - funder: the Polymarket deposit (proxy) wallet that holds the USDC; orders are signed by the key below.
  *   The file is re-read before every order, so changing "mode" to "off" is the kill switch.
  *
@@ -26,7 +27,7 @@ import { RelayClient } from "@polymarket/builder-relayer-client";
 import { BuilderConfig } from "@polymarket/builder-signing-sdk";
 import { AssetType, Chain, ClobClient, OrderType, Side, type ApiKeyCreds } from "@polymarket/clob-client-v2";
 import type { PaperTrade } from "./paperlive.js";
-import { marketFor, type Market } from "./polymarket.js";
+import { book, marketFor, type Market } from "./polymarket.js";
 import { append, loadJson, saveJson } from "./store.js";
 
 export type LiveMode = "off" | "dry" | "live";
@@ -43,6 +44,8 @@ export type LiveTrade = {
   ask: number;
   /** Worst price the order was allowed to pay. */
   limit: number;
+  /** Best ask on a fresh look at the book just before sending (null when that look failed). */
+  freshAsk?: number | null;
   dry: boolean;
   ok: boolean;
   orderId: string | null;
@@ -234,7 +237,16 @@ export class LiveTrader {
     if (!this.ready) await this.start();
     if (!this.ready || !this.client) return;
     const token = trade.side === "UP" ? market.upToken : market.downToken;
-    const limit = Math.min(cap, Math.round((trade.ask + 0.02) * 100) / 100);
+    // Fill rule from the recorded books (62 paper windows, 16-19 Oct): the fill-or-kill at ask+2c filled the
+    // windows where the ask had fallen since the snapshot (76% won) and missed the ones where it had jumped
+    // (100% won). So take a fresh look at the book, skip when the ask fell, and otherwise pay up to the cap.
+    let freshAsk: number | null = null;
+    try {
+      freshAsk = (await book(token)).bestAsk;
+    } catch {
+      freshAsk = null;
+    }
+    const limit = cap;
     const row: LiveTrade = {
       window: trade.window,
       t: Date.now(),
@@ -244,6 +256,7 @@ export class LiveTrader {
       token,
       ask: trade.ask,
       limit,
+      freshAsk,
       dry: this.config.mode === "dry",
       ok: false,
       orderId: null,
@@ -255,6 +268,15 @@ export class LiveTrader {
       won: null,
       pnl: null,
     };
+    if (freshAsk != null && freshAsk < trade.ask - 0.001) {
+      row.status = "skipped";
+      row.error = `ask fell to ${Math.round(freshAsk * 100)}c`;
+      console.log(`live: skipped ${trade.side}, ask fell from ${Math.round(trade.ask * 100)}c to ${Math.round(freshAsk * 100)}c`);
+      this.remember(row);
+      saveJson("live-state.json", { at: Date.now(), ...this.status(), lastTrade: row });
+      append("live", row, trade.window * 1000);
+      return;
+    }
     try {
       const order = await this.client.createMarketOrder(
         { tokenID: token, amount: this.config.size, side: Side.BUY, price: limit, orderType: OrderType.FAK },
