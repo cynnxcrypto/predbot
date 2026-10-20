@@ -28,10 +28,12 @@ import { BuilderConfig } from "@polymarket/builder-signing-sdk";
 import { AssetType, Chain, ClobClient, OrderType, Side, type ApiKeyCreds } from "@polymarket/clob-client-v2";
 import type { PaperTrade } from "./paperlive.js";
 import { book, marketFor, type Market } from "./polymarket.js";
-import { append, loadJson, saveJson } from "./store.js";
+import { append, loadJson, readAll, saveJson } from "./store.js";
 
 export type LiveMode = "off" | "dry" | "live";
 export type LiveConfig = { mode: LiveMode; variant: string; size: number; maxLossPerDay: number; funder: string };
+
+export type LiveDay = { day: string; orders: number; filled: number; skipped: number; noFill: number; settled: number; won: number; net: number };
 
 export type LiveTrade = {
   window: number;
@@ -139,7 +141,38 @@ export class LiveTrader {
     if (this.redeems.length) saveJson("live-redeem.json", this.redeems);
   }
 
+  /** Per-UTC-day summary of every real order row (filled, skipped, no fill), rebuilt at most once a minute. */
+  private daysCache: { at: number; days: LiveDay[] } | null = null;
+  days(): LiveDay[] {
+    if (this.daysCache && Date.now() - this.daysCache.at < 60_000) return this.daysCache.days;
+    const byDay = new Map<string, LiveDay>();
+    for (const t of readAll<LiveTrade>("live")) {
+      if (t.dry) continue;
+      const day = new Date(t.window * 1000).toISOString().slice(0, 10);
+      let d = byDay.get(day);
+      if (!d) byDay.set(day, (d = { day, orders: 0, filled: 0, skipped: 0, noFill: 0, settled: 0, won: 0, net: 0 }));
+      d.orders += 1;
+      if (t.status === "skipped") d.skipped += 1;
+      else if (!t.ok || t.shares <= 0) d.noFill += 1;
+      else d.filled += 1;
+    }
+    // Settled results come from the totals file (the day rows above are written at order time, before the result is known).
+    for (const t of loadJson<LiveTrade[]>("live-totals.json", [])) {
+      if (t.dry || t.pnl == null) continue;
+      const day = new Date(t.window * 1000).toISOString().slice(0, 10);
+      let d = byDay.get(day);
+      if (!d) byDay.set(day, (d = { day, orders: 0, filled: 0, skipped: 0, noFill: 0, settled: 0, won: 0, net: 0 }));
+      d.settled += 1;
+      if (t.won) d.won += 1;
+      d.net = Math.round((d.net + t.pnl) * 100) / 100;
+    }
+    const days = [...byDay.values()].sort((a, b) => (a.day < b.day ? 1 : -1));
+    this.daysCache = { at: Date.now(), days };
+    return days;
+  }
+
   private remember(row: LiveTrade) {
+    this.daysCache = null;
     this.recent = [row, ...this.recent.filter((t) => t !== row)].slice(0, 40);
   }
 
@@ -459,6 +492,7 @@ export class LiveTrader {
       lastWrap: this.lastWrap,
       lastRedeem: this.lastRedeem,
       recent: this.recent.slice(0, 20),
+      days: this.days(),
     };
   }
 }

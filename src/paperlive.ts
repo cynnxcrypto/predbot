@@ -93,11 +93,20 @@ export class PaperTrader {
     for (const t of loadJson<PaperTrade[]>(this.totalsFile, [])) if ((t.variant ?? "base") === v.name) this.count(t);
   }
 
+  /** Per-UTC-day totals, newest first in status(). */
+  private byDay = new Map<string, { day: string; trades: number; won: number; net: number }>();
+
   private count(t: PaperTrade) {
     if (t.pnl == null) return;
     this.trades += 1;
     if (t.won) this.won += 1;
     this.net += t.pnl;
+    const day = new Date(t.window * 1000).toISOString().slice(0, 10);
+    let d = this.byDay.get(day);
+    if (!d) this.byDay.set(day, (d = { day, trades: 0, won: 0, net: 0 }));
+    d.trades += 1;
+    if (t.won) d.won += 1;
+    d.net = Math.round((d.net + t.pnl) * 100) / 100;
   }
 
   /** Called on every book snapshot. */
@@ -194,6 +203,6 @@ export class PaperTrader {
 
   status() {
     const { left: LEFT, cap: CAP, size: SIZE } = this.v;
-    return { name: this.v.name, rule: `<=${LEFT}s, ask ${this.v.floor ? Math.round(this.v.floor * 100) + "c to " : "<= "}${Math.round(CAP * 100)}c${this.v.noFall ? ", not falling" : ""}, $${SIZE}`, trades: this.trades, won: this.won, net: Math.round(this.net * 100) / 100, open: this.open.length, noAsk: this.noAsk };
+    return { name: this.v.name, rule: `<=${LEFT}s, ask ${this.v.floor ? Math.round(this.v.floor * 100) + "c to " : "<= "}${Math.round(CAP * 100)}c${this.v.noFall ? ", not falling" : ""}, $${SIZE}`, trades: this.trades, won: this.won, net: Math.round(this.net * 100) / 100, open: this.open.length, noAsk: this.noAsk, days: [...this.byDay.values()].sort((a, b) => (a.day < b.day ? 1 : -1)) };
   }
 }
