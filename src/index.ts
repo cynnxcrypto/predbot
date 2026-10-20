@@ -1,6 +1,6 @@
 import { execSync } from "node:child_process";
 import type { Server } from "node:http";
-import { ROOT, STATUS_PORT } from "./config.js";
+import { ROOT, SERIES, STATUS_PORT } from "./config.js";
 import { Recorder } from "./recorder.js";
 import { serveStatus } from "./status.js";
 
@@ -29,11 +29,11 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
  * Bind the status port. If an older copy of the bot still holds it (for example one left behind by
  * a restart), ask it to stop at the next window edge and wait for it, so two copies never record at once.
  */
-async function takeOver(recorder: Recorder): Promise<Server> {
+async function takeOver(recorder: Recorder, others: Recorder[]): Promise<Server> {
   let asked: number | null = null;
   for (let attempt = 0; ; attempt++) {
     try {
-      return await serveStatus(recorder, build());
+      return await serveStatus(recorder, build(), others);
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code !== "EADDRINUSE" || attempt > 240) throw err;
       const pid = portHolder();
@@ -53,16 +53,17 @@ async function takeOver(recorder: Recorder): Promise<Server> {
   }
 }
 
-const recorder = new Recorder();
-const server = await takeOver(recorder);
-recorder.start();
-console.log(`Pred bot recorder ${build()}. Status: http://127.0.0.1:${STATUS_PORT}. Nothing trades.`);
+const recorders = SERIES.map((s) => new Recorder(s));
+const recorder = recorders[0];
+const server = await takeOver(recorder, recorders.slice(1));
+for (const r of recorders) r.start();
+console.log(`Pred bot recorder ${build()}. Status: http://127.0.0.1:${STATUS_PORT}. Recording ${recorders.map((r) => r.series.label).join(", ")}.`);
 
 let stopping = false;
 function stop() {
   if (stopping) return;
   stopping = true;
-  recorder.stop();
+  for (const r of recorders) r.stop();
   server.close();
   setTimeout(() => process.exit(0), 300);
 }

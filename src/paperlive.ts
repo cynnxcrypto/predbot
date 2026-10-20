@@ -1,5 +1,6 @@
 import { WINDOW_SEC } from "./config.js";
 import { chainlink } from "./feeds/index.js";
+import type { Feed } from "./feeds/socket.js";
 import type { BookRow } from "./recorder.js";
 import { append, loadJson, saveJson } from "./store.js";
 
@@ -56,8 +57,13 @@ export type PaperTrade = {
 
 const mean = (xs: number[]) => (xs.length ? xs.reduce((s, x) => s + x, 0) / xs.length : null);
 
+/** Where a paper trader runs: file-name prefix for the series, its settlement feed and window length. */
+export type PaperHome = { prefix?: string; feed?: Feed; windowSec?: number };
+
 export class PaperTrader {
   readonly v: Variant;
+  private readonly feed: Feed;
+  private readonly windowSec: number;
   /** File names: the base variant keeps the original ones, so its history carries on. */
   private readonly kind: string;
   private readonly openFile: string;
@@ -73,12 +79,15 @@ export class PaperTrader {
   /** Called right after a paper trade is taken (the live trader mirrors one variant). */
   onTrade: ((trade: PaperTrade) => void) | null = null;
 
-  constructor(v: Variant) {
+  constructor(v: Variant, home: PaperHome = {}) {
     this.v = v;
+    this.feed = home.feed ?? chainlink;
+    this.windowSec = home.windowSec ?? WINDOW_SEC;
+    const prefix = home.prefix ?? "";
     const suffix = v.name === "base" ? "" : `-${v.name}`;
-    this.kind = `paper${suffix}`;
-    this.openFile = `paper${suffix}-open.json`;
-    this.totalsFile = `paper${suffix}-totals.json`;
+    this.kind = `${prefix}paper${suffix}`;
+    this.openFile = `${prefix}paper${suffix}-open.json`;
+    this.totalsFile = `${prefix}paper${suffix}-totals.json`;
     this.open = loadJson<PaperTrade[]>(this.openFile, []);
     // Rows from other variants are skipped: one build wrote every variant into the base files.
     for (const t of loadJson<PaperTrade[]>(this.totalsFile, [])) if ((t.variant ?? "base") === v.name) this.count(t);
@@ -102,9 +111,9 @@ export class PaperTrader {
     if (row.left > LEFT || row.left < 1 || !row.chainlink) return;
     if (this.open.some((t) => t.window === row.window)) return;
     const openMs = row.window * 1000;
-    const closeMs = openMs + WINDOW_SEC * 1000;
-    const before = chainlink.between(openMs - 60000, openMs).map((t) => t.price);
-    const known = chainlink.between(closeMs - 60000, row.t).map((t) => t.price);
+    const closeMs = openMs + this.windowSec * 1000;
+    const before = this.feed.between(openMs - 60000, openMs).map((t) => t.price);
+    const known = this.feed.between(closeMs - 60000, row.t).map((t) => t.price);
     const openAverage = mean(before);
     const knownAverage = mean(known);
     if (openAverage == null || knownAverage == null || before.length < 20) return;

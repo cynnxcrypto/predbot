@@ -24,13 +24,14 @@ type GammaEvent = { title?: string; description?: string; markets?: GammaMarket[
 
 export type Market = { start: number; title: string | null; upToken: string; downToken: string; description: string | null; conditionId: string | null };
 
-const markets = new Map<number, Market | null>();
+const markets = new Map<string, Market | null>();
 
 /** The Up and Down token ids for the window starting at `start`. Null when Polymarket has not listed it yet. */
-export async function marketFor(start: number): Promise<Market | null> {
-  const cached = markets.get(start);
+export async function marketFor(start: number, slug = SLUG): Promise<Market | null> {
+  const key = `${slug}-${start}`;
+  const cached = markets.get(key);
   if (cached) return cached;
-  const events = await getJson<GammaEvent[]>(`https://gamma-api.polymarket.com/events?slug=${SLUG}-${start}`);
+  const events = await getJson<GammaEvent[]>(`https://gamma-api.polymarket.com/events?slug=${key}`);
   const market = events[0]?.markets?.[0];
   if (!market?.clobTokenIds) return null;
   let tokens: string[] = [];
@@ -41,8 +42,8 @@ export async function marketFor(start: number): Promise<Market | null> {
   }
   if (tokens.length < 2) return null;
   const row: Market = { start, title: events[0]?.title ?? market.question ?? null, upToken: tokens[0], downToken: tokens[1], description: events[0]?.description ?? null, conditionId: market.conditionId ?? null };
-  markets.set(start, row);
-  if (markets.size > 50) markets.delete([...markets.keys()][0]);
+  markets.set(key, row);
+  if (markets.size > 300) markets.delete([...markets.keys()][0]);
   return row;
 }
 
@@ -75,8 +76,8 @@ export async function book(tokenId: string): Promise<Book> {
 export type Resolution = { resolvedUp: boolean | null; closed: boolean; status: string | null };
 
 /** How Polymarket settled the window, once it has. */
-export async function resolution(start: number): Promise<Resolution> {
-  const events = await getJson<GammaEvent[]>(`https://gamma-api.polymarket.com/events?slug=${SLUG}-${start}`);
+export async function resolution(start: number, slug = SLUG): Promise<Resolution> {
+  const events = await getJson<GammaEvent[]>(`https://gamma-api.polymarket.com/events?slug=${slug}-${start}`);
   const market = events[0]?.markets?.[0];
   if (!market) return { resolvedUp: null, closed: false, status: null };
   let resolvedUp: boolean | null = null;
@@ -95,11 +96,12 @@ export async function resolution(start: number): Promise<Resolution> {
 export type OfficialPrices = { open: number | null; close: number | null; raw: unknown };
 
 /** Polymarket's own open/close prints for the window. `raw` is the untouched response, kept so the settlement rule can be audited. */
-export async function officialPrices(start: number): Promise<OfficialPrices> {
+export async function officialPrices(start: number, symbol = "BTC", windowSec = WINDOW_SEC): Promise<OfficialPrices> {
   const from = new Date(start * 1000).toISOString();
-  const to = new Date((start + WINDOW_SEC) * 1000).toISOString();
+  const to = new Date((start + windowSec) * 1000).toISOString();
+  const variant = windowSec === 900 ? "fifteenminute" : "fiveminute";
   const body = await getJson<{ openPrice?: number | null; closePrice?: number | null }>(
-    `https://polymarket.com/api/crypto/crypto-price?symbol=BTC&variant=fiveminute&eventStartTime=${encodeURIComponent(from)}&endDate=${encodeURIComponent(to)}`,
+    `https://polymarket.com/api/crypto/crypto-price?symbol=${symbol}&variant=${variant}&eventStartTime=${encodeURIComponent(from)}&endDate=${encodeURIComponent(to)}`,
     5000,
   );
   const ok = (n: unknown) => (typeof n === "number" && n > 1000 ? n : null);

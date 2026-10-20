@@ -1,5 +1,5 @@
-import { CHECKPOINTS, WINDOW_SEC, windowStart } from "./config.js";
-import { binance, chainlink, coinbase, feeds, startFeeds } from "./feeds/index.js";
+import { SERIES, checkpointsFor, prefixOf, windowStart, type Series } from "./config.js";
+import { feedsFor, startFeeds, type FeedSet } from "./feeds/index.js";
 import { PaperTrader, VARIANTS } from "./paperlive.js";
 import { LiveTrader } from "./live.js";
 import { book, marketFor, officialPrices, resolution, type Book, type Market } from "./polymarket.js";
@@ -64,7 +64,16 @@ export type WindowRow = {
 
 type Pending = { window: number; row: WindowRow; tries: number; nextAt: number };
 
+/**
+ * Records one market series (BTC 5m by default). Every series gets its own book, windows and paper
+ * files, named with the series prefix; the first series keeps the original names. Only the first
+ * series drives the real trader.
+ */
 export class Recorder {
+  readonly series: Series;
+  readonly prefix: string;
+  private readonly f: FeedSet;
+  private readonly checkpoints: number[];
   market: Market | null = null;
   marketWindow = 0;
   marketTriedAt = 0;
@@ -73,24 +82,38 @@ export class Recorder {
   windowsResolved = 0;
   lastBook: BookRow | null = null;
   lastError: string | null = null;
-  papers = VARIANTS.map((v) => new PaperTrader(v));
-  live = new LiveTrader();
+  papers: PaperTrader[];
+  /** The real trader; only the first series has one. */
+  live: LiveTrader | null;
   startedAt = Date.now();
   private marks = new Map<number, (number | null)[]>();
   private markWindow = 0;
   private listedAt: number | null = null;
-  private pending: Pending[] = loadJson<Pending[]>("pending.json", []);
+  private pending: Pending[];
   private timer: NodeJS.Timeout | null = null;
   private balanceTimer: NodeJS.Timeout | null = null;
   private busy = false;
 
+  constructor(series: Series = SERIES[0]) {
+    this.series = series;
+    this.prefix = prefixOf(series);
+    this.f = feedsFor(series.symbol);
+    this.checkpoints = checkpointsFor(series.windowSec);
+    this.papers = VARIANTS.map((v) => new PaperTrader(v, { prefix: this.prefix, feed: this.f.chainlink, windowSec: series.windowSec }));
+    this.live = series.key === "" ? new LiveTrader() : null;
+    this.pending = loadJson<Pending[]>(`${this.prefix}pending.json`, []);
+  }
+
   start() {
     startFeeds();
-    void this.live.start();
-    this.balanceTimer = setInterval(() => {
-      void this.live.refreshBalance().then(() => this.live.wrapPending());
-      void this.live.redeemPending();
-    }, 60000);
+    const live = this.live;
+    if (live) {
+      void live.start();
+      this.balanceTimer = setInterval(() => {
+        void live.refreshBalance().then(() => live.wrapPending());
+        void live.redeemPending();
+      }, 60000);
+    }
     this.timer = setInterval(() => void this.tick(), 1000);
     return this;
   }
@@ -98,8 +121,8 @@ export class Recorder {
   stop() {
     if (this.timer) clearInterval(this.timer);
     if (this.balanceTimer) clearInterval(this.balanceTimer);
-    for (const feed of feeds) feed.stop();
-    saveJson("pending.json", this.pending);
+    for (const feed of [this.f.chainlink, this.f.binance, this.f.coinbase]) feed.stop();
+    saveJson(`${this.prefix}pending.json`, this.pending);
   }
 
   private async tick() {
@@ -107,7 +130,7 @@ export class Recorder {
     this.busy = true;
     try {
       const now = Math.floor(Date.now() / 1000);
-      const start = windowStart(now);
+      const start = windowStart(now, this.series.windowSec);
       if (start !== this.markWindow) {
         if (this.markWindow) this.closeWindow(this.markWindow);
         this.markWindow = start;
@@ -117,12 +140,14 @@ export class Recorder {
       if (this.marketWindow !== start || !this.market) {
         if (Date.now() - this.marketTriedAt > 3000) {
           this.marketTriedAt = Date.now();
-          this.market = await marketFor(start);
+          this.market = await marketFor(start, this.series.slug);
           this.marketWindow = start;
           if (this.market && this.listedAt == null) this.listedAt = Date.now();
         }
       }
-      if (this.market) await this.snapshot(this.market, now);
+      // The extra series poll the book every other second until the last minute, to go easy on Polymarket's rate limit.
+      const left = this.market ? this.market.start + this.series.windowSec - now : 0;
+      if (this.market && (this.series.key === "" || left <= 60 || now % 2 === 0)) await this.snapshot(this.market, now);
       await this.settle();
       this.lastError = null;
     } catch (error) {
@@ -134,7 +159,7 @@ export class Recorder {
 
   private async snapshot(market: Market, now: number) {
     const [up, down] = await Promise.all([book(market.upToken), book(market.downToken)]);
-    const left = market.start + WINDOW_SEC - now;
+    const left = market.start + this.series.windowSec - now;
     const row: BookRow = {
       t: Date.now(),
       window: market.start,
@@ -149,25 +174,27 @@ export class Recorder {
       upBids: up.bids.map((l) => [l.price, Math.round(l.size)] as [number, number]),
       downAsks: pack(down),
       downBids: down.bids.map((l) => [l.price, Math.round(l.size)] as [number, number]),
-      chainlink: chainlink.last()?.price ?? null,
-      binance: binance.last()?.price ?? null,
-      coinbase: coinbase.last()?.price ?? null,
-      open: chainlink.at(market.start * 1000)?.price ?? null,
+      chainlink: this.f.chainlink.last()?.price ?? null,
+      binance: this.f.binance.last()?.price ?? null,
+      coinbase: this.f.coinbase.last()?.price ?? null,
+      open: this.f.chainlink.at(market.start * 1000)?.price ?? null,
     };
-    append("book", row);
+    append(`${this.prefix}book`, row);
     this.lastBook = row;
     this.snapshots += 1;
+    const live = this.live;
     for (const p of this.papers) {
-      p.onTrade = (trade) => void this.live.onPaperTrade(trade, market, p.v.cap);
+      p.onTrade = live ? (trade) => void live.onPaperTrade(trade, market, p.v.cap) : null;
       p.consider(row);
     }
-    const checkpoint = CHECKPOINTS.find((cp) => cp >= left && !this.marks.has(cp) && cp - left <= 2);
+    const checkpoint = this.checkpoints.find((cp) => cp >= left && !this.marks.has(cp) && cp - left <= 2);
     if (checkpoint != null) this.marks.set(checkpoint, [checkpoint, row.upAsk, row.upBid, row.downAsk, row.downBid, row.chainlink, row.binance]);
   }
 
   private closeWindow(start: number) {
     const openMs = start * 1000;
-    const closeMs = openMs + WINDOW_SEC * 1000;
+    const closeMs = openMs + this.series.windowSec * 1000;
+    const { chainlink, binance, coinbase } = this.f;
     const inWindow = chainlink.between(openMs, closeMs);
     const last60 = chainlink.between(closeMs - 60000, closeMs);
     const before60 = chainlink.between(openMs - 60000, openMs);
@@ -200,7 +227,7 @@ export class Recorder {
     };
     this.pending.push({ window: start, row, tries: 0, nextAt: Date.now() + 20000 });
     this.windowsDone += 1;
-    saveJson("pending.json", this.pending);
+    saveJson(`${this.prefix}pending.json`, this.pending);
   }
 
   /**
@@ -213,14 +240,17 @@ export class Recorder {
     const due = this.pending.filter((p) => p.nextAt <= now).slice(0, 2);
     for (const item of due) {
       item.tries += 1;
-      const [prices, res] = await Promise.allSettled([officialPrices(item.window), resolution(item.window)]);
+      const [prices, res] = await Promise.allSettled([
+        officialPrices(item.window, this.series.symbol.toUpperCase(), this.series.windowSec),
+        resolution(item.window, this.series.slug),
+      ]);
       if (res.status === "fulfilled") {
         item.row.status = res.value.status;
         if (res.value.resolvedUp != null) {
           item.row.resolvedUp = res.value.resolvedUp;
           item.row.resolvedAt ??= Date.now();
           for (const p of this.papers) p.settle(item.window, res.value.resolvedUp);
-          this.live.settle(item.window, res.value.resolvedUp);
+          this.live?.settle(item.window, res.value.resolvedUp);
         }
       }
       if (prices.status === "fulfilled") {
@@ -231,30 +261,34 @@ export class Recorder {
         item.row.pricesRaw = prices.value.raw;
         item.row.pricesAt = Date.now();
       }
-      const closeMs = (item.window + WINDOW_SEC) * 1000;
+      const closeMs = (item.window + this.series.windowSec) * 1000;
       const pricesFinal =
         item.row.close != null && item.row.pricesAt != null && item.row.resolvedAt != null && item.row.pricesAt >= item.row.resolvedAt && item.row.pricesAt >= closeMs + 120000;
       const done = item.row.resolvedUp != null && pricesFinal;
       if (done || item.tries >= 40) {
         if (item.row.resolvedUp == null) {
           for (const p of this.papers) p.abandon(item.window);
-          this.live.abandon(item.window);
+          this.live?.abandon(item.window);
         }
-        append("windows", item.row, item.window * 1000);
+        append(`${this.prefix}windows`, item.row, item.window * 1000);
         this.pending = this.pending.filter((p) => p !== item);
         if (item.row.resolvedUp != null) this.windowsResolved += 1;
       } else {
         item.nextAt = now + Math.min(300000, 15000 * item.tries);
       }
-      saveJson("pending.json", this.pending);
+      saveJson(`${this.prefix}pending.json`, this.pending);
     }
   }
 
   status() {
+    const feeds = [this.f.chainlink, this.f.binance, this.f.coinbase];
     return {
+      key: this.series.key,
+      label: this.series.label,
+      windowSec: this.series.windowSec,
       startedAt: this.startedAt,
       window: this.markWindow,
-      listed: Boolean(this.market && this.marketWindow === windowStart()),
+      listed: Boolean(this.market && this.marketWindow === windowStart(undefined, this.series.windowSec)),
       snapshots: this.snapshots,
       windowsDone: this.windowsDone,
       windowsResolved: this.windowsResolved,
@@ -263,7 +297,7 @@ export class Recorder {
       lastError: this.lastError,
       paper: this.papers[0].status(),
       papers: this.papers.map((p) => p.status()),
-      live: this.live.status(),
+      live: this.live?.status() ?? null,
       feeds: feeds.map((feed) => ({ name: feed.name, healthy: feed.healthy(), last: feed.last(60000), ticks: feed.ticks.length, connects: feed.connects, errors: feed.errors })),
     };
   }

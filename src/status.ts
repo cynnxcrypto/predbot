@@ -6,11 +6,11 @@ import type { Recorder } from "./recorder.js";
  * A one-page status view on 127.0.0.1 so you can see the recorder is alive without reading logs.
  * Resolves once the port is bound; rejects (with code EADDRINUSE) when another copy holds it.
  */
-export function serveStatus(recorder: Recorder, build: string) {
+export function serveStatus(recorder: Recorder, build: string, others: Recorder[] = []) {
   const server = createServer((req, res) => {
     if (req.url === "/api/status") {
       res.writeHead(200, { "content-type": "application/json" });
-      res.end(JSON.stringify({ build, ...recorder.status() }));
+      res.end(JSON.stringify({ build, ...recorder.status(), series: others.map((r) => r.status()) }));
       return;
     }
     if (req.url === "/favicon.svg" || req.url === "/favicon.ico") {
@@ -108,6 +108,9 @@ tr.dim td{color:var(--mut)}
 <div class="panel" style="margin-bottom:14px"><div class="ph"><div class="k">paper variants</div><div class="mut">$20 a window on paper, one trade per window</div></div>
 <table><thead><tr><th>variant</th><th>rule</th><th class="r">trades</th><th class="r">won</th><th class="r">net</th><th class="r">open</th></tr></thead><tbody id="papers"></tbody></table></div>
 
+<div class="panel" style="margin-bottom:14px"><div class="ph"><div class="k">other markets</div><div class="mut">same paper rules, recording only</div></div>
+<table><thead><tr><th>market</th><th>window</th><th class="r">up ask</th><th class="r">down ask</th><th class="r">settled</th><th class="r">base</th><th class="r">band80-30</th><th class="r">band80-30-chase</th></tr></thead><tbody id="series"></tbody></table></div>
+
 <div class="grid">
   <div class="panel"><div class="ph"><div class="k">feeds</div></div>
   <table><thead><tr><th>feed</th><th>state</th><th class="r">last</th><th class="r">age</th><th class="r">ticks</th></tr></thead><tbody id="feeds"></tbody></table></div>
@@ -155,6 +158,8 @@ el("lopen").textContent=L.open?L.open+" open":"";
 var rows=(L.recent||[]);
 el("log").innerHTML=rows.length?rows.map(function(t){var res=t.pnl==null?(t.ok?(t.dry?"dry":"open"):"no fill"):signed(t.pnl);var c=t.pnl==null?"mut":cls(t.pnl);var px=t.shares>0?Math.round(t.cost/t.shares*100)+"¢":cents(t.ask);return '<tr class="'+(t.ok?"":"dim")+'"><td>'+hhmm(t.window)+'</td><td class="'+(t.side==="UP"?"ok":"bad")+'">'+t.side+'</td><td>'+px+(t.shares>0?" × "+t.shares.toFixed(1):"")+'</td><td class="r">'+(t.cost>0?money(t.cost):"")+'</td><td class="r '+c+'">'+res+'</td></tr>'}).join(""):'<tr><td class="empty" colspan="5">no real orders yet</td></tr>';
 el("papers").innerHTML=(s.papers||[]).map(function(p){return '<tr class="'+(p.name===L.variant&&L.mode!=="off"?"hi":"")+'"><td>'+p.name+(p.name===L.variant&&L.mode==="live"?' <span class="acc">●</span>':"")+'</td><td class="mut">'+p.rule+'</td><td class="r">'+p.trades+'</td><td class="r">'+(p.trades?Math.round(p.won/p.trades*100)+"%":"—")+'</td><td class="r '+cls(p.net)+'">'+signed(p.net)+'</td><td class="r">'+(p.open||"")+'</td></tr>'}).join("");
+function pv(ps,name){var p=(ps||[]).filter(function(x){return x.name===name})[0];if(!p||!p.trades)return '<td class="r mut">—</td>';return '<td class="r '+cls(p.net)+'">'+signed(p.net)+' <span class="mut">'+p.won+'/'+p.trades+'</span></td>'}
+el("series").innerHTML=(s.series||[]).length?(s.series||[]).map(function(r){var rb=r.lastBook||{};return '<tr><td>'+r.label+(r.lastError?' <span class="bad" title="'+esc(r.lastError)+'">!</span>':"")+'</td><td class="mut">'+(r.window?hhmm(r.window):"—")+(r.listed?"":" · not listed")+'</td><td class="r">'+cents(rb.upAsk)+'</td><td class="r">'+cents(rb.downAsk)+'</td><td class="r">'+r.windowsResolved+'</td>'+pv(r.papers,"base")+pv(r.papers,"band80-30")+pv(r.papers,"band80-30-chase")+'</tr>'}).join(""):'<tr><td class="empty" colspan="8">only the BTC 5m market is recorded</td></tr>';
 el("feeds").innerHTML=s.feeds.map(function(f){return '<tr><td>'+f.name+'</td><td class="'+(f.healthy?"ok":"bad")+'">'+(f.healthy?"live":"down")+'</td><td class="r">'+money(f.last&&f.last.price)+'</td><td class="r">'+(f.last?Math.round((Date.now()-f.last.t)/1000)+"s":"—")+'</td><td class="r">'+f.ticks+'</td></tr>'}).join("");
 el("wd").textContent=s.windowsDone;el("ws").textContent=s.windowsResolved;el("wp").textContent=s.pending;el("sn").textContent=s.snapshots;
 el("err").textContent=s.lastError?"last error: "+s.lastError:"";
