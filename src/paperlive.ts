@@ -24,6 +24,8 @@ export type Variant = {
   noFall?: boolean;
   /** Early-window long shot: buy whichever side is cheapest, at or under `cap`, within the first `first` seconds of the window (no projection). */
   first?: number;
+  /** Favourite rule: buy the higher-priced side the first time its best ask is at or above `favAt`, any time in the window, paying up to `cap` (no projection). */
+  favAt?: number;
 };
 
 /** The variants run side by side. "base" keeps the original file names; the env vars tune it. */
@@ -40,6 +42,8 @@ export const VARIANTS: Variant[] = [
   { name: "band80-30-chase", left: 30, floor: 0.8, cap: 0.9, size: 20, noFall: true },
   // enrique's long shot (20 Oct): either side under 10c in the first 90s of the window, $5 a trade.
   { name: "cheap10-first90", left: 0, cap: 0.1, size: 5, first: 90 },
+  // enrique's favourite rule (21 Oct): buy the favourite the first time its ask reaches 93c, $5. Replay: 2c a trade on BTC 5m, 12-16c on BTC 15m.
+  { name: "fav93", left: 0, cap: 0.995, size: 5, favAt: 0.93 },
 ];
 
 export type PaperTrade = {
@@ -122,6 +126,7 @@ export class PaperTrader {
     const prev = this.prevAsk?.window === row.window ? this.prevAsk : null;
     this.prevAsk = { window: row.window, up: row.upAsk, down: row.downAsk };
     if (this.v.first != null) return this.considerEarly(row);
+    if (this.v.favAt != null) return this.considerFav(row);
     if (row.left > LEFT || row.left < 1 || !row.chainlink) return;
     if (this.open.some((t) => t.window === row.window)) return;
     const openMs = row.window * 1000;
@@ -245,6 +250,53 @@ export class PaperTrader {
     console.log(`paper ${this.v.name}: ${trade.side} ${shares.toFixed(1)} shares at ${Math.round(pick.ask * 100)}c, ${elapsed}s into the window`);
   }
 
+  /** The `favAt` rule: the first time the favourite's best ask is at or above favAt, buy it (up to cap). */
+  private considerFav(row: BookRow) {
+    const { cap: CAP, size: SIZE } = this.v;
+    const favAt = this.v.favAt ?? 1;
+    if (row.left < 1) return;
+    if (this.open.some((t) => t.window === row.window)) return;
+    const upBest = row.upAsks[0]?.[0];
+    const downBest = row.downAsks[0]?.[0];
+    if (upBest == null || downBest == null) return;
+    const up = upBest >= downBest;
+    const ask = up ? upBest : downBest;
+    if (ask < favAt - 1e-9 || ask > CAP) return;
+    const levels = up ? row.upAsks : row.downAsks;
+    let budget = SIZE;
+    let shares = 0;
+    let cost = 0;
+    let fee = 0;
+    for (const [price, qty] of levels) {
+      if (price > CAP || budget <= 0) break;
+      const take = Math.min(qty, budget / price);
+      shares += take;
+      cost += take * price;
+      fee += take * 0.07 * price * (1 - price);
+      budget -= take * price;
+    }
+    if (shares <= 0) return;
+    const trade: PaperTrade = {
+      variant: this.v.name,
+      window: row.window,
+      t: row.t,
+      left: row.left,
+      side: up ? "UP" : "DOWN",
+      ask,
+      shares,
+      cost,
+      fee,
+      projected: row.chainlink ?? 0,
+      openAverage: row.open ?? 0,
+      resolvedUp: null,
+      won: null,
+      pnl: null,
+    };
+    this.open.push(trade);
+    saveJson(this.openFile, this.open);
+    console.log(`paper ${this.v.name}: ${trade.side} ${shares.toFixed(1)} shares at ${Math.round(ask * 100)}c, ${this.windowSec - row.left}s into the window`);
+  }
+
   /** Drop open paper trades for windows that never resolved (the recorder gave up on them). */
   abandon(window: number) {
     const before = this.open.length;
@@ -254,6 +306,6 @@ export class PaperTrader {
 
   status() {
     const { left: LEFT, cap: CAP, size: SIZE } = this.v;
-    return { name: this.v.name, rule: this.v.first != null ? `first ${this.v.first}s, either side <= ${Math.round(CAP * 100)}c, $${SIZE}` : `<=${LEFT}s, ask ${this.v.floor ? Math.round(this.v.floor * 100) + "c to " : "<= "}${Math.round(CAP * 100)}c${this.v.noFall ? ", not falling" : ""}, $${SIZE}`, trades: this.trades, won: this.won, net: Math.round(this.net * 100) / 100, open: this.open.length, noAsk: this.noAsk, days: [...this.byDay.values()].sort((a, b) => (a.day < b.day ? 1 : -1)) };
+    return { name: this.v.name, rule: this.v.favAt != null ? `favourite when its ask reaches ${Math.round(this.v.favAt * 100)}c, any time, $${SIZE}` : this.v.first != null ? `first ${this.v.first}s, either side <= ${Math.round(CAP * 100)}c, $${SIZE}` : `<=${LEFT}s, ask ${this.v.floor ? Math.round(this.v.floor * 100) + "c to " : "<= "}${Math.round(CAP * 100)}c${this.v.noFall ? ", not falling" : ""}, $${SIZE}`, trades: this.trades, won: this.won, net: Math.round(this.net * 100) / 100, open: this.open.length, noAsk: this.noAsk, days: [...this.byDay.values()].sort((a, b) => (a.day < b.day ? 1 : -1)) };
   }
 }
