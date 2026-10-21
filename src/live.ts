@@ -2,7 +2,11 @@
  * Real orders on Polymarket, driven by one paper variant. OFF unless data/live.json says otherwise.
  *
  * data/live.json (not in git; create it by hand on the Mac):
- *   { "mode": "off" | "dry" | "live", "variant": "band80-30", "size": 5, "maxLossPerDay": 25, "funder": "0x..." }
+ *   { "mode": "off" | "dry" | "live", "variant": "band80-30", "size": 5, "maxLossPerDay": 25, "funder": "0x...",
+ *     "markets": [{ "series": "eth5m", "variant": "cheap10-first90", "size": 2, "maxLossPerDay": 20 }] }
+ *   The top-level fields drive the BTC 5m series. `markets` adds one real trader per extra series (keys from
+ *   config SERIES); a series without an entry never trades. "mode" is global: "off" stops every series.
+ *   Each extra series keeps its own files, prefixed like its data (eth5m-live/, eth5m-live-open.json, ...).
  *   - off:  nothing happens (the default when the file is missing).
  *   - dry:  signs the order and logs what it would send, posts nothing.
  *   - live: posts a fill-and-kill buy for `size` dollars, up to the variant's cap, whenever `variant` takes a paper
@@ -26,12 +30,14 @@ import { Wallet } from "@ethersproject/wallet";
 import { RelayClient } from "@polymarket/builder-relayer-client";
 import { BuilderConfig } from "@polymarket/builder-signing-sdk";
 import { AssetType, Chain, ClobClient, OrderType, Side, type ApiKeyCreds } from "@polymarket/clob-client-v2";
+import { SERIES, prefixOf, type Series } from "./config.js";
 import type { PaperTrade } from "./paperlive.js";
 import { book, marketFor, type Market } from "./polymarket.js";
 import { append, loadJson, readAll, saveJson } from "./store.js";
 
 export type LiveMode = "off" | "dry" | "live";
 export type LiveConfig = { mode: LiveMode; variant: string; size: number; maxLossPerDay: number; funder: string };
+type MarketEntry = { series?: string; variant?: string; size?: number; maxLossPerDay?: number; mode?: string };
 
 export type LiveDay = { day: string; orders: number; filled: number; skipped: number; noFill: number; settled: number; won: number; net: number };
 
@@ -85,9 +91,18 @@ const provider = new StaticJsonRpcProvider(RPC, 137);
 const ctfAbi = new Interface(["function redeemPositions(address collateralToken, bytes32 parentCollectionId, bytes32 conditionId, uint256[] indexSets)"]);
 const DEFAULT: LiveConfig = { mode: "off", variant: "band80-30", size: 5, maxLossPerDay: 25, funder: "" };
 
-export function liveConfig(): LiveConfig {
-  const raw = loadJson<Partial<LiveConfig>>("live.json", {});
-  const mode: LiveMode = raw.mode === "live" || raw.mode === "dry" ? raw.mode : "off";
+export function liveConfig(seriesKey = ""): LiveConfig {
+  const file = loadJson<Partial<LiveConfig> & { markets?: MarketEntry[] }>("live.json", {});
+  const globalMode: LiveMode = file.mode === "live" || file.mode === "dry" ? file.mode : "off";
+  let raw: Partial<LiveConfig> = file;
+  let mode = globalMode;
+  if (seriesKey) {
+    const entry = (file.markets ?? []).find((m) => m.series === seriesKey);
+    if (!entry) return { ...DEFAULT, mode: "off", funder: String(file.funder ?? "").trim() };
+    raw = { variant: entry.variant, size: entry.size, maxLossPerDay: entry.maxLossPerDay };
+    // A market may be quieter than the global mode (off or dry), never louder.
+    if (entry.mode === "off" || (entry.mode === "dry" && globalMode === "live")) mode = entry.mode;
+  }
   const size = Number(raw.size ?? DEFAULT.size);
   const maxLossPerDay = Number(raw.maxLossPerDay ?? DEFAULT.maxLossPerDay);
   return {
@@ -95,13 +110,19 @@ export function liveConfig(): LiveConfig {
     variant: String(raw.variant ?? DEFAULT.variant),
     size: Number.isFinite(size) && size > 0 ? Math.min(size, 50) : DEFAULT.size,
     maxLossPerDay: Number.isFinite(maxLossPerDay) && maxLossPerDay > 0 ? maxLossPerDay : DEFAULT.maxLossPerDay,
-    funder: String(raw.funder ?? "").trim(),
+    funder: String(file.funder ?? "").trim(),
   };
 }
 
+/** The relayer runs one batch at a time from our wallet; the traders share this lock. */
+let relayBusy = false;
+
 export class LiveTrader {
-  config = liveConfig();
-  open: LiveTrade[] = loadJson<LiveTrade[]>("live-open.json", []);
+  readonly series: Series;
+  /** "" for BTC 5m, "eth5m-" and so on for the others; prefixes every file this trader writes. */
+  readonly prefix: string;
+  config: LiveConfig;
+  open: LiveTrade[];
   trades = 0;
   won = 0;
   net = 0;
@@ -115,7 +136,7 @@ export class LiveTrader {
   /** The last real orders, newest first, for the status page (settled, open and failed). */
   recent: LiveTrade[] = [];
   /** Wins waiting to be turned back into pUSD. */
-  redeems: Redeem[] = loadJson<Redeem[]>("live-redeem.json", []);
+  redeems: Redeem[];
   lastRedeem: { window: number; tx: string | null; at: number; error: string | null } | null = null;
   /** What the funds wallet holds on chain, by token, read straight from Polygon. */
   chain: Record<string, number> | null = null;
@@ -127,8 +148,13 @@ export class LiveTrader {
   private starting: Promise<void> | null = null;
   private redeeming = false;
 
-  constructor() {
-    const totals = loadJson<LiveTrade[]>("live-totals.json", []);
+  constructor(series: Series = SERIES[0]) {
+    this.series = series;
+    this.prefix = prefixOf(series);
+    this.config = liveConfig(series.key);
+    this.open = loadJson<LiveTrade[]>(`${this.prefix}live-open.json`, []);
+    this.redeems = loadJson<Redeem[]>(`${this.prefix}live-redeem.json`, []);
+    const totals = loadJson<LiveTrade[]>(`${this.prefix}live-totals.json`, []);
     for (const t of totals) this.count(t);
     this.recent = [...totals.slice(-30).reverse(), ...this.open];
     // Wins from before the claim step existed (or from a crash) are still shares: queue them too.
@@ -138,7 +164,7 @@ export class LiveTrader {
         this.redeems.push({ window: t.window, shares: t.shares, tries: 0, nextAt: 0, lastError: null });
       }
     }
-    if (this.redeems.length) saveJson("live-redeem.json", this.redeems);
+    if (this.redeems.length) saveJson(`${this.prefix}live-redeem.json`, this.redeems);
   }
 
   /** Per-UTC-day summary of every real order row (filled, skipped, no fill), rebuilt at most once a minute. */
@@ -146,7 +172,7 @@ export class LiveTrader {
   days(): LiveDay[] {
     if (this.daysCache && Date.now() - this.daysCache.at < 60_000) return this.daysCache.days;
     const byDay = new Map<string, LiveDay>();
-    for (const t of readAll<LiveTrade>("live")) {
+    for (const t of readAll<LiveTrade>(`${this.prefix}live`)) {
       if (t.dry) continue;
       const day = new Date(t.window * 1000).toISOString().slice(0, 10);
       let d = byDay.get(day);
@@ -157,7 +183,7 @@ export class LiveTrader {
       else d.filled += 1;
     }
     // Settled results come from the totals file (the day rows above are written at order time, before the result is known).
-    for (const t of loadJson<LiveTrade[]>("live-totals.json", [])) {
+    for (const t of loadJson<LiveTrade[]>(`${this.prefix}live-totals.json`, [])) {
       if (t.dry || t.pnl == null) continue;
       const day = new Date(t.window * 1000).toISOString().slice(0, 10);
       let d = byDay.get(day);
@@ -196,7 +222,7 @@ export class LiveTrader {
 
   /** Load keys, derive API credentials, read the balance. Safe to call many times. */
   async start(): Promise<void> {
-    this.config = liveConfig();
+    this.config = liveConfig(this.series.key);
     if (this.config.mode === "off") return;
     if (this.ready) return;
     if (this.starting) return this.starting;
@@ -218,11 +244,11 @@ export class LiveTrader {
         this.wallet = signer.address;
         this.ready = true;
         this.lastError = null;
-        saveJson("live-state.json", { at: Date.now(), ...this.status() });
-        console.log(`live: ${this.config.mode.toUpperCase()} mode, signer ${signer.address}, funder ${this.config.funder}, balance $${this.balance.toFixed(2)}, ${this.config.variant} at $${this.config.size} per window, stop after -$${this.config.maxLossPerDay} in a day`);
+        saveJson(`${this.prefix}live-state.json`, { at: Date.now(), ...this.status() });
+        console.log(`live ${this.series.label}: ${this.config.mode.toUpperCase()} mode, signer ${signer.address}, funder ${this.config.funder}, balance $${this.balance.toFixed(2)}, ${this.config.variant} at $${this.config.size} per window, stop after -$${this.config.maxLossPerDay} in a day`);
       } catch (error) {
         this.lastError = error instanceof Error ? error.message : String(error);
-        saveJson("live-state.json", { at: Date.now(), ...this.status() });
+        saveJson(`${this.prefix}live-state.json`, { at: Date.now(), ...this.status() });
         console.log(`live: not ready (${this.lastError})`);
       } finally {
         this.starting = null;
@@ -233,7 +259,7 @@ export class LiveTrader {
 
   /** Re-read the collateral balance (called about once a minute by the recorder). */
   async refreshBalance() {
-    this.config = liveConfig();
+    this.config = liveConfig(this.series.key);
     if (this.config.mode === "off") return;
     if (!this.ready) return this.start();
     if (!this.client) return;
@@ -245,7 +271,7 @@ export class LiveTrader {
     } catch (error) {
       this.lastError = error instanceof Error ? error.message : String(error);
     }
-    try {
+    if (!this.series.key) try {
       const data = erc20.encodeFunctionData("balanceOf", [this.config.funder]);
       const raw = await Promise.all(COLLATERALS.map((token) => provider.call({ to: token, data })));
       const chain: Record<string, number> = {};
@@ -254,12 +280,12 @@ export class LiveTrader {
     } catch {
       // chain read is best effort
     }
-    saveJson("live-state.json", { at: Date.now(), ...this.status() });
+    saveJson(`${this.prefix}live-state.json`, { at: Date.now(), ...this.status() });
   }
 
   /** Called when a paper variant takes a trade. Mirrors it for real when that variant is the live one. */
-  async onPaperTrade(trade: PaperTrade, market: Market, cap: number) {
-    this.config = liveConfig();
+  async onPaperTrade(trade: PaperTrade, market: Market, cap: number, skipOnFall = true) {
+    this.config = liveConfig(this.series.key);
     if (this.config.mode === "off" || trade.variant !== this.config.variant) return;
     if (this.open.some((t) => t.window === trade.window)) return;
     if (this.todayLoss() >= this.config.maxLossPerDay) {
@@ -301,13 +327,13 @@ export class LiveTrader {
       won: null,
       pnl: null,
     };
-    if (freshAsk != null && freshAsk <= trade.ask - 0.01 + 1e-9) {
+    if (skipOnFall && freshAsk != null && freshAsk <= trade.ask - 0.01 + 1e-9) {
       row.status = "skipped";
       row.error = `ask fell to ${Math.round(freshAsk * 100)}c`;
       console.log(`live: skipped ${trade.side}, ask fell from ${Math.round(trade.ask * 100)}c to ${Math.round(freshAsk * 100)}c`);
       this.remember(row);
-      saveJson("live-state.json", { at: Date.now(), ...this.status(), lastTrade: row });
-      append("live", row, trade.window * 1000);
+      saveJson(`${this.prefix}live-state.json`, { at: Date.now(), ...this.status(), lastTrade: row });
+      append(`${this.prefix}live`, row, trade.window * 1000);
       return;
     }
     try {
@@ -341,12 +367,12 @@ export class LiveTrader {
       console.log(`live: order failed (${row.error})`);
     }
     this.remember(row);
-    saveJson("live-state.json", { at: Date.now(), ...this.status(), lastTrade: row });
+    saveJson(`${this.prefix}live-state.json`, { at: Date.now(), ...this.status(), lastTrade: row });
     if (row.ok && (row.dry || row.shares > 0)) {
       this.open.push(row);
-      saveJson("live-open.json", this.open);
+      saveJson(`${this.prefix}live-open.json`, this.open);
     } else {
-      append("live", row, trade.window * 1000);
+      append(`${this.prefix}live`, row, trade.window * 1000);
     }
   }
 
@@ -359,15 +385,15 @@ export class LiveTrader {
     this.open = this.open.filter((t) => t !== trade);
     this.count(trade);
     this.remember(trade);
-    append("live", trade, window * 1000);
-    const totals = loadJson<LiveTrade[]>("live-totals.json", []);
+    append(`${this.prefix}live`, trade, window * 1000);
+    const totals = loadJson<LiveTrade[]>(`${this.prefix}live-totals.json`, []);
     totals.push(trade);
-    saveJson("live-totals.json", totals);
-    saveJson("live-open.json", this.open);
+    saveJson(`${this.prefix}live-totals.json`, totals);
+    saveJson(`${this.prefix}live-open.json`, this.open);
     if (!trade.dry) console.log(`live: ${trade.side} ${trade.won ? "won" : "lost"} ${trade.pnl >= 0 ? "+" : "-"}$${Math.abs(trade.pnl).toFixed(2)}; running ${this.won}/${this.trades}, net ${this.net >= 0 ? "+" : "-"}$${Math.abs(this.net).toFixed(2)}`);
     if (trade.won && !trade.dry && trade.shares > 0) {
       this.redeems.push({ window, shares: trade.shares, tries: 0, nextAt: Date.now() + 60000, lastError: null });
-      saveJson("live-redeem.json", this.redeems);
+      saveJson(`${this.prefix}live-redeem.json`, this.redeems);
     }
   }
 
@@ -388,9 +414,11 @@ export class LiveTrader {
    */
   async wrapPending() {
     const usdce = this.chain?.["USDC.e"] ?? 0;
-    if (this.wrapping || this.config.mode === "off" || usdce < 0.5) return;
+    // One wallet, so the BTC trader alone converts claimed winnings (other series' claims land in the same wallet).
+    if (this.series.key || this.wrapping || relayBusy || this.config.mode === "off" || usdce < 0.5) return;
     if (this.lastWrap && !this.lastWrap.tx && Date.now() - this.lastWrap.at < 300000) return;
     this.wrapping = true;
+    relayBusy = true;
     const units = BigInt(Math.floor(usdce * 1e6));
     try {
       const relay = this.relay();
@@ -410,7 +438,8 @@ export class LiveTrader {
       console.log(`live: converting winnings into pUSD failed (${this.lastWrap.error}), retrying later`);
     } finally {
       this.wrapping = false;
-      saveJson("live-state.json", { at: Date.now(), ...this.status() });
+      relayBusy = false;
+      saveJson(`${this.prefix}live-state.json`, { at: Date.now(), ...this.status() });
     }
   }
 
@@ -420,13 +449,14 @@ export class LiveTrader {
    * no-ops, so the batch is safe whichever collateral the market was created with.
    */
   async redeemPending() {
-    if (this.redeeming || !this.redeems.length) return;
+    if (this.redeeming || relayBusy || !this.redeems.length) return;
     const due = this.redeems.find((r) => r.nextAt <= Date.now());
     if (!due) return;
     this.redeeming = true;
+    relayBusy = true;
     try {
       due.tries += 1;
-      const market = await marketFor(due.window);
+      const market = await marketFor(due.window, this.series.slug);
       if (!market?.conditionId) throw new Error("market has no condition id yet");
       const relay = this.relay();
       const calls = COLLATERALS.map((collateral) => ({
@@ -440,9 +470,9 @@ export class LiveTrader {
       if (!hash) throw new Error(`relayer did not confirm (state ${done?.state ?? sent.state ?? "unknown"})`);
       this.redeems = this.redeems.filter((r) => r !== due);
       this.lastRedeem = { window: due.window, tx: hash, at: Date.now(), error: null };
-      const totals = loadJson<LiveTrade[]>("live-totals.json", []);
+      const totals = loadJson<LiveTrade[]>(`${this.prefix}live-totals.json`, []);
       for (const t of totals) if (t.window === due.window) { t.redeemTx = hash; t.redeemedAt = Date.now(); }
-      saveJson("live-totals.json", totals);
+      saveJson(`${this.prefix}live-totals.json`, totals);
       for (const t of this.recent) if (t.window === due.window) { t.redeemTx = hash; t.redeemedAt = Date.now(); }
       console.log(`live: claimed ${due.shares.toFixed(2)} shares from the ${new Date(due.window * 1000).toISOString().slice(11, 16)} window (${hash})`);
       await this.refreshBalance();
@@ -458,20 +488,23 @@ export class LiveTrader {
       }
     } finally {
       this.redeeming = false;
-      saveJson("live-redeem.json", this.redeems);
-      saveJson("live-state.json", { at: Date.now(), ...this.status() });
+      relayBusy = false;
+      saveJson(`${this.prefix}live-redeem.json`, this.redeems);
+      saveJson(`${this.prefix}live-state.json`, { at: Date.now(), ...this.status() });
     }
   }
 
   abandon(window: number) {
     const before = this.open.length;
     this.open = this.open.filter((t) => t.window !== window);
-    if (this.open.length !== before) saveJson("live-open.json", this.open);
+    if (this.open.length !== before) saveJson(`${this.prefix}live-open.json`, this.open);
   }
 
   status() {
     const c = this.config;
     return {
+      series: this.series.key,
+      label: this.series.label,
       mode: c.mode,
       variant: c.variant,
       size: c.size,

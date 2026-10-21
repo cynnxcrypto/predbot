@@ -66,8 +66,8 @@ type Pending = { window: number; row: WindowRow; tries: number; nextAt: number }
 
 /**
  * Records one market series (BTC 5m by default). Every series gets its own book, windows and paper
- * files, named with the series prefix; the first series keeps the original names. Only the first
- * series drives the real trader.
+ * files, named with the series prefix; the first series keeps the original names. Every series has a
+ * real trader; it only acts when data/live.json names that series (see live.ts).
  */
 export class Recorder {
   readonly series: Series;
@@ -83,7 +83,7 @@ export class Recorder {
   lastBook: BookRow | null = null;
   lastError: string | null = null;
   papers: PaperTrader[];
-  /** The real trader; only the first series has one. */
+  /** The real trader for this series (idle unless live.json configures it). */
   live: LiveTrader | null;
   startedAt = Date.now();
   private marks = new Map<number, (number | null)[]>();
@@ -100,7 +100,7 @@ export class Recorder {
     this.f = feedsFor(series.symbol);
     this.checkpoints = checkpointsFor(series.windowSec);
     this.papers = VARIANTS.map((v) => new PaperTrader(v, { prefix: this.prefix, feed: this.f.chainlink, windowSec: series.windowSec }));
-    this.live = series.key === "" ? new LiveTrader() : null;
+    this.live = new LiveTrader(series);
     this.pending = loadJson<Pending[]>(`${this.prefix}pending.json`, []);
   }
 
@@ -184,7 +184,8 @@ export class Recorder {
     this.snapshots += 1;
     const live = this.live;
     for (const p of this.papers) {
-      p.onTrade = live ? (trade) => void live.onPaperTrade(trade, market, p.v.cap) : null;
+      // The skip-when-the-ask-fell rule is for favourite buys; a long shot getting cheaper is not a reason to skip.
+      p.onTrade = live ? (trade) => void live.onPaperTrade(trade, market, p.v.cap, p.v.first == null) : null;
       p.consider(row);
     }
     const checkpoint = this.checkpoints.find((cp) => cp >= left && !this.marks.has(cp) && cp - left <= 2);
