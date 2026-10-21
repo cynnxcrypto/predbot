@@ -56,7 +56,7 @@ h1{font-size:20px;margin:0;font-weight:700;letter-spacing:.2px}
 .sub{color:var(--mut);font-size:12px;margin-left:auto}
 .grid{display:grid;grid-template-columns:1.1fr 1fr;gap:14px;margin-bottom:14px}
 @media(max-width:820px){.grid{grid-template-columns:1fr}}
-.panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px 18px}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px 18px;overflow-x:auto}
 .hero{display:flex;align-items:center;gap:28px;flex-wrap:wrap}
 .clock{font-size:64px;font-weight:700;line-height:1;letter-spacing:-1px}
 .clock.soon{color:var(--acc)}
