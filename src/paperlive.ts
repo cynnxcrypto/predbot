@@ -255,6 +255,7 @@ export class PaperTrader {
     this.open.push(trade);
     saveJson(this.openFile, this.open);
     console.log(`paper ${this.v.name}: ${trade.side} ${shares.toFixed(1)} shares at ${Math.round(pick.ask * 100)}c, ${elapsed}s into the window`);
+    this.onTrade?.(trade);
   }
 
   /** The `favAt` rule: the first time the favourite's best ask is at or above favAt, buy it (up to cap). */
@@ -306,6 +307,7 @@ export class PaperTrader {
     this.open.push(trade);
     saveJson(this.openFile, this.open);
     console.log(`paper ${this.v.name}: ${trade.side} ${shares.toFixed(1)} shares at ${Math.round(ask * 100)}c, ${this.windowSec - row.left}s into the window`);
+    this.onTrade?.(trade);
   }
 
   /** Drop open paper trades for windows that never resolved (the recorder gave up on them). */
