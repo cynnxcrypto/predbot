@@ -43,7 +43,7 @@ const PAGE = `<!doctype html><html><head><meta charset="utf-8"><title>Pred bot</
 :root{--bg:#0f1117;--panel:#151922;--line:#232838;--fg:#e8eaf0;--mut:#7b8294;--up:#3ddc84;--down:#ff6b6b;--acc:#f7931a;--pur:#9b7bff}
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.45 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-variant-numeric:tabular-nums}
-main{max-width:1120px;margin:0 auto;padding:36px 24px 60px}
+main{max-width:1600px;margin:0 auto;padding:36px 24px 60px}
 .top{display:flex;align-items:center;gap:14px;margin-bottom:18px;flex-wrap:wrap}
 h1{font-size:20px;margin:0;font-weight:700;letter-spacing:.2px}
 .pill{font-size:11px;letter-spacing:.14em;text-transform:uppercase;padding:4px 10px;border-radius:999px;border:1px solid var(--line);color:var(--mut)}
@@ -106,6 +106,7 @@ tr.dim td{color:var(--mut)}
       <div><div class="k">orders</div><div class="v big" id="lord">—</div></div>
       <div><div class="k">skipped</div><div class="v big" id="lskip">—</div></div>
     </div>
+    <table style="margin-bottom:12px"><thead><tr><th>market</th><th>strategy</th><th class="r">size</th><th class="r">stop/day</th><th class="r">today</th><th class="r">all time</th><th class="r">trades</th><th class="r">won</th><th class="r">open</th></tr></thead><tbody id="lrules"></tbody></table>
     <div class="mut" id="lstate" style="font-size:12px"></div>
     <div class="mut" style="font-size:12px;margin-top:6px">Only this panel, the trade log and the "real" columns below are real orders on Polymarket, settled from your wallet.</div>
   </div>
@@ -160,7 +161,8 @@ var lean=(b.upAsk!=null&&b.downAsk!=null)?(b.upAsk>b.downAsk?"UP "+cents(b.upAsk
 el("lean").textContent=lean;el("lean").className="v big "+(lean.indexOf("UP")===0?"ok":lean.indexOf("DOWN")===0?"bad":"");
 if(b.chainlink!=null){if(!hist.length||hist[hist.length-1].w!==s.window){if(hist.length&&hist[hist.length-1].w!==s.window)hist=[];}hist.push({w:s.window,p:b.chainlink});if(hist.length>300)hist.shift();}
 drawSpark(b.open);
-el("lrule").textContent=ALL.filter(function(l){return l.mode!=="off"}).map(function(l){return (l.label||"BTC 5m")+": "+l.variant+" · $"+l.size+" a window · stop -$"+l.maxLossPerDay+" a day"}).join(" · ")||"";
+el("lrule").textContent=ALL.filter(function(l){return l.mode!=="off"}).length+" live";
+el("lrules").innerHTML=ALL.filter(function(l){return l.mode!=="off"}).map(function(l){return '<tr><td>'+(l.label||"BTC 5m")+'</td><td><b>'+l.variant+'</b>'+(l.mode==="dry"?' <span class="mut">dry</span>':'')+'</td><td class="r">$'+l.size+'</td><td class="r">-$'+l.maxLossPerDay+'</td><td class="r '+cls(l.todayNet)+'">'+signed(l.todayNet)+'</td><td class="r '+cls(l.net)+'">'+signed(l.net)+'</td><td class="r">'+l.trades+'</td><td class="r">'+(l.trades?Math.round(l.won/l.trades*100)+"%":"—")+'</td><td class="r">'+(l.open||"")+'</td></tr>'}).join("")||'<tr><td class="empty" colspan="9">real orders are off</td></tr>';
 el("bal").textContent=money(L.balance);
 var tn=sum("todayNet"),an=sum("net"),tr=sum("trades"),wn=sum("won");
 el("today").textContent=signed(tn);el("today").className="v big "+cls(tn);
@@ -188,7 +190,7 @@ var mine=t.side==="UP"?b.upAsk:b.downAsk;var mk=mine!=null?" · "+cents(mine):""
 if(up==null)return {txt:"open"+mk+" · "+win,c:"mut"};
 var ahead=up===0?0:(up>0)===(t.side==="UP")?1:-1;
 return {txt:(ahead>0?"ahead":ahead<0?"behind":"even")+mk+" · "+win,c:ahead>0?"ok":ahead<0?"bad":"mut"}}
-el("log").innerHTML=rows.length?rows.map(function(t){var o=t.pnl==null&&t.ok&&!t.dry?openState(t):null;var res=o?o.txt:t.pnl==null?(t.ok?"dry":t.status==="skipped"?"skipped":"no fill"):signed(t.pnl);var c=o?o.c:t.pnl==null?"mut":cls(t.pnl);var px=t.shares>0?Math.round(t.cost/t.shares*100)+"¢":cents(t.ask);return '<tr class="'+(t.ok?"":"dim")+'"><td>'+hhmm(t.window)+'</td><td class="'+(t.side==="UP"?"ok":"bad")+'">'+(OL.length?'<span class="mut">'+t.mk.replace(" 5m","")+'</span> ':"")+t.side+'</td><td>'+px+(t.shares>0?" × "+t.shares.toFixed(1):"")+'</td><td class="r">'+(t.cost>0?money(t.cost):"")+'</td><td class="r '+c+'">'+res+'</td></tr>'}).join(""):'<tr><td class="empty" colspan="5">no real orders yet</td></tr>';
+el("log").innerHTML=rows.length?rows.map(function(t){var o=t.pnl==null&&t.ok&&!t.dry?openState(t):null;var res=o?o.txt:t.pnl==null?(t.ok?"dry":t.status==="skipped"?"skipped":"no fill"):signed(t.pnl);var c=o?o.c:t.pnl==null?"mut":cls(t.pnl);var px=t.shares>0?Math.round(t.cost/t.shares*100)+"¢":cents(t.ask);return '<tr class="'+(t.ok?"":"dim")+'"><td>'+hhmm(t.window)+'</td><td class="'+(t.side==="UP"?"ok":"bad")+'">'+(OL.length?'<span class="mut">'+t.mk.replace(" 5m","")+'</span> ':"")+t.side+'</td><td class="mut">'+(t.variant||"")+'</td><td>'+px+(t.shares>0?" × "+t.shares.toFixed(1):"")+'</td><td class="r">'+(t.cost>0?money(t.cost):"")+'</td><td class="r '+c+'">'+res+'</td></tr>'}).join(""):'<tr><td class="empty" colspan="6">no real orders yet</td></tr>';
 el("papers").innerHTML=(s.papers||[]).map(function(p){return '<tr class="'+(p.name===L.variant&&L.mode!=="off"?"hi":"")+'"><td>'+p.name+(p.name===L.variant&&L.mode==="live"?' <span class="tag real">live rule</span>':"")+'</td><td class="mut">'+p.rule+'</td><td class="r">'+p.trades+'</td><td class="r">'+(p.trades?Math.round(p.won/p.trades*100)+"%":"—")+'</td><td class="r '+cls(p.net)+'">'+signed(p.net)+'</td><td class="r">'+(p.open||"")+'</td></tr>'}).join("");
 function pv(ps,name){var p=(ps||[]).filter(function(x){return x.name===name})[0];if(!p||!p.trades)return '<td class="r mut">—</td>';return '<td class="r '+cls(p.net)+'">'+signed(p.net)+' <span class="mut">'+p.won+'/'+p.trades+'</span></td>'}
 el("series").innerHTML=(s.series||[]).length?(s.series||[]).map(function(r){var rb=r.lastBook||{};return '<tr><td>'+r.label+(r.lastError?' <span class="bad" title="'+esc(r.lastError)+'">!</span>':"")+'</td><td class="mut">'+(r.window?hhmm(r.window):"—")+(r.listed?"":" · not listed")+'</td><td class="r">'+cents(rb.upAsk)+'</td><td class="r">'+cents(rb.downAsk)+'</td><td class="r">'+r.windowsResolved+'</td>'+(r.live&&r.live.mode!=="off"?'<td class="r '+cls(r.live.net)+'">'+signed(r.live.net)+' <span class="mut">'+r.live.won+'/'+r.live.trades+(r.live.open?' · '+r.live.open+' open':'')+'</span></td>':'<td class="r mut">—</td>')+pv(r.papers,"base")+pv(r.papers,"band80-30")+pv(r.papers,"band80-30-chase")+pv(r.papers,"cheap10-first90")+pv(r.papers,"fav93")+pv(r.papers,"fav93-mid")+pv(r.papers,"cheap12-first60")+'</tr>'}).join(""):'<tr><td class="empty" colspan="13">only the BTC 5m market is recorded</td></tr>';
