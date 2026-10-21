@@ -113,7 +113,7 @@ tr.dim td{color:var(--mut)}
 </div>
 
 <div class="panel" style="margin-bottom:14px"><div class="ph"><div class="k">real vs paper, day by day <span class="tag real">real</span><span class="tag paper">paper</span></div><div class="mut" id="cmprule"></div></div>
-<table><thead><tr><th>day (utc)</th><th class="r">real orders</th><th class="r">filled</th><th class="r">skipped</th><th class="r">no fill</th><th class="r">real won</th><th class="r">real net</th><th class="r">paper trades</th><th class="r">paper won</th><th class="r">paper net</th></tr></thead><tbody id="cmp"></tbody></table>
+<table><thead><tr><th>day (utc day = 09:00–09:00 kst)</th><th class="r">real orders</th><th class="r">filled</th><th class="r">skipped</th><th class="r">no fill</th><th class="r">real won</th><th class="r">real net</th><th class="r">paper trades</th><th class="r">paper won</th><th class="r">paper net</th></tr></thead><tbody id="cmp"></tbody></table>
 <div class="note">Real: orders the bot actually sent, at the live size. Paper: the same rule simulated at $20 with no money, so the two are not the same scale; compare win rates, not dollars.</div></div>
 
 <div class="panel" style="margin-bottom:14px"><div class="ph"><div class="k">paper variants <span class="tag paper">paper · simulated, no money</span></div><div class="mut">every number here is simulated at $20 a window, no money</div></div>
@@ -135,7 +135,7 @@ var el=function(id){return document.getElementById(id)};
 var money=function(n){return n==null?"—":"$"+Number(n).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2})};
 var signed=function(n){return n==null?"—":(n<0?"-":"+")+"$"+Math.abs(n).toFixed(2)};
 var cents=function(n){return n==null?"—":Math.round(n*100)+"¢"};
-var hhmm=function(sec){return new Date(sec*1000).toISOString().slice(11,16)};
+var hhmm=function(sec){return new Date(sec*1000).toLocaleTimeString("en-GB",{timeZone:"Asia/Seoul",hour:"2-digit",minute:"2-digit"})};
 var hist=[];
 function cls(n){return n==null?"":n<0?"bad":n>0?"ok":""}
 async function poll(){try{var s=await (await fetch("/api/status")).json();
@@ -143,7 +143,7 @@ var b=s.lastBook||{};var L=s.live||{mode:"off"};
 var left=s.window?Math.max(0,s.window+300-Math.floor(Date.now()/1000)):0;
 el("clock").textContent=String(Math.floor(left/60))+":"+String(left%60).padStart(2,"0");
 el("clock").className="clock"+(left<=30?" soon":"");
-el("wlabel").textContent="window "+(s.window?hhmm(s.window)+" utc":"—")+" · closes in";
+el("wlabel").textContent="window "+(s.window?hhmm(s.window)+" kst":"—")+" · closes in";
 el("mode").textContent=L.mode==="live"?"live · real money":L.mode==="dry"?"dry run":"paper only";
 el("mode").className="pill "+(L.mode==="live"?"live":L.mode==="dry"?"dry":"");
 el("listed").textContent=s.listed?"market listed":"not listed yet";
