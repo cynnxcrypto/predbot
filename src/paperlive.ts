@@ -26,6 +26,9 @@ export type Variant = {
   first?: number;
   /** Favourite rule: buy the higher-priced side the first time its best ask is at or above `favAt`, any time in the window, paying up to `cap` (no projection). */
   favAt?: number;
+  /** For favAt: only act between these seconds into the window, measured on a 5-minute window and scaled for longer ones. */
+  favFrom?: number;
+  favTo?: number;
 };
 
 /** The variants run side by side. "base" keeps the original file names; the env vars tune it. */
@@ -44,6 +47,10 @@ export const VARIANTS: Variant[] = [
   { name: "cheap10-first90", left: 0, cap: 0.1, size: 5, first: 90 },
   // enrique's favourite rule (21 Oct): buy the favourite the first time its ask reaches 93c, $5. Replay: 2c a trade on BTC 5m, 12-16c on BTC 15m.
   { name: "fav93", left: 0, cap: 0.995, size: 5, favAt: 0.93 },
+  // The one slice of the favourite replay that beat the price at every threshold: 93c reached between 2 and 3 minutes in.
+  { name: "fav93-mid", left: 0, cap: 0.995, size: 5, favAt: 0.93, favFrom: 120, favTo: 180 },
+  // Best pooled long-shot cell of the grid replay: 12c in the first 60s.
+  { name: "cheap12-first60", left: 0, cap: 0.12, size: 5, first: 60 },
 ];
 
 export type PaperTrade = {
@@ -255,6 +262,10 @@ export class PaperTrader {
     const { cap: CAP, size: SIZE } = this.v;
     const favAt = this.v.favAt ?? 1;
     if (row.left < 1) return;
+    const scale = this.windowSec / 300;
+    const elapsed = this.windowSec - row.left;
+    if (this.v.favFrom != null && elapsed < this.v.favFrom * scale) return;
+    if (this.v.favTo != null && elapsed > this.v.favTo * scale) return;
     if (this.open.some((t) => t.window === row.window)) return;
     const upBest = row.upAsks[0]?.[0];
     const downBest = row.downAsks[0]?.[0];
@@ -306,6 +317,6 @@ export class PaperTrader {
 
   status() {
     const { left: LEFT, cap: CAP, size: SIZE } = this.v;
-    return { name: this.v.name, rule: this.v.favAt != null ? `favourite when its ask reaches ${Math.round(this.v.favAt * 100)}c, any time, $${SIZE}` : this.v.first != null ? `first ${this.v.first}s, either side <= ${Math.round(CAP * 100)}c, $${SIZE}` : `<=${LEFT}s, ask ${this.v.floor ? Math.round(this.v.floor * 100) + "c to " : "<= "}${Math.round(CAP * 100)}c${this.v.noFall ? ", not falling" : ""}, $${SIZE}`, trades: this.trades, won: this.won, net: Math.round(this.net * 100) / 100, open: this.open.length, noAsk: this.noAsk, days: [...this.byDay.values()].sort((a, b) => (a.day < b.day ? 1 : -1)) };
+    return { name: this.v.name, rule: this.v.favAt != null ? `favourite when its ask reaches ${Math.round(this.v.favAt * 100)}c, ${this.v.favFrom != null ? `${this.v.favFrom}-${this.v.favTo}s in` : "any time"}, $${SIZE}` : this.v.first != null ? `first ${this.v.first}s, either side <= ${Math.round(CAP * 100)}c, $${SIZE}` : `<=${LEFT}s, ask ${this.v.floor ? Math.round(this.v.floor * 100) + "c to " : "<= "}${Math.round(CAP * 100)}c${this.v.noFall ? ", not falling" : ""}, $${SIZE}`, trades: this.trades, won: this.won, net: Math.round(this.net * 100) / 100, open: this.open.length, noAsk: this.noAsk, days: [...this.byDay.values()].sort((a, b) => (a.day < b.day ? 1 : -1)) };
   }
 }
