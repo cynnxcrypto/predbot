@@ -1,3 +1,4 @@
+import { kstDay } from "./config.js";
 import type { BookRow, WindowRow } from "./recorder.js";
 import { readAll } from "./store.js";
 
@@ -94,7 +95,7 @@ console.log(`Entry ask: median ${Math.round(asks[Math.floor(asks.length / 2)] * 
 console.log("\nBy day:");
 const byDay = new Map<string, Trade[]>();
 for (const t of trades) {
-  const day = new Date(t.window * 1000).toISOString().slice(0, 10);
+  const day = kstDay(t.window * 1000);
   byDay.set(day, [...(byDay.get(day) ?? []), t]);
 }
 for (const [day, ts] of byDay) {

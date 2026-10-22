@@ -40,3 +40,5 @@ export const STATUS_PORT = Number(process.env.STATUS_PORT ?? 8790);
 
 export const windowStart = (sec = Math.floor(Date.now() / 1000), windowSec = WINDOW_SEC) => Math.floor(sec / windowSec) * windowSec;
 export const dayOf = (ms: number) => new Date(ms).toISOString().slice(0, 10);
+/** The calendar day in Korean time (UTC+9): what "today", the day table and the daily loss stop use. Data files stay on UTC days. */
+export const kstDay = (ms: number = Date.now()) => new Date(ms + 9 * 3600 * 1000).toISOString().slice(0, 10);

@@ -30,7 +30,7 @@ import { Wallet } from "@ethersproject/wallet";
 import { RelayClient } from "@polymarket/builder-relayer-client";
 import { BuilderConfig } from "@polymarket/builder-signing-sdk";
 import { AssetType, Chain, ClobClient, OrderType, Side, type ApiKeyCreds } from "@polymarket/clob-client-v2";
-import { SERIES, prefixOf, type Series } from "./config.js";
+import { SERIES, prefixOf, type Series, kstDay } from "./config.js";
 import type { PaperTrade } from "./paperlive.js";
 import { book, marketFor, type Market } from "./polymarket.js";
 import { append, loadJson, readAll, saveJson } from "./store.js";
@@ -174,7 +174,7 @@ export class LiveTrader {
     const byDay = new Map<string, LiveDay>();
     for (const t of readAll<LiveTrade>(`${this.prefix}live`)) {
       if (t.dry) continue;
-      const day = new Date(t.window * 1000).toISOString().slice(0, 10);
+      const day = kstDay(t.window * 1000);
       let d = byDay.get(day);
       if (!d) byDay.set(day, (d = { day, orders: 0, filled: 0, skipped: 0, noFill: 0, settled: 0, won: 0, net: 0 }));
       d.orders += 1;
@@ -185,7 +185,7 @@ export class LiveTrader {
     // Settled results come from the totals file (the day rows above are written at order time, before the result is known).
     for (const t of loadJson<LiveTrade[]>(`${this.prefix}live-totals.json`, [])) {
       if (t.dry || t.pnl == null) continue;
-      const day = new Date(t.window * 1000).toISOString().slice(0, 10);
+      const day = kstDay(t.window * 1000);
       let d = byDay.get(day);
       if (!d) byDay.set(day, (d = { day, orders: 0, filled: 0, skipped: 0, noFill: 0, settled: 0, won: 0, net: 0 }));
       d.settled += 1;
@@ -207,7 +207,7 @@ export class LiveTrader {
     this.trades += 1;
     if (t.won) this.won += 1;
     this.net += t.pnl;
-    const day = new Date(t.window * 1000).toISOString().slice(0, 10);
+    const day = kstDay(t.window * 1000);
     if (day !== this.todayKey) {
       this.todayKey = day;
       this.todayNet = 0;
@@ -216,7 +216,7 @@ export class LiveTrader {
   }
 
   private todayLoss() {
-    const day = new Date().toISOString().slice(0, 10);
+    const day = kstDay();
     return day === this.todayKey ? -this.todayNet : 0;
   }
 
@@ -516,7 +516,7 @@ export class LiveTrader {
       trades: this.trades,
       won: this.won,
       net: Math.round(this.net * 100) / 100,
-      todayNet: Math.round((this.todayKey === new Date().toISOString().slice(0, 10) ? this.todayNet : 0) * 100) / 100,
+      todayNet: Math.round((this.todayKey === kstDay() ? this.todayNet : 0) * 100) / 100,
       open: this.open.length,
       lastError: this.lastError,
       lastOrderAt: this.lastOrderAt,

@@ -1,4 +1,4 @@
-import { WINDOW_SEC } from "./config.js";
+import { WINDOW_SEC, kstDay } from "./config.js";
 import { chainlink } from "./feeds/index.js";
 import type { Feed } from "./feeds/socket.js";
 import type { BookRow } from "./recorder.js";
@@ -116,7 +116,7 @@ export class PaperTrader {
     this.trades += 1;
     if (t.won) this.won += 1;
     this.net += t.pnl;
-    const day = new Date(t.window * 1000).toISOString().slice(0, 10);
+    const day = kstDay(t.window * 1000);
     let d = this.byDay.get(day);
     if (!d) this.byDay.set(day, (d = { day, trades: 0, won: 0, net: 0 }));
     d.trades += 1;
