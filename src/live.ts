@@ -155,7 +155,9 @@ export class LiveTrader {
     this.redeems = loadJson<Redeem[]>(`${this.prefix}live-redeem.json`, []);
     const totals = loadJson<LiveTrade[]>(`${this.prefix}live-totals.json`, []);
     for (const t of totals) this.count(t);
-    this.recent = [...totals.slice(-30).reverse(), ...this.open];
+    // Recent rows include skipped and unfilled orders, which live only in the day files, so the log looks the same after a restart.
+    const logged = readAll<LiveTrade>(`${this.prefix}live`).filter((t) => !t.dry).sort((a, b) => b.t - a.t);
+    this.recent = [...this.open, ...logged].slice(0, 40);
     // Wins from before the claim step existed (or from a crash) are still shares: queue them too.
     const cutoff = Date.now() / 1000 - 3 * 86400;
     for (const t of totals) {
