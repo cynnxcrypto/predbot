@@ -126,8 +126,7 @@ export class LiveTrader {
   trades = 0;
   won = 0;
   net = 0;
-  todayNet = 0;
-  todayKey = "";
+  private dayNet = new Map<string, number>();
   lastError: string | null = null;
   lastOrderAt: number | null = null;
   wallet: string | null = null;
@@ -207,17 +206,18 @@ export class LiveTrader {
     this.trades += 1;
     if (t.won) this.won += 1;
     this.net += t.pnl;
+    // Per-day totals keyed by the window's day, so a trade settled late (after a restart) still lands on its own day.
     const day = kstDay(t.window * 1000);
-    if (day !== this.todayKey) {
-      this.todayKey = day;
-      this.todayNet = 0;
-    }
-    this.todayNet += t.pnl;
+    this.dayNet.set(day, (this.dayNet.get(day) ?? 0) + t.pnl);
+  }
+
+  /** Net result of the trades settled on today's windows (Korean day). */
+  get todayNet() {
+    return this.dayNet.get(kstDay()) ?? 0;
   }
 
   private todayLoss() {
-    const day = kstDay();
-    return day === this.todayKey ? -this.todayNet : 0;
+    return -this.todayNet;
   }
 
   /** Load keys, derive API credentials, read the balance. Safe to call many times. */
@@ -516,7 +516,7 @@ export class LiveTrader {
       trades: this.trades,
       won: this.won,
       net: Math.round(this.net * 100) / 100,
-      todayNet: Math.round((this.todayKey === kstDay() ? this.todayNet : 0) * 100) / 100,
+      todayNet: Math.round(this.todayNet * 100) / 100,
       open: this.open.length,
       lastError: this.lastError,
       lastOrderAt: this.lastOrderAt,
