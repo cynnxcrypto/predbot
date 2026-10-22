@@ -1,5 +1,5 @@
 import { execSync } from "node:child_process";
-import type { Server } from "node:http";
+import { createServer } from "node:net";
 import { ROOT, SERIES, STATUS_PORT } from "./config.js";
 import { Recorder } from "./recorder.js";
 import { serveStatus } from "./status.js";
@@ -26,14 +26,22 @@ function portHolder(): number | null {
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /**
- * Bind the status port. If an older copy of the bot still holds it (for example one left behind by
+ * Wait for the status port. If an older copy of the bot still holds it (for example one left behind by
  * a restart), ask it to stop at the next window edge and wait for it, so two copies never record at once.
+ * The recorders are only created after this, because the older copy keeps changing the data files
+ * (settling trades, queueing windows) until it exits; state loaded earlier would be stale and a trade
+ * settled by both copies would be counted twice (seen on 21 Oct 2026).
  */
-async function takeOver(recorder: Recorder, others: Recorder[]): Promise<Server> {
+async function waitForPort(): Promise<void> {
   let asked: number | null = null;
   for (let attempt = 0; ; attempt++) {
     try {
-      return await serveStatus(recorder, build(), others);
+      await new Promise<void>((resolve, reject) => {
+        const probe = createServer();
+        probe.once("error", reject);
+        probe.listen(STATUS_PORT, "127.0.0.1", () => probe.close(() => resolve()));
+      });
+      return;
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code !== "EADDRINUSE" || attempt > 240) throw err;
       const pid = portHolder();
@@ -53,9 +61,10 @@ async function takeOver(recorder: Recorder, others: Recorder[]): Promise<Server>
   }
 }
 
+await waitForPort();
 const recorders = SERIES.map((s) => new Recorder(s));
 const recorder = recorders[0];
-const server = await takeOver(recorder, recorders.slice(1));
+const server = await serveStatus(recorder, build(), recorders.slice(1));
 for (const r of recorders) r.start();
 console.log(`Pred bot recorder ${build()}. Status: http://127.0.0.1:${STATUS_PORT}. Recording ${recorders.map((r) => r.series.label).join(", ")}.`);
 
