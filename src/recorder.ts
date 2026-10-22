@@ -102,6 +102,56 @@ export class Recorder {
     this.papers = VARIANTS.map((v) => new PaperTrader(v, { prefix: this.prefix, feed: this.f.chainlink, windowSec: series.windowSec }));
     this.live = new LiveTrader(series);
     this.pending = loadJson<Pending[]>(`${this.prefix}pending.json`, []);
+    this.adoptOrphans();
+  }
+
+  /**
+   * A restart right at a window edge can exit before the closing window is queued for settlement, which
+   * leaves paper and real trades on that window open for ever (seen on 21 Oct 2026: three restarts in ten
+   * minutes lost three windows and a real $5 trade). Queue every window that still has an open trade but no
+   * settlement entry, so settle() fetches its result from Polymarket like any other window.
+   */
+  private adoptOrphans() {
+    const now = Math.floor(Date.now() / 1000);
+    const windows = new Set<number>();
+    for (const p of this.papers) for (const t of p.open) windows.add(t.window);
+    for (const t of this.live?.open ?? []) windows.add(t.window);
+    let added = 0;
+    for (const window of windows) {
+      if (window + this.series.windowSec > now - 30 || this.pending.some((p) => p.window === window)) continue;
+      const row: WindowRow = {
+        window,
+        title: null,
+        description: null,
+        listedAt: null,
+        snapshots: 0,
+        open: null,
+        close: null,
+        firstOpen: null,
+        firstClose: null,
+        pricesAt: null,
+        pricesRaw: null,
+        chainlinkAtOpen: null,
+        chainlinkAtClose: null,
+        chainlinkTwap60: null,
+        chainlinkTwap60AtOpen: null,
+        chainlinkMean: null,
+        binanceAtOpen: null,
+        binanceAtClose: null,
+        coinbaseAtOpen: null,
+        coinbaseAtClose: null,
+        marks: [],
+        resolvedUp: null,
+        resolvedAt: null,
+        status: null,
+      };
+      this.pending.push({ window, row, tries: 0, nextAt: Date.now() + 5000 });
+      added += 1;
+    }
+    if (added) {
+      console.log(`${this.series.label}: ${added} window(s) with open trades were never queued for settlement (lost in a restart); settling them now`);
+      saveJson(`${this.prefix}pending.json`, this.pending);
+    }
   }
 
   start() {

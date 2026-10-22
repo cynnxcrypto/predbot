@@ -73,7 +73,8 @@ process.on("SIGTERM", stop);
 /** The supervisor asks "is now a good moment to restart?" by sending SIGUSR2; we answer by exiting cleanly at the next window edge. */
 process.on("SIGUSR2", () => {
   const sec = Math.floor(Date.now() / 1000);
-  const wait = ((300 - (sec % 300)) % 300) + 3;
+  // Ten seconds past the edge, so the closing window is queued for settlement before we exit (3s was sometimes too soon).
+  const wait = ((300 - (sec % 300)) % 300) + 10;
   console.log(`update requested; restarting in ${wait}s, at the next window edge`);
   setTimeout(stop, wait * 1000);
 });
