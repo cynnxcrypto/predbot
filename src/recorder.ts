@@ -266,7 +266,7 @@ export class Recorder {
       chainlink: this.f.chainlink.last()?.price ?? null,
       binance: this.f.binance.last()?.price ?? null,
       coinbase: this.f.coinbase.last()?.price ?? null,
-      open: this.f.chainlink.at(market.start * 1000)?.price ?? null,
+      open: this.f.chainlink.at(market.start * 1000)?.price ?? this.openFromDisk(market.start),
     };
     append(`${this.prefix}book`, row);
     this.lastBook = row;
@@ -373,12 +373,21 @@ export class Recorder {
 
   private seedWindow = 0;
   private seed: { t: number; price: number }[] = [];
+  private seedOpen: number | null = null;
+
+  /** The window's open price as the book rows written before a restart recorded it (the feed only knows ticks since it started). */
+  private openFromDisk(start: number): number | null {
+    if (start !== this.markWindow) return null;
+    this.seedPrices(start * 1000);
+    return this.seedOpen;
+  }
 
   /** After a restart the feed has no ticks from before it started; the book rows on disk have the window's earlier prices. */
   private seedPrices(openMs: number): { t: number; price: number }[] {
     if (this.seedWindow === this.markWindow) return this.seed;
     this.seedWindow = this.markWindow;
     this.seed = [];
+    this.seedOpen = null;
     const first = this.f.chainlink.between(openMs, openMs + this.series.windowSec * 1000)[0];
     const until = first ? first.t : Date.now();
     if (until - openMs < 3000) return this.seed;
@@ -388,8 +397,10 @@ export class Recorder {
       for (const line of readFileSync(file, "utf8").split("\n")) {
         if (!line.includes(`"window":${this.markWindow},`)) continue;
         try {
-          const row = JSON.parse(line) as { t: number; window: number; chainlink: number | null };
-          if (row.window === this.markWindow && row.chainlink != null && row.t >= openMs && row.t < until) this.seed.push({ t: row.t, price: row.chainlink });
+          const row = JSON.parse(line) as { t: number; window: number; chainlink: number | null; open?: number | null };
+          if (row.window !== this.markWindow) continue;
+          if (this.seedOpen == null && row.open != null) this.seedOpen = row.open;
+          if (row.chainlink != null && row.t >= openMs && row.t < until) this.seed.push({ t: row.t, price: row.chainlink });
         } catch {
           // skip a half-written line
         }
