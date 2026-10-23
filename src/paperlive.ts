@@ -93,6 +93,17 @@ export const VARIANTS: Variant[] = [
   // enrique's salvage idea (23 Oct): cheap10-first90, but at 120s left sell if our side's bid is 5c or less. Replay of 713
   // long shots: 244 sold, none of them went on to win, ~$0.90 of each $5 recovered (pooled -$8 -> +$189; BTC/SOL still negative).
   { name: "cheap10-salvage", left: 0, cap: 0.1, size: 5, first: 90, salvageAt: 120, salvageBid: 0.05, added: "2026-10-23", idea: "cheap10, but sell a dead one at 120s left to get ~18% back" },
+  // enrique asked for more ideas (23 Oct 16:30 KST). Variations on the two things that have paid so far: the favourite
+  // at a higher price, and the lead/hold filters, plus a few that bet against the crowd. Paper only.
+  { name: "fav95-lead", left: 0, cap: 0.995, size: 5, favAt: 0.95, favFrom: 120, leadMin: 0, leadMax: 3, added: "2026-10-23", idea: "fav95 with the small-lead filter (0-3bp, 3 minutes or less left)" },
+  { name: "fav95-hold", left: 0, cap: 0.995, size: 5, favAt: 0.95, holdRows: 10, holdAt: 0.9, added: "2026-10-23", idea: "fav95 only when the ask held 90c+ for the previous ten snapshots" },
+  { name: "fav93-lead-hold", left: 0, cap: 0.995, size: 5, favAt: 0.93, favFrom: 120, leadMin: 0, leadMax: 3, holdRows: 10, holdAt: 0.9, added: "2026-10-23", idea: "fav93 with both filters at once: small lead and a held 90c+ ask" },
+  { name: "fav97", left: 0, cap: 0.995, size: 5, favAt: 0.97, added: "2026-10-23", idea: "favourite at 97c: tiny payout, should win ~98%+" },
+  { name: "fav93-late", left: 0, cap: 0.995, size: 5, favAt: 0.93, favFrom: 180, favTo: 300, added: "2026-10-23", idea: "fav93 only when 93c is first reached in the last 2 minutes" },
+  { name: "fav93-against", left: 0, cap: 0.995, size: 5, favAt: 0.93, leadMax: 0, added: "2026-10-23", idea: "fav93 only while Chainlink is still on the other side of open (the book leads the price)" },
+  { name: "band90-30", left: 30, floor: 0.9, cap: 0.95, size: 5, added: "2026-10-23", idea: "projection side priced 90-95c with 30s left: band80-30 one notch surer" },
+  { name: "band80-30-lead", left: 30, floor: 0.8, cap: 0.9, size: 5, leadMin: 0, leadMax: 3, added: "2026-10-23", idea: "band80-30 only with a small Chainlink lead (0-3bp) toward the side" },
+  { name: "cheap10-lead", left: 0, cap: 0.1, size: 5, first: 90, leadMin: 2, added: "2026-10-23", idea: "cheap10, but only when Chainlink already moved 2bp+ toward the cheap side (price and book disagree)" },
 ];
 
 export type PaperTrade = {
@@ -196,6 +207,7 @@ export class PaperTrader {
     const frac = Math.min(1, (row.t - (closeMs - 60000)) / 60000);
     const projected = knownAverage * frac + row.chainlink * (1 - frac);
     const up = projected >= openAverage;
+    if (!this.leadOk(row, up)) return;
     const levels = up ? row.upAsks : row.downAsks;
     const FLOOR = this.v.floor ?? 0;
     if (this.v.noFall) {
@@ -295,6 +307,14 @@ export class PaperTrader {
   }
 
   /** The `first` rule: in the first N seconds, buy the cheaper side if its best ask is at or under the cap. */
+  /** The Chainlink move since open, in basis points toward the chosen side, must sit inside [leadMin, leadMax). */
+  private leadOk(row: BookRow, up: boolean) {
+    if (this.v.leadMin == null && this.v.leadMax == null) return true;
+    if (row.chainlink == null || row.open == null) return false;
+    const lead = ((row.chainlink - row.open) / row.open) * 1e4 * (up ? 1 : -1);
+    return lead >= (this.v.leadMin ?? -Infinity) && lead < (this.v.leadMax ?? Infinity);
+  }
+
   private considerEarly(row: BookRow) {
     const { cap: CAP, size: SIZE } = this.v;
     const elapsed = this.windowSec - row.left;
@@ -305,6 +325,7 @@ export class PaperTrader {
     const candidates = [upBest != null && upBest <= CAP ? { up: true, ask: upBest } : null, downBest != null && downBest <= CAP ? { up: false, ask: downBest } : null].filter((c): c is { up: boolean; ask: number } => c != null);
     if (!candidates.length) return;
     const pick = candidates.sort((a, b) => a.ask - b.ask)[0];
+    if (!this.leadOk(row, pick.up)) return;
     const levels = pick.up ? row.upAsks : row.downAsks;
     let budget = SIZE;
     let shares = 0;
@@ -364,11 +385,7 @@ export class PaperTrader {
     if (ask < favAt - 1e-9 || ask > CAP) return;
     // The filters judge the first hit only: a window that fails them is left alone, like the replay they came from.
     this.favSeen = row.window;
-    if (this.v.leadMin != null || this.v.leadMax != null) {
-      if (row.chainlink == null || row.open == null) return;
-      const lead = ((row.chainlink - row.open) / row.open) * 1e4 * (up ? 1 : -1);
-      if (lead < (this.v.leadMin ?? -Infinity) || lead >= (this.v.leadMax ?? Infinity)) return;
-    }
+    if (!this.leadOk(row, up)) return;
     if (this.v.holdRows != null) {
       if (before.length < this.v.holdRows) return;
       if (!before.every((r) => (up ? r.up : r.down) != null && (up ? r.up : r.down)! >= (this.v.holdAt ?? 0) - 1e-9)) return;
