@@ -320,10 +320,10 @@ tr.dim{transition:opacity .4s}
       <div><div class="k">orders</div><div class="v big" id="lord">—</div></div>
       <div><div class="k">skipped</div><div class="v big" id="lskip">—</div></div>
     </div>
-    <div class="mut" id="ledger" style="font-size:12px;margin-bottom:12px"></div>
+    <div class="mut" id="ledger" style="font-size:12px"></div>
+    <div class="mut" id="quota" style="font-size:12px;margin-top:3px;margin-bottom:12px"></div>
     <table style="margin-bottom:12px"><thead><tr><th>strategy</th><th class="r">size</th><th class="r">net</th><th class="r">trades</th><th class="r">won</th><th class="r">streak</th><th></th></tr></thead><tbody id="lrules"></tbody></table><div class="note" id="lsince"></div>
     <div class="mut" id="lstate" style="font-size:12px"></div>
-    <div class="mut" id="quota" style="font-size:12px;margin-top:3px"></div>
     <div class="mut" style="font-size:12px;margin-top:6px">Only this panel, the trade log and the "real" columns below are real orders on Polymarket, settled from your wallet.</div>
   </div>
   <div class="panel real"><div class="ph"><div class="k">real trade log <span class="tag real">real</span></div><div class="mut" id="lopen"></div></div>
