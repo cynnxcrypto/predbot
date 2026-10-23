@@ -3,7 +3,8 @@ import { fileURLToPath } from "node:url";
 
 /** Repo root (one level above src/). Data lives in data/, which git ignores, so updates never touch it. */
 export const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
-export const DATA = join(ROOT, "data");
+/** DATA_DIR overrides the data folder (tests point it at a scratch directory). */
+export const DATA = process.env.DATA_DIR || join(ROOT, "data");
 
 /** Window length of the market we record, in seconds. */
 export const WINDOW_SEC = 300;

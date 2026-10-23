@@ -3,9 +3,13 @@
  *
  * data/live.json (not in git; create it by hand on the Mac):
  *   { "mode": "off" | "dry" | "live", "variant": "band80-30", "size": 5, "maxLossPerDay": 25, "funder": "0x...",
+ *     "variants": [{ "variant": "fav93", "size": 5, "haltAfterLosses": 2 }],
  *     "markets": [{ "series": "eth5m", "variant": "cheap10-first90", "size": 2, "maxLossPerDay": 20 }] }
  *   The top-level fields drive the BTC 5m series. `markets` adds one real trader per extra series (keys from
  *   config SERIES); a series without an entry never trades. "mode" is global: "off" stops every series.
+ *   A series trades one variant ("variant" + "size") or several ("variants", each with its own size). A variant
+ *   with "haltAfterLosses": N stops after N straight losses; the halt is kept in data/<prefix>live-halts.json
+ *   (delete its entry, or set "halted": false, to let it trade again). "maxLossPerDay" is per series.
  *   Each extra series keeps its own files, prefixed like its data (eth5m-live/, eth5m-live-open.json, ...).
  *   - off:  nothing happens (the default when the file is missing).
  *   - dry:  signs the order and logs what it would send, posts nothing.
@@ -36,8 +40,12 @@ import { book, marketFor, type Market } from "./polymarket.js";
 import { append, loadJson, readAll, saveJson } from "./store.js";
 
 export type LiveMode = "off" | "dry" | "live";
-export type LiveConfig = { mode: LiveMode; variant: string; size: number; maxLossPerDay: number; funder: string };
-type MarketEntry = { series?: string; variant?: string; size?: number; maxLossPerDay?: number; mode?: string };
+export type LiveVariant = { variant: string; size: number; haltAfterLosses: number };
+export type LiveConfig = { mode: LiveMode; variant: string; size: number; maxLossPerDay: number; funder: string; variants: LiveVariant[] };
+type VariantEntry = { variant?: string; size?: number; haltAfterLosses?: number };
+type MarketEntry = VariantEntry & { series?: string; maxLossPerDay?: number; mode?: string; variants?: VariantEntry[] };
+/** Streak of straight losses per variant and whether it tripped the halt. */
+export type Halt = { streak: number; halted: boolean; haltedAt: number | null };
 
 export type LiveDay = { day: string; orders: number; filled: number; skipped: number; noFill: number; settled: number; won: number; net: number };
 
@@ -89,28 +97,41 @@ const erc20 = new Interface(["function balanceOf(address owner) view returns (ui
 const onrampAbi = new Interface(["function wrap(address _asset, address _to, uint256 _amount)"]);
 const provider = new StaticJsonRpcProvider(RPC, 137);
 const ctfAbi = new Interface(["function redeemPositions(address collateralToken, bytes32 parentCollectionId, bytes32 conditionId, uint256[] indexSets)"]);
-const DEFAULT: LiveConfig = { mode: "off", variant: "band80-30", size: 5, maxLossPerDay: 25, funder: "" };
+const DEFAULT: LiveConfig = { mode: "off", variant: "band80-30", size: 5, maxLossPerDay: 25, funder: "", variants: [] };
+
+const sizeOf = (raw: unknown) => {
+  const size = Number(raw ?? DEFAULT.size);
+  return Number.isFinite(size) && size > 0 ? Math.min(size, 50) : DEFAULT.size;
+};
 
 export function liveConfig(seriesKey = ""): LiveConfig {
-  const file = loadJson<Partial<LiveConfig> & { markets?: MarketEntry[] }>("live.json", {});
+  const file = loadJson<Partial<LiveConfig> & MarketEntry & { markets?: MarketEntry[] }>("live.json", {});
   const globalMode: LiveMode = file.mode === "live" || file.mode === "dry" ? file.mode : "off";
-  let raw: Partial<LiveConfig> = file;
+  let raw: MarketEntry = file;
   let mode = globalMode;
   if (seriesKey) {
     const entry = (file.markets ?? []).find((m) => m.series === seriesKey);
     if (!entry) return { ...DEFAULT, mode: "off", funder: String(file.funder ?? "").trim() };
-    raw = { variant: entry.variant, size: entry.size, maxLossPerDay: entry.maxLossPerDay };
+    raw = entry;
     // A market may be quieter than the global mode (off or dry), never louder.
     if (entry.mode === "off" || (entry.mode === "dry" && globalMode === "live")) mode = entry.mode;
   }
-  const size = Number(raw.size ?? DEFAULT.size);
   const maxLossPerDay = Number(raw.maxLossPerDay ?? DEFAULT.maxLossPerDay);
+  const list: VariantEntry[] = Array.isArray(raw.variants) && raw.variants.length ? raw.variants : [raw];
+  const variants: LiveVariant[] = [];
+  for (const v of list) {
+    const name = String(v.variant ?? (v === raw ? DEFAULT.variant : "")).trim();
+    const halt = Number(v.haltAfterLosses ?? 0);
+    if (name && !variants.some((x) => x.variant === name)) variants.push({ variant: name, size: sizeOf(v.size), haltAfterLosses: Number.isFinite(halt) && halt > 0 ? Math.floor(halt) : 0 });
+  }
+  if (!variants.length) variants.push({ variant: DEFAULT.variant, size: DEFAULT.size, haltAfterLosses: 0 });
   return {
     mode,
-    variant: String(raw.variant ?? DEFAULT.variant),
-    size: Number.isFinite(size) && size > 0 ? Math.min(size, 50) : DEFAULT.size,
+    variant: variants[0].variant,
+    size: variants[0].size,
     maxLossPerDay: Number.isFinite(maxLossPerDay) && maxLossPerDay > 0 ? maxLossPerDay : DEFAULT.maxLossPerDay,
     funder: String(file.funder ?? "").trim(),
+    variants,
   };
 }
 
@@ -127,6 +148,10 @@ export class LiveTrader {
   won = 0;
   net = 0;
   private dayNet = new Map<string, number>();
+  /** Settled totals per variant, for the status page. */
+  private byVariant = new Map<string, { trades: number; won: number; net: number }>();
+  /** Loss streaks per variant (see haltAfterLosses). */
+  halts: Record<string, Halt>;
   lastError: string | null = null;
   lastOrderAt: number | null = null;
   wallet: string | null = null;
@@ -153,6 +178,7 @@ export class LiveTrader {
     this.config = liveConfig(series.key);
     this.open = loadJson<LiveTrade[]>(`${this.prefix}live-open.json`, []);
     this.redeems = loadJson<Redeem[]>(`${this.prefix}live-redeem.json`, []);
+    this.halts = loadJson<Record<string, Halt>>(`${this.prefix}live-halts.json`, {});
     const totals = loadJson<LiveTrade[]>(`${this.prefix}live-totals.json`, []);
     for (const t of totals) this.count(t);
     // Recent rows include skipped and unfilled orders, which live only in the day files, so the log looks the same after a restart.
@@ -211,6 +237,26 @@ export class LiveTrader {
     // Per-day totals keyed by the window's day, so a trade settled late (after a restart) still lands on its own day.
     const day = kstDay(t.window * 1000);
     this.dayNet.set(day, (this.dayNet.get(day) ?? 0) + t.pnl);
+    let v = this.byVariant.get(t.variant);
+    if (!v) this.byVariant.set(t.variant, (v = { trades: 0, won: 0, net: 0 }));
+    v.trades += 1;
+    if (t.won) v.won += 1;
+    v.net += t.pnl;
+  }
+
+  /** Update a variant's loss streak after a settled trade and trip its halt when it reaches the limit. */
+  private track(t: LiveTrade) {
+    if (t.dry || t.pnl == null) return;
+    const rule = this.config.variants.find((v) => v.variant === t.variant);
+    const h = this.halts[t.variant] ?? { streak: 0, halted: false, haltedAt: null };
+    h.streak = t.won ? 0 : h.streak + 1;
+    if (rule && rule.haltAfterLosses > 0 && h.streak >= rule.haltAfterLosses && !h.halted) {
+      h.halted = true;
+      h.haltedAt = Date.now();
+      console.log(`live ${this.series.label}: ${t.variant} HALTED after ${h.streak} straight losses (edit data/${this.prefix}live-halts.json to resume)`);
+    }
+    this.halts[t.variant] = h;
+    saveJson(`${this.prefix}live-halts.json`, this.halts);
   }
 
   /** Net result of the trades settled on today's windows (Korean day). */
@@ -247,7 +293,7 @@ export class LiveTrader {
         this.ready = true;
         this.lastError = null;
         saveJson(`${this.prefix}live-state.json`, { at: Date.now(), ...this.status() });
-        console.log(`live ${this.series.label}: ${this.config.mode.toUpperCase()} mode, signer ${signer.address}, funder ${this.config.funder}, balance $${this.balance.toFixed(2)}, ${this.config.variant} at $${this.config.size} per window, stop after -$${this.config.maxLossPerDay} in a day`);
+        console.log(`live ${this.series.label}: ${this.config.mode.toUpperCase()} mode, signer ${signer.address}, funder ${this.config.funder}, balance $${this.balance.toFixed(2)}, ${this.config.variants.map((v) => `${v.variant} at $${v.size}${v.haltAfterLosses ? ` (halt after ${v.haltAfterLosses} losses)` : ""}`).join(", ")}, stop after -$${this.config.maxLossPerDay} in a day`);
       } catch (error) {
         this.lastError = error instanceof Error ? error.message : String(error);
         saveJson(`${this.prefix}live-state.json`, { at: Date.now(), ...this.status() });
@@ -288,8 +334,11 @@ export class LiveTrader {
   /** Called when a paper variant takes a trade. Mirrors it for real when that variant is the live one. */
   async onPaperTrade(trade: PaperTrade, market: Market, cap: number, skipOnFall = true) {
     this.config = liveConfig(this.series.key);
-    if (this.config.mode === "off" || trade.variant !== this.config.variant) return;
-    if (this.open.some((t) => t.window === trade.window)) return;
+    const rule = this.config.variants.find((v) => v.variant === trade.variant);
+    if (this.config.mode === "off" || !rule) return;
+    if (rule.haltAfterLosses > 0 && this.halts[trade.variant]?.halted) return;
+    if (this.open.some((t) => t.window === trade.window && t.variant === trade.variant)) return;
+    const size = rule.size;
     if (this.todayLoss() >= this.config.maxLossPerDay) {
       if (this.lastError !== "daily loss limit reached") console.log(`live: daily loss limit reached (-$${this.todayLoss().toFixed(2)}), no more orders today`);
       this.lastError = "daily loss limit reached";
@@ -340,13 +389,13 @@ export class LiveTrader {
     }
     try {
       const order = await this.client.createMarketOrder(
-        { tokenID: token, amount: this.config.size, side: Side.BUY, price: limit, orderType: OrderType.FAK },
+        { tokenID: token, amount: size, side: Side.BUY, price: limit, orderType: OrderType.FAK },
         { tickSize: "0.01", negRisk: false },
       );
       if (row.dry) {
         row.ok = true;
         row.status = "dry";
-        console.log(`live DRY: would buy ${trade.side} up to ${Math.round(limit * 100)}c for $${this.config.size} with ${trade.left}s left (order signed, not sent)`);
+        console.log(`live DRY: would buy ${trade.side} up to ${Math.round(limit * 100)}c for $${size} with ${trade.left}s left (order signed, not sent)`);
       } else {
         const res = await this.client.postOrder(order, OrderType.FAK);
         row.ok = Boolean(res?.success);
@@ -379,22 +428,29 @@ export class LiveTrader {
   }
 
   settle(window: number, resolvedUp: boolean) {
-    const trade = this.open.find((t) => t.window === window);
-    if (!trade) return;
-    trade.resolvedUp = resolvedUp;
-    trade.won = (trade.side === "UP") === resolvedUp;
-    trade.pnl = trade.dry ? 0 : (trade.won ? trade.shares : 0) - trade.cost;
-    this.open = this.open.filter((t) => t !== trade);
-    this.count(trade);
-    this.remember(trade);
-    append(`${this.prefix}live`, trade, window * 1000);
+    // Several variants can hold the same window; each is its own trade.
+    const trades = this.open.filter((t) => t.window === window);
+    if (!trades.length) return;
+    this.open = this.open.filter((t) => t.window !== window);
     const totals = loadJson<LiveTrade[]>(`${this.prefix}live-totals.json`, []);
-    totals.push(trade);
+    let shares = 0;
+    for (const trade of trades) {
+      trade.resolvedUp = resolvedUp;
+      trade.won = (trade.side === "UP") === resolvedUp;
+      trade.pnl = trade.dry ? 0 : (trade.won ? trade.shares : 0) - trade.cost;
+      this.count(trade);
+      this.track(trade);
+      this.remember(trade);
+      append(`${this.prefix}live`, trade, window * 1000);
+      totals.push(trade);
+      if (!trade.dry) console.log(`live: ${trade.variant} ${trade.side} ${trade.won ? "won" : "lost"} ${trade.pnl >= 0 ? "+" : "-"}$${Math.abs(trade.pnl).toFixed(2)}; running ${this.won}/${this.trades}, net ${this.net >= 0 ? "+" : "-"}$${Math.abs(this.net).toFixed(2)}`);
+      if (trade.won && !trade.dry) shares += trade.shares;
+    }
     saveJson(`${this.prefix}live-totals.json`, totals);
     saveJson(`${this.prefix}live-open.json`, this.open);
-    if (!trade.dry) console.log(`live: ${trade.side} ${trade.won ? "won" : "lost"} ${trade.pnl >= 0 ? "+" : "-"}$${Math.abs(trade.pnl).toFixed(2)}; running ${this.won}/${this.trades}, net ${this.net >= 0 ? "+" : "-"}$${Math.abs(this.net).toFixed(2)}`);
-    if (trade.won && !trade.dry && trade.shares > 0) {
-      this.redeems.push({ window, shares: trade.shares, tries: 0, nextAt: Date.now() + 60000, lastError: null });
+    // One claim per window turns every winning share of that market back into pUSD.
+    if (shares > 0 && !this.redeems.some((r) => r.window === window)) {
+      this.redeems.push({ window, shares, tries: 0, nextAt: Date.now() + 60000, lastError: null });
       saveJson(`${this.prefix}live-redeem.json`, this.redeems);
     }
   }
@@ -511,6 +567,11 @@ export class LiveTrader {
       variant: c.variant,
       size: c.size,
       maxLossPerDay: c.maxLossPerDay,
+      variants: c.variants.map((v) => {
+        const h = this.halts[v.variant];
+        const t = this.byVariant.get(v.variant);
+        return { ...v, halted: Boolean(v.haltAfterLosses && h?.halted), streak: h?.streak ?? 0, haltedAt: h?.haltedAt ?? null, trades: t?.trades ?? 0, won: t?.won ?? 0, net: Math.round((t?.net ?? 0) * 100) / 100 };
+      }),
       ready: this.ready,
       wallet: this.wallet,
       funder: c.funder || null,
