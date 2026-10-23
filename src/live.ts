@@ -362,7 +362,8 @@ export class LiveTrader {
     } catch {
       freshAsk = null;
     }
-    const limit = cap;
+    // The exchange takes prices on a 1c grid between 1c and 99c; a 99.5c cap (fav93) must be sent as 99c.
+    const limit = Math.min(0.99, Math.max(0.01, Math.round(cap * 100) / 100));
     const row: LiveTrade = {
       window: trade.window,
       t: Date.now(),
