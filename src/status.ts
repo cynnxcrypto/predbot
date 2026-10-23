@@ -206,7 +206,7 @@ function addr(a,label){if(!a)return label+" —";return label+' <a href="https:/
 el("lstate").innerHTML=L.mode==="off"?"Real orders are off. Nothing trades for real.":(L.ready?"Wallet ready · "+addr(L.funder,"funds")+" · "+addr(L.wallet,"signer"):"Wallet not ready"+(L.lastError?": "+esc(L.lastError):""))+(L.lastError&&L.ready?" · "+esc(L.lastError):"");
 var nopen=sum("open");el("lopen").textContent=nopen?nopen+" open":"";
 var rows=[];ALL.forEach(function(l){(l.recent||[]).forEach(function(t){rows.push(Object.assign({mk:l.label||"BTC 5m"},t))})});
-rows.sort(function(a,b){return (b.t||0)-(a.t||0)});rows=rows.slice(0,40);
+rows.sort(function(a,b){return (b.t||0)-(a.t||0)});rows=rows.slice(0,25);
 function openState(t){if(t.shares<=0)return {txt:"open",c:"mut"};var win="+"+money(t.shares-t.cost)+" if win";
 if(t.window!==s.window){var rr=RS[t.mk]||{};var pl=rr.pendingLean?rr.pendingLean[t.window]:null;if(pl==null||pl===0)return {txt:"waiting for result · "+win,c:"mut"};var ok=(pl>0)===(t.side==="UP");return {txt:(ok?"likely win · "+win.replace(" if win",""):"likely loss · \u2212"+money(t.cost))+" · waiting",c:ok?"ok":"bad"}}
 var up=(b.chainlink!=null&&b.open!=null)?(b.chainlink>b.open?1:b.chainlink<b.open?-1:0):null;
