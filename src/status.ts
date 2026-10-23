@@ -210,7 +210,7 @@ var nopen=sum("open");el("lopen").textContent=nopen?nopen+" open":"";
 var rows=[];ALL.forEach(function(l){(l.recent||[]).forEach(function(t){rows.push(Object.assign({mk:l.label||"BTC 5m"},t))})});
 rows.sort(function(a,b){return (b.t||0)-(a.t||0)});rows=rows.slice(0,25);
 function openState(t){if(t.shares<=0)return {txt:"open",c:"mut"};var win="+"+money(t.shares-t.cost)+" if win";
-if(t.window!==s.window){var rr=RS[t.mk]||{};var pl=rr.pendingLean?rr.pendingLean[t.window]:null;if(pl==null||pl===0)return {txt:"waiting for result · "+win,c:"mut"};var ok=(pl>0)===(t.side==="UP");return {txt:(ok?"likely win · "+win.replace(" if win",""):"likely loss · \u2212"+money(t.cost))+" · waiting",c:ok?"ok":"bad"}}
+var rr=RS[t.mk]||{};var b=rr.lastBook||{};if(t.window!==(rr.window||b.window)){var pl=rr.pendingLean?rr.pendingLean[t.window]:null;if(pl==null||pl===0)return {txt:"waiting for result · "+win,c:"mut"};var ok=(pl>0)===(t.side==="UP");return {txt:(ok?"likely win · "+win.replace(" if win",""):"likely loss · \u2212"+money(t.cost))+" · waiting",c:ok?"ok":"bad"}}
 var up=(b.chainlink!=null&&b.open!=null)?(b.chainlink>b.open?1:b.chainlink<b.open?-1:0):null;
 var mine=t.side==="UP"?b.upAsk:b.downAsk;var mk=mine!=null?" · "+cents(mine):"";
 if(up==null)return {txt:"open"+mk+" · "+win,c:"mut"};
