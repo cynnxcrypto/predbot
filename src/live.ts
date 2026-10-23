@@ -48,7 +48,7 @@ export type LiveConfig = { mode: LiveMode; variant: string; size: number; maxLos
 type VariantEntry = { variant?: string; size?: number; haltAfterLosses?: number };
 type MarketEntry = VariantEntry & { series?: string; maxLossPerDay?: number; mode?: string; variants?: VariantEntry[] };
 /** Streak of straight losses per variant and whether it tripped the halt. */
-export type Halt = { streak: number; halted: boolean; haltedAt: number | null };
+export type Halt = { streak: number; halted: boolean; haltedAt: number | null; paused?: boolean };
 
 /** Taker fee Polymarket charges on these markets (same formula the paper tests use); 0 when nothing filled. */
 export function feeOf(cost: number, shares: number): number {
@@ -239,6 +239,8 @@ export class LiveTrader {
   won = 0;
   net = 0;
   private dayNet = new Map<string, number>();
+  /** Net per day and variant ("day|variant"), so the dashboard can show only the rules still configured. */
+  private dayVarNet = new Map<string, number>();
   /** Settled totals per variant, for the status page. */
   private byVariant = new Map<string, { trades: number; won: number; net: number }>();
   /** Loss streaks per variant (see haltAfterLosses). */
@@ -295,8 +297,9 @@ export class LiveTrader {
   days(): LiveDay[] {
     if (this.daysCache && Date.now() - this.daysCache.at < 60_000) return this.daysCache.days;
     const byDay = new Map<string, LiveDay>();
+    const active = new Set(this.config.variants.map((v) => v.variant));
     for (const t of readAll<LiveTrade>(`${this.prefix}live`)) {
-      if (t.dry || t.t < this.config.statsSince) continue;
+      if (t.dry || t.t < this.config.statsSince || !active.has(t.variant)) continue;
       const day = kstDay(t.window * 1000);
       let d = byDay.get(day);
       if (!d) byDay.set(day, (d = { day, orders: 0, filled: 0, skipped: 0, noFill: 0, settled: 0, won: 0, net: 0 }));
@@ -307,7 +310,7 @@ export class LiveTrader {
     }
     // Settled results come from the totals file (the day rows above are written at order time, before the result is known).
     for (const t of loadJson<LiveTrade[]>(`${this.prefix}live-totals.json`, []).map(withFee)) {
-      if (t.dry || t.pnl == null || t.t < this.config.statsSince) continue;
+      if (t.dry || t.pnl == null || t.t < this.config.statsSince || !active.has(t.variant)) continue;
       const day = kstDay(t.window * 1000);
       let d = byDay.get(day);
       if (!d) byDay.set(day, (d = { day, orders: 0, filled: 0, skipped: 0, noFill: 0, settled: 0, won: 0, net: 0 }));
@@ -335,6 +338,7 @@ export class LiveTrader {
     // Per-day totals keyed by the window's day, so a trade settled late (after a restart) still lands on its own day.
     const day = kstDay(t.window * 1000);
     this.dayNet.set(day, (this.dayNet.get(day) ?? 0) + t.pnl);
+    this.dayVarNet.set(`${day}|${t.variant}`, (this.dayVarNet.get(`${day}|${t.variant}`) ?? 0) + t.pnl);
     let v = this.byVariant.get(t.variant);
     if (!v) this.byVariant.set(t.variant, (v = { trades: 0, won: 0, net: 0 }));
     v.trades += 1;
@@ -468,7 +472,7 @@ export class LiveTrader {
     if (this.config.mode === "off" || !rule) return;
     // Halts are read from the file before every order, so editing data/<prefix>live-halts.json takes effect at once.
     this.halts = loadJson<Record<string, Halt>>(`${this.prefix}live-halts.json`, this.halts);
-    if (this.halts[trade.variant]?.halted) return;
+    if (this.halts[trade.variant]?.halted || this.halts[trade.variant]?.paused) return;
     if (this.open.some((t) => t.window === trade.window && t.variant === trade.variant)) return;
     const size = rule.size;
     if (this.todayLoss() >= this.config.maxLossPerDay) {
@@ -801,6 +805,16 @@ export class LiveTrader {
     }
   }
 
+  /** Pause or resume one real rule by hand (dashboard button); kept in the halts file, read before every order. */
+  setPaused(variant: string, on: boolean) {
+    this.halts = loadJson<Record<string, Halt>>(`${this.prefix}live-halts.json`, this.halts);
+    const h = this.halts[variant] ?? { streak: 0, halted: false, haltedAt: null };
+    h.paused = on;
+    this.halts[variant] = h;
+    saveJson(`${this.prefix}live-halts.json`, this.halts);
+    saveJson(`${this.prefix}live-state.json`, { at: Date.now(), ...this.status() });
+  }
+
   /** A claim batch went through: drop the window from the queue and note the transaction on its trades. */
   markClaimed(redeem: Redeem, hash: string) {
     this.redeems = this.redeems.filter((r) => r !== redeem);
@@ -821,6 +835,10 @@ export class LiveTrader {
 
   status() {
     const c = this.config;
+    const active = new Set(c.variants.map((v) => v.variant));
+    const shown = { trades: 0, won: 0, net: 0, today: 0 };
+    for (const [name, v] of this.byVariant) if (active.has(name)) { shown.trades += v.trades; shown.won += v.won; shown.net += v.net; }
+    for (const [key, net] of this.dayVarNet) { const [day, name] = key.split("|"); if (day === kstDay() && active.has(name)) shown.today += net; }
     return {
       series: this.series.key,
       label: this.series.label,
@@ -837,17 +855,19 @@ export class LiveTrader {
       variants: c.variants.map((v) => {
         const h = this.halts[v.variant];
         const t = this.byVariant.get(v.variant);
-        return { ...v, halted: Boolean(v.haltAfterLosses && h?.halted), streak: h?.streak ?? 0, haltedAt: h?.haltedAt ?? null, trades: t?.trades ?? 0, won: t?.won ?? 0, net: Math.round((t?.net ?? 0) * 100) / 100 };
+        return { ...v, halted: Boolean(v.haltAfterLosses && h?.halted), paused: Boolean(h?.paused), streak: h?.streak ?? 0, haltedAt: h?.haltedAt ?? null, trades: t?.trades ?? 0, won: t?.won ?? 0, net: Math.round((t?.net ?? 0) * 100) / 100 };
       }),
       ready: this.ready,
       wallet: this.wallet,
       funder: c.funder || null,
       balance: this.balance,
-      trades: this.trades,
-      won: this.won,
-      net: Math.round(this.net * 100) / 100,
-      todayNet: Math.round(this.todayNet * 100) / 100,
-      open: this.open.length,
+      trades: shown.trades,
+      won: shown.won,
+      net: Math.round(shown.net * 100) / 100,
+      todayNet: Math.round(shown.today * 100) / 100,
+      open: this.open.filter((t) => active.has(t.variant)).length,
+      // Rules taken out of live.json: their trades stay in the files and the wallet, but off the panel.
+      hidden: { trades: this.trades - shown.trades, net: Math.round((this.net - shown.net) * 100) / 100, open: Math.round(this.open.filter((t) => !active.has(t.variant)).reduce((sum, t) => sum + t.cost + (t.fee ?? 0), 0) * 100) / 100 },
       lastError: this.lastError,
       lastOrderAt: this.lastOrderAt,
       chain: this.chain,
@@ -856,7 +876,7 @@ export class LiveTrader {
       lastSwap: this.lastSwap,
       lastRedeem: this.lastRedeem,
       // The log shows orders that actually bought shares (or dry runs); skipped and unfilled orders only count in the day table.
-      recent: this.recent.filter((t) => t.ok && (t.shares > 0 || t.dry)).slice(0, 20),
+      recent: this.recent.filter((t) => t.ok && (t.shares > 0 || t.dry) && active.has(t.variant)).slice(0, 20),
       days: this.days(),
     };
   }

@@ -40,7 +40,26 @@ export type Variant = {
   /** Salvage: once `salvageAt` seconds or less are left, if our side's best bid is at or under `salvageBid`, sell into the bids. */
   salvageAt?: number;
   salvageBid?: number;
+  /** When the idea was added (shown as "new" for a week) and what it is trying, in plain words. */
+  added?: string;
+  idea?: string;
 };
+
+/** Rules enrique discarded from the dashboard: they stop simulating everywhere. Kept in data/discarded.json. */
+let discardedCache: { at: number; set: Set<string> } | null = null;
+export function discarded(): Set<string> {
+  if (discardedCache && Date.now() - discardedCache.at < 5000) return discardedCache.set;
+  const set = new Set(loadJson<string[]>("discarded.json", []));
+  discardedCache = { at: Date.now(), set };
+  return set;
+}
+export function setDiscarded(name: string, on: boolean) {
+  const set = discarded();
+  if (on) set.add(name);
+  else set.delete(name);
+  saveJson("discarded.json", [...set].sort());
+  discardedCache = { at: Date.now(), set };
+}
 
 /** The variants run side by side. "base" keeps the original file names; the env vars tune it. */
 export const VARIANTS: Variant[] = [
@@ -55,25 +74,25 @@ export const VARIANTS: Variant[] = [
   // band80-30 with the live fill rule: skip the second the ask fell. In the recorded books this kept 93% of wins.
   { name: "band80-30-chase", left: 30, floor: 0.8, cap: 0.9, size: 20, noFall: true },
   // band80-30 with the jump guard: every real loss up to 23 Oct came from an ask that was under ~70-75c one second before it first read 80-90c.
-  { name: "band80-30-j70", left: 30, floor: 0.8, cap: 0.9, size: 20, prevFloor: 0.70 },
+  { name: "band80-30-j70", left: 30, floor: 0.8, cap: 0.9, size: 20, prevFloor: 0.70, added: "2026-10-22", idea: "band80-30, but skip when the side's ask was under 70c a second earlier (every real loss was such a jump)" },
   // enrique's long shot (20 Oct): either side under 10c in the first 90s of the window, $5 a trade.
   { name: "cheap10-first90", left: 0, cap: 0.1, size: 5, first: 90 },
   // enrique's favourite rule (21 Oct): buy the favourite the first time its ask reaches 93c, $5. Replay: 2c a trade on BTC 5m, 12-16c on BTC 15m.
-  { name: "fav93", left: 0, cap: 0.995, size: 5, favAt: 0.93 },
+  { name: "fav93", left: 0, cap: 0.995, size: 5, favAt: 0.93, added: "2026-10-21", idea: "buy the favourite the first time it reaches 93c" },
   // The one slice of the favourite replay that beat the price at every threshold: 93c reached between 2 and 3 minutes in.
-  { name: "fav93-mid", left: 0, cap: 0.995, size: 5, favAt: 0.93, favFrom: 120, favTo: 180 },
+  { name: "fav93-mid", left: 0, cap: 0.995, size: 5, favAt: 0.93, favFrom: 120, favTo: 180, added: "2026-10-21", idea: "fav93 only when 93c is reached 2-3 minutes in" },
   // Best pooled long-shot cell of the grid replay: 12c in the first 60s.
-  { name: "cheap12-first60", left: 0, cap: 0.12, size: 5, first: 60 },
+  { name: "cheap12-first60", left: 0, cap: 0.12, size: 5, first: 60, added: "2026-10-21", idea: "long shot at 12c in the first minute" },
   // Replay of 4,507 first hits (19-23 Oct, four 5m coins): fav93 wins 93.9% (-2c a trade). Two filters lifted it:
   // a small Chainlink lead of 0-3bp with 3 minutes or less left won 95.9% (+8c), and an ask that had held 90c+ for the
   // previous ten snapshots won 96.4% (+13c, mostly BTC). Paper only, to see if either survives out of sample.
-  { name: "fav93-lead", left: 0, cap: 0.995, size: 5, favAt: 0.93, favFrom: 120, leadMin: 0, leadMax: 3 },
-  { name: "fav93-hold", left: 0, cap: 0.995, size: 5, favAt: 0.93, holdRows: 10, holdAt: 0.9 },
+  { name: "fav93-lead", left: 0, cap: 0.995, size: 5, favAt: 0.93, favFrom: 120, leadMin: 0, leadMax: 3, added: "2026-10-23", idea: "fav93 only with a small Chainlink lead (0-3bp) and 3 minutes or less left" },
+  { name: "fav93-hold", left: 0, cap: 0.995, size: 5, favAt: 0.93, holdRows: 10, holdAt: 0.9, added: "2026-10-23", idea: "fav93 only when the ask held 90c+ for the previous ten snapshots" },
   // Threshold grid (23 Oct): on SOL 5m the favourite only pays from 95c up (95c +$8, 97c +$12 over ~750 windows; 93c -$19).
-  { name: "fav95", left: 0, cap: 0.995, size: 5, favAt: 0.95 },
+  { name: "fav95", left: 0, cap: 0.995, size: 5, favAt: 0.95, added: "2026-10-23", idea: "favourite at 95c, for SOL where 93c does not pay" },
   // enrique's salvage idea (23 Oct): cheap10-first90, but at 120s left sell if our side's bid is 5c or less. Replay of 713
   // long shots: 244 sold, none of them went on to win, ~$0.90 of each $5 recovered (pooled -$8 -> +$189; BTC/SOL still negative).
-  { name: "cheap10-salvage", left: 0, cap: 0.1, size: 5, first: 90, salvageAt: 120, salvageBid: 0.05 },
+  { name: "cheap10-salvage", left: 0, cap: 0.1, size: 5, first: 90, salvageAt: 120, salvageBid: 0.05, added: "2026-10-23", idea: "cheap10, but sell a dead one at 120s left to get ~18% back" },
 ];
 
 export type PaperTrade = {
@@ -159,6 +178,7 @@ export class PaperTrader {
 
   consider(row: BookRow) {
     const { left: LEFT, cap: CAP, size: SIZE } = this.v;
+    if (discarded().has(this.v.name)) return;
     if (this.v.salvageAt != null) this.considerSalvage(row);
     const prev = this.prevAsk?.window === row.window ? this.prevAsk : null;
     this.prevAsk = { window: row.window, up: row.upAsk, down: row.downAsk };
@@ -398,6 +418,6 @@ export class PaperTrader {
 
   status() {
     const { left: LEFT, cap: CAP, size: SIZE } = this.v;
-    return { name: this.v.name, rule: this.v.favAt != null ? `favourite when its ask reaches ${Math.round(this.v.favAt * 100)}c, ${this.v.favFrom != null ? `${this.v.favFrom}-${this.v.favTo}s in` : "any time"}, $${SIZE}` : this.v.first != null ? `first ${this.v.first}s, either side <= ${Math.round(CAP * 100)}c, $${SIZE}${this.v.salvageAt != null ? `, sell at ${this.v.salvageAt}s left if bid <= ${Math.round((this.v.salvageBid ?? 0) * 100)}c` : ""}` : `<=${LEFT}s, ask ${this.v.floor ? Math.round(this.v.floor * 100) + "c to " : "<= "}${Math.round(CAP * 100)}c${this.v.noFall ? ", not falling" : ""}, $${SIZE}`, trades: this.trades, won: this.won, net: Math.round(this.net * 100) / 100, open: this.open.length, noAsk: this.noAsk, days: [...this.byDay.values()].sort((a, b) => (a.day < b.day ? 1 : -1)) };
+    return { name: this.v.name, size: SIZE, added: this.v.added ?? null, idea: this.v.idea ?? null, discarded: discarded().has(this.v.name), rule: this.v.favAt != null ? `favourite when its ask reaches ${Math.round(this.v.favAt * 100)}c, ${this.v.favFrom != null ? `${this.v.favFrom}-${this.v.favTo}s in` : "any time"}, $${SIZE}` : this.v.first != null ? `first ${this.v.first}s, either side <= ${Math.round(CAP * 100)}c, $${SIZE}${this.v.salvageAt != null ? `, sell at ${this.v.salvageAt}s left if bid <= ${Math.round((this.v.salvageBid ?? 0) * 100)}c` : ""}` : `<=${LEFT}s, ask ${this.v.floor ? Math.round(this.v.floor * 100) + "c to " : "<= "}${Math.round(CAP * 100)}c${this.v.noFall ? ", not falling" : ""}, $${SIZE}`, trades: this.trades, won: this.won, net: Math.round(this.net * 100) / 100, open: this.open.length, noAsk: this.noAsk, days: [...this.byDay.values()].sort((a, b) => (a.day < b.day ? 1 : -1)) };
   }
 }
