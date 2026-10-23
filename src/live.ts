@@ -50,6 +50,22 @@ type MarketEntry = VariantEntry & { series?: string; maxLossPerDay?: number; mod
 /** Streak of straight losses per variant and whether it tripped the halt. */
 export type Halt = { streak: number; halted: boolean; haltedAt: number | null };
 
+/** Taker fee Polymarket charges on these markets (same formula the paper tests use); 0 when nothing filled. */
+export function feeOf(cost: number, shares: number): number {
+  if (!(shares > 0) || !(cost > 0)) return 0;
+  const p = cost / shares;
+  return Math.round(0.07 * shares * p * (1 - p) * 1e6) / 1e6;
+}
+
+/** Rows written before fees were booked: charge the fee now so totals match the wallet. */
+function withFee(t: LiveTrade): LiveTrade {
+  if (t.fee == null && !t.dry && t.ok && t.shares > 0) {
+    t.fee = feeOf(t.cost, t.shares);
+    if (t.pnl != null) t.pnl -= t.fee;
+  }
+  return t;
+}
+
 export type LiveDay = { day: string; orders: number; filled: number; skipped: number; noFill: number; settled: number; won: number; net: number };
 
 export type LiveTrade = {
@@ -73,6 +89,8 @@ export type LiveTrade = {
   /** Dollars actually paid (makingAmount), shares actually received (takingAmount). */
   cost: number;
   shares: number;
+  /** Polymarket's taker fee on crypto markets, charged in pUSD on top of cost: 7% x shares x p x (1 - p). */
+  fee?: number;
   resolvedUp: boolean | null;
   won: boolean | null;
   pnl: number | null;
@@ -201,9 +219,10 @@ export class LiveTrader {
     this.redeems = loadJson<Redeem[]>(`${this.prefix}live-redeem.json`, []);
     this.halts = loadJson<Record<string, Halt>>(`${this.prefix}live-halts.json`, {});
     const totals = loadJson<LiveTrade[]>(`${this.prefix}live-totals.json`, []);
-    for (const t of totals) this.count(t);
+    if (totals.some((t) => t.fee == null && t.ok && t.shares > 0 && !t.dry)) saveJson(`${this.prefix}live-totals.json`, totals.map(withFee));
+    for (const t of totals) this.count(withFee(t));
     // Recent rows include skipped and unfilled orders, which live only in the day files, so the log looks the same after a restart.
-    const logged = readAll<LiveTrade>(`${this.prefix}live`).filter((t) => !t.dry && t.t >= this.config.statsSince).sort((a, b) => b.t - a.t);
+    const logged = readAll<LiveTrade>(`${this.prefix}live`).filter((t) => !t.dry && t.t >= this.config.statsSince).map(withFee).sort((a, b) => b.t - a.t);
     this.recent = [...this.open, ...logged].slice(0, 40);
     // Wins from before the claim step existed (or from a crash) are still shares: queue them too.
     const cutoff = Date.now() / 1000 - 3 * 86400;
@@ -231,7 +250,7 @@ export class LiveTrader {
       else d.filled += 1;
     }
     // Settled results come from the totals file (the day rows above are written at order time, before the result is known).
-    for (const t of loadJson<LiveTrade[]>(`${this.prefix}live-totals.json`, [])) {
+    for (const t of loadJson<LiveTrade[]>(`${this.prefix}live-totals.json`, []).map(withFee)) {
       if (t.dry || t.pnl == null || t.t < this.config.statsSince) continue;
       const day = kstDay(t.window * 1000);
       let d = byDay.get(day);
@@ -459,6 +478,7 @@ export class LiveTrader {
         row.error = res?.success ? null : (res?.errorMsg || (detail ? JSON.stringify(detail).slice(0, 200) : "order rejected"));
         row.cost = Number(res?.makingAmount) || 0;
         row.shares = Number(res?.takingAmount) || 0;
+        row.fee = feeOf(row.cost, row.shares);
         this.lastOrderAt = Date.now();
         if (row.ok && row.shares > 0) {
           console.log(`live: bought ${row.shares.toFixed(2)} ${trade.side} for $${row.cost.toFixed(2)} (${Math.round((row.cost / row.shares) * 100)}c) with ${trade.left}s left`);
@@ -491,7 +511,8 @@ export class LiveTrader {
     for (const trade of trades) {
       trade.resolvedUp = resolvedUp;
       trade.won = (trade.side === "UP") === resolvedUp;
-      trade.pnl = trade.dry ? 0 : (trade.won ? trade.shares : 0) - trade.cost;
+      if (trade.fee == null) trade.fee = trade.dry ? 0 : feeOf(trade.cost, trade.shares);
+      trade.pnl = trade.dry ? 0 : (trade.won ? trade.shares : 0) - trade.cost - trade.fee;
       this.count(trade);
       this.track(trade);
       this.remember(trade);
