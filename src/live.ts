@@ -44,7 +44,7 @@ import { append, loadJson, readAll, saveJson } from "./store.js";
 
 export type LiveMode = "off" | "dry" | "live";
 export type LiveVariant = { variant: string; size: number; haltAfterLosses: number };
-export type LiveConfig = { mode: LiveMode; variant: string; size: number; maxLossPerDay: number; funder: string; variants: LiveVariant[]; statsSince: number; startBalance: number | null };
+export type LiveConfig = { mode: LiveMode; variant: string; size: number; maxLossPerDay: number; funder: string; variants: LiveVariant[]; statsSince: number; startBalance: number | null; deposits: number };
 type VariantEntry = { variant?: string; size?: number; haltAfterLosses?: number };
 type MarketEntry = VariantEntry & { series?: string; maxLossPerDay?: number; mode?: string; variants?: VariantEntry[] };
 /** Streak of straight losses per variant and whether it tripped the halt. */
@@ -107,7 +107,7 @@ const routerAbi = new Interface([
 type Swap = { want: number; amount: number; tx: string | null; at: number; error: string | null };
 const provider = new StaticJsonRpcProvider(RPC, 137);
 const ctfAbi = new Interface(["function redeemPositions(address collateralToken, bytes32 parentCollectionId, bytes32 conditionId, uint256[] indexSets)"]);
-const DEFAULT: LiveConfig = { mode: "off", variant: "band80-30", size: 5, maxLossPerDay: 25, funder: "", variants: [], statsSince: 0, startBalance: null };
+const DEFAULT: LiveConfig = { mode: "off", variant: "band80-30", size: 5, maxLossPerDay: 25, funder: "", variants: [], statsSince: 0, startBalance: null, deposits: 0 };
 
 const sizeOf = (raw: unknown) => {
   const size = Number(raw ?? DEFAULT.size);
@@ -119,12 +119,14 @@ export function liveConfig(seriesKey = ""): LiveConfig {
   const since = typeof file.statsSince === "number" ? file.statsSince : Date.parse(String(file.statsSince ?? ""));
   // "startBalance": what the wallet held before the first real order; the dashboard compares wallet and ledger against it.
   const startBalance = Number.isFinite(Number(file.startBalance)) && Number(file.startBalance) > 0 ? Number(file.startBalance) : null;
+  // "deposits": money added to the wallet after startBalance (top-ups), so the wallet-vs-ledger line can account for it.
+  const deposits = Number.isFinite(Number(file.deposits)) ? Number(file.deposits) : 0;
   const globalMode: LiveMode = file.mode === "live" || file.mode === "dry" ? file.mode : "off";
   let raw: MarketEntry = file;
   let mode = globalMode;
   if (seriesKey) {
     const entry = (file.markets ?? []).find((m) => m.series === seriesKey);
-    if (!entry) return { ...DEFAULT, mode: "off", funder: String(file.funder ?? "").trim(), statsSince: Number.isFinite(since) ? since : 0, startBalance };
+    if (!entry) return { ...DEFAULT, mode: "off", funder: String(file.funder ?? "").trim(), statsSince: Number.isFinite(since) ? since : 0, startBalance, deposits };
     raw = entry;
     // A market may be quieter than the global mode (off or dry), never louder.
     if (entry.mode === "off" || (entry.mode === "dry" && globalMode === "live")) mode = entry.mode;
@@ -147,6 +149,7 @@ export function liveConfig(seriesKey = ""): LiveConfig {
     variants,
     statsSince: Number.isFinite(since) ? since : 0,
     startBalance,
+    deposits,
   };
 }
 
@@ -674,6 +677,8 @@ export class LiveTrader {
       maxLossPerDay: c.maxLossPerDay,
       statsSince: c.statsSince || null,
       startBalance: c.startBalance,
+      deposits: c.deposits,
+      toClaim: this.redeems.reduce((sum, r) => sum + r.shares, 0),
       variants: c.variants.map((v) => {
         const h = this.halts[v.variant];
         const t = this.byVariant.get(v.variant);
