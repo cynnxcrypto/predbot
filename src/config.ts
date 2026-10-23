@@ -14,7 +14,7 @@ export const SLUG = "btc-updown-5m";
 /** Seconds-left checkpoints at which the book is kept in the window summary. */
 export const CHECKPOINTS = [299, 270, 240, 210, 180, 150, 120, 90, 60, 45, 30, 20, 10, 5, 1];
 
-export type Symbol = "btc" | "eth" | "sol" | "xrp";
+export type Symbol = "btc" | "eth" | "sol" | "xrp" | "doge" | "bnb" | "hype";
 /** One up/down market series the recorder follows. The first one keeps the original file names. */
 export type Series = { key: string; label: string; slug: string; windowSec: number; symbol: Symbol };
 export const SERIES: Series[] = [
@@ -22,6 +22,9 @@ export const SERIES: Series[] = [
   { key: "eth5m", label: "ETH 5m", slug: "eth-updown-5m", windowSec: 300, symbol: "eth" },
   { key: "sol5m", label: "SOL 5m", slug: "sol-updown-5m", windowSec: 300, symbol: "sol" },
   { key: "xrp5m", label: "XRP 5m", slug: "xrp-updown-5m", windowSec: 300, symbol: "xrp" },
+  { key: "doge5m", label: "DOGE 5m", slug: "doge-updown-5m", windowSec: 300, symbol: "doge" },
+  { key: "bnb5m", label: "BNB 5m", slug: "bnb-updown-5m", windowSec: 300, symbol: "bnb" },
+  { key: "hype5m", label: "HYPE 5m", slug: "hype-updown-5m", windowSec: 300, symbol: "hype" },
   { key: "btc15m", label: "BTC 15m", slug: "btc-updown-15m", windowSec: 900, symbol: "btc" },
   { key: "eth15m", label: "ETH 15m", slug: "eth-updown-15m", windowSec: 900, symbol: "eth" },
 ];

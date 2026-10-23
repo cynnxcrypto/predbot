@@ -40,6 +40,14 @@ export type Variant = {
   /** Salvage: once `salvageAt` seconds or less are left, if our side's best bid is at or under `salvageBid`, sell into the bids. */
   salvageAt?: number;
   salvageBid?: number;
+  /** Maker test: at the trigger, instead of taking the ask, rest a bid this far under it (no fee); it fills if the ask later comes down to it, else the window is skipped. */
+  rest?: number;
+  /** Only trade when the UTC hour is inside [from, to). */
+  hoursUtc?: [number, number];
+  /** Skip when Chainlink has already moved more than this many basis points from the open, either way. */
+  maxMoveBp?: number;
+  /** Cross-coin check: BTC only trades when ETH's book favours the same side this window; every other coin checks BTC. */
+  confirmCross?: boolean;
   /** When the idea was added (shown as "new" for a week) and what it is trying, in plain words. */
   added?: string;
   idea?: string;
@@ -104,6 +112,13 @@ export const VARIANTS: Variant[] = [
   { name: "band90-30", left: 30, floor: 0.9, cap: 0.95, size: 5, added: "2026-10-23", idea: "projection side priced 90-95c with 30s left: band80-30 one notch surer" },
   { name: "band80-30-lead", left: 30, floor: 0.8, cap: 0.9, size: 5, leadMin: 0, leadMax: 3, added: "2026-10-23", idea: "band80-30 only with a small Chainlink lead (0-3bp) toward the side" },
   { name: "cheap10-lead", left: 0, cap: 0.1, size: 5, first: 90, leadMin: 2, added: "2026-10-23", idea: "cheap10, but only when Chainlink already moved 2bp+ toward the cheap side (price and book disagree)" },
+  // enrique's "paper test it, why not" (23 Oct 16:42 KST): maker order, time of day, calm windows, cross-coin confirmation.
+  { name: "fav93-rest", left: 0, cap: 0.995, size: 5, favAt: 0.93, rest: 0.01, added: "2026-10-23", idea: "fav93, but rest a bid 1c under the ask instead of taking it: no fee if it fills, skipped if it never does" },
+  { name: "fav93-asia", left: 0, cap: 0.995, size: 5, favAt: 0.93, hoursUtc: [0, 8], added: "2026-10-23", idea: "fav93 only 09:00-17:00 KST (Asian hours)" },
+  { name: "fav93-us", left: 0, cap: 0.995, size: 5, favAt: 0.93, hoursUtc: [13, 21], added: "2026-10-23", idea: "fav93 only 22:00-06:00 KST (US hours)" },
+  { name: "fav93-calm", left: 0, cap: 0.995, size: 5, favAt: 0.93, maxMoveBp: 20, added: "2026-10-23", idea: "fav93 only when the price has moved under 20bp from open either way (skip wild windows)" },
+  { name: "fav93-cross", left: 0, cap: 0.995, size: 5, favAt: 0.93, confirmCross: true, added: "2026-10-23", idea: "fav93 only when the other coin's book leans the same way (BTC checks ETH, every other coin checks BTC)" },
+  { name: "band80-30-cross", left: 30, floor: 0.8, cap: 0.9, size: 5, confirmCross: true, added: "2026-10-23", idea: "band80-30 only when the other coin's book leans the same way" },
 ];
 
 export type PaperTrade = {
@@ -130,10 +145,19 @@ const mean = (xs: number[]) => (xs.length ? xs.reduce((s, x) => s + x, 0) / xs.l
 /** Where a paper trader runs: file-name prefix for the series, its settlement feed and window length. */
 export type PaperHome = { prefix?: string; feed?: Feed; windowSec?: number };
 
+/** Each series' latest book lean, for the cross-coin rule. Keyed by file prefix ("" is BTC 5m). */
+const latestLean = new Map<string, { window: number; up: boolean | null }>();
+function partnerOf(prefix: string) {
+  return prefix === "" ? "eth5m-" : "";
+}
+
 export class PaperTrader {
   readonly v: Variant;
   private readonly feed: Feed;
   private readonly windowSec: number;
+  private readonly prefix: string;
+  /** A resting maker bid waiting for the ask to come down (the `rest` rule). */
+  private resting: { window: number; up: boolean; price: number } | null = null;
   /** File names: the base variant keeps the original ones, so its history carries on. */
   private readonly kind: string;
   private readonly openFile: string;
@@ -154,6 +178,7 @@ export class PaperTrader {
     this.feed = home.feed ?? chainlink;
     this.windowSec = home.windowSec ?? WINDOW_SEC;
     const prefix = home.prefix ?? "";
+    this.prefix = prefix;
     const suffix = v.name === "base" ? "" : `-${v.name}`;
     this.kind = `${prefix}paper${suffix}`;
     this.openFile = `${prefix}paper${suffix}-open.json`;
@@ -193,6 +218,18 @@ export class PaperTrader {
     if (this.v.salvageAt != null) this.considerSalvage(row);
     const prev = this.prevAsk?.window === row.window ? this.prevAsk : null;
     this.prevAsk = { window: row.window, up: row.upAsk, down: row.downAsk };
+    if (row.upAsk != null && row.downAsk != null) latestLean.set(this.prefix, { window: row.window, up: row.upAsk > row.downAsk ? true : row.downAsk > row.upAsk ? false : null });
+    if (this.resting && (this.resting.window !== row.window || row.left < 1)) this.resting = null;
+    if (this.resting) {
+      const best = (this.resting.up ? row.upAsks : row.downAsks)[0]?.[0];
+      if (best != null && best <= this.resting.price + 1e-9) {
+        const r = this.resting;
+        this.resting = null;
+        this.book(row, r.up, r.price, SIZE / r.price, SIZE, 0);
+      }
+      return;
+    }
+    if (!this.gateOk(row)) return;
     if (this.v.first != null) return this.considerEarly(row);
     if (this.v.favAt != null) return this.considerFav(row);
     if (row.left > LEFT || row.left < 1 || !row.chainlink) return;
@@ -207,7 +244,7 @@ export class PaperTrader {
     const frac = Math.min(1, (row.t - (closeMs - 60000)) / 60000);
     const projected = knownAverage * frac + row.chainlink * (1 - frac);
     const up = projected >= openAverage;
-    if (!this.leadOk(row, up)) return;
+    if (!this.leadOk(row, up) || !this.crossOk(row, up)) return;
     const levels = up ? row.upAsks : row.downAsks;
     const FLOOR = this.v.floor ?? 0;
     if (this.v.noFall) {
@@ -315,6 +352,50 @@ export class PaperTrader {
     return lead >= (this.v.leadMin ?? -Infinity) && lead < (this.v.leadMax ?? Infinity);
   }
 
+  /** Time-of-day, volatility and cross-coin gates shared by every rule family. */
+  private gateOk(row: BookRow) {
+    if (this.v.hoursUtc) {
+      const h = new Date(row.t).getUTCHours();
+      const [from, to] = this.v.hoursUtc;
+      if (from <= to ? h < from || h >= to : h < from && h >= to) return false;
+    }
+    if (this.v.maxMoveBp != null) {
+      if (row.chainlink == null || row.open == null) return false;
+      if (Math.abs((row.chainlink - row.open) / row.open) * 1e4 > this.v.maxMoveBp) return false;
+    }
+    return true;
+  }
+
+  private crossOk(row: BookRow, up: boolean) {
+    if (!this.v.confirmCross) return true;
+    const other = latestLean.get(partnerOf(this.prefix));
+    return !!other && other.window === row.window && other.up === up;
+  }
+
+  /** Record a filled paper trade. */
+  private book(row: BookRow, up: boolean, ask: number, shares: number, cost: number, fee: number) {
+    const trade: PaperTrade = {
+      variant: this.v.name,
+      window: row.window,
+      t: row.t,
+      left: row.left,
+      side: up ? "UP" : "DOWN",
+      ask,
+      shares,
+      cost,
+      fee,
+      projected: row.chainlink ?? 0,
+      openAverage: row.open ?? 0,
+      resolvedUp: null,
+      won: null,
+      pnl: null,
+    };
+    this.open.push(trade);
+    saveJson(this.openFile, this.open);
+    console.log(`paper ${this.v.name}: ${trade.side} ${shares.toFixed(1)} shares at ${Math.round(ask * 100)}c, ${this.windowSec - row.left}s into the window${fee === 0 ? " (resting bid filled)" : ""}`);
+    this.onTrade?.(trade);
+  }
+
   private considerEarly(row: BookRow) {
     const { cap: CAP, size: SIZE } = this.v;
     const elapsed = this.windowSec - row.left;
@@ -386,9 +467,14 @@ export class PaperTrader {
     // The filters judge the first hit only: a window that fails them is left alone, like the replay they came from.
     this.favSeen = row.window;
     if (!this.leadOk(row, up)) return;
+    if (!this.crossOk(row, up)) return;
     if (this.v.holdRows != null) {
       if (before.length < this.v.holdRows) return;
       if (!before.every((r) => (up ? r.up : r.down) != null && (up ? r.up : r.down)! >= (this.v.holdAt ?? 0) - 1e-9)) return;
+    }
+    if (this.v.rest != null) {
+      this.resting = { window: row.window, up, price: Math.round((ask - this.v.rest) * 100) / 100 };
+      return;
     }
     const levels = up ? row.upAsks : row.downAsks;
     let budget = SIZE;
