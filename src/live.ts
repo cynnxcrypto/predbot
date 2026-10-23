@@ -44,7 +44,7 @@ import { append, loadJson, readAll, saveJson } from "./store.js";
 
 export type LiveMode = "off" | "dry" | "live";
 export type LiveVariant = { variant: string; size: number; haltAfterLosses: number };
-export type LiveConfig = { mode: LiveMode; variant: string; size: number; maxLossPerDay: number; funder: string; variants: LiveVariant[]; statsSince: number; startBalance: number | null; deposits: number };
+export type LiveConfig = { mode: LiveMode; variant: string; size: number; maxLossPerDay: number; funder: string; variants: LiveVariant[]; statsSince: number; startBalance: number | null; deposits: number; claimEveryMin: number };
 type VariantEntry = { variant?: string; size?: number; haltAfterLosses?: number };
 type MarketEntry = VariantEntry & { series?: string; maxLossPerDay?: number; mode?: string; variants?: VariantEntry[] };
 /** Streak of straight losses per variant and whether it tripped the halt. */
@@ -125,7 +125,7 @@ const routerAbi = new Interface([
 type Swap = { want: number; amount: number; tx: string | null; at: number; error: string | null };
 const provider = new StaticJsonRpcProvider(RPC, 137);
 const ctfAbi = new Interface(["function redeemPositions(address collateralToken, bytes32 parentCollectionId, bytes32 conditionId, uint256[] indexSets)"]);
-const DEFAULT: LiveConfig = { mode: "off", variant: "band80-30", size: 5, maxLossPerDay: 25, funder: "", variants: [], statsSince: 0, startBalance: null, deposits: 0 };
+const DEFAULT: LiveConfig = { mode: "off", variant: "band80-30", size: 5, maxLossPerDay: 25, funder: "", variants: [], statsSince: 0, startBalance: null, deposits: 0, claimEveryMin: 60 };
 
 const sizeOf = (raw: unknown) => {
   const size = Number(raw ?? DEFAULT.size);
@@ -139,12 +139,15 @@ export function liveConfig(seriesKey = ""): LiveConfig {
   const startBalance = Number.isFinite(Number(file.startBalance)) && Number(file.startBalance) > 0 ? Number(file.startBalance) : null;
   // "deposits": money added to the wallet after startBalance (top-ups), so the wallet-vs-ledger line can account for it.
   const deposits = Number.isFinite(Number(file.deposits)) ? Number(file.deposits) : 0;
+  // "claimEveryMin": wins are claimed in one relayer transaction this often (the relayer has a daily quota; 23 Oct 2026 it ran
+  // out after ~65 transactions). Winning shares are safe while they wait.
+  const claimEveryMin = Number.isFinite(Number(file.claimEveryMin)) && Number(file.claimEveryMin) >= 1 ? Number(file.claimEveryMin) : DEFAULT.claimEveryMin;
   const globalMode: LiveMode = file.mode === "live" || file.mode === "dry" ? file.mode : "off";
   let raw: MarketEntry = file;
   let mode = globalMode;
   if (seriesKey) {
     const entry = (file.markets ?? []).find((m) => m.series === seriesKey);
-    if (!entry) return { ...DEFAULT, mode: "off", funder: String(file.funder ?? "").trim(), statsSince: Number.isFinite(since) ? since : 0, startBalance, deposits };
+    if (!entry) return { ...DEFAULT, mode: "off", funder: String(file.funder ?? "").trim(), statsSince: Number.isFinite(since) ? since : 0, startBalance, deposits, claimEveryMin };
     raw = entry;
     // A market may be quieter than the global mode (off or dry), never louder.
     if (entry.mode === "off" || (entry.mode === "dry" && globalMode === "live")) mode = entry.mode;
@@ -168,11 +171,34 @@ export function liveConfig(seriesKey = ""): LiveConfig {
     statsSince: Number.isFinite(since) ? since : 0,
     startBalance,
     deposits,
+    claimEveryMin,
   };
 }
 
 /** The relayer runs one batch at a time from our wallet; the traders share this lock. */
 let relayBusy = false;
+/** Every trader, so the BTC 5m one can claim all series' wins in one transaction. */
+const traders: LiveTrader[] = [];
+/** When the relayer said its daily quota is used up: nothing is sent until this time. */
+let relayerBlockedUntil = 0;
+/** When the last claim batch went out. */
+let lastClaimAt = 0;
+/** After a failed batch, try the oldest window alone next time. */
+let claimSingles = false;
+
+/** Reads "quota exceeded ... resets in N seconds" out of a relayer error and pauses relayer work until then. */
+function noteRelayError(error: unknown) {
+  const text = error instanceof Error ? error.message : String(error);
+  const m = /resets in (\d+) seconds/.exec(text);
+  if (/429|quota exceeded/i.test(text)) {
+    relayerBlockedUntil = Date.now() + (m ? Number(m[1]) * 1000 : 3600_000) + 60_000;
+    console.log(`live: relayer quota used up, claims and conversions wait until ${new Date(relayerBlockedUntil).toISOString().slice(11, 16)} UTC`);
+  }
+  return text;
+}
+function relayerBlocked() {
+  return Date.now() < relayerBlockedUntil;
+}
 
 export class LiveTrader {
   readonly series: Series;
@@ -212,6 +238,7 @@ export class LiveTrader {
   private redeeming = false;
 
   constructor(series: Series = SERIES[0]) {
+    traders.push(this);
     this.series = series;
     this.prefix = prefixOf(series);
     this.config = liveConfig(series.key);
@@ -548,7 +575,7 @@ export class LiveTrader {
   async wrapPending() {
     const usdce = this.chain?.["USDC.e"] ?? 0;
     // One wallet, so the BTC trader alone converts claimed winnings (other series' claims land in the same wallet).
-    if (this.series.key || this.wrapping || relayBusy || this.config.mode === "off" || usdce < 0.5) return;
+    if (this.series.key || this.wrapping || relayBusy || relayerBlocked() || this.config.mode === "off" || usdce < 0.5) return;
     if (this.lastWrap && !this.lastWrap.tx && Date.now() - this.lastWrap.at < 300000) return;
     this.wrapping = true;
     relayBusy = true;
@@ -567,7 +594,7 @@ export class LiveTrader {
       console.log(`live: converted $${usdce.toFixed(2)} of claimed winnings into pUSD (${hash})`);
       await this.refreshBalance();
     } catch (error) {
-      this.lastWrap = { amount: usdce, tx: null, at: Date.now(), error: error instanceof Error ? error.message : String(error) };
+      this.lastWrap = { amount: usdce, tx: null, at: Date.now(), error: noteRelayError(error) };
       console.log(`live: converting winnings into pUSD failed (${this.lastWrap.error}), retrying later`);
     } finally {
       this.wrapping = false;
@@ -587,7 +614,7 @@ export class LiveTrader {
     const auto = raw === "auto" || raw === true;
     const want = auto ? Infinity : Number(raw ?? 0);
     const usdc = this.chain?.["USDC"] ?? 0;
-    if (this.series.key || this.swapping || relayBusy || this.config.mode === "off" || !(want > 0) || usdc < 1) return;
+    if (this.series.key || this.swapping || relayBusy || relayerBlocked() || this.config.mode === "off" || !(want > 0) || usdc < 1) return;
     // The relayer reports "wallet busy" for a while after a claim or wrap went through; give it a minute.
     if (this.lastWrap?.tx && Date.now() - this.lastWrap.at < 60000) return;
     const done = loadJson<Swap[]>("usdc-swaps.json", []);
@@ -620,7 +647,7 @@ export class LiveTrader {
       console.log(`live: swapped $${amount.toFixed(2)} native USDC into USDC.e (${hash}); it becomes pUSD on the next pass`);
       await this.refreshBalance();
     } catch (error) {
-      this.lastSwap = { want, amount, tx: null, at: Date.now(), error: error instanceof Error ? error.message : String(error) };
+      this.lastSwap = { want, amount, tx: null, at: Date.now(), error: noteRelayError(error) };
       console.log(`live: swapping native USDC failed (${this.lastSwap.error}), retrying later`);
     } finally {
       saveJson("usdc-swaps.json", [...done, this.lastSwap]);
@@ -635,51 +662,85 @@ export class LiveTrader {
    * One redeemPositions call per collateral Polymarket has used; the ones that do not match the market are
    * no-ops, so the batch is safe whichever collateral the market was created with.
    */
+  /**
+   * Claim wins. The BTC 5m trader does it for every series: all windows whose result is in go into one relayer
+   * transaction (redeem each market, then wrap the USDC.e that comes out into pUSD), at most once every
+   * `claimEveryMin` minutes, because the relayer's daily quota ran out at ~65 transactions on 23 Oct 2026.
+   */
   async redeemPending() {
-    if (this.redeeming || relayBusy || !this.redeems.length) return;
-    const due = this.redeems.find((r) => r.nextAt <= Date.now());
-    if (!due) return;
+    if (this.series.key || this.redeeming || relayBusy || relayerBlocked()) return;
+    const now = Date.now();
+    const due: { trader: LiveTrader; redeem: Redeem }[] = [];
+    for (const trader of traders) for (const r of trader.redeems) if (r.nextAt <= now) due.push({ trader, redeem: r });
+    if (!due.length) return;
+    if (lastClaimAt && now - lastClaimAt < this.config.claimEveryMin * 60_000) return;
+    due.sort((a, b) => a.redeem.window - b.redeem.window);
+    const batch = claimSingles ? due.slice(0, 1) : due.slice(0, 12);
     this.redeeming = true;
     relayBusy = true;
+    let shares = 0;
     try {
-      due.tries += 1;
-      const market = await marketFor(due.window, this.series.slug);
-      if (!market?.conditionId) throw new Error("market has no condition id yet");
       const relay = this.relay();
-      const calls = COLLATERALS.map((collateral) => ({
-        target: CTF,
-        value: "0",
-        data: ctfAbi.encodeFunctionData("redeemPositions", [collateral, ZERO32, market.conditionId, [1, 2]]),
-      }));
+      const calls: { target: string; value: string; data: string }[] = [];
+      let units = 0n;
+      for (const { trader, redeem } of batch) {
+        redeem.tries += 1;
+        const market = await marketFor(redeem.window, trader.series.slug);
+        if (!market?.conditionId) throw new Error(`${trader.series.label} ${new Date(redeem.window * 1000).toISOString().slice(11, 16)}: market has no condition id yet`);
+        for (const collateral of COLLATERALS) calls.push({ target: CTF, value: "0", data: ctfAbi.encodeFunctionData("redeemPositions", [collateral, ZERO32, market.conditionId, [1, 2]]) });
+        shares += redeem.shares;
+        // One unit under what the market pays, so rounding can never make the wrap ask for more than arrived.
+        units += BigInt(Math.round(redeem.shares * 1e6)) - 1n;
+      }
+      const usdce = this.chain?.["USDC.e"] ?? 0;
+      if (usdce >= 0.5) units += BigInt(Math.floor(usdce * 1e6));
+      if (units > 0n) {
+        calls.push({ target: USDC_E, value: "0", data: erc20.encodeFunctionData("approve", [ONRAMP, units]) });
+        calls.push({ target: ONRAMP, value: "0", data: onrampAbi.encodeFunctionData("wrap", [USDC_E, this.config.funder, units]) });
+      }
       const sent = await relay.executeDepositWalletBatch(calls, this.config.funder, String(Math.floor(Date.now() / 1000) + 600));
       const done = await sent.wait();
       const hash = done?.transactionHash || sent.transactionHash || null;
       if (!hash) throw new Error(`relayer did not confirm (state ${done?.state ?? sent.state ?? "unknown"})`);
-      this.redeems = this.redeems.filter((r) => r !== due);
-      this.lastRedeem = { window: due.window, tx: hash, at: Date.now(), error: null };
-      const totals = loadJson<LiveTrade[]>(`${this.prefix}live-totals.json`, []);
-      for (const t of totals) if (t.window === due.window) { t.redeemTx = hash; t.redeemedAt = Date.now(); }
-      saveJson(`${this.prefix}live-totals.json`, totals);
-      for (const t of this.recent) if (t.window === due.window) { t.redeemTx = hash; t.redeemedAt = Date.now(); }
-      console.log(`live: claimed ${due.shares.toFixed(2)} shares from the ${new Date(due.window * 1000).toISOString().slice(11, 16)} window (${hash})`);
+      lastClaimAt = Date.now();
+      claimSingles = false;
+      for (const { trader, redeem } of batch) trader.markClaimed(redeem, hash);
+      this.lastRedeem = { window: batch[batch.length - 1].redeem.window, tx: hash, at: Date.now(), error: null };
+      this.lastWrap = { amount: Number(units) / 1e6, tx: hash, at: Date.now(), error: null };
+      console.log(`live: claimed ${shares.toFixed(2)} shares from ${batch.length} window(s) and converted them into pUSD (${hash})`);
       await this.refreshBalance();
     } catch (error) {
-      due.lastError = error instanceof Error ? error.message : String(error);
-      due.nextAt = Date.now() + Math.min(600000, 60000 * due.tries);
-      this.lastRedeem = { window: due.window, tx: null, at: Date.now(), error: due.lastError };
-      if (due.tries >= 30) {
-        this.redeems = this.redeems.filter((r) => r !== due);
-        console.log(`live: giving up on claiming the ${new Date(due.window * 1000).toISOString().slice(11, 16)} window after 30 tries (${due.lastError}); claim it on polymarket.com`);
-      } else if (due.tries <= 3 || due.tries % 5 === 0) {
-        console.log(`live: claim not done yet (${due.lastError}), retrying`);
+      const text = noteRelayError(error);
+      claimSingles = batch.length > 1;
+      for (const { trader, redeem } of batch) {
+        redeem.lastError = text;
+        redeem.nextAt = Math.max(relayerBlockedUntil, Date.now() + Math.min(600000, 60000 * redeem.tries));
+        if (redeem.tries >= 30) {
+          trader.redeems = trader.redeems.filter((r) => r !== redeem);
+          console.log(`live: giving up on claiming the ${trader.series.label} ${new Date(redeem.window * 1000).toISOString().slice(11, 16)} window after 30 tries (${text}); claim it on polymarket.com`);
+        }
+        saveJson(`${trader.prefix}live-redeem.json`, trader.redeems);
       }
+      this.lastRedeem = { window: batch[0].redeem.window, tx: null, at: Date.now(), error: text };
+      if (!relayerBlocked()) console.log(`live: claim not done yet (${text}), retrying`);
     } finally {
       this.redeeming = false;
       relayBusy = false;
-      saveJson(`${this.prefix}live-redeem.json`, this.redeems);
       saveJson(`${this.prefix}live-state.json`, { at: Date.now(), ...this.status() });
     }
   }
+
+  /** A claim batch went through: drop the window from the queue and note the transaction on its trades. */
+  markClaimed(redeem: Redeem, hash: string) {
+    this.redeems = this.redeems.filter((r) => r !== redeem);
+    saveJson(`${this.prefix}live-redeem.json`, this.redeems);
+    const totals = loadJson<LiveTrade[]>(`${this.prefix}live-totals.json`, []);
+    for (const t of totals) if (t.window === redeem.window) { t.redeemTx = hash; t.redeemedAt = Date.now(); }
+    saveJson(`${this.prefix}live-totals.json`, totals);
+    for (const t of this.recent) if (t.window === redeem.window) { t.redeemTx = hash; t.redeemedAt = Date.now(); }
+    saveJson(`${this.prefix}live-state.json`, { at: Date.now(), ...this.status() });
+  }
+
 
   abandon(window: number) {
     const before = this.open.length;
@@ -699,6 +760,7 @@ export class LiveTrader {
       statsSince: c.statsSince || null,
       startBalance: c.startBalance,
       deposits: c.deposits,
+      claims: this.series.key ? null : { everyMin: c.claimEveryMin, lastAt: lastClaimAt || null, nextAt: lastClaimAt ? lastClaimAt + c.claimEveryMin * 60_000 : null, blockedUntil: relayerBlocked() ? relayerBlockedUntil : null },
       toClaim: this.redeems.reduce((sum, r) => sum + r.shares, 0),
       variants: c.variants.map((v) => {
         const h = this.halts[v.variant];
