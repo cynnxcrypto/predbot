@@ -2,7 +2,8 @@ import { createServer } from "node:http";
 import { STATUS_PORT } from "./config.js";
 import type { Recorder } from "./recorder.js";
 import { LOGOS } from "./logos.js";
-import { VARIANTS, setDiscarded } from "./paperlive.js";
+import { VARIANTS, discarded, setDiscarded } from "./paperlive.js";
+import { addLiveRule, liveConfig, removeLiveRule } from "./live.js";
 
 /**
  * A one-page status view on 127.0.0.1 so you can see the recorder is alive without reading logs.
@@ -38,6 +39,42 @@ export function serveStatus(recorder: Recorder, build: string, others: Recorder[
         setDiscarded(name, !restore);
         res.writeHead(200, { "content-type": "application/json" });
         res.end(JSON.stringify({ ok: true, name, discarded: !restore }));
+      });
+      return;
+    }
+    if ((req.url === "/api/golive" || req.url === "/api/topaper") && req.method === "POST") {
+      const toLive = req.url === "/api/golive";
+      let body = "";
+      req.on("data", (chunk) => (body += chunk));
+      req.on("end", () => {
+        let series = "";
+        let variant = "";
+        let size = 5;
+        try {
+          const parsed = JSON.parse(body || "{}") as { series?: string; variant?: string; size?: number };
+          series = String(parsed.series ?? "");
+          variant = String(parsed.variant ?? "");
+          size = Number(parsed.size ?? 5);
+        } catch {
+          variant = "";
+        }
+        const r = [recorder, ...others].find((x) => x.series.key === series);
+        if (!r?.live || !VARIANTS.some((v) => v.name === variant)) {
+          res.writeHead(400, { "content-type": "application/json" });
+          res.end(JSON.stringify({ error: "unknown market or rule" }));
+          return;
+        }
+        if (toLive && discarded().has(variant)) {
+          res.writeHead(409, { "content-type": "application/json" });
+          res.end(JSON.stringify({ error: "restore the rule in the paper lab first" }));
+          return;
+        }
+        const out = toLive ? addLiveRule(series, variant, Number.isFinite(size) && size > 0 ? size : 5, 2) : removeLiveRule(series, variant);
+        r.live.config = liveConfig(series);
+        if (toLive) r.live.setPaused(variant, false);
+        console.log(`dashboard: ${variant} on ${r.series.label} ${toLive ? "sent to real money" : "moved back to paper"}${out.changed ? "" : " (no change)"}`);
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ ok: true, series, variant, live: toLive, changed: out.changed }));
       });
       return;
     }
@@ -172,6 +209,17 @@ tr.grp+tr td{border-top:none}
 .btn:hover{color:var(--down);border-color:var(--down)}
 .btn.restore:hover{color:var(--up);border-color:var(--up)}
 .btn.icon{padding:1px 5px;font-size:10px;line-height:1.3}
+.btn.go{padding:0 5px;font-size:9px;line-height:1.5;margin-left:4px;opacity:0;transition:opacity .2s}
+tr:hover .btn.go{opacity:1}.btn.go:hover{color:var(--up);border-color:var(--up)}
+.btn.paper:hover{color:var(--pur);border-color:var(--pur)}
+.tag.live{color:#0f1117;background:var(--up);margin-left:6px;padding:1px 6px;font-size:9px}
+td.islive{background:rgba(61,220,132,.07)}
+@keyframes sent{0%{background:rgba(61,220,132,.5)}100%{background:rgba(61,220,132,.07)}}
+td.sent{animation:sent 1.4s ease-out}
+@keyframes rowout{to{opacity:0;transform:translateX(40px)}}
+tr.out>td{animation:rowout .4s ease-in forwards}
+@keyframes panelpulse{0%{box-shadow:0 0 0 0 rgba(61,220,132,.6)}100%{box-shadow:0 0 0 14px rgba(61,220,132,0)}}
+.panel.pulse{animation:panelpulse .9s ease-out}
 tr.off td{opacity:.45}
 .tag.new{color:var(--acc);border:1px solid var(--acc)}
 .info{display:inline-block;width:14px;height:14px;line-height:13px;text-align:center;border-radius:50%;border:1px solid var(--line);color:var(--mut);font-size:10px;font-style:italic;cursor:help;position:relative;vertical-align:middle;margin-left:4px}
@@ -262,10 +310,12 @@ var coin=function(label){var k=String(label||"").slice(0,3).toLowerCase();if(!CO
 return '<img class="coin img" alt="'+k.toUpperCase()+'" title="'+k.toUpperCase()+'" src="/logo/'+k+'.png" onerror="this.remove()"><span class="coin '+k+'" title="'+k.toUpperCase()+'">'+COINS[k]+"</span>"};
 var hhmm=function(sec){return new Date(sec*1000).toLocaleTimeString("en-GB",{timeZone:"Asia/Seoul",hour:"2-digit",minute:"2-digit"})};
 function cls(n){return n==null?"":n<0?"bad":n>0?"ok":""}
-var seen={};
+var seen={},LABHTML="";
 function swap(id,html){var tb=el(id);var before={};Array.prototype.forEach.call(tb.children,function(tr){var k=tr.getAttribute("data-k");if(k)before[k]={top:tr.getBoundingClientRect().top,res:tr.getAttribute("data-res")}});tb.innerHTML=html;var first=!seen[id];seen[id]=true;Array.prototype.forEach.call(tb.children,function(tr){var k=tr.getAttribute("data-k");if(!k)return;var p=before[k];if(!p){if(!first)tr.classList.add("in");return}var d=p.top-tr.getBoundingClientRect().top;if(Math.abs(d)>1){tr.style.transform="translateY("+d+"px)";void tr.offsetWidth;tr.classList.add("mv");tr.style.transform=""}var r=tr.getAttribute("data-res");if(r&&p.res&&r!==p.res&&(r==="ok"||r==="bad"))tr.classList.add("flash-"+r)})}
 function snapV(){var o={};Array.prototype.forEach.call(document.querySelectorAll(".v.big[id]"),function(e){o[e.id]=e.textContent});return o}
 function tickV(prev){Array.prototype.forEach.call(document.querySelectorAll(".v.big[id]"),function(e){if(prev[e.id]!=null&&prev[e.id]!==e.textContent){e.classList.remove("tick");void e.offsetWidth;e.classList.add("tick")}})}
+async function goLive(series,label,name){if(!confirm("Put "+name+" on REAL money for "+label+" at $5 a trade, halting after 2 straight losses?"))return;var r=await fetch("/api/golive",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({series:series,variant:name,size:5})});var j=await r.json();if(!r.ok){alert(j.error||"failed");return}await poll();var c=document.getElementById("cell-"+String(label+"|"+name).replace(/[^a-z0-9]/gi,"_"));if(c){c.classList.add("sent")}var panel=el("lrules").closest(".panel");if(panel){panel.classList.remove("pulse");void panel.offsetWidth;panel.classList.add("pulse")}}
+async function toPaper(series,variant,btn){if(!confirm("Take "+variant+" off real money here? It keeps simulating on paper."))return;var tr=btn&&btn.closest("tr");if(tr){tr.classList.add("out");await new Promise(function(ok){setTimeout(ok,420)})}var r=await fetch("/api/topaper",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({series:series,variant:variant})});var j=await r.json();if(!r.ok){alert(j.error||"failed");if(tr)tr.classList.remove("out");return}await poll()}
 async function pauseRule(series,variant,on){var r=await fetch("/api/pause",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({series:series,variant:variant,on:on})});var j=await r.json();if(!r.ok)alert(j.error||"failed");else poll()}
 async function discard(name,restore){if(!restore&&!confirm("Discard "+name+" for good? It stops simulating on every market."))return;var r=await fetch("/api/discard",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({name:name,restore:restore})});var j=await r.json();if(!r.ok)alert(j.error||"failed");else poll()}
 async function poll(){try{var s=await (await fetch("/api/status")).json();var prevV=snapV();
@@ -291,7 +341,7 @@ el("ledger").textContent=(L.startBalance!=null&&L.balance!=null)?(function(){var
 var dep=L.deposits||0;var expWallet=L.startBalance+dep+sum("net")+hidNet-open-claim;var gap=wallet-expWallet;
 return "wallet "+money(wallet)+" vs ledger "+money(expWallet)+" (started at "+money(L.startBalance)+(dep?" + "+money(dep)+" deposited":"")+(sum("net")>=0?" +":" \u2212")+money(Math.abs(sum("net")))+(open?" \u2212 "+money(open)+" in open trades":"")+(claim?" \u2212 "+money(claim)+" won, not claimed yet":"")+") \u2192 "+(gap>=0?"+":"\u2212")+money(Math.abs(gap))+" unexplained"+(ch.USDC>0.5?" \u00b7 plus "+money(ch.USDC)+" native USDC not yet converted":"")})():"";el("claim").textContent=el("claim").textContent==="—"?"—":el("claim").textContent;
 el("netk").textContent=L.statsSince?"since start":"all time";var hidT=0,hidN=0;ALL.forEach(function(l){if(l.hidden){hidT+=l.hidden.trades||0;hidN+=l.hidden.net||0}});el("lsince").textContent=(L.statsSince?"everything in this panel counts real trades since "+new Date(L.statsSince).toLocaleString("en-GB",{timeZone:"Asia/Seoul",hour12:false})+" KST; the totals above cover everything":"")+(hidT?(L.statsSince?" · ":"")+"not shown: "+hidT+" trades from rules moved back to paper, "+signed(hidN):"");
-swap("lrules",ALL.filter(function(l){return l.mode!=="off"}).map(function(l){var vs=(l.variants&&l.variants.length)?l.variants:[{variant:l.variant,size:l.size,trades:l.trades,won:l.won,net:l.net,halted:false,streak:0,haltAfterLosses:0}];var st=function(v){return v.halted?2:v.paused?1:0};vs=vs.slice().sort(function(a,b){return st(a)-st(b)});var lb=l.label||"BTC 5m";var head='<tr class="grp" data-k="'+esc("g|"+lb)+'"><td colspan="7"><span>'+coin(lb)+'<b>'+lb+'</b></span><span class="gs">today <b class="'+cls(l.todayNet)+'">'+signed(l.todayNet)+'</b> · stop at −$'+l.maxLossPerDay+' a day · '+vs.length+' rule'+(vs.length===1?'':'s')+'</span></td></tr>';return head+vs.map(function(v,i){return '<tr class="'+(v.halted||v.paused?"dim":"")+'" data-k="'+esc(lb+"|"+v.variant)+'"><td><b>'+v.variant+'</b>'+(l.mode==="dry"?' <span class="mut">dry</span>':'')+(v.halted?' <span class="tag bad">halted</span>':'')+(v.paused?' <span class="tag mut" style="border:1px solid var(--mut)">paused</span>':'')+'</td><td class="r">$'+v.size+'</td><td class="r '+cls(v.net)+'">'+signed(v.net)+'</td><td class="r">'+v.trades+'</td><td class="r">'+(v.trades?Math.round(v.won/v.trades*100)+"%":"—")+'</td><td class="r '+(v.streak?"bad":"mut")+'">'+(v.haltAfterLosses?(v.streak+"/"+v.haltAfterLosses):"")+'</td><td class="r"><button class="btn'+(v.paused?' restore':'')+' icon" title="'+(v.paused?'resume':'pause')+'" onclick="pauseRule(\\''+(l.series||"")+'\\',\\''+v.variant+'\\','+(v.paused?'false':'true')+')">'+(v.paused?'&#9654;':'&#10074;&#10074;')+'</button></td></tr>'}).join("")}).join("")||'<tr><td class="empty" colspan="7">real orders are off</td></tr>');
+swap("lrules",ALL.filter(function(l){return l.mode!=="off"}).map(function(l){var vs=(l.variants&&l.variants.length)?l.variants:[{variant:l.variant,size:l.size,trades:l.trades,won:l.won,net:l.net,halted:false,streak:0,haltAfterLosses:0}];var st=function(v){return v.halted?2:v.paused?1:0};vs=vs.slice().sort(function(a,b){return st(a)-st(b)});var lb=l.label||"BTC 5m";var head='<tr class="grp" data-k="'+esc("g|"+lb)+'"><td colspan="7"><span>'+coin(lb)+'<b>'+lb+'</b></span><span class="gs">today <b class="'+cls(l.todayNet)+'">'+signed(l.todayNet)+'</b> · stop at −$'+l.maxLossPerDay+' a day · '+vs.length+' rule'+(vs.length===1?'':'s')+'</span></td></tr>';return head+vs.map(function(v,i){return '<tr class="'+(v.halted||v.paused?"dim":"")+'" data-k="'+esc(lb+"|"+v.variant)+'"><td><b>'+v.variant+'</b>'+(l.mode==="dry"?' <span class="mut">dry</span>':'')+(v.halted?' <span class="tag bad">halted</span>':'')+(v.paused?' <span class="tag mut" style="border:1px solid var(--mut)">paused</span>':'')+'</td><td class="r">$'+v.size+'</td><td class="r '+cls(v.net)+'">'+signed(v.net)+'</td><td class="r">'+v.trades+'</td><td class="r">'+(v.trades?Math.round(v.won/v.trades*100)+"%":"—")+'</td><td class="r '+(v.streak?"bad":"mut")+'">'+(v.haltAfterLosses?(v.streak+"/"+v.haltAfterLosses):"")+'</td><td class="r"><button class="btn'+(v.paused?' restore':'')+' icon" title="'+(v.paused?'resume':'pause')+'" onclick="pauseRule(\\''+(l.series||"")+'\\',\\''+v.variant+'\\','+(v.paused?'false':'true')+')">'+(v.paused?'&#9654;':'&#10074;&#10074;')+'</button> <button class="btn icon paper" title="back to paper only" onclick="toPaper(\\''+(l.series||"")+'\\',\\''+v.variant+'\\',this)">&#8617;</button></td></tr>'}).join("")}).join("")||'<tr><td class="empty" colspan="7">real orders are off</td></tr>');
 el("bal").textContent=money(L.balance);
 var tn=sum("todayNet"),an=sum("net"),tr=sum("trades"),wn=sum("won");
 el("today").textContent=signed(tn);el("today").className="v big "+cls(tn);
@@ -321,12 +371,12 @@ if(up==null)return {txt:"open"+mk+" · "+win,c:"mut"};
 var ahead=up===0?0:(up>0)===(t.side==="UP")?1:-1;
 return {txt:(ahead>0?"ahead":ahead<0?"behind":"even")+mk+" · "+win,c:ahead>0?"ok":ahead<0?"bad":"mut"}}
 swap("log",rows.length?rows.map(function(t){var o=t.pnl==null&&t.ok&&!t.dry?openState(t):null;var res=o?o.txt:t.pnl==null?(t.ok?"dry":t.status==="skipped"?"skipped":"no fill"):signed(t.pnl);var c=o?o.c:t.pnl==null?"mut":cls(t.pnl);var px=t.shares>0?Math.round(t.cost/t.shares*100)+"¢":cents(t.ask);return '<tr class="'+(t.ok?"":"dim")+'" data-k="'+esc(t.mk+"|"+t.window+"|"+(t.variant||""))+'" data-res="'+(t.pnl==null?"open":t.pnl>=0?"ok":"bad")+'"><td><span class="dot'+(o&&!o.done?" on":"")+'"></span>'+hhmm(t.window)+'</td><td class="'+(t.side==="UP"?"ok":"bad")+'">'+coin(t.mk)+(OL.length?'<span class="mut">'+t.mk.replace(" 5m","")+'</span> ':"")+t.side+'</td><td class="mut">'+(t.variant||"")+'</td><td>'+px+(t.shares>0?" × "+t.shares.toFixed(1):"")+'</td><td class="r">'+(t.cost>0?money(t.cost):"")+'</td><td class="r '+c+'">'+res+'</td></tr>'}).join(""):'<tr><td class="empty" colspan="6">no filled orders yet</td></tr>');
-(function(){var M=[{label:"BTC 5m",papers:s.papers}].concat((s.series||[]).map(function(r){return {label:r.label,papers:r.papers}}));
-var names=(s.papers||[]).map(function(p){return p.name});var rows=names.map(function(n){var meta=(s.papers||[]).filter(function(p){return p.name===n})[0]||{};var cells=[],tot=0,tr=0,wn=0;M.forEach(function(m){var p=(m.papers||[]).filter(function(x){return x.name===n})[0];if(!p||!p.trades){cells.push(null);return}var net=p.net*5/(p.size||5);tot+=net;tr+=p.trades;wn+=p.won;cells.push({net:net,won:p.won,trades:p.trades})});return {name:n,meta:meta,cells:cells,tot:tot,tr:tr,wn:wn}});
+(function(){var M=[{label:"BTC 5m",key:"",papers:s.papers}].concat((s.series||[]).map(function(r){return {label:r.label,key:r.key||"",papers:r.papers}}));var LIVE={};ALL.forEach(function(l){if(l.mode==="off")return;var lb=l.label||"BTC 5m";((l.variants&&l.variants.length)?l.variants:(l.variant?[{variant:l.variant}]:[])).forEach(function(v){LIVE[lb+"|"+v.variant]=true})});var cid=function(k){return "cell-"+esc(k).replace(/[^a-z0-9]/gi,"_")};
+var names=(s.papers||[]).map(function(p){return p.name});var rows=names.map(function(n){var meta=(s.papers||[]).filter(function(p){return p.name===n})[0]||{};var cells=[],tot=0,tr=0,wn=0;M.forEach(function(m){var p=(m.papers||[]).filter(function(x){return x.name===n})[0];if(!p||!p.trades){cells.push(null);return}var net=p.net*5/(p.size||5);tot+=net;tr+=p.trades;wn+=p.won;cells.push({net:net,won:p.won,trades:p.trades,label:m.label,key:m.key})});return {name:n,meta:meta,cells:cells,tot:tot,tr:tr,wn:wn}});
 rows.sort(function(a,b){if(a.meta.discarded!==b.meta.discarded)return a.meta.discarded?1:-1;if(!a.tr!==!b.tr)return a.tr?-1:1;return b.tot-a.tot});
 var isNew=function(d){return d&&(Date.now()-Date.parse(d))<7*86400000};
 el("labhead").innerHTML='<tr><th>rule</th>'+M.map(function(m){return '<th class="r" colspan="2">'+m.label+'</th>'}).join("")+'<th class="r">all</th><th class="r">won</th><th></th></tr>';
-el("lab").innerHTML=rows.map(function(r){var m=r.meta;return '<tr class="'+(m.discarded?"off":"")+'"><td><b>'+r.name+'</b>'+(isNew(m.added)?' <span class="tag new">new</span>':"")+' <span class="info" data-tip="'+esc(m.idea||m.rule||"")+'">i</span></td>'+r.cells.map(function(c){return c?'<td class="r '+cls(c.net)+'">'+signed(c.net)+'</td><td class="wl">'+c.won+'/'+c.trades+'</td>':'<td class="r mut">—</td><td class="wl"></td>'}).join("")+'<td class="r '+cls(r.tr?r.tot:null)+'"><b>'+(r.tr?signed(r.tot):"—")+'</b></td><td class="r">'+(r.tr?Math.round(r.wn/r.tr*100)+"%":"—")+'</td><td class="r">'+(m.discarded?'<button class="btn restore" onclick="discard(\\''+r.name+'\\',true)">restore</button>':'<button class="btn" onclick="discard(\\''+r.name+'\\',false)">discard</button>')+'</td></tr>'}).join("");})();
+var labHtml=rows.map(function(r){var m=r.meta;return '<tr class="'+(m.discarded?"off":"")+'"><td><b>'+r.name+'</b>'+(isNew(m.added)?' <span class="tag new">new</span>':"")+' <span class="info" data-tip="'+esc(m.idea||m.rule||"")+'">i</span></td>'+r.cells.map(function(c,ci){var m=M[ci];var k=m.label+"|"+r.name;var live=!!LIVE[k];var act=r.meta.discarded?'':live?'<span class="tag live">live</span>':'<button class="btn go" title="put '+r.name+' on real money for '+m.label+'" onclick="goLive(\\''+m.key+'\\',\\''+m.label+'\\',\\''+r.name+'\\')">live</button>';return c?'<td class="r '+cls(c.net)+(live?' islive':'')+'" id="'+cid(k)+'">'+signed(c.net)+'</td><td class="wl'+(live?' islive':'')+'">'+c.won+'/'+c.trades+(r.meta.discarded?'':' '+act)+'</td>':'<td class="r mut" id="'+cid(k)+'">—</td><td class="wl">'+(r.meta.discarded?'':act)+'</td>'}).join("")+'<td class="r '+cls(r.tr?r.tot:null)+'"><b>'+(r.tr?signed(r.tot):"—")+'</b></td><td class="r">'+(r.tr?Math.round(r.wn/r.tr*100)+"%":"—")+'</td><td class="r">'+(m.discarded?'<button class="btn restore" onclick="discard(\\''+r.name+'\\',true)">restore</button>':'<button class="btn" onclick="discard(\\''+r.name+'\\',false)">discard</button>')+'</td></tr>'}).join("");if(labHtml!==LABHTML){LABHTML=labHtml;el("lab").innerHTML=labHtml}})();
 el("feeds").innerHTML=s.feeds.map(function(f){return '<tr><td>'+f.name+'</td><td class="'+(f.healthy?"ok":"bad")+'">'+(f.healthy?"live":"down")+'</td><td class="r">'+money(f.last&&f.last.price)+'</td><td class="r">'+(f.last?Math.round((Date.now()-f.last.t)/1000)+"s":"—")+'</td><td class="r">'+f.ticks+'</td></tr>'}).join("");
 el("wd").textContent=s.windowsDone;el("ws").textContent=s.windowsResolved;el("wp").textContent=s.pending;el("sn").textContent=s.snapshots;
 el("err").textContent=s.lastError?"last error: "+s.lastError:"";

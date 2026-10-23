@@ -153,6 +153,53 @@ const sizeOf = (raw: unknown) => {
   return Number.isFinite(size) && size > 0 ? Math.min(size, 50) : DEFAULT.size;
 };
 
+type RawVariant = { variant?: string; size?: number; haltAfterLosses?: number };
+type RawMarket = { series?: string; mode?: string; maxLossPerDay?: number; variants?: RawVariant[] };
+type RawLive = RawMarket & { markets?: RawMarket[]; variant?: string; size?: number; haltAfterLosses?: number };
+
+/** Put a paper rule on real money for one market: adds it to data/live.json (read again before every order, so no restart). */
+export function addLiveRule(seriesKey: string, variant: string, size = DEFAULT.size, haltAfterLosses = 2) {
+  const file = loadJson<RawLive>("live.json", {});
+  const entry: RawVariant = { variant, size: sizeOf(size), haltAfterLosses };
+  if (!seriesKey) {
+    const list = Array.isArray(file.variants) && file.variants.length ? file.variants : file.variant ? [{ variant: file.variant, size: file.size, haltAfterLosses: file.haltAfterLosses }] : [];
+    if (list.some((v) => v.variant === variant)) return { changed: false };
+    file.variants = [...list, entry];
+    delete file.variant;
+  } else {
+    file.markets = Array.isArray(file.markets) ? file.markets : [];
+    let m = file.markets.find((x) => x.series === seriesKey);
+    if (!m) {
+      m = { series: seriesKey, maxLossPerDay: seriesKey.includes("15m") ? 25 : 15, variants: [] };
+      file.markets.push(m);
+    }
+    m.variants = Array.isArray(m.variants) ? m.variants : [];
+    if (m.variants.some((v) => v.variant === variant)) return { changed: false };
+    if (m.mode === "off") delete m.mode;
+    m.variants.push(entry);
+  }
+  saveJson("live.json", file);
+  return { changed: true };
+}
+
+/** Take a rule off real money for one market: removes it from data/live.json; a market with no rules left is removed too. */
+export function removeLiveRule(seriesKey: string, variant: string) {
+  const file = loadJson<RawLive>("live.json", {});
+  if (!seriesKey) {
+    const list = Array.isArray(file.variants) && file.variants.length ? file.variants : file.variant ? [{ variant: file.variant, size: file.size, haltAfterLosses: file.haltAfterLosses }] : [];
+    if (!list.some((v) => v.variant === variant)) return { changed: false };
+    file.variants = list.filter((v) => v.variant !== variant);
+    delete file.variant;
+  } else {
+    const m = (file.markets ?? []).find((x) => x.series === seriesKey);
+    if (!m || !(m.variants ?? []).some((v) => v.variant === variant)) return { changed: false };
+    m.variants = (m.variants ?? []).filter((v) => v.variant !== variant);
+    if (!m.variants.length) file.markets = (file.markets ?? []).filter((x) => x !== m);
+  }
+  saveJson("live.json", file);
+  return { changed: true };
+}
+
 export function liveConfig(seriesKey = ""): LiveConfig {
   const file = loadJson<Partial<Omit<LiveConfig, "statsSince">> & MarketEntry & { markets?: MarketEntry[]; statsSince?: string | number }>("live.json", {});
   const since = typeof file.statsSince === "number" ? file.statsSince : Date.parse(String(file.statsSince ?? ""));
