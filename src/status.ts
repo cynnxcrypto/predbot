@@ -209,11 +209,11 @@ tr.grp+tr td{border-top:none}
 .btn:hover{color:var(--down);border-color:var(--down)}
 .btn.restore:hover{color:var(--up);border-color:var(--up)}
 .btn.icon{padding:1px 5px;font-size:10px;line-height:1.3}
-.btn.go{padding:0 5px;font-size:9px;line-height:1.5;margin-left:4px;opacity:0;transition:opacity .2s}
+.btn.go{padding:0 3px;font-size:7px;line-height:1.6;margin-left:5px;opacity:0;transition:opacity .2s;vertical-align:1px}
 tr:hover .btn.go{opacity:1}.btn.go:hover{color:var(--up);border-color:var(--up)}
 .btn.paper:hover{color:var(--pur);border-color:var(--pur)}
 .tag.live{color:#0f1117;background:var(--up);margin-left:6px;padding:1px 6px;font-size:9px}
-td.islive{background:rgba(61,220,132,.07)}
+td.islive{background:rgba(61,220,132,.07)}td.pc.islive{box-shadow:inset 0 0 0 1px rgba(61,220,132,.25);border-radius:4px}
 @keyframes sent{0%{background:rgba(61,220,132,.5)}100%{background:rgba(61,220,132,.07)}}
 td.sent{animation:sent 1.4s ease-out}
 @keyframes rowout{to{opacity:0;transform:translateX(40px)}}
@@ -225,8 +225,13 @@ tr.off td{opacity:.45}
 .info{display:inline-block;width:14px;height:14px;line-height:13px;text-align:center;border-radius:50%;border:1px solid var(--line);color:var(--mut);font-size:10px;font-style:italic;cursor:help;position:relative;vertical-align:middle;margin-left:4px}
 .info:hover{color:var(--fg);border-color:var(--mut)}
 .info:hover::after{content:attr(data-tip);position:absolute;left:18px;top:-4px;z-index:5;background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:6px 8px;color:var(--fg);font-style:normal;font-size:11px;white-space:normal;width:280px;text-align:left;line-height:1.4}
-td.wl{color:var(--mut);font-size:11px;text-align:left;padding-left:5px;padding-right:10px;min-width:78px;width:1%;white-space:nowrap}
-#lab td.r{padding-right:0}
+#labtable{table-layout:auto}#lab td,#labhead th{padding-left:0;padding-right:6px}#lab .btn:not(.go){padding:1px 5px;font-size:10px}
+th.pc,td.pc{text-align:right}
+th.pc{white-space:nowrap}th.pc .coin{margin-right:4px;width:13px;height:13px;vertical-align:-2px}
+td.pc{line-height:1.15;padding-top:5px;padding-bottom:5px}
+td.pc .n{font-size:12px}td.pc .c{font-size:10px;color:var(--mut);white-space:nowrap}
+td.pc .ldot{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--up);box-shadow:0 0 5px var(--up);margin-left:5px;vertical-align:1px}
+#lab td:first-child b{font-size:12px}#lab .tag.new{font-size:8px;padding:1px 5px;margin-left:5px}
 .charts{display:grid;flex-basis:100%;width:100%;grid-template-columns:repeat(auto-fit,minmax(max(230px,calc(20% - 8px)),1fr));gap:10px;margin-top:16px}
 .charts:empty{display:none}
 @media(max-width:1200px){.charts{grid-template-columns:repeat(3,1fr)}}
@@ -291,7 +296,7 @@ tr.dim{transition:opacity .4s}
 <div class="note">Real: orders the bot actually sent, at the live size. Paper: the same rule simulated at $20 with no money, so the two are not the same scale; compare win rates, not dollars.</div></div>
 
 <div class="panel" style="margin-bottom:14px"><div class="ph"><div class="k">paper lab <span class="tag paper">paper · simulated, no money</span></div><div class="mut">every rule on every market, all shown at $5 a trade, best first · net <span class="mut">won/trades</span></div></div>
-<table><thead id="labhead"></thead><tbody id="lab"></tbody></table><div class="note">Discard stops a rule simulating on every market; it can be restored from the bottom of the list. A rule trading real money cannot be discarded until it is taken out of data/live.json.</div></div>
+<table id="labtable"><thead id="labhead"></thead><tbody id="lab"></tbody></table><div class="note">Discard stops a rule simulating on every market; it can be restored from the bottom of the list. A rule trading real money cannot be discarded until it is taken out of data/live.json.</div></div>
 
 <div class="grid">
   <div class="panel"><div class="ph"><div class="k">feeds</div></div>
@@ -376,8 +381,8 @@ swap("log",rows.length?rows.map(function(t){var o=t.pnl==null&&t.ok&&!t.dry?open
 var names=(s.papers||[]).map(function(p){return p.name});var rows=names.map(function(n){var meta=(s.papers||[]).filter(function(p){return p.name===n})[0]||{};var cells=[],tot=0,tr=0,wn=0;M.forEach(function(m){var p=(m.papers||[]).filter(function(x){return x.name===n})[0];if(!p||!p.trades){cells.push(null);return}var net=p.net*5/(p.size||5);tot+=net;tr+=p.trades;wn+=p.won;cells.push({net:net,won:p.won,trades:p.trades,label:m.label,key:m.key})});return {name:n,meta:meta,cells:cells,tot:tot,tr:tr,wn:wn}});
 rows.sort(function(a,b){if(a.meta.discarded!==b.meta.discarded)return a.meta.discarded?1:-1;if(!a.tr!==!b.tr)return a.tr?-1:1;return b.tot-a.tot});
 var isNew=function(d){return d&&(Date.now()-Date.parse(d))<7*86400000};
-el("labhead").innerHTML='<tr><th>rule</th>'+M.map(function(m){return '<th class="r">'+m.label+'</th><th></th>'}).join("")+'<th class="r">all</th><th class="r">won</th><th></th></tr>';
-var labHtml=rows.map(function(r){var m=r.meta;return '<tr class="'+(m.discarded?"off":"")+'"><td><b>'+r.name+'</b>'+(isNew(m.added)?' <span class="tag new">new</span>':"")+' <span class="info" data-tip="'+esc(m.idea||m.rule||"")+'">i</span></td>'+r.cells.map(function(c,ci){var m=M[ci];var k=m.label+"|"+r.name;var live=!!LIVE[k];var act=r.meta.discarded?'':live?'<span class="tag live">live</span>':'<button class="btn go" title="put '+r.name+' on real money for '+m.label+'" onclick="goLive(\\''+m.key+'\\',\\''+m.label+'\\',\\''+r.name+'\\')">live</button>';return c?'<td class="r '+cls(c.net)+(live?' islive':'')+'" id="'+cid(k)+'">'+signed(c.net)+'</td><td class="wl'+(live?' islive':'')+'">'+c.won+'/'+c.trades+(r.meta.discarded?'':' '+act)+'</td>':'<td class="r mut" id="'+cid(k)+'">—</td><td class="wl">'+(r.meta.discarded?'':act)+'</td>'}).join("")+'<td class="r '+cls(r.tr?r.tot:null)+'"><b>'+(r.tr?signed(r.tot):"—")+'</b></td><td class="r">'+(r.tr?Math.round(r.wn/r.tr*100)+"%":"—")+'</td><td class="r">'+(m.discarded?'<button class="btn restore" onclick="discard(\\''+r.name+'\\',true)">restore</button>':'<button class="btn" onclick="discard(\\''+r.name+'\\',false)">discard</button>')+'</td></tr>'}).join("");if(labHtml!==LABHTML){LABHTML=labHtml;el("lab").innerHTML=labHtml}})();
+el("labhead").innerHTML='<tr><th>rule</th>'+M.map(function(m){return '<th class="pc">'+coin(m.label)+m.label+'</th>'}).join("")+'<th class="r">all</th><th class="r">won</th><th></th></tr>';
+var labHtml=rows.map(function(r){var m=r.meta;return '<tr class="'+(m.discarded?"off":"")+'"><td><b>'+r.name+'</b>'+(isNew(m.added)?' <span class="tag new">new</span>':"")+' <span class="info" data-tip="'+esc(m.idea||m.rule||"")+'">i</span></td>'+r.cells.map(function(c,ci){var m=M[ci];var k=m.label+"|"+r.name;var live=!!LIVE[k];var act=r.meta.discarded?'':live?'<span class="ldot" title="on real money"></span>':'<button class="btn go" title="put '+r.name+' on real money for '+m.label+'" onclick="goLive(\\''+m.key+'\\',\\''+m.label+'\\',\\''+r.name+'\\')">&#9654;</button>';return '<td class="pc'+(live?' islive':'')+'" id="'+cid(k)+'">'+(c?'<div class="n '+cls(c.net)+'">'+signed(c.net)+'</div><div class="c">'+c.won+'/'+c.trades+act+'</div>':'<div class="n mut">—</div><div class="c">'+act+'</div>')+'</td>'}).join("")+'<td class="r '+cls(r.tr?r.tot:null)+'"><b>'+(r.tr?signed(r.tot):"—")+'</b></td><td class="r">'+(r.tr?Math.round(r.wn/r.tr*100)+"%":"—")+'</td><td class="r">'+(m.discarded?'<button class="btn restore" onclick="discard(\\''+r.name+'\\',true)">restore</button>':'<button class="btn" onclick="discard(\\''+r.name+'\\',false)">discard</button>')+'</td></tr>'}).join("");if(labHtml!==LABHTML){LABHTML=labHtml;el("lab").innerHTML=labHtml}})();
 el("feeds").innerHTML=s.feeds.map(function(f){return '<tr><td>'+f.name+'</td><td class="'+(f.healthy?"ok":"bad")+'">'+(f.healthy?"live":"down")+'</td><td class="r">'+money(f.last&&f.last.price)+'</td><td class="r">'+(f.last?Math.round((Date.now()-f.last.t)/1000)+"s":"—")+'</td><td class="r">'+f.ticks+'</td></tr>'}).join("");
 el("wd").textContent=s.windowsDone;el("ws").textContent=s.windowsResolved;el("wp").textContent=s.pending;el("sn").textContent=s.snapshots;
 el("err").textContent=s.lastError?"last error: "+s.lastError:"";
