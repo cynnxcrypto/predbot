@@ -66,6 +66,8 @@ export const VARIANTS: Variant[] = [
   // previous ten snapshots won 96.4% (+13c, mostly BTC). Paper only, to see if either survives out of sample.
   { name: "fav93-lead", left: 0, cap: 0.995, size: 5, favAt: 0.93, favFrom: 120, leadMin: 0, leadMax: 3 },
   { name: "fav93-hold", left: 0, cap: 0.995, size: 5, favAt: 0.93, holdRows: 10, holdAt: 0.9 },
+  // Threshold grid (23 Oct): on SOL 5m the favourite only pays from 95c up (95c +$8, 97c +$12 over ~750 windows; 93c -$19).
+  { name: "fav95", left: 0, cap: 0.995, size: 5, favAt: 0.95 },
 ];
 
 export type PaperTrade = {
