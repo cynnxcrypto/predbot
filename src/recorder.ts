@@ -4,7 +4,8 @@ import { DATA, SERIES, checkpointsFor, dayOf, prefixOf, windowStart, type Series
 import { feedsFor, startFeeds, type FeedSet } from "./feeds/index.js";
 import { PaperTrader, VARIANTS } from "./paperlive.js";
 import { LiveTrader } from "./live.js";
-import { book, marketFor, officialPrices, resolution, type Book, type Market } from "./polymarket.js";
+import { bookFeed } from "./feeds/book.js";
+import { book, bookHttp, marketFor, officialPrices, resolution, type Book, type Market } from "./polymarket.js";
 import { append, loadJson, saveJson } from "./store.js";
 
 /** One book snapshot row, written every second while a window is listed. */
@@ -71,6 +72,9 @@ type Pending = { window: number; row: WindowRow; tries: number; nextAt: number }
  * files, named with the series prefix; the first series keeps the original names. Every series has a
  * real trader; it only acts when data/live.json names that series (see live.ts).
  */
+/** The current window's tokens per series, so the one shared socket watches all of them. */
+const watchedTokens = new Map<string, string[]>();
+
 export class Recorder {
   readonly series: Series;
   readonly prefix: string;
@@ -95,6 +99,11 @@ export class Recorder {
   private timer: NodeJS.Timeout | null = null;
   private balanceTimer: NodeJS.Timeout | null = null;
   private busy = false;
+  private unwatch: (() => void) | null = null;
+  private lastSnapshotAt = 0;
+  private lastCheckAt = 0;
+  /** Snapshots taken because the websocket pushed a change (the rest come from the 1s timer). */
+  pushedSnapshots = 0;
 
   constructor(series: Series = SERIES[0]) {
     this.series = series;
@@ -167,10 +176,28 @@ export class Recorder {
       }, 60000);
     }
     this.timer = setInterval(() => void this.tick(), 1000);
+    // A pushed book change takes a snapshot at once (at most four a second), so a signal is seen the moment it appears.
+    this.unwatch = bookFeed.onUpdate((tokenId) => {
+      const m = this.market;
+      if (!m || (tokenId !== m.upToken && tokenId !== m.downToken) || this.busy) return;
+      if (Date.now() - this.lastSnapshotAt < 250) return;
+      const now = Math.floor(Date.now() / 1000);
+      if (m.start + this.series.windowSec - now < 1) return;
+      this.busy = true;
+      this.pushedSnapshots += 1;
+      void this.snapshot(m, now)
+        .catch((error) => {
+          this.lastError = error instanceof Error ? error.message : String(error);
+        })
+        .finally(() => {
+          this.busy = false;
+        });
+    });
     return this;
   }
 
   stop() {
+    this.unwatch?.();
     if (this.timer) clearInterval(this.timer);
     if (this.balanceTimer) clearInterval(this.balanceTimer);
     for (const feed of [this.f.chainlink, this.f.binance, this.f.coinbase]) feed.stop();
@@ -195,11 +222,16 @@ export class Recorder {
           this.market = await marketFor(start, this.series.slug);
           this.marketWindow = start;
           if (this.market && this.listedAt == null) this.listedAt = Date.now();
+          if (this.market) {
+            watchedTokens.set(this.series.key, [this.market.upToken, this.market.downToken]);
+            bookFeed.watch([...watchedTokens.values()].flat());
+          }
         }
       }
       // The extra series poll the book every other second until the last minute, to go easy on Polymarket's rate limit.
       const left = this.market ? this.market.start + this.series.windowSec - now : 0;
-      if (this.market && (this.series.key === "" || left <= 60 || now % 2 === 0)) await this.snapshot(this.market, now);
+      // The timer snapshot is the floor; pushed book changes already took one if it is fresher than half a second.
+      if (this.market && Date.now() - this.lastSnapshotAt >= 500 && (this.series.key === "" || left <= 60 || now % 2 === 0)) await this.snapshot(this.market, now);
       await this.settle();
       this.lastError = null;
     } catch (error) {
@@ -210,7 +242,12 @@ export class Recorder {
   }
 
   private async snapshot(market: Market, now: number) {
-    const [up, down] = await Promise.all([book(market.upToken), book(market.downToken)]);
+    this.lastSnapshotAt = Date.now();
+    // Every 30s read both books over HTTP anyway, which resets the websocket cache in case a delta was missed.
+    const check = Date.now() - this.lastCheckAt > 30000;
+    if (check) this.lastCheckAt = Date.now();
+    const read = check ? bookHttp : book;
+    const [up, down] = await Promise.all([read(market.upToken), read(market.downToken)]);
     const left = market.start + this.series.windowSec - now;
     const row: BookRow = {
       t: Date.now(),
@@ -385,6 +422,8 @@ export class Recorder {
       prices: this.windowPrices(),
       listed: Boolean(this.market && this.marketWindow === windowStart(undefined, this.series.windowSec)),
       snapshots: this.snapshots,
+      pushedSnapshots: this.pushedSnapshots,
+      bookFeed: bookFeed.status(),
       windowsDone: this.windowsDone,
       windowsResolved: this.windowsResolved,
       pending: this.pending.length,

@@ -176,7 +176,7 @@ el("wlabel").textContent="window "+(s.window?hhmm(s.window)+" kst":"—")+" · c
 el("mode").textContent=L.mode==="live"?"live · real money":L.mode==="dry"?"dry run":"paper only";
 el("mode").className="pill "+(L.mode==="live"?"live":L.mode==="dry"?"dry":"");
 el("listed").textContent=s.listed?"market listed":"not listed yet";
-el("sub").textContent="build "+s.build+(s.lastError?" · error: "+s.lastError:"");
+el("sub").textContent="build "+s.build+" · book "+(s.bookFeed&&s.bookFeed.connected?"streaming":"polling")+(s.lastError?" · error: "+s.lastError:"");
 el("px").textContent=money(b.chainlink);
 var d=(b.chainlink!=null&&b.open!=null)?(b.chainlink-b.open)/b.open*1e4:null;
 el("delta").textContent=d==null?"—":(d>=0?"+":"")+d.toFixed(1)+" bp";el("delta").className="v big "+cls(d);

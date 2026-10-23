@@ -1,4 +1,5 @@
 import { SLUG, WINDOW_SEC } from "./config.js";
+import { bookFeed, makeBook } from "./feeds/book.js";
 
 const UA = "PredBotRecorder/0.1";
 
@@ -58,19 +59,23 @@ function levels(raw: { price?: string; size?: string }[] | undefined, side: "bid
   return rows.slice(0, 10);
 }
 
-/** The order book for one token. Depth is in shares, dollars at each price. */
-export async function book(tokenId: string): Promise<Book> {
+/**
+ * The order book for one token. Depth is in shares, dollars at each price. Comes from the websocket cache
+ * when that has a book younger than `maxAgeMs`, else from the HTTP endpoint (which also refreshes the cache).
+ */
+export async function book(tokenId: string, maxAgeMs = 3000): Promise<Book> {
+  const cached = bookFeed.get(tokenId, maxAgeMs);
+  if (cached) return cached;
+  return bookHttp(tokenId);
+}
+
+/** The order book straight from the HTTP endpoint; the websocket cache is reset to it. */
+export async function bookHttp(tokenId: string): Promise<Book> {
   const raw = await getJson<{ bids?: { price: string; size: string }[]; asks?: { price: string; size: string }[] }>(`https://clob.polymarket.com/book?token_id=${tokenId}`, 5000);
   const bids = levels(raw.bids, "bid");
   const asks = levels(raw.asks, "ask");
-  return {
-    bids,
-    asks,
-    bestBid: bids[0]?.price ?? null,
-    bestAsk: asks[0]?.price ?? null,
-    bidDepth: Math.round(bids.reduce((sum, row) => sum + row.size, 0)),
-    askDepth: Math.round(asks.reduce((sum, row) => sum + row.size, 0)),
-  };
+  bookFeed.reset(tokenId, bids, asks);
+  return makeBook(bids, asks);
 }
 
 export type Resolution = { resolvedUp: boolean | null; closed: boolean; status: string | null };

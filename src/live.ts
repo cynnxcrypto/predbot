@@ -424,7 +424,7 @@ export class LiveTrader {
     // (100% won). So take a fresh look at the book, skip when the ask fell by 1c or more (sub-cent dips are noise), and otherwise pay up to the cap.
     let freshAsk: number | null = null;
     try {
-      freshAsk = (await book(token)).bestAsk;
+      freshAsk = (await book(token, 1500)).bestAsk;
     } catch {
       freshAsk = null;
     }
