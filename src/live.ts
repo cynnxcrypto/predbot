@@ -124,7 +124,28 @@ const routerAbi = new Interface([
 ]);
 type Swap = { want: number; amount: number; tx: string | null; at: number; error: string | null };
 const provider = new StaticJsonRpcProvider(RPC, 137);
-const ctfAbi = new Interface(["function redeemPositions(address collateralToken, bytes32 parentCollectionId, bytes32 conditionId, uint256[] indexSets)"]);
+const ctfAbi = new Interface([
+  "function redeemPositions(address collateralToken, bytes32 parentCollectionId, bytes32 conditionId, uint256[] indexSets)",
+  "function getCollectionId(bytes32 parentCollectionId, bytes32 conditionId, uint256 indexSet) view returns (bytes32)",
+  "function getPositionId(address collateralToken, bytes32 collectionId) view returns (uint256)",
+  "function balanceOf(address owner, uint256 id) view returns (uint256)",
+]);
+
+/** Winning shares the funds wallet still holds for a condition, over every collateral and both outcomes. */
+async function sharesHeld(funder: string, conditionId: string): Promise<number> {
+  let total = 0n;
+  for (const indexSet of [1, 2]) {
+    const coll = await provider.call({ to: CTF, data: ctfAbi.encodeFunctionData("getCollectionId", [ZERO32, conditionId, indexSet]) });
+    const collectionId = ctfAbi.decodeFunctionResult("getCollectionId", coll)[0] as string;
+    for (const collateral of COLLATERALS) {
+      const pos = await provider.call({ to: CTF, data: ctfAbi.encodeFunctionData("getPositionId", [collateral, collectionId]) });
+      const positionId = ctfAbi.decodeFunctionResult("getPositionId", pos)[0] as { toString(): string };
+      const bal = await provider.call({ to: CTF, data: ctfAbi.encodeFunctionData("balanceOf", [funder, positionId.toString()]) });
+      total += BigInt(bal);
+    }
+  }
+  return Number(total) / 1e6;
+}
 const DEFAULT: LiveConfig = { mode: "off", variant: "band80-30", size: 5, maxLossPerDay: 25, funder: "", variants: [], statsSince: 0, startBalance: null, deposits: 0, claimEveryMin: 60, minBalance: 0 };
 
 const sizeOf = (raw: unknown) => {
@@ -188,6 +209,9 @@ let relayerBlockedUntil = 0;
 let lastClaimAt = 0;
 /** After a failed batch, try the oldest window alone next time. */
 let claimSingles = false;
+/** After a failed batch, leave the wrap out next time (a window claimed by hand on polymarket.com pays nothing here). */
+let claimNoWrap = false;
+let lastVerifyAt = 0;
 /** More windows were waiting than one batch takes (after a quota pause): batches then go out every 5 minutes. */
 let claimBacklog = false;
 
@@ -679,7 +703,8 @@ export class LiveTrader {
    * `claimEveryMin` minutes, because the relayer's daily quota ran out at ~65 transactions on 23 Oct 2026.
    */
   async redeemPending() {
-    if (this.series.key || this.redeeming || relayBusy || relayerBlocked()) return;
+    if (this.series.key || this.redeeming || relayBusy) return;
+    if (relayerBlocked()) return this.verifyClaims();
     const now = Date.now();
     const due: { trader: LiveTrader; redeem: Redeem }[] = [];
     for (const trader of traders) for (const r of trader.redeems) if (r.nextAt <= now) due.push({ trader, redeem: r });
@@ -705,7 +730,7 @@ export class LiveTrader {
       }
       const usdce = this.chain?.["USDC.e"] ?? 0;
       if (usdce >= 0.5) units += BigInt(Math.floor(usdce * 1e6));
-      if (units > 0n) {
+      if (units > 0n && !claimNoWrap) {
         calls.push({ target: USDC_E, value: "0", data: erc20.encodeFunctionData("approve", [ONRAMP, units]) });
         calls.push({ target: ONRAMP, value: "0", data: onrampAbi.encodeFunctionData("wrap", [USDC_E, this.config.funder, units]) });
       }
@@ -715,6 +740,7 @@ export class LiveTrader {
       if (!hash) throw new Error(`relayer did not confirm (state ${done?.state ?? sent.state ?? "unknown"})`);
       lastClaimAt = Date.now();
       claimSingles = false;
+      claimNoWrap = false;
       claimBacklog = due.length > batch.length;
       for (const { trader, redeem } of batch) trader.markClaimed(redeem, hash);
       this.lastRedeem = { window: batch[batch.length - 1].redeem.window, tx: hash, at: Date.now(), error: null };
@@ -724,6 +750,7 @@ export class LiveTrader {
     } catch (error) {
       const text = noteRelayError(error);
       claimSingles = batch.length > 1;
+      claimNoWrap = !relayerBlocked();
       for (const { trader, redeem } of batch) {
         redeem.lastError = text;
         redeem.nextAt = Math.max(relayerBlockedUntil, Date.now() + Math.min(600000, 60000 * redeem.tries));
@@ -739,6 +766,34 @@ export class LiveTrader {
       this.redeeming = false;
       relayBusy = false;
       saveJson(`${this.prefix}live-state.json`, { at: Date.now(), ...this.status() });
+    }
+  }
+
+  /**
+   * While the relayer is out of quota, enrique may claim on polymarket.com. Every ten minutes look on chain for
+   * queued windows whose shares are gone and mark them claimed, so the books and the next batch stay right.
+   */
+  private async verifyClaims() {
+    if (Date.now() - lastVerifyAt < 600_000) return;
+    lastVerifyAt = Date.now();
+    let found = 0;
+    for (const trader of traders) {
+      for (const redeem of [...trader.redeems].slice(0, 20)) {
+        try {
+          const market = await marketFor(redeem.window, trader.series.slug);
+          if (!market?.conditionId) continue;
+          if ((await sharesHeld(this.config.funder, market.conditionId)) < 0.01) {
+            trader.markClaimed(redeem, "manual");
+            found += 1;
+          }
+        } catch {
+          // best effort; the batch after the reset sorts it out
+        }
+      }
+    }
+    if (found) {
+      console.log(`live: ${found} window(s) were claimed by hand on polymarket.com; taken off the claim queue`);
+      await this.refreshBalance();
     }
   }
 
