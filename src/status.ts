@@ -132,6 +132,17 @@ td,th{white-space:nowrap}
 .chart .px{display:flex;justify-content:space-between;align-items:baseline;margin:2px 0 4px}
 .chart .px b{font-size:15px;font-weight:600}
 .chart .lean{font-weight:700}
+.chart{position:relative;overflow:hidden}
+@keyframes wonup{0%{box-shadow:inset 0 0 0 1px var(--up),0 0 18px rgba(61,220,132,.45)}100%{box-shadow:inset 0 0 0 1px var(--up),0 0 0 rgba(61,220,132,0)}}
+@keyframes wondown{0%{box-shadow:inset 0 0 0 1px var(--down),0 0 18px rgba(255,107,107,.45)}100%{box-shadow:inset 0 0 0 1px var(--down),0 0 0 rgba(255,107,107,0)}}
+.chart.won.up{border-color:var(--up);animation:wonup 1.2s ease-out}
+.chart.won.down{border-color:var(--down);animation:wondown 1.2s ease-out}
+@keyframes stamp{0%{opacity:0;transform:translate(-50%,-50%) scale(1.6)}18%{opacity:1;transform:translate(-50%,-50%) scale(1)}80%{opacity:1}100%{opacity:0}}
+.chart .stamp{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);z-index:2;text-align:center;padding:8px 16px;border-radius:8px;background:rgba(15,17,23,.88);border:1px solid var(--line);animation:stamp 5s ease-out forwards;pointer-events:none}
+.chart .stamp b{display:block;font-size:22px;letter-spacing:.08em}
+.chart .stamp span{font-size:11px;color:var(--mut)}
+.chart.won.up .stamp{border-color:var(--up)}.chart.won.up .stamp b{color:var(--up)}
+.chart.won.down .stamp{border-color:var(--down)}.chart.won.down .stamp b{color:var(--down)}
 .k{font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--mut);margin-bottom:4px}
 .v{font-size:16px}
 .v.big{font-size:26px;font-weight:700}
@@ -314,10 +325,11 @@ el("wd").textContent=s.windowsDone;el("ws").textContent=s.windowsResolved;el("wp
 el("err").textContent=s.lastError?"last error: "+s.lastError:"";
 el("note").textContent="Data is in the data/ folder next to the app. Set \\"mode\\" to \\"off\\" in data/live.json to stop real orders.";
 tickV(prevV);}catch(e){el("sub").textContent="status unavailable"}}
-var H={};
-function feedChart(key,label,sec,r){var b=r.lastBook||{};var w=r.window||b.window;if(!w)return;var h=H[key]={w:w,sec:sec,label:label,open:null,pts:[]};
+var H={},PREV={},DECIDED={};
+function feedChart(key,label,sec,r){var b=r.lastBook||{};var w=r.window||b.window;if(!w)return;var pv=PREV[key];if(pv&&pv.w!==w&&pv.last!=null&&pv.open!=null){var v=(pv.last-pv.open)/pv.open*1e4;DECIDED[key]={side:pv.last>=pv.open?"UP":"DOWN",bp:(v<0?"\u2212":"+")+Math.abs(v).toFixed(1),at:Date.now(),until:Date.now()+5000}}
+var h=H[key]={w:w,sec:sec,label:label,open:null,pts:[]};
 h.left=b.window===w&&b.left!=null?b.left:Math.max(0,w+sec-Math.floor(Date.now()/1000));h.up=b.window===w?b.upAsk:null;h.down=b.window===w?b.downAsk:null;if(b.window===w&&b.open!=null)h.open=b.open;
-h.pts=(r.prices||[]).map(function(q){return {x:Math.max(0,Math.min(1,q[0]/sec)),p:q[1]}});if(h.open==null&&h.pts.length)h.open=h.pts[0].p;h.last=h.pts.length?h.pts[h.pts.length-1].p:b.chainlink}
+h.pts=(r.prices||[]).map(function(q){return {x:Math.max(0,Math.min(1,q[0]/sec)),p:q[1]}});if(h.open==null&&h.pts.length)h.open=h.pts[0].p;h.last=h.pts.length?h.pts[h.pts.length-1].p:b.chainlink;PREV[key]={w:w,last:h.last,open:h.open}}
 function drawCharts(){var W=220,HT=92,L=40,R=6,T=6,B=14,pw=W-L-R,ph=HT-T-B;
 el("charts").innerHTML=Object.keys(H).map(function(k){var h=H[k];var open=h.open;var ps=h.pts.map(function(p){return p.p});var vals=ps.concat(open==null?[]:[open]);
 var lo=vals.length?Math.min.apply(null,vals):0,hi=vals.length?Math.max.apply(null,vals):1;var ref=open!=null?open:(lo+hi)/2;var span=Math.max(hi-lo,ref*0.0003);var pad=span*0.2;lo=Math.min(lo,ref-span/2)-pad;hi=Math.max(hi,ref+span/2)+pad;
@@ -332,6 +344,8 @@ if(h.pts.length>1){var d=h.pts.map(function(p,i){return (i?"L":"M")+X(p.x).toFix
 g+='<path d="'+d+'" fill="none" stroke="'+col+'" stroke-width="1.5"/><circle cx="'+X(lp.x).toFixed(1)+'" cy="'+Y(lp.p).toFixed(1)+'" r="2" fill="'+col+'"/>'}
 var lf=h.left!=null?Math.floor(h.left/60)+":"+String(h.left%60).padStart(2,"0"):"—";var dl=(last!=null&&open!=null)?bp(last)+" bp":"";
 var lean=(h.up!=null&&h.down!=null)?(h.up>h.down?'<span class="lean ok">UP '+cents(h.up)+'</span>':'<span class="lean bad">DOWN '+cents(h.down)+'</span>'):'<span class="mut">—</span>';
-return '<div class="chart"><div class="t"><span>'+coin(h.label)+'<b>'+h.label+'</b></span><span class="mut">closes in '+lf+'</span></div><div class="px"><b>'+money(h.last)+'</b><span class="'+(col==="#3ddc84"?"ok":col==="#ff6b6b"?"bad":"mut")+'">'+dl+'</span></div><svg viewBox="0 0 '+W+' '+HT+'">'+g+'</svg><div class="t"><span><span class="ok">UP '+cents(h.up)+'</span> <span class="bad">DOWN '+cents(h.down)+'</span></span>'+lean+'</div></div>'}).join("")}
+var dc=DECIDED[k];var won=dc&&Date.now()<dc.until?dc:null;
+var ag=won?' style="animation-delay:-'+((Date.now()-won.at)/1000).toFixed(2)+'s"':"";
+return '<div class="chart'+(won?" won "+(won.side==="UP"?"up":"down"):"")+'"'+ag+'>'+(won?'<div class="stamp"'+ag+'><b>'+won.side+'</b><span>closed '+won.bp+' bp</span></div>':'')+'<div class="t"><span>'+coin(h.label)+'<b>'+h.label+'</b></span><span class="mut">closes in '+lf+'</span></div><div class="px"><b>'+money(h.last)+'</b><span class="'+(col==="#3ddc84"?"ok":col==="#ff6b6b"?"bad":"mut")+'">'+dl+'</span></div><svg viewBox="0 0 '+W+' '+HT+'">'+g+'</svg><div class="t"><span><span class="ok">UP '+cents(h.up)+'</span> <span class="bad">DOWN '+cents(h.down)+'</span></span>'+lean+'</div></div>'}).join("")}
 poll();setInterval(poll,1000);
 </script></body></html>`;
