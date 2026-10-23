@@ -167,7 +167,7 @@ function cls(n){return n==null?"":n<0?"bad":n>0?"ok":""}
 async function poll(){try{var s=await (await fetch("/api/status")).json();
 var b=s.lastBook||{};var L=s.live||{mode:"off"};
 var OL=(s.series||[]).map(function(r){return r.live}).filter(function(l){return l&&l.mode!=="off"});
-var ALL=[L].concat(OL);var sum=function(k){return ALL.reduce(function(a,l){return a+(l[k]||0)},0)};
+var RS={};RS[L.label||"BTC 5m"]=s;(s.series||[]).forEach(function(r){RS[r.label]=r});var ALL=[L].concat(OL);var sum=function(k){return ALL.reduce(function(a,l){return a+(l[k]||0)},0)};
 var left=s.window?Math.max(0,s.window+300-Math.floor(Date.now()/1000)):0;
 el("clock").textContent=String(Math.floor(left/60))+":"+String(left%60).padStart(2,"0");
 el("clock").className="clock"+(left<=30?" soon":"");
@@ -208,7 +208,7 @@ var nopen=sum("open");el("lopen").textContent=nopen?nopen+" open":"";
 var rows=[];ALL.forEach(function(l){(l.recent||[]).forEach(function(t){rows.push(Object.assign({mk:l.label||"BTC 5m"},t))})});
 rows.sort(function(a,b){return (b.t||0)-(a.t||0)});rows=rows.slice(0,40);
 function openState(t){if(t.shares<=0)return {txt:"open",c:"mut"};var win="+"+money(t.shares-t.cost)+" if win";
-if(t.window!==s.window)return {txt:"waiting for result · "+win,c:"mut"};
+if(t.window!==s.window){var rr=RS[t.mk]||{};var pl=rr.pendingLean?rr.pendingLean[t.window]:null;if(pl==null||pl===0)return {txt:"waiting for result · "+win,c:"mut"};var ok=(pl>0)===(t.side==="UP");return {txt:(ok?"likely win · "+win.replace(" if win",""):"likely loss · \u2212"+money(t.cost))+" · waiting",c:ok?"ok":"bad"}}
 var up=(b.chainlink!=null&&b.open!=null)?(b.chainlink>b.open?1:b.chainlink<b.open?-1:0):null;
 var mine=t.side==="UP"?b.upAsk:b.downAsk;var mk=mine!=null?" · "+cents(mine):"";
 if(up==null)return {txt:"open"+mk+" · "+win,c:"mut"};

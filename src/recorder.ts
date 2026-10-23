@@ -388,6 +388,14 @@ export class Recorder {
       windowsDone: this.windowsDone,
       windowsResolved: this.windowsResolved,
       pending: this.pending.length,
+      // Best guess for closed windows still waiting for Polymarket's result: the close print against the open (official if fetched, else Chainlink).
+      pendingLean: Object.fromEntries(
+        this.pending.map((p) => {
+          const open = p.row.open ?? p.row.chainlinkAtOpen;
+          const close = p.row.close ?? p.row.chainlinkAtClose;
+          return [p.window, p.row.resolvedUp != null ? (p.row.resolvedUp ? 1 : -1) : open == null || close == null ? null : close > open ? 1 : close < open ? -1 : 0];
+        }),
+      ),
       lastBook: this.lastBook,
       lastError: this.lastError,
       paper: this.papers[0].status(),
