@@ -594,7 +594,8 @@ export class LiveTrader {
       pendingRedeems: this.redeems.length,
       lastWrap: this.lastWrap,
       lastRedeem: this.lastRedeem,
-      recent: this.recent.slice(0, 20),
+      // The log shows orders that actually bought shares (or dry runs); skipped and unfilled orders only count in the day table.
+      recent: this.recent.filter((t) => t.ok && (t.shares > 0 || t.dry)).slice(0, 20),
       days: this.days(),
     };
   }
