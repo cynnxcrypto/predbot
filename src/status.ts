@@ -271,7 +271,7 @@ td.pc{line-height:1.15;padding-top:5px;padding-bottom:5px}
 td.pc .n{font-size:12px}td.pc .c{font-size:10px;color:var(--mut);white-space:nowrap}
 td.pc .ldot{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--up);box-shadow:0 0 5px var(--up);margin-left:5px;vertical-align:1px}
 #lab td:first-child b{font-size:12px}#lab .tag.new{font-size:8px;padding:1px 5px;margin-left:5px}
-.charts{display:grid;flex-basis:100%;width:100%;grid-template-columns:repeat(auto-fit,minmax(max(230px,calc(20% - 8px)),1fr));gap:10px;margin-top:16px}
+.charts{display:grid;flex-basis:100%;width:100%;grid-template-columns:repeat(auto-fill,minmax(max(230px,calc(20% - 8px)),1fr));gap:10px;margin-top:16px}
 .charts:empty{display:none}
 @media(max-width:1200px){.charts{grid-template-columns:repeat(3,1fr)}}
 @media(max-width:700px){.charts{grid-template-columns:repeat(2,1fr)}}
