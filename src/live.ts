@@ -44,7 +44,7 @@ import { append, loadJson, readAll, saveJson } from "./store.js";
 
 export type LiveMode = "off" | "dry" | "live";
 export type LiveVariant = { variant: string; size: number; haltAfterLosses: number };
-export type LiveConfig = { mode: LiveMode; variant: string; size: number; maxLossPerDay: number; funder: string; variants: LiveVariant[]; statsSince: number; startBalance: number | null; deposits: number; claimEveryMin: number };
+export type LiveConfig = { mode: LiveMode; variant: string; size: number; maxLossPerDay: number; funder: string; variants: LiveVariant[]; statsSince: number; startBalance: number | null; deposits: number; claimEveryMin: number; minBalance: number };
 type VariantEntry = { variant?: string; size?: number; haltAfterLosses?: number };
 type MarketEntry = VariantEntry & { series?: string; maxLossPerDay?: number; mode?: string; variants?: VariantEntry[] };
 /** Streak of straight losses per variant and whether it tripped the halt. */
@@ -125,7 +125,7 @@ const routerAbi = new Interface([
 type Swap = { want: number; amount: number; tx: string | null; at: number; error: string | null };
 const provider = new StaticJsonRpcProvider(RPC, 137);
 const ctfAbi = new Interface(["function redeemPositions(address collateralToken, bytes32 parentCollectionId, bytes32 conditionId, uint256[] indexSets)"]);
-const DEFAULT: LiveConfig = { mode: "off", variant: "band80-30", size: 5, maxLossPerDay: 25, funder: "", variants: [], statsSince: 0, startBalance: null, deposits: 0, claimEveryMin: 60 };
+const DEFAULT: LiveConfig = { mode: "off", variant: "band80-30", size: 5, maxLossPerDay: 25, funder: "", variants: [], statsSince: 0, startBalance: null, deposits: 0, claimEveryMin: 60, minBalance: 0 };
 
 const sizeOf = (raw: unknown) => {
   const size = Number(raw ?? DEFAULT.size);
@@ -142,12 +142,14 @@ export function liveConfig(seriesKey = ""): LiveConfig {
   // "claimEveryMin": wins are claimed in one relayer transaction this often (the relayer has a daily quota; 23 Oct 2026 it ran
   // out after ~65 transactions). Winning shares are safe while they wait.
   const claimEveryMin = Number.isFinite(Number(file.claimEveryMin)) && Number(file.claimEveryMin) >= 1 ? Number(file.claimEveryMin) : DEFAULT.claimEveryMin;
+  // "minBalance": no new real orders while the wallet's pUSD is under this (0 = no floor). Re-read before every order.
+  const minBalance = Number.isFinite(Number(file.minBalance)) && Number(file.minBalance) > 0 ? Number(file.minBalance) : 0;
   const globalMode: LiveMode = file.mode === "live" || file.mode === "dry" ? file.mode : "off";
   let raw: MarketEntry = file;
   let mode = globalMode;
   if (seriesKey) {
     const entry = (file.markets ?? []).find((m) => m.series === seriesKey);
-    if (!entry) return { ...DEFAULT, mode: "off", funder: String(file.funder ?? "").trim(), statsSince: Number.isFinite(since) ? since : 0, startBalance, deposits, claimEveryMin };
+    if (!entry) return { ...DEFAULT, mode: "off", funder: String(file.funder ?? "").trim(), statsSince: Number.isFinite(since) ? since : 0, startBalance, deposits, claimEveryMin, minBalance };
     raw = entry;
     // A market may be quieter than the global mode (off or dry), never louder.
     if (entry.mode === "off" || (entry.mode === "dry" && globalMode === "live")) mode = entry.mode;
@@ -172,6 +174,7 @@ export function liveConfig(seriesKey = ""): LiveConfig {
     startBalance,
     deposits,
     claimEveryMin,
+    minBalance,
   };
 }
 
@@ -443,6 +446,12 @@ export class LiveTrader {
     if (this.todayLoss() >= this.config.maxLossPerDay) {
       if (this.lastError !== "daily loss limit reached") console.log(`live: daily loss limit reached (-$${this.todayLoss().toFixed(2)}), no more orders today`);
       this.lastError = "daily loss limit reached";
+      return;
+    }
+    if (this.config.minBalance > 0 && this.balance != null && this.balance < this.config.minBalance) {
+      const msg = `paused: balance $${this.balance.toFixed(2)} is under the $${this.config.minBalance} floor`;
+      if (this.lastError !== msg) console.log(`live ${this.series.label}: ${msg}`);
+      this.lastError = msg;
       return;
     }
     if (!this.ready) await this.start();
@@ -763,6 +772,7 @@ export class LiveTrader {
       statsSince: c.statsSince || null,
       startBalance: c.startBalance,
       deposits: c.deposits,
+      minBalance: c.minBalance,
       claims: this.series.key ? null : { everyMin: c.claimEveryMin, lastAt: lastClaimAt || null, nextAt: lastClaimAt ? lastClaimAt + c.claimEveryMin * 60_000 : null, blockedUntil: relayerBlocked() ? relayerBlockedUntil : null },
       toClaim: this.redeems.reduce((sum, r) => sum + r.shares, 0),
       variants: c.variants.map((v) => {
