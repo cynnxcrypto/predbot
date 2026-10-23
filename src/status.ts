@@ -3,7 +3,7 @@ import { STATUS_PORT } from "./config.js";
 import type { Recorder } from "./recorder.js";
 import { LOGOS } from "./logos.js";
 import { VARIANTS, discarded, setDiscarded } from "./paperlive.js";
-import { addLiveRule, liveConfig, removeLiveRule } from "./live.js";
+import { addLiveRule, liveConfig, MIN_SIZE, removeLiveRule, setLiveRuleSize } from "./live.js";
 
 /**
  * A one-page status view on 127.0.0.1 so you can see the recorder is alive without reading logs.
@@ -75,6 +75,45 @@ export function serveStatus(recorder: Recorder, build: string, others: Recorder[
         console.log(`dashboard: ${variant} on ${r.series.label} ${toLive ? "sent to real money" : "moved back to paper"}${out.changed ? "" : " (no change)"}`);
         res.writeHead(200, { "content-type": "application/json" });
         res.end(JSON.stringify({ ok: true, series, variant, live: toLive, changed: out.changed }));
+      });
+      return;
+    }
+    if (req.url === "/api/size" && req.method === "POST") {
+      let body = "";
+      req.on("data", (chunk) => (body += chunk));
+      req.on("end", () => {
+        let series = "";
+        let variant = "";
+        let size = NaN;
+        try {
+          const parsed = JSON.parse(body || "{}") as { series?: string; variant?: string; size?: number };
+          series = String(parsed.series ?? "");
+          variant = String(parsed.variant ?? "");
+          size = Number(parsed.size);
+        } catch {
+          variant = "";
+        }
+        const r = [recorder, ...others].find((x) => x.series.key === series);
+        if (!r?.live || !variant) {
+          res.writeHead(400, { "content-type": "application/json" });
+          res.end(JSON.stringify({ error: "unknown market or rule" }));
+          return;
+        }
+        if (!Number.isFinite(size) || size < MIN_SIZE || size > 50) {
+          res.writeHead(400, { "content-type": "application/json" });
+          res.end(JSON.stringify({ error: `bet size must be $${MIN_SIZE} to $50` }));
+          return;
+        }
+        const out = setLiveRuleSize(series, variant, size);
+        if (out.size == null) {
+          res.writeHead(404, { "content-type": "application/json" });
+          res.end(JSON.stringify({ error: "that rule is not on real money" }));
+          return;
+        }
+        r.live.config = liveConfig(series);
+        console.log(`dashboard: ${variant} on ${r.series.label} bet size set to $${out.size}${out.changed ? "" : " (no change)"}`);
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ ok: true, series, variant, size: out.size, changed: out.changed }));
       });
       return;
     }
@@ -208,7 +247,7 @@ tr.grp+tr td{border-top:none}
 .btn{font:inherit;font-size:11px;color:var(--mut);background:none;border:1px solid var(--line);border-radius:6px;padding:2px 8px;cursor:pointer}
 .btn:hover{color:var(--down);border-color:var(--down)}
 .btn.restore:hover{color:var(--up);border-color:var(--up)}
-.btn.icon{padding:1px 5px;font-size:10px;line-height:1.3}
+.btn.icon{padding:1px 5px;font-size:10px;line-height:1.3}.sz{background:none;border:0;color:inherit;font:inherit;cursor:pointer;padding:0}.sz .pen{color:var(--mut);font-size:10px;margin-left:4px;opacity:0;transition:opacity .15s}tr:hover .sz .pen{opacity:1}.sz:hover{color:var(--acc,#fff)}
 .btn.go{padding:0 3px;font-size:7px;line-height:1.6;margin-left:5px;opacity:0;transition:opacity .2s;vertical-align:1px}
 tr:hover .btn.go{opacity:1}.btn.go:hover{color:var(--up);border-color:var(--up)}
 .btn.paper:hover{color:var(--pur);border-color:var(--pur)}
@@ -284,6 +323,7 @@ tr.dim{transition:opacity .4s}
     <div class="mut" id="ledger" style="font-size:12px;margin-bottom:12px"></div>
     <table style="margin-bottom:12px"><thead><tr><th>strategy</th><th class="r">size</th><th class="r">net</th><th class="r">trades</th><th class="r">won</th><th class="r">streak</th><th></th></tr></thead><tbody id="lrules"></tbody></table><div class="note" id="lsince"></div>
     <div class="mut" id="lstate" style="font-size:12px"></div>
+    <div class="mut" id="quota" style="font-size:12px;margin-top:3px"></div>
     <div class="mut" style="font-size:12px;margin-top:6px">Only this panel, the trade log and the "real" columns below are real orders on Polymarket, settled from your wallet.</div>
   </div>
   <div class="panel real"><div class="ph"><div class="k">real trade log <span class="tag real">real</span></div><div class="mut" id="lopen"></div></div>
@@ -322,6 +362,7 @@ function snapV(){var o={};Array.prototype.forEach.call(document.querySelectorAll
 function tickV(prev){Array.prototype.forEach.call(document.querySelectorAll(".v.big[id]"),function(e){if(prev[e.id]!=null&&prev[e.id]!==e.textContent){e.classList.remove("tick");void e.offsetWidth;e.classList.add("tick")}})}
 async function goLive(series,label,name){if(!confirm("Put "+name+" on REAL money for "+label+" at $5 a trade, halting after 2 straight losses?"))return;var r=await fetch("/api/golive",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({series:series,variant:name,size:5})});var j=await r.json();if(!r.ok){alert(j.error||"failed");return}await poll();var c=document.getElementById("cell-"+String(label+"|"+name).replace(/[^a-z0-9]/gi,"_"));if(c){c.classList.add("sent")}var panel=el("lrules").closest(".panel");if(panel){panel.classList.remove("pulse");void panel.offsetWidth;panel.classList.add("pulse")}}
 async function toPaper(series,variant,btn){if(!confirm("Take "+variant+" off real money here? It keeps simulating on paper."))return;var tr=btn&&btn.closest("tr");if(tr){tr.classList.add("out");await new Promise(function(ok){setTimeout(ok,420)})}var r=await fetch("/api/topaper",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({series:series,variant:variant})});var j=await r.json();if(!r.ok){alert(j.error||"failed");if(tr)tr.classList.remove("out");return}await poll()}
+async function editSize(series,variant,cur){var v=prompt("Bet size in $ for "+variant+" (5 to 50). $5 is the minimum Polymarket fills.",cur);if(v==null)return;var n=Number(v);if(!(n>=5&&n<=50)){alert("Bet size must be $5 to $50");return}var r=await fetch("/api/size",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({series:series,variant:variant,size:n})});var j=await r.json();if(!r.ok)alert(j.error||"failed");else poll()}
 async function pauseRule(series,variant,on){var r=await fetch("/api/pause",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({series:series,variant:variant,on:on})});var j=await r.json();if(!r.ok)alert(j.error||"failed");else poll()}
 async function discard(name,restore){if(!restore&&!confirm("Discard "+name+" for good? It stops simulating on every market."))return;var r=await fetch("/api/discard",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({name:name,restore:restore})});var j=await r.json();if(!r.ok)alert(j.error||"failed");else poll()}
 async function poll(){try{var s=await (await fetch("/api/status")).json();var prevV=snapV();
@@ -341,13 +382,13 @@ el("mode").className="pill "+(L.mode==="live"?"live":L.mode==="dry"?"dry":"");
 el("listed").textContent=s.listed?"market listed":"not listed yet";
 el("sub").textContent="build "+s.build+" · book "+(s.bookFeed&&s.bookFeed.connected?"streaming":"polling")+(s.lastError?" · error: "+s.lastError:"");
 el("hstats").innerHTML=(function(){var n=0,open=0;ALL.forEach(function(l){(l.recent||[]).forEach(function(t){if(t.pnl==null&&t.ok&&!t.dry&&t.shares>0){n++;open+=t.cost||0}})});var live=ALL.filter(function(l){return l.mode!=="off"}).length;return '<div><div class="k">markets</div><div class="v big">'+(1+(s.series||[]).length)+'</div></div><div><div class="k">real on</div><div class="v big">'+live+'</div></div><div><div class="k">open trades</div><div class="v big">'+n+(n?' <span class="mut" style="font-size:14px;font-weight:400">'+money(open)+'</span>':"")+'</div></div>'})();
-var realOn=function(l){if(!l||l.mode==="off")return false;var vs=(l.variants&&l.variants.length)?l.variants:(l.variant?[{variant:l.variant}]:[]);return vs.some(function(v){return !v.paused&&!v.halted})};H={};if(realOn(s.live))feedChart("btc5m","BTC 5m",300,s);(s.series||[]).forEach(function(r){if(realOn(r.live))feedChart(r.series||r.label,r.label,/15m/.test(r.label)?900:300,r)});drawCharts();
+var realOn=function(l){if(!l||l.mode==="off")return false;var vs=(l.variants&&l.variants.length)?l.variants:(l.variant?[{variant:l.variant}]:[]);return vs.some(function(v){return !v.paused&&!v.halted})};(function(){var PER_BATCH=12,QUOTA=65,RESERVE=10;var PAP={"BTC 5m":s.papers||[]};(s.series||[]).forEach(function(r){PAP[r.label]=r.papers||[]});var kst=Date.now()+9*3600000,today=new Date(kst).toISOString().slice(0,10),midnight=Date.now()-kst%86400000;var perDay=function(p){if(!p)return 0;var d=p.days||[];var full=d.filter(function(x){return x.day!==today&&x.trades>0});if(full.length)return full.reduce(function(a,x){return a+x.won},0)/full.length;var t=d.filter(function(x){return x.day===today})[0];if(!t)return 0;var hrs=Math.max(1,(Date.now()-Math.max(midnight,(t.first||0)*1000))/3600000);return t.won*24/hrs};var parts=[],tot=0;ALL.forEach(function(l){if(!realOn(l))return;var lb=l.label||"BTC 5m";var per=/15m/.test(lb)?96:288;var best=0;((l.variants&&l.variants.length)?l.variants:(l.variant?[{variant:l.variant}]:[])).forEach(function(v){if(v.paused||v.halted)return;best=Math.max(best,perDay((PAP[lb]||[]).filter(function(x){return x.name===v.variant})[0]))});var w=Math.min(per,Math.round(best));tot+=w;parts.push(esc(lb)+" ~"+w)});var tx=Math.ceil(tot/PER_BATCH)+RESERVE,over=tx>QUOTA;var lasts=tot>0?Math.round(24*(QUOTA-RESERVE)/(tot/PER_BATCH)*10)/10:null;el("quota").innerHTML=!parts.length?"claim quota: no real rules on":'<span class="'+(over?"bad":"ok")+'">claim quota '+(over?"over":"ok")+'</span> · the rules now on win ~'+tot+' windows a day ('+parts.join(" · ")+'), claimed '+PER_BATCH+' a transaction = ~'+tx+' of '+QUOTA+' relayer transactions a day incl. '+RESERVE+' spare for wraps and retries'+(over&&lasts!=null?' · <span class="bad">quota runs out ~'+lasts+'h after 09:00 KST</span>':'');el("quota").title="Polymarket's gasless relayer allows ~65 transactions a day per wallet (resets 09:00 KST). Every won window of a market must be redeemed once; several rules on the same window count once. Estimate from each market's broadest rule, using its paper win count per full day."})();H={};if(realOn(s.live))feedChart("btc5m","BTC 5m",300,s);(s.series||[]).forEach(function(r){if(realOn(r.live))feedChart(r.series||r.label,r.label,/15m/.test(r.label)?900:300,r)});drawCharts();
 el("lrule").textContent=ALL.filter(function(l){return l.mode!=="off"}).length+" live";
 el("ledger").textContent=(L.startBalance!=null&&L.balance!=null)?(function(){var ch=L.chain||{};var wallet=(ch.pUSD!=null?ch.pUSD:L.balance)+(ch["USDC.e"]||0);var open=0,stake=0,exp=0,claim=0;ALL.forEach(function(l){claim+=l.toClaim||0;var rr=RS[l.label||"BTC 5m"]||{};var rb=rr.lastBook||{};(l.recent||[]).forEach(function(t){if(t.pnl==null&&t.ok&&!t.dry&&t.shares>0){open+=(t.cost||0)+feeOf(t);stake+=t.cost||0;var p=null;if(t.window===rr.window){var a=t.side==="UP"?rb.upAsk:rb.downAsk;p=a!=null?a:t.cost/t.shares}else{var pl=rr.pendingLean?rr.pendingLean[t.window]:null;p=pl==null||pl===0?t.cost/t.shares:((pl>0)===(t.side==="UP")?1:0)}exp+=t.shares*p}})});el("claim").textContent=money(claim+exp);el("claim").title=money(claim)+" won and waiting for payout + "+money(exp)+" expected from "+money(stake)+" in open trades";var hidNet=0,hidOpen=0;ALL.forEach(function(l){if(l.hidden){hidNet+=l.hidden.net||0;hidOpen+=l.hidden.open||0}});open+=hidOpen;exp+=hidOpen;
 var dep=L.deposits||0;var expWallet=L.startBalance+dep+sum("net")+hidNet-open-claim;var gap=wallet-expWallet;
 return "wallet "+money(wallet)+" vs ledger "+money(expWallet)+" (started at "+money(L.startBalance)+(dep?" + "+money(dep)+" deposited":"")+(sum("net")>=0?" +":" \u2212")+money(Math.abs(sum("net")))+(open?" \u2212 "+money(open)+" in open trades":"")+(claim?" \u2212 "+money(claim)+" won, not claimed yet":"")+") \u2192 "+(gap>=0?"+":"\u2212")+money(Math.abs(gap))+" unexplained"+(ch.USDC>0.5?" \u00b7 plus "+money(ch.USDC)+" native USDC not yet converted":"")})():"";el("claim").textContent=el("claim").textContent==="—"?"—":el("claim").textContent;
 el("netk").textContent=L.statsSince?"since start":"all time";var hidT=0,hidN=0;ALL.forEach(function(l){if(l.hidden){hidT+=l.hidden.trades||0;hidN+=l.hidden.net||0}});el("lsince").textContent=(L.statsSince?"everything in this panel counts real trades since "+new Date(L.statsSince).toLocaleString("en-GB",{timeZone:"Asia/Seoul",hour12:false})+" KST; the totals above cover everything":"")+(hidT?(L.statsSince?" · ":"")+"not shown: "+hidT+" trades from rules moved back to paper, "+signed(hidN):"");
-swap("lrules",ALL.filter(function(l){return l.mode!=="off"}).map(function(l){var vs=(l.variants&&l.variants.length)?l.variants:[{variant:l.variant,size:l.size,trades:l.trades,won:l.won,net:l.net,halted:false,streak:0,haltAfterLosses:0}];var st=function(v){return v.halted?2:v.paused?1:0};vs=vs.slice().sort(function(a,b){return st(a)-st(b)});var lb=l.label||"BTC 5m";var head='<tr class="grp" data-k="'+esc("g|"+lb)+'"><td colspan="7"><span>'+coin(lb)+'<b>'+lb+'</b></span><span class="gs">today <b class="'+cls(l.todayNet)+'">'+signed(l.todayNet)+'</b> · stop at −$'+l.maxLossPerDay+' a day · '+vs.length+' rule'+(vs.length===1?'':'s')+'</span></td></tr>';return head+vs.map(function(v,i){return '<tr class="'+(v.halted||v.paused?"dim":"")+'" data-k="'+esc(lb+"|"+v.variant)+'"><td><b>'+v.variant+'</b>'+(l.mode==="dry"?' <span class="mut">dry</span>':'')+(v.halted?' <span class="tag bad">halted</span>':'')+(v.paused?' <span class="tag mut" style="border:1px solid var(--mut)">paused</span>':'')+'</td><td class="r">$'+v.size+'</td><td class="r '+cls(v.net)+'">'+signed(v.net)+'</td><td class="r">'+v.trades+'</td><td class="r">'+(v.trades?Math.round(v.won/v.trades*100)+"%":"—")+'</td><td class="r '+(v.streak?"bad":"mut")+'">'+(v.haltAfterLosses?(v.streak+"/"+v.haltAfterLosses):"")+'</td><td class="r"><button class="btn'+(v.paused?' restore':'')+' icon" title="'+(v.paused?'resume':'pause')+'" onclick="pauseRule(\\''+(l.series||"")+'\\',\\''+v.variant+'\\','+(v.paused?'false':'true')+')">'+(v.paused?'&#9654;':'&#10074;&#10074;')+'</button> <button class="btn icon paper" title="back to paper only" onclick="toPaper(\\''+(l.series||"")+'\\',\\''+v.variant+'\\',this)">&#8617;</button></td></tr>'}).join("")}).join("")||'<tr><td class="empty" colspan="7">real orders are off</td></tr>');
+swap("lrules",ALL.filter(function(l){return l.mode!=="off"}).map(function(l){var vs=(l.variants&&l.variants.length)?l.variants:[{variant:l.variant,size:l.size,trades:l.trades,won:l.won,net:l.net,halted:false,streak:0,haltAfterLosses:0}];var st=function(v){return v.halted?2:v.paused?1:0};vs=vs.slice().sort(function(a,b){return st(a)-st(b)});var lb=l.label||"BTC 5m";var head='<tr class="grp" data-k="'+esc("g|"+lb)+'"><td colspan="7"><span>'+coin(lb)+'<b>'+lb+'</b></span><span class="gs">today <b class="'+cls(l.todayNet)+'">'+signed(l.todayNet)+'</b> · stop at −$'+l.maxLossPerDay+' a day · '+vs.length+' rule'+(vs.length===1?'':'s')+'</span></td></tr>';return head+vs.map(function(v,i){return '<tr class="'+(v.halted||v.paused?"dim":"")+'" data-k="'+esc(lb+"|"+v.variant)+'"><td><b>'+v.variant+'</b>'+(l.mode==="dry"?' <span class="mut">dry</span>':'')+(v.halted?' <span class="tag bad">halted</span>':'')+(v.paused?' <span class="tag mut" style="border:1px solid var(--mut)">paused</span>':'')+'</td><td class="r"><button class="sz" title="edit bet size ($5 to $50)" onclick="editSize(\\''+(l.series||"")+'\\',\\''+v.variant+'\\','+v.size+')">$'+v.size+'<span class="pen">&#9998;</span></button></td><td class="r '+cls(v.net)+'">'+signed(v.net)+'</td><td class="r">'+v.trades+'</td><td class="r">'+(v.trades?Math.round(v.won/v.trades*100)+"%":"—")+'</td><td class="r '+(v.streak?"bad":"mut")+'">'+(v.haltAfterLosses?(v.streak+"/"+v.haltAfterLosses):"")+'</td><td class="r"><button class="btn'+(v.paused?' restore':'')+' icon" title="'+(v.paused?'resume':'pause')+'" onclick="pauseRule(\\''+(l.series||"")+'\\',\\''+v.variant+'\\','+(v.paused?'false':'true')+')">'+(v.paused?'&#9654;':'&#10074;&#10074;')+'</button> <button class="btn icon paper" title="back to paper only" onclick="toPaper(\\''+(l.series||"")+'\\',\\''+v.variant+'\\',this)">&#8617;</button></td></tr>'}).join("")}).join("")||'<tr><td class="empty" colspan="7">real orders are off</td></tr>');
 el("bal").textContent=money(L.balance);
 var tn=sum("todayNet"),an=sum("net"),tr=sum("trades"),wn=sum("won");
 el("today").textContent=signed(tn);el("today").className="v big "+cls(tn);

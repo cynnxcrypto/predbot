@@ -189,7 +189,7 @@ export class PaperTrader {
   }
 
   /** Per-UTC-day totals, newest first in status(). */
-  private byDay = new Map<string, { day: string; trades: number; won: number; net: number }>();
+  private byDay = new Map<string, { day: string; trades: number; won: number; net: number; first: number }>();
 
   private count(t: PaperTrade) {
     if (t.pnl == null) return;
@@ -198,7 +198,8 @@ export class PaperTrader {
     this.net += t.pnl;
     const day = kstDay(t.window * 1000);
     let d = this.byDay.get(day);
-    if (!d) this.byDay.set(day, (d = { day, trades: 0, won: 0, net: 0 }));
+    if (!d) this.byDay.set(day, (d = { day, trades: 0, won: 0, net: 0, first: t.window }));
+    d.first = Math.min(d.first, t.window);
     d.trades += 1;
     if (t.won) d.won += 1;
     d.net = Math.round((d.net + t.pnl) * 100) / 100;

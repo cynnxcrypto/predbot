@@ -200,6 +200,29 @@ export function removeLiveRule(seriesKey: string, variant: string) {
   return { changed: true };
 }
 
+/** Minimum real bet: Polymarket fills at least 5 shares, which at a 93c favourite is ~$4.65, so under $5 orders bounce. */
+export const MIN_SIZE = 5;
+/** Change one real rule's bet size in data/live.json ($5 to $50). The trader re-reads the file before every order. */
+export function setLiveRuleSize(seriesKey: string, variant: string, size: number) {
+  const file = loadJson<RawLive>("live.json", {});
+  const next = Math.max(MIN_SIZE, Math.min(50, Math.round(size * 100) / 100));
+  let list: RawVariant[];
+  if (!seriesKey) {
+    list = Array.isArray(file.variants) && file.variants.length ? file.variants : file.variant ? [{ variant: file.variant, size: file.size, haltAfterLosses: file.haltAfterLosses }] : [];
+    file.variants = list;
+    delete file.variant;
+  } else {
+    const m = (file.markets ?? []).find((x) => x.series === seriesKey);
+    list = m?.variants ?? [];
+  }
+  const v = list.find((x) => x.variant === variant);
+  if (!v) return { changed: false, size: null };
+  if (v.size === next) return { changed: false, size: next };
+  v.size = next;
+  saveJson("live.json", file);
+  return { changed: true, size: next };
+}
+
 export function liveConfig(seriesKey = ""): LiveConfig {
   const file = loadJson<Partial<Omit<LiveConfig, "statsSince">> & MarketEntry & { markets?: MarketEntry[]; statsSince?: string | number }>("live.json", {});
   const since = typeof file.statsSince === "number" ? file.statsSince : Date.parse(String(file.statsSince ?? ""));
