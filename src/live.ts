@@ -43,7 +43,7 @@ import { append, loadJson, readAll, saveJson } from "./store.js";
 
 export type LiveMode = "off" | "dry" | "live";
 export type LiveVariant = { variant: string; size: number; haltAfterLosses: number };
-export type LiveConfig = { mode: LiveMode; variant: string; size: number; maxLossPerDay: number; funder: string; variants: LiveVariant[]; statsSince: number };
+export type LiveConfig = { mode: LiveMode; variant: string; size: number; maxLossPerDay: number; funder: string; variants: LiveVariant[]; statsSince: number; startBalance: number | null };
 type VariantEntry = { variant?: string; size?: number; haltAfterLosses?: number };
 type MarketEntry = VariantEntry & { series?: string; maxLossPerDay?: number; mode?: string; variants?: VariantEntry[] };
 /** Streak of straight losses per variant and whether it tripped the halt. */
@@ -99,7 +99,7 @@ const erc20 = new Interface(["function balanceOf(address owner) view returns (ui
 const onrampAbi = new Interface(["function wrap(address _asset, address _to, uint256 _amount)"]);
 const provider = new StaticJsonRpcProvider(RPC, 137);
 const ctfAbi = new Interface(["function redeemPositions(address collateralToken, bytes32 parentCollectionId, bytes32 conditionId, uint256[] indexSets)"]);
-const DEFAULT: LiveConfig = { mode: "off", variant: "band80-30", size: 5, maxLossPerDay: 25, funder: "", variants: [], statsSince: 0 };
+const DEFAULT: LiveConfig = { mode: "off", variant: "band80-30", size: 5, maxLossPerDay: 25, funder: "", variants: [], statsSince: 0, startBalance: null };
 
 const sizeOf = (raw: unknown) => {
   const size = Number(raw ?? DEFAULT.size);
@@ -109,12 +109,14 @@ const sizeOf = (raw: unknown) => {
 export function liveConfig(seriesKey = ""): LiveConfig {
   const file = loadJson<Partial<Omit<LiveConfig, "statsSince">> & MarketEntry & { markets?: MarketEntry[]; statsSince?: string | number }>("live.json", {});
   const since = typeof file.statsSince === "number" ? file.statsSince : Date.parse(String(file.statsSince ?? ""));
+  // "startBalance": what the wallet held before the first real order; the dashboard compares wallet and ledger against it.
+  const startBalance = Number.isFinite(Number(file.startBalance)) && Number(file.startBalance) > 0 ? Number(file.startBalance) : null;
   const globalMode: LiveMode = file.mode === "live" || file.mode === "dry" ? file.mode : "off";
   let raw: MarketEntry = file;
   let mode = globalMode;
   if (seriesKey) {
     const entry = (file.markets ?? []).find((m) => m.series === seriesKey);
-    if (!entry) return { ...DEFAULT, mode: "off", funder: String(file.funder ?? "").trim(), statsSince: Number.isFinite(since) ? since : 0 };
+    if (!entry) return { ...DEFAULT, mode: "off", funder: String(file.funder ?? "").trim(), statsSince: Number.isFinite(since) ? since : 0, startBalance };
     raw = entry;
     // A market may be quieter than the global mode (off or dry), never louder.
     if (entry.mode === "off" || (entry.mode === "dry" && globalMode === "live")) mode = entry.mode;
@@ -136,6 +138,7 @@ export function liveConfig(seriesKey = ""): LiveConfig {
     funder: String(file.funder ?? "").trim(),
     variants,
     statsSince: Number.isFinite(since) ? since : 0,
+    startBalance,
   };
 }
 
@@ -170,6 +173,7 @@ export class LiveTrader {
   chain: Record<string, number> | null = null;
   lastWrap: { amount: number; tx: string | null; at: number; error: string | null } | null = null;
   private wrapping = false;
+  private lastTradeSync = 0;
   private client: ClobClient | null = null;
   private signer: Wallet | null = null;
   private creds: ApiKeyCreds | null = null;
@@ -335,6 +339,36 @@ export class LiveTrader {
       // chain read is best effort
     }
     saveJson(`${this.prefix}live-state.json`, { at: Date.now(), ...this.status() });
+    if (!this.series.key && Date.now() - this.lastTradeSync > 3600_000) void this.syncTrades();
+  }
+
+  /**
+   * Once an hour, copy our fills as the exchange recorded them (price, size, fee rate, status, transaction) into
+   * data/exchange-trades.json, so the ledger here can be checked against what the wallet actually paid and received.
+   */
+  async syncTrades() {
+    if (!this.client) return;
+    this.lastTradeSync = Date.now();
+    try {
+      const trades = await this.client.getTrades();
+      const rows = trades.map((t) => ({
+        id: t.id,
+        time: t.match_time,
+        side: t.side,
+        outcome: t.outcome,
+        asset: t.asset_id,
+        price: Number(t.price),
+        size: Number(t.size),
+        feeRateBps: Number(t.fee_rate_bps),
+        status: t.status,
+        tx: t.transaction_hash ?? null,
+        takerOrder: t.taker_order_id,
+        traderSide: t.trader_side,
+      }));
+      saveJson("exchange-trades.json", { at: Date.now(), count: rows.length, trades: rows });
+    } catch (error) {
+      console.log(`live: could not fetch the exchange trade history (${error instanceof Error ? error.message : String(error)})`);
+    }
   }
 
   /** Called when a paper variant takes a trade. Mirrors it for real when that variant is the live one. */
@@ -575,6 +609,7 @@ export class LiveTrader {
       size: c.size,
       maxLossPerDay: c.maxLossPerDay,
       statsSince: c.statsSince || null,
+      startBalance: c.startBalance,
       variants: c.variants.map((v) => {
         const h = this.halts[v.variant];
         const t = this.byVariant.get(v.variant);

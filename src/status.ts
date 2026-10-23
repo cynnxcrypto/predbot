@@ -105,7 +105,7 @@ tr.dim td{color:var(--mut)}
 
 <div class="grid">
   <div class="panel real"><div class="ph"><div class="k">real money <span class="tag real">real</span></div><div class="mut" id="lrule"></div></div>
-    <div class="stats" style="margin-bottom:14px">
+    <div class="stats" style="margin-bottom:6px">
       <div><div class="k">balance</div><div class="v big" id="bal">—</div></div>
       <div><div class="k">today</div><div class="v big" id="today">—</div></div>
       <div><div class="k">all time</div><div class="v big" id="net">—</div></div>
@@ -114,6 +114,7 @@ tr.dim td{color:var(--mut)}
       <div><div class="k">orders</div><div class="v big" id="lord">—</div></div>
       <div><div class="k">skipped</div><div class="v big" id="lskip">—</div></div>
     </div>
+    <div class="mut" id="ledger" style="font-size:12px;margin-bottom:12px"></div>
     <table style="margin-bottom:12px"><thead><tr><th>market</th><th>strategy</th><th class="r">size</th><th class="r">stop/day</th><th class="r">today</th><th class="r">net</th><th class="r">trades</th><th class="r">won</th><th class="r">streak</th></tr></thead><tbody id="lrules"></tbody></table><div class="note" id="lsince"></div>
     <div class="mut" id="lstate" style="font-size:12px"></div>
     <div class="mut" style="font-size:12px;margin-top:6px">Only this panel, the trade log and the "real" columns below are real orders on Polymarket, settled from your wallet.</div>
@@ -168,6 +169,7 @@ var lean=(b.upAsk!=null&&b.downAsk!=null)?(b.upAsk>b.downAsk?"UP "+cents(b.upAsk
 el("lean").textContent=lean;el("lean").className="v big "+(lean.indexOf("UP")===0?"ok":lean.indexOf("DOWN")===0?"bad":"");
 feedChart("btc5m","BTC 5m",300,s);(s.series||[]).forEach(function(r){feedChart(r.series||r.label,r.label,/15m/.test(r.label)?900:300,r)});drawCharts();
 el("lrule").textContent=ALL.filter(function(l){return l.mode!=="off"}).length+" live";
+el("ledger").textContent=(L.startBalance!=null&&L.balance!=null)?(function(){var exp=L.startBalance+sum("net");var gap=L.balance-exp;return "wallet "+money(L.balance)+" vs ledger "+money(exp)+" (started at "+money(L.startBalance)+(sum("net")>=0?" +":" \u2212")+money(Math.abs(sum("net")))+") \u2192 "+(gap>=0?"+":"\u2212")+money(Math.abs(gap))+" unexplained"})():"";
 el("lsince").textContent=L.statsSince?"strategy rows count real trades since "+new Date(L.statsSince).toLocaleString("en-GB",{timeZone:"Asia/Seoul",hour12:false})+" KST; the totals above cover everything":"";
 el("lrules").innerHTML=ALL.filter(function(l){return l.mode!=="off"}).map(function(l){var vs=(l.variants&&l.variants.length)?l.variants:[{variant:l.variant,size:l.size,trades:l.trades,won:l.won,net:l.net,halted:false,streak:0,haltAfterLosses:0}];return vs.map(function(v,i){return '<tr class="'+(v.halted?"dim":"")+'"><td>'+(i?'':(l.label||"BTC 5m"))+'</td><td><b>'+v.variant+'</b>'+(l.mode==="dry"?' <span class="mut">dry</span>':'')+(v.halted?' <span class="tag bad">halted</span>':'')+'</td><td class="r">$'+v.size+'</td><td class="r">'+(i?'':'-$'+l.maxLossPerDay)+'</td><td class="r '+(i?'mut':cls(l.todayNet))+'">'+(i?'':signed(l.todayNet))+'</td><td class="r '+cls(v.net)+'">'+signed(v.net)+'</td><td class="r">'+v.trades+'</td><td class="r">'+(v.trades?Math.round(v.won/v.trades*100)+"%":"—")+'</td><td class="r '+(v.streak?"bad":"mut")+'">'+(v.haltAfterLosses?(v.streak+"/"+v.haltAfterLosses):"")+'</td></tr>'}).join("")}).join("")||'<tr><td class="empty" colspan="9">real orders are off</td></tr>';
 el("bal").textContent=money(L.balance);
