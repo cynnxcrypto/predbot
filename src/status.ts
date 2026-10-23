@@ -108,7 +108,7 @@ tr.dim td{color:var(--mut)}
     <div class="stats" style="margin-bottom:6px">
       <div><div class="k">balance</div><div class="v big" id="bal">—</div></div>
       <div><div class="k">today</div><div class="v big" id="today">—</div></div>
-      <div><div class="k">all time</div><div class="v big" id="net">—</div></div>
+      <div><div class="k" id="netk">all time</div><div class="v big" id="net">—</div></div>
       <div><div class="k">trades</div><div class="v big" id="ltr">—</div></div>
       <div><div class="k">won</div><div class="v big" id="lwon">—</div></div>
       <div><div class="k">orders</div><div class="v big" id="lord">—</div></div>
@@ -170,7 +170,7 @@ el("lean").textContent=lean;el("lean").className="v big "+(lean.indexOf("UP")===
 feedChart("btc5m","BTC 5m",300,s);(s.series||[]).forEach(function(r){feedChart(r.series||r.label,r.label,/15m/.test(r.label)?900:300,r)});drawCharts();
 el("lrule").textContent=ALL.filter(function(l){return l.mode!=="off"}).length+" live";
 el("ledger").textContent=(L.startBalance!=null&&L.balance!=null)?(function(){var exp=L.startBalance+sum("net");var gap=L.balance-exp;return "wallet "+money(L.balance)+" vs ledger "+money(exp)+" (started at "+money(L.startBalance)+(sum("net")>=0?" +":" \u2212")+money(Math.abs(sum("net")))+") \u2192 "+(gap>=0?"+":"\u2212")+money(Math.abs(gap))+" unexplained"})():"";
-el("lsince").textContent=L.statsSince?"strategy rows count real trades since "+new Date(L.statsSince).toLocaleString("en-GB",{timeZone:"Asia/Seoul",hour12:false})+" KST; the totals above cover everything":"";
+el("netk").textContent=L.statsSince?"since start":"all time";el("lsince").textContent=L.statsSince?"everything in this panel counts real trades since "+new Date(L.statsSince).toLocaleString("en-GB",{timeZone:"Asia/Seoul",hour12:false})+" KST; the totals above cover everything":"";
 el("lrules").innerHTML=ALL.filter(function(l){return l.mode!=="off"}).map(function(l){var vs=(l.variants&&l.variants.length)?l.variants:[{variant:l.variant,size:l.size,trades:l.trades,won:l.won,net:l.net,halted:false,streak:0,haltAfterLosses:0}];return vs.map(function(v,i){return '<tr class="'+(v.halted?"dim":"")+'"><td>'+(i?'':(l.label||"BTC 5m"))+'</td><td><b>'+v.variant+'</b>'+(l.mode==="dry"?' <span class="mut">dry</span>':'')+(v.halted?' <span class="tag bad">halted</span>':'')+'</td><td class="r">$'+v.size+'</td><td class="r">'+(i?'':'-$'+l.maxLossPerDay)+'</td><td class="r '+(i?'mut':cls(l.todayNet))+'">'+(i?'':signed(l.todayNet))+'</td><td class="r '+cls(v.net)+'">'+signed(v.net)+'</td><td class="r">'+v.trades+'</td><td class="r">'+(v.trades?Math.round(v.won/v.trades*100)+"%":"—")+'</td><td class="r '+(v.streak?"bad":"mut")+'">'+(v.haltAfterLosses?(v.streak+"/"+v.haltAfterLosses):"")+'</td></tr>'}).join("")}).join("")||'<tr><td class="empty" colspan="9">real orders are off</td></tr>';
 el("bal").textContent=money(L.balance);
 var tn=sum("todayNet"),an=sum("net"),tr=sum("trades"),wn=sum("won");
@@ -209,9 +209,9 @@ el("err").textContent=s.lastError?"last error: "+s.lastError:"";
 el("note").textContent="Paper rule: "+s.paper.rule+". Data is in the data/ folder next to the app. Set \\"mode\\" to \\"off\\" in data/live.json to stop real orders.";
 }catch(e){el("sub").textContent="status unavailable"}}
 var H={};
-function feedChart(key,label,sec,r){var b=r.lastBook;if(!b||b.window==null)return;var h=H[key];if(!h||h.w!==b.window){h=H[key]={w:b.window,sec:sec,label:label,pts:[],open:null,lastT:null}}
-h.left=b.left;h.up=b.upAsk;h.down=b.downAsk;if(b.open!=null)h.open=b.open;h.last=b.chainlink;
-if(b.chainlink!=null&&b.t!==h.lastT){h.lastT=b.t;var x=Math.max(0,Math.min(1,1-b.left/sec));h.pts.push({x:x,p:b.chainlink})}}
+function feedChart(key,label,sec,r){var b=r.lastBook||{};var w=r.window||b.window;if(!w)return;var h=H[key]={w:w,sec:sec,label:label,open:null,pts:[]};
+h.left=b.window===w&&b.left!=null?b.left:Math.max(0,w+sec-Math.floor(Date.now()/1000));h.up=b.window===w?b.upAsk:null;h.down=b.window===w?b.downAsk:null;if(b.window===w&&b.open!=null)h.open=b.open;
+h.pts=(r.prices||[]).map(function(q){return {x:Math.max(0,Math.min(1,q[0]/sec)),p:q[1]}});if(h.open==null&&h.pts.length)h.open=h.pts[0].p;h.last=h.pts.length?h.pts[h.pts.length-1].p:b.chainlink}
 function drawCharts(){var W=220,HT=92,L=40,R=6,T=6,B=14,pw=W-L-R,ph=HT-T-B;
 el("charts").innerHTML=Object.keys(H).map(function(k){var h=H[k];var open=h.open;var ps=h.pts.map(function(p){return p.p});var vals=ps.concat(open==null?[]:[open]);
 var lo=vals.length?Math.min.apply(null,vals):0,hi=vals.length?Math.max.apply(null,vals):1;var ref=open!=null?open:(lo+hi)/2;var span=Math.max(hi-lo,ref*0.0003);var pad=span*0.2;lo=Math.min(lo,ref-span/2)-pad;hi=Math.max(hi,ref+span/2)+pad;

@@ -10,8 +10,9 @@
  *   A series trades one variant ("variant" + "size") or several ("variants", each with its own size). A variant
  *   with "haltAfterLosses": N stops after N straight losses; the halt is kept in data/<prefix>live-halts.json
  *   (delete its entry, or set "halted": false, to let it trade again). "maxLossPerDay" is per series.
- *   "statsSince": "2026-10-23T02:43:00Z" (top level) makes the per-variant table count only trades from then on;
- *   the all-time totals above it still cover everything.
+ *   "statsSince": "2026-10-23T02:43:00Z" (top level) makes the dashboard (totals, per-variant rows, day table,
+ *   trade log) count only trades from then on; older trades stay in the data files. The daily loss stop counts
+ *   from then on too.
  *   Each extra series keeps its own files, prefixed like its data (eth5m-live/, eth5m-live-open.json, ...).
  *   - off:  nothing happens (the default when the file is missing).
  *   - dry:  signs the order and logs what it would send, posts nothing.
@@ -190,7 +191,7 @@ export class LiveTrader {
     const totals = loadJson<LiveTrade[]>(`${this.prefix}live-totals.json`, []);
     for (const t of totals) this.count(t);
     // Recent rows include skipped and unfilled orders, which live only in the day files, so the log looks the same after a restart.
-    const logged = readAll<LiveTrade>(`${this.prefix}live`).filter((t) => !t.dry).sort((a, b) => b.t - a.t);
+    const logged = readAll<LiveTrade>(`${this.prefix}live`).filter((t) => !t.dry && t.t >= this.config.statsSince).sort((a, b) => b.t - a.t);
     this.recent = [...this.open, ...logged].slice(0, 40);
     // Wins from before the claim step existed (or from a crash) are still shares: queue them too.
     const cutoff = Date.now() / 1000 - 3 * 86400;
@@ -208,7 +209,7 @@ export class LiveTrader {
     if (this.daysCache && Date.now() - this.daysCache.at < 60_000) return this.daysCache.days;
     const byDay = new Map<string, LiveDay>();
     for (const t of readAll<LiveTrade>(`${this.prefix}live`)) {
-      if (t.dry) continue;
+      if (t.dry || t.t < this.config.statsSince) continue;
       const day = kstDay(t.window * 1000);
       let d = byDay.get(day);
       if (!d) byDay.set(day, (d = { day, orders: 0, filled: 0, skipped: 0, noFill: 0, settled: 0, won: 0, net: 0 }));
@@ -219,7 +220,7 @@ export class LiveTrader {
     }
     // Settled results come from the totals file (the day rows above are written at order time, before the result is known).
     for (const t of loadJson<LiveTrade[]>(`${this.prefix}live-totals.json`, [])) {
-      if (t.dry || t.pnl == null) continue;
+      if (t.dry || t.pnl == null || t.t < this.config.statsSince) continue;
       const day = kstDay(t.window * 1000);
       let d = byDay.get(day);
       if (!d) byDay.set(day, (d = { day, orders: 0, filled: 0, skipped: 0, noFill: 0, settled: 0, won: 0, net: 0 }));
@@ -239,14 +240,14 @@ export class LiveTrader {
 
   private count(t: LiveTrade) {
     if (t.dry || t.pnl == null) return;
+    // Everything on the dashboard (totals, day table, per-variant rows, log) starts at statsSince; older trades stay in the files.
+    if (t.t < this.config.statsSince) return;
     this.trades += 1;
     if (t.won) this.won += 1;
     this.net += t.pnl;
     // Per-day totals keyed by the window's day, so a trade settled late (after a restart) still lands on its own day.
     const day = kstDay(t.window * 1000);
     this.dayNet.set(day, (this.dayNet.get(day) ?? 0) + t.pnl);
-    // The per-variant table starts at statsSince, so an old experiment under the same name does not carry over.
-    if (t.t < this.config.statsSince) return;
     let v = this.byVariant.get(t.variant);
     if (!v) this.byVariant.set(t.variant, (v = { trades: 0, won: 0, net: 0 }));
     v.trades += 1;

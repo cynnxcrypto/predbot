@@ -331,6 +331,16 @@ export class Recorder {
     }
   }
 
+  private windowPrices(): [number, number][] {
+    if (!this.markWindow) return [];
+    const openMs = this.markWindow * 1000;
+    const ticks = this.f.chainlink.between(openMs, openMs + this.series.windowSec * 1000);
+    const step = Math.max(1, Math.ceil(ticks.length / 180));
+    const out: [number, number][] = [];
+    ticks.forEach((t, i) => { if (i % step === 0 || i === ticks.length - 1) out.push([Math.round((t.t - openMs) / 100) / 10, t.price]); });
+    return out;
+  }
+
   status() {
     const feeds = [this.f.chainlink, this.f.binance, this.f.coinbase];
     return {
@@ -339,6 +349,8 @@ export class Recorder {
       windowSec: this.series.windowSec,
       startedAt: this.startedAt,
       window: this.markWindow,
+      // Chainlink prices of the current window as [seconds into the window, price], thinned to about 180 points, for the charts.
+      prices: this.windowPrices(),
       listed: Boolean(this.market && this.marketWindow === windowStart(undefined, this.series.windowSec)),
       snapshots: this.snapshots,
       windowsDone: this.windowsDone,
