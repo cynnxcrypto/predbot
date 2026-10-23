@@ -252,7 +252,7 @@ tr.dim{transition:opacity .4s}
 @keyframes soon{0%,100%{opacity:1}50%{opacity:.55}}
 .clock.soon{animation:soon 1s ease-in-out infinite}
 .coin{display:inline-flex;width:16px;height:16px;border-radius:50%;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:#0f1117;vertical-align:-3px;margin-right:6px;font-family:ui-sans-serif,system-ui,sans-serif}
-.coin.btc{background:#f7931a}.coin.eth{background:#8c9eff}.coin.sol{background:#14f195}.coin.xrp{background:#b3bccb}
+.coin.btc{background:#f7931a}.coin.eth{background:#8c9eff}.coin.sol{background:#14f195}.coin.xrp{background:#b3bccb}.coin.doge{background:#c2a633}.coin.bnb{background:#f3ba2f}.coin.hype{background:#97fce4}
 </style></head><body><main>
 <div class="top"><h1>Pred bot</h1><span class="pill" id="mode">off</span><span class="pill" id="listed">—</span><span class="sub" id="sub">loading</span></div>
 
@@ -305,8 +305,8 @@ var el=function(id){return document.getElementById(id)};
 var money=function(n){return n==null?"—":"$"+Number(n).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2})};
 var signed=function(n){return n==null?"—":(n<0?"-":"+")+"$"+Math.abs(n).toFixed(2)};
 var cents=function(n){return n==null?"—":Math.round(n*100)+"¢"};
-var COINS={btc:"\u20bf",eth:"\u039e",sol:"\u25ce",xrp:"\u2715"};
-var coin=function(label){var k=String(label||"").slice(0,3).toLowerCase();if(!COINS[k])return "";
+var COINS={btc:"\u20bf",eth:"\u039e",sol:"\u25ce",xrp:"\u2715",doge:"D",bnb:"B",hype:"H"};
+var coin=function(label){var k=String(label||"").split(" ")[0].toLowerCase();if(!COINS[k])return "";
 return '<img class="coin img" alt="'+k.toUpperCase()+'" title="'+k.toUpperCase()+'" src="/logo/'+k+'.png" onerror="this.remove()"><span class="coin '+k+'" title="'+k.toUpperCase()+'">'+COINS[k]+"</span>"};
 var hhmm=function(sec){return new Date(sec*1000).toLocaleTimeString("en-GB",{timeZone:"Asia/Seoul",hour:"2-digit",minute:"2-digit"})};
 function cls(n){return n==null?"":n<0?"bad":n>0?"ok":""}
