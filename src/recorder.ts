@@ -318,7 +318,7 @@ export class Recorder {
       const pricesFinal =
         item.row.close != null && item.row.pricesAt != null && item.row.resolvedAt != null && item.row.pricesAt >= item.row.resolvedAt && item.row.pricesAt >= closeMs + 120000;
       const done = item.row.resolvedUp != null && pricesFinal;
-      if (done || item.tries >= 40) {
+      if (done || item.tries >= 60) {
         if (item.row.resolvedUp == null) {
           for (const p of this.papers) p.abandon(item.window);
           this.live?.abandon(item.window);
@@ -327,7 +327,8 @@ export class Recorder {
         this.pending = this.pending.filter((p) => p !== item);
         if (item.row.resolvedUp != null) this.windowsResolved += 1;
       } else {
-        item.nextAt = now + Math.min(300000, 15000 * item.tries);
+        // Polymarket usually resolves 3-5 minutes after close; check every 15s for the first ten minutes, then back off.
+        item.nextAt = now + (item.tries < 40 ? 15000 : Math.min(300000, 15000 * (item.tries - 39)));
       }
       saveJson(`${this.prefix}pending.json`, this.pending);
     }
