@@ -31,6 +31,12 @@ export type Variant = {
   /** For favAt: only act between these seconds into the window, measured on a 5-minute window and scaled for longer ones. */
   favFrom?: number;
   favTo?: number;
+  /** For favAt: the Chainlink move since open, in the favourite's direction, must be between these (basis points) at the first hit. */
+  leadMin?: number;
+  leadMax?: number;
+  /** For favAt: the favourite's ask must have read at least `holdAt` on each of the previous `holdRows` snapshots of the window. */
+  holdRows?: number;
+  holdAt?: number;
 };
 
 /** The variants run side by side. "base" keeps the original file names; the env vars tune it. */
@@ -55,6 +61,11 @@ export const VARIANTS: Variant[] = [
   { name: "fav93-mid", left: 0, cap: 0.995, size: 5, favAt: 0.93, favFrom: 120, favTo: 180 },
   // Best pooled long-shot cell of the grid replay: 12c in the first 60s.
   { name: "cheap12-first60", left: 0, cap: 0.12, size: 5, first: 60 },
+  // Replay of 4,507 first hits (19-23 Oct, four 5m coins): fav93 wins 93.9% (-2c a trade). Two filters lifted it:
+  // a small Chainlink lead of 0-3bp with 3 minutes or less left won 95.9% (+8c), and an ask that had held 90c+ for the
+  // previous ten snapshots won 96.4% (+13c, mostly BTC). Paper only, to see if either survives out of sample.
+  { name: "fav93-lead", left: 0, cap: 0.995, size: 5, favAt: 0.93, favFrom: 120, leadMin: 0, leadMax: 3 },
+  { name: "fav93-hold", left: 0, cap: 0.995, size: 5, favAt: 0.93, holdRows: 10, holdAt: 0.9 },
 ];
 
 export type PaperTrade = {
@@ -131,6 +142,10 @@ export class PaperTrader {
   /** Called on every book snapshot. */
   /** Previous second's best asks, for the noFall rule. */
   private prevAsk: { window: number; up: number | null; down: number | null } | null = null;
+  /** Recent best asks of the window (newest last), for the holdRows rule. */
+  private history: { window: number; rows: { up: number | null; down: number | null }[] } = { window: 0, rows: [] };
+  /** Windows where the favourite rule already saw its first hit (taken or filtered out); it never fires twice. */
+  private favSeen = 0;
 
   consider(row: BookRow) {
     const { left: LEFT, cap: CAP, size: SIZE } = this.v;
@@ -278,10 +293,26 @@ export class PaperTrader {
     if (this.open.some((t) => t.window === row.window)) return;
     const upBest = row.upAsks[0]?.[0];
     const downBest = row.downAsks[0]?.[0];
+    if (this.history.window !== row.window) this.history = { window: row.window, rows: [] };
+    const before = this.history.rows.slice(-Math.max(this.v.holdRows ?? 0, 1));
+    this.history.rows.push({ up: upBest ?? null, down: downBest ?? null });
+    if (this.history.rows.length > 30) this.history.rows.shift();
     if (upBest == null || downBest == null) return;
+    if (this.favSeen === row.window) return;
     const up = upBest >= downBest;
     const ask = up ? upBest : downBest;
     if (ask < favAt - 1e-9 || ask > CAP) return;
+    // The filters judge the first hit only: a window that fails them is left alone, like the replay they came from.
+    this.favSeen = row.window;
+    if (this.v.leadMin != null || this.v.leadMax != null) {
+      if (row.chainlink == null || row.open == null) return;
+      const lead = ((row.chainlink - row.open) / row.open) * 1e4 * (up ? 1 : -1);
+      if (lead < (this.v.leadMin ?? -Infinity) || lead >= (this.v.leadMax ?? Infinity)) return;
+    }
+    if (this.v.holdRows != null) {
+      if (before.length < this.v.holdRows) return;
+      if (!before.every((r) => (up ? r.up : r.down) != null && (up ? r.up : r.down)! >= (this.v.holdAt ?? 0) - 1e-9)) return;
+    }
     const levels = up ? row.upAsks : row.downAsks;
     let budget = SIZE;
     let shares = 0;
