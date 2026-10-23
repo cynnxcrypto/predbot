@@ -178,7 +178,8 @@ tr.off td{opacity:.45}
 .info:hover{color:var(--fg);border-color:var(--mut)}
 .info:hover::after{content:attr(data-tip);position:absolute;left:18px;top:-4px;z-index:5;background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:6px 8px;color:var(--fg);font-style:normal;font-size:11px;white-space:normal;width:280px;text-align:left;line-height:1.4}
 td.wl{color:var(--mut);font-size:11px;text-align:left;padding-left:4px;width:1%;white-space:nowrap}
-.charts{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:10px;margin-top:16px}
+.charts{display:grid;grid-template-columns:repeat(auto-fit,minmax(max(230px,calc(20% - 8px)),1fr));gap:10px;margin-top:16px}
+.charts:empty{display:none}
 @media(max-width:1200px){.charts{grid-template-columns:repeat(3,1fr)}}
 @media(max-width:700px){.charts{grid-template-columns:repeat(2,1fr)}}
 .chart{background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:8px 8px 4px}
@@ -284,7 +285,7 @@ el("mode").className="pill "+(L.mode==="live"?"live":L.mode==="dry"?"dry":"");
 el("listed").textContent=s.listed?"market listed":"not listed yet";
 el("sub").textContent="build "+s.build+" · book "+(s.bookFeed&&s.bookFeed.connected?"streaming":"polling")+(s.lastError?" · error: "+s.lastError:"");
 el("hstats").innerHTML=(function(){var n=0,open=0;ALL.forEach(function(l){(l.recent||[]).forEach(function(t){if(t.pnl==null&&t.ok&&!t.dry&&t.shares>0){n++;open+=t.cost||0}})});var live=ALL.filter(function(l){return l.mode!=="off"}).length;return '<div><div class="k">markets</div><div class="v big">'+(1+(s.series||[]).length)+'</div></div><div><div class="k">real on</div><div class="v big">'+live+'</div></div><div><div class="k">open trades</div><div class="v big">'+n+(n?' <span class="mut" style="font-size:14px;font-weight:400">'+money(open)+'</span>':"")+'</div></div>'})();
-feedChart("btc5m","BTC 5m",300,s);(s.series||[]).forEach(function(r){feedChart(r.series||r.label,r.label,/15m/.test(r.label)?900:300,r)});drawCharts();
+var realOn=function(l){if(!l||l.mode==="off")return false;var vs=(l.variants&&l.variants.length)?l.variants:(l.variant?[{variant:l.variant}]:[]);return vs.some(function(v){return !v.paused&&!v.halted})};H={};if(realOn(s.live))feedChart("btc5m","BTC 5m",300,s);(s.series||[]).forEach(function(r){if(realOn(r.live))feedChart(r.series||r.label,r.label,/15m/.test(r.label)?900:300,r)});drawCharts();
 el("lrule").textContent=ALL.filter(function(l){return l.mode!=="off"}).length+" live";
 el("ledger").textContent=(L.startBalance!=null&&L.balance!=null)?(function(){var ch=L.chain||{};var wallet=(ch.pUSD!=null?ch.pUSD:L.balance)+(ch["USDC.e"]||0);var open=0,stake=0,exp=0,claim=0;ALL.forEach(function(l){claim+=l.toClaim||0;var rr=RS[l.label||"BTC 5m"]||{};var rb=rr.lastBook||{};(l.recent||[]).forEach(function(t){if(t.pnl==null&&t.ok&&!t.dry&&t.shares>0){open+=(t.cost||0)+feeOf(t);stake+=t.cost||0;var p=null;if(t.window===rr.window){var a=t.side==="UP"?rb.upAsk:rb.downAsk;p=a!=null?a:t.cost/t.shares}else{var pl=rr.pendingLean?rr.pendingLean[t.window]:null;p=pl==null||pl===0?t.cost/t.shares:((pl>0)===(t.side==="UP")?1:0)}exp+=t.shares*p}})});el("claim").textContent=money(claim+exp);el("claim").title=money(claim)+" won and waiting for payout + "+money(exp)+" expected from "+money(stake)+" in open trades";var hidNet=0,hidOpen=0;ALL.forEach(function(l){if(l.hidden){hidNet+=l.hidden.net||0;hidOpen+=l.hidden.open||0}});open+=hidOpen;exp+=hidOpen;
 var dep=L.deposits||0;var expWallet=L.startBalance+dep+sum("net")+hidNet-open-claim;var gap=wallet-expWallet;
