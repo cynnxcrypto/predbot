@@ -22,6 +22,8 @@ export type Variant = {
   floor?: number;
   /** Only buy when the ask is at or above the previous second's ask (the crowd is not moving against the side). */
   noFall?: boolean;
+  /** Jump guard: skip when the chosen side's ask was below this one second earlier (a book that leaps into the band from far below is usually collapsing). */
+  prevFloor?: number;
   /** Early-window long shot: buy whichever side is cheapest, at or under `cap`, within the first `first` seconds of the window (no projection). */
   first?: number;
   /** Favourite rule: buy the higher-priced side the first time its best ask is at or above `favAt`, any time in the window, paying up to `cap` (no projection). */
@@ -43,6 +45,8 @@ export const VARIANTS: Variant[] = [
   { name: "band80-30", left: 30, floor: 0.8, cap: 0.9, size: 20 },
   // band80-30 with the live fill rule: skip the second the ask fell. In the recorded books this kept 93% of wins.
   { name: "band80-30-chase", left: 30, floor: 0.8, cap: 0.9, size: 20, noFall: true },
+  // band80-30 with the jump guard: every real loss up to 23 Oct came from an ask that was under ~70-75c one second before it first read 80-90c.
+  { name: "band80-30-j70", left: 30, floor: 0.8, cap: 0.9, size: 20, prevFloor: 0.70 },
   // enrique's long shot (20 Oct): either side under 10c in the first 90s of the window, $5 a trade.
   { name: "cheap10-first90", left: 0, cap: 0.1, size: 5, first: 90 },
   // enrique's favourite rule (21 Oct): buy the favourite the first time its ask reaches 93c, $5. Replay: 2c a trade on BTC 5m, 12-16c on BTC 15m.
@@ -151,6 +155,10 @@ export class PaperTrader {
     if (this.v.noFall) {
       const before = up ? prev?.up : prev?.down;
       if (before != null && levels.length && levels[0][0] <= before - 0.01 + 1e-9) return;
+    }
+    if (this.v.prevFloor != null) {
+      const before = up ? prev?.up : prev?.down;
+      if (before == null || before < this.v.prevFloor - 1e-9) return;
     }
     if (!levels.length || levels[0][0] > CAP || levels[0][0] < FLOOR) {
       if (this.lastNoAskWindow !== row.window) {
