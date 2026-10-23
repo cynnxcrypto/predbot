@@ -98,6 +98,13 @@ const USDC_E = COLLATERALS[1];
 const ONRAMP = "0x93070a847efEf7F70739046A929D47a521F5B8ee";
 const erc20 = new Interface(["function balanceOf(address owner) view returns (uint256)", "function approve(address spender, uint256 amount) returns (bool)"]);
 const onrampAbi = new Interface(["function wrap(address _asset, address _to, uint256 _amount)"]);
+/** Native USDC (what exchanges send) is not accepted by the onramp; Uniswap v3's 0.01% USDC/USDC.e pool turns it into USDC.e first. */
+const USDC_NATIVE = COLLATERALS[2];
+const UNISWAP_ROUTER = "0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45";
+const routerAbi = new Interface([
+  "function exactInputSingle((address tokenIn,address tokenOut,uint24 fee,address recipient,uint256 amountIn,uint256 amountOutMinimum,uint160 sqrtPriceLimitX96) params) payable returns (uint256 amountOut)",
+]);
+type Swap = { want: number; amount: number; tx: string | null; at: number; error: string | null };
 const provider = new StaticJsonRpcProvider(RPC, 137);
 const ctfAbi = new Interface(["function redeemPositions(address collateralToken, bytes32 parentCollectionId, bytes32 conditionId, uint256[] indexSets)"]);
 const DEFAULT: LiveConfig = { mode: "off", variant: "band80-30", size: 5, maxLossPerDay: 25, funder: "", variants: [], statsSince: 0, startBalance: null };
@@ -174,6 +181,8 @@ export class LiveTrader {
   chain: Record<string, number> | null = null;
   lastWrap: { amount: number; tx: string | null; at: number; error: string | null } | null = null;
   private wrapping = false;
+  lastSwap: Swap | null = null;
+  private swapping = false;
   private lastTradeSync = 0;
   private client: ClobClient | null = null;
   private signer: Wallet | null = null;
@@ -544,6 +553,55 @@ export class LiveTrader {
   }
 
   /**
+   * One-off: "convertUsdc": <dollars> in data/live.json swaps that much native USDC (a top-up sent from an exchange)
+   * into USDC.e on Uniswap, after which wrapPending turns it into pUSD. Each value runs once: data/usdc-swaps.json
+   * remembers the amounts already done, so change the number to convert more. Nothing happens below 50c.
+   */
+  async swapNative() {
+    const want = Number(loadJson<{ convertUsdc?: unknown }>("live.json", {}).convertUsdc ?? 0);
+    const usdc = this.chain?.["USDC"] ?? 0;
+    if (this.series.key || this.swapping || relayBusy || this.config.mode === "off" || !(want > 0) || usdc < 0.5) return;
+    const done = loadJson<Swap[]>("usdc-swaps.json", []);
+    if (done.some((d) => d.tx && Math.abs(d.want - want) < 1e-6)) return;
+    if (this.lastSwap && !this.lastSwap.tx && Date.now() - this.lastSwap.at < 600000) return;
+    const amount = Math.min(want, usdc);
+    const units = BigInt(Math.floor(amount * 1e6));
+    this.swapping = true;
+    relayBusy = true;
+    try {
+      const relay = this.relay();
+      const params = {
+        tokenIn: USDC_NATIVE,
+        tokenOut: USDC_E,
+        fee: 100,
+        recipient: this.config.funder,
+        amountIn: units,
+        amountOutMinimum: (units * 995n) / 1000n,
+        sqrtPriceLimitX96: 0,
+      };
+      const calls = [
+        { target: USDC_NATIVE, value: "0", data: erc20.encodeFunctionData("approve", [UNISWAP_ROUTER, units]) },
+        { target: UNISWAP_ROUTER, value: "0", data: routerAbi.encodeFunctionData("exactInputSingle", [params]) },
+      ];
+      const sent = await relay.executeDepositWalletBatch(calls, this.config.funder, String(Math.floor(Date.now() / 1000) + 600));
+      const finished = await sent.wait();
+      const hash = finished?.transactionHash || sent.transactionHash || null;
+      if (!hash) throw new Error(`relayer did not confirm (state ${finished?.state ?? sent.state ?? "unknown"})`);
+      this.lastSwap = { want, amount, tx: hash, at: Date.now(), error: null };
+      console.log(`live: swapped $${amount.toFixed(2)} native USDC into USDC.e (${hash}); it becomes pUSD on the next pass`);
+      await this.refreshBalance();
+    } catch (error) {
+      this.lastSwap = { want, amount, tx: null, at: Date.now(), error: error instanceof Error ? error.message : String(error) };
+      console.log(`live: swapping native USDC failed (${this.lastSwap.error}), retrying in 10 minutes`);
+    } finally {
+      saveJson("usdc-swaps.json", [...done, this.lastSwap]);
+      this.swapping = false;
+      relayBusy = false;
+      saveJson(`${this.prefix}live-state.json`, { at: Date.now(), ...this.status() });
+    }
+  }
+
+  /**
    * Turn settled winning shares back into pUSD. Called about once a minute by the recorder.
    * One redeemPositions call per collateral Polymarket has used; the ones that do not match the market are
    * no-ops, so the batch is safe whichever collateral the market was created with.
@@ -630,6 +688,7 @@ export class LiveTrader {
       chain: this.chain,
       pendingRedeems: this.redeems.length,
       lastWrap: this.lastWrap,
+      lastSwap: this.lastSwap,
       lastRedeem: this.lastRedeem,
       // The log shows orders that actually bought shares (or dry runs); skipped and unfilled orders only count in the day table.
       recent: this.recent.filter((t) => t.ok && (t.shares > 0 || t.dry)).slice(0, 20),
