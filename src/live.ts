@@ -185,6 +185,8 @@ let relayerBlockedUntil = 0;
 let lastClaimAt = 0;
 /** After a failed batch, try the oldest window alone next time. */
 let claimSingles = false;
+/** More windows were waiting than one batch takes (after a quota pause): batches then go out every 5 minutes. */
+let claimBacklog = false;
 
 /** Reads "quota exceeded ... resets in N seconds" out of a relayer error and pauses relayer work until then. */
 function noteRelayError(error: unknown) {
@@ -673,7 +675,7 @@ export class LiveTrader {
     const due: { trader: LiveTrader; redeem: Redeem }[] = [];
     for (const trader of traders) for (const r of trader.redeems) if (r.nextAt <= now) due.push({ trader, redeem: r });
     if (!due.length) return;
-    if (lastClaimAt && now - lastClaimAt < this.config.claimEveryMin * 60_000) return;
+    if (lastClaimAt && now - lastClaimAt < (claimBacklog ? 5 : this.config.claimEveryMin) * 60_000) return;
     due.sort((a, b) => a.redeem.window - b.redeem.window);
     const batch = claimSingles ? due.slice(0, 1) : due.slice(0, 12);
     this.redeeming = true;
@@ -704,6 +706,7 @@ export class LiveTrader {
       if (!hash) throw new Error(`relayer did not confirm (state ${done?.state ?? sent.state ?? "unknown"})`);
       lastClaimAt = Date.now();
       claimSingles = false;
+      claimBacklog = due.length > batch.length;
       for (const { trader, redeem } of batch) trader.markClaimed(redeem, hash);
       this.lastRedeem = { window: batch[batch.length - 1].redeem.window, tx: hash, at: Date.now(), error: null };
       this.lastWrap = { amount: Number(units) / 1e6, tx: hash, at: Date.now(), error: null };
