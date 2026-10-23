@@ -15,6 +15,13 @@ test("live.json: one variant per series stays as before", () => {
   assert.equal(c.mode, "live");
   assert.equal(c.variant, "band80-30-j70");
   assert.deepEqual(c.variants, [{ variant: "band80-30-j70", size: 5, haltAfterLosses: 0 }]);
+  assert.equal(c.statsSince, 0);
+});
+
+test("live.json: statsSince is parsed as a timestamp", () => {
+  writeFileSync(join(dir, "live.json"), JSON.stringify({ mode: "live", funder: "0xabc", statsSince: "2026-10-23T02:43:00Z" }));
+  assert.equal(liveConfig().statsSince, Date.parse("2026-10-23T02:43:00Z"));
+  assert.equal(liveConfig("eth5m").statsSince, Date.parse("2026-10-23T02:43:00Z"));
 });
 
 test("live.json: several variants per series, each with its own size and halt", () => {

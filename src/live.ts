@@ -10,6 +10,8 @@
  *   A series trades one variant ("variant" + "size") or several ("variants", each with its own size). A variant
  *   with "haltAfterLosses": N stops after N straight losses; the halt is kept in data/<prefix>live-halts.json
  *   (delete its entry, or set "halted": false, to let it trade again). "maxLossPerDay" is per series.
+ *   "statsSince": "2026-10-23T02:43:00Z" (top level) makes the per-variant table count only trades from then on;
+ *   the all-time totals above it still cover everything.
  *   Each extra series keeps its own files, prefixed like its data (eth5m-live/, eth5m-live-open.json, ...).
  *   - off:  nothing happens (the default when the file is missing).
  *   - dry:  signs the order and logs what it would send, posts nothing.
@@ -41,7 +43,7 @@ import { append, loadJson, readAll, saveJson } from "./store.js";
 
 export type LiveMode = "off" | "dry" | "live";
 export type LiveVariant = { variant: string; size: number; haltAfterLosses: number };
-export type LiveConfig = { mode: LiveMode; variant: string; size: number; maxLossPerDay: number; funder: string; variants: LiveVariant[] };
+export type LiveConfig = { mode: LiveMode; variant: string; size: number; maxLossPerDay: number; funder: string; variants: LiveVariant[]; statsSince: number };
 type VariantEntry = { variant?: string; size?: number; haltAfterLosses?: number };
 type MarketEntry = VariantEntry & { series?: string; maxLossPerDay?: number; mode?: string; variants?: VariantEntry[] };
 /** Streak of straight losses per variant and whether it tripped the halt. */
@@ -97,7 +99,7 @@ const erc20 = new Interface(["function balanceOf(address owner) view returns (ui
 const onrampAbi = new Interface(["function wrap(address _asset, address _to, uint256 _amount)"]);
 const provider = new StaticJsonRpcProvider(RPC, 137);
 const ctfAbi = new Interface(["function redeemPositions(address collateralToken, bytes32 parentCollectionId, bytes32 conditionId, uint256[] indexSets)"]);
-const DEFAULT: LiveConfig = { mode: "off", variant: "band80-30", size: 5, maxLossPerDay: 25, funder: "", variants: [] };
+const DEFAULT: LiveConfig = { mode: "off", variant: "band80-30", size: 5, maxLossPerDay: 25, funder: "", variants: [], statsSince: 0 };
 
 const sizeOf = (raw: unknown) => {
   const size = Number(raw ?? DEFAULT.size);
@@ -105,13 +107,14 @@ const sizeOf = (raw: unknown) => {
 };
 
 export function liveConfig(seriesKey = ""): LiveConfig {
-  const file = loadJson<Partial<LiveConfig> & MarketEntry & { markets?: MarketEntry[] }>("live.json", {});
+  const file = loadJson<Partial<Omit<LiveConfig, "statsSince">> & MarketEntry & { markets?: MarketEntry[]; statsSince?: string | number }>("live.json", {});
+  const since = typeof file.statsSince === "number" ? file.statsSince : Date.parse(String(file.statsSince ?? ""));
   const globalMode: LiveMode = file.mode === "live" || file.mode === "dry" ? file.mode : "off";
   let raw: MarketEntry = file;
   let mode = globalMode;
   if (seriesKey) {
     const entry = (file.markets ?? []).find((m) => m.series === seriesKey);
-    if (!entry) return { ...DEFAULT, mode: "off", funder: String(file.funder ?? "").trim() };
+    if (!entry) return { ...DEFAULT, mode: "off", funder: String(file.funder ?? "").trim(), statsSince: Number.isFinite(since) ? since : 0 };
     raw = entry;
     // A market may be quieter than the global mode (off or dry), never louder.
     if (entry.mode === "off" || (entry.mode === "dry" && globalMode === "live")) mode = entry.mode;
@@ -132,6 +135,7 @@ export function liveConfig(seriesKey = ""): LiveConfig {
     maxLossPerDay: Number.isFinite(maxLossPerDay) && maxLossPerDay > 0 ? maxLossPerDay : DEFAULT.maxLossPerDay,
     funder: String(file.funder ?? "").trim(),
     variants,
+    statsSince: Number.isFinite(since) ? since : 0,
   };
 }
 
@@ -237,6 +241,8 @@ export class LiveTrader {
     // Per-day totals keyed by the window's day, so a trade settled late (after a restart) still lands on its own day.
     const day = kstDay(t.window * 1000);
     this.dayNet.set(day, (this.dayNet.get(day) ?? 0) + t.pnl);
+    // The per-variant table starts at statsSince, so an old experiment under the same name does not carry over.
+    if (t.t < this.config.statsSince) return;
     let v = this.byVariant.get(t.variant);
     if (!v) this.byVariant.set(t.variant, (v = { trades: 0, won: 0, net: 0 }));
     v.trades += 1;
@@ -567,6 +573,7 @@ export class LiveTrader {
       variant: c.variant,
       size: c.size,
       maxLossPerDay: c.maxLossPerDay,
+      statsSince: c.statsSince || null,
       variants: c.variants.map((v) => {
         const h = this.halts[v.variant];
         const t = this.byVariant.get(v.variant);
