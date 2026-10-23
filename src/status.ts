@@ -43,7 +43,7 @@ const PAGE = `<!doctype html><html><head><meta charset="utf-8"><title>Pred bot</
 :root{--bg:#0f1117;--panel:#151922;--line:#232838;--fg:#e8eaf0;--mut:#7b8294;--up:#3ddc84;--down:#ff6b6b;--acc:#f7931a;--pur:#9b7bff}
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.45 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-variant-numeric:tabular-nums}
-main{max-width:1600px;margin:0 auto;padding:36px 24px 60px}
+main{max-width:2400px;margin:0 auto;padding:28px 28px 60px}
 .top{display:flex;align-items:center;gap:14px;margin-bottom:18px;flex-wrap:wrap}
 h1{font-size:20px;margin:0;font-weight:700;letter-spacing:.2px}
 .pill{font-size:11px;letter-spacing:.14em;text-transform:uppercase;padding:4px 10px;border-radius:999px;border:1px solid var(--line);color:var(--mut)}
@@ -54,8 +54,9 @@ h1{font-size:20px;margin:0;font-weight:700;letter-spacing:.2px}
 .tag.paper{color:var(--pur);border:1px solid var(--pur)}
 .panel.real{border-color:var(--up)}
 .sub{color:var(--mut);font-size:12px;margin-left:auto}
-.grid{display:grid;grid-template-columns:1.1fr 1fr;gap:14px;margin-bottom:14px}
-@media(max-width:820px){.grid{grid-template-columns:1fr}}
+.grid{display:grid;grid-template-columns:1fr;gap:14px;margin-bottom:14px}
+@media(min-width:1400px){.grid{grid-template-columns:1fr 1fr}}
+td,th{white-space:nowrap}
 .panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px 18px;overflow-x:auto}
 .hero{display:flex;align-items:center;gap:28px;flex-wrap:wrap}
 .clock{font-size:64px;font-weight:700;line-height:1;letter-spacing:-1px}
@@ -88,6 +89,8 @@ tr.dim td{color:var(--mut)}
 .chart svg{width:100%;display:block}
 .chart .gl{stroke:var(--line);stroke-width:1}
 .chart .gt{font-size:9px;fill:var(--mut);font-family:inherit}
+.coin{display:inline-flex;width:16px;height:16px;border-radius:50%;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:#0f1117;vertical-align:-3px;margin-right:6px;font-family:ui-sans-serif,system-ui,sans-serif}
+.coin.btc{background:#f7931a}.coin.eth{background:#8c9eff}.coin.sol{background:#14f195}.coin.xrp{background:#b3bccb}
 </style></head><body><main>
 <div class="top"><h1>Pred bot</h1><span class="pill" id="mode">off</span><span class="pill" id="listed">—</span><span class="sub" id="sub">loading</span></div>
 
@@ -147,6 +150,8 @@ var el=function(id){return document.getElementById(id)};
 var money=function(n){return n==null?"—":"$"+Number(n).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2})};
 var signed=function(n){return n==null?"—":(n<0?"-":"+")+"$"+Math.abs(n).toFixed(2)};
 var cents=function(n){return n==null?"—":Math.round(n*100)+"¢"};
+var COINS={btc:"\u20bf",eth:"\u039e",sol:"\u25ce",xrp:"\u2715"};
+var coin=function(label){var k=String(label||"").slice(0,3).toLowerCase();return COINS[k]?'<span class="coin '+k+'" title="'+k.toUpperCase()+'">'+COINS[k]+"</span>":""};
 var hhmm=function(sec){return new Date(sec*1000).toLocaleTimeString("en-GB",{timeZone:"Asia/Seoul",hour:"2-digit",minute:"2-digit"})};
 function cls(n){return n==null?"":n<0?"bad":n>0?"ok":""}
 async function poll(){try{var s=await (await fetch("/api/status")).json();
@@ -171,7 +176,7 @@ feedChart("btc5m","BTC 5m",300,s);(s.series||[]).forEach(function(r){feedChart(r
 el("lrule").textContent=ALL.filter(function(l){return l.mode!=="off"}).length+" live";
 el("ledger").textContent=(L.startBalance!=null&&L.balance!=null)?(function(){var exp=L.startBalance+sum("net");var gap=L.balance-exp;return "wallet "+money(L.balance)+" vs ledger "+money(exp)+" (started at "+money(L.startBalance)+(sum("net")>=0?" +":" \u2212")+money(Math.abs(sum("net")))+") \u2192 "+(gap>=0?"+":"\u2212")+money(Math.abs(gap))+" unexplained"})():"";
 el("netk").textContent=L.statsSince?"since start":"all time";el("lsince").textContent=L.statsSince?"everything in this panel counts real trades since "+new Date(L.statsSince).toLocaleString("en-GB",{timeZone:"Asia/Seoul",hour12:false})+" KST; the totals above cover everything":"";
-el("lrules").innerHTML=ALL.filter(function(l){return l.mode!=="off"}).map(function(l){var vs=(l.variants&&l.variants.length)?l.variants:[{variant:l.variant,size:l.size,trades:l.trades,won:l.won,net:l.net,halted:false,streak:0,haltAfterLosses:0}];return vs.map(function(v,i){return '<tr class="'+(v.halted?"dim":"")+'"><td>'+(i?'':(l.label||"BTC 5m"))+'</td><td><b>'+v.variant+'</b>'+(l.mode==="dry"?' <span class="mut">dry</span>':'')+(v.halted?' <span class="tag bad">halted</span>':'')+'</td><td class="r">$'+v.size+'</td><td class="r">'+(i?'':'-$'+l.maxLossPerDay)+'</td><td class="r '+(i?'mut':cls(l.todayNet))+'">'+(i?'':signed(l.todayNet))+'</td><td class="r '+cls(v.net)+'">'+signed(v.net)+'</td><td class="r">'+v.trades+'</td><td class="r">'+(v.trades?Math.round(v.won/v.trades*100)+"%":"—")+'</td><td class="r '+(v.streak?"bad":"mut")+'">'+(v.haltAfterLosses?(v.streak+"/"+v.haltAfterLosses):"")+'</td></tr>'}).join("")}).join("")||'<tr><td class="empty" colspan="9">real orders are off</td></tr>';
+el("lrules").innerHTML=ALL.filter(function(l){return l.mode!=="off"}).map(function(l){var vs=(l.variants&&l.variants.length)?l.variants:[{variant:l.variant,size:l.size,trades:l.trades,won:l.won,net:l.net,halted:false,streak:0,haltAfterLosses:0}];return vs.map(function(v,i){return '<tr class="'+(v.halted?"dim":"")+'"><td>'+(i?'':coin(l.label||"BTC 5m")+(l.label||"BTC 5m"))+'</td><td><b>'+v.variant+'</b>'+(l.mode==="dry"?' <span class="mut">dry</span>':'')+(v.halted?' <span class="tag bad">halted</span>':'')+'</td><td class="r">$'+v.size+'</td><td class="r">'+(i?'':'-$'+l.maxLossPerDay)+'</td><td class="r '+(i?'mut':cls(l.todayNet))+'">'+(i?'':signed(l.todayNet))+'</td><td class="r '+cls(v.net)+'">'+signed(v.net)+'</td><td class="r">'+v.trades+'</td><td class="r">'+(v.trades?Math.round(v.won/v.trades*100)+"%":"—")+'</td><td class="r '+(v.streak?"bad":"mut")+'">'+(v.haltAfterLosses?(v.streak+"/"+v.haltAfterLosses):"")+'</td></tr>'}).join("")}).join("")||'<tr><td class="empty" colspan="9">real orders are off</td></tr>';
 el("bal").textContent=money(L.balance);
 var tn=sum("todayNet"),an=sum("net"),tr=sum("trades"),wn=sum("won");
 el("today").textContent=signed(tn);el("today").className="v big "+cls(tn);
@@ -199,10 +204,10 @@ var mine=t.side==="UP"?b.upAsk:b.downAsk;var mk=mine!=null?" · "+cents(mine):""
 if(up==null)return {txt:"open"+mk+" · "+win,c:"mut"};
 var ahead=up===0?0:(up>0)===(t.side==="UP")?1:-1;
 return {txt:(ahead>0?"ahead":ahead<0?"behind":"even")+mk+" · "+win,c:ahead>0?"ok":ahead<0?"bad":"mut"}}
-el("log").innerHTML=rows.length?rows.map(function(t){var o=t.pnl==null&&t.ok&&!t.dry?openState(t):null;var res=o?o.txt:t.pnl==null?(t.ok?"dry":t.status==="skipped"?"skipped":"no fill"):signed(t.pnl);var c=o?o.c:t.pnl==null?"mut":cls(t.pnl);var px=t.shares>0?Math.round(t.cost/t.shares*100)+"¢":cents(t.ask);return '<tr class="'+(t.ok?"":"dim")+'"><td>'+hhmm(t.window)+'</td><td class="'+(t.side==="UP"?"ok":"bad")+'">'+(OL.length?'<span class="mut">'+t.mk.replace(" 5m","")+'</span> ':"")+t.side+'</td><td class="mut">'+(t.variant||"")+'</td><td>'+px+(t.shares>0?" × "+t.shares.toFixed(1):"")+'</td><td class="r">'+(t.cost>0?money(t.cost):"")+'</td><td class="r '+c+'">'+res+'</td></tr>'}).join(""):'<tr><td class="empty" colspan="6">no filled orders yet</td></tr>';
+el("log").innerHTML=rows.length?rows.map(function(t){var o=t.pnl==null&&t.ok&&!t.dry?openState(t):null;var res=o?o.txt:t.pnl==null?(t.ok?"dry":t.status==="skipped"?"skipped":"no fill"):signed(t.pnl);var c=o?o.c:t.pnl==null?"mut":cls(t.pnl);var px=t.shares>0?Math.round(t.cost/t.shares*100)+"¢":cents(t.ask);return '<tr class="'+(t.ok?"":"dim")+'"><td>'+hhmm(t.window)+'</td><td class="'+(t.side==="UP"?"ok":"bad")+'">'+coin(t.mk)+(OL.length?'<span class="mut">'+t.mk.replace(" 5m","")+'</span> ':"")+t.side+'</td><td class="mut">'+(t.variant||"")+'</td><td>'+px+(t.shares>0?" × "+t.shares.toFixed(1):"")+'</td><td class="r">'+(t.cost>0?money(t.cost):"")+'</td><td class="r '+c+'">'+res+'</td></tr>'}).join(""):'<tr><td class="empty" colspan="6">no filled orders yet</td></tr>';
 el("papers").innerHTML=(s.papers||[]).map(function(p){return '<tr class="'+(p.name===L.variant&&L.mode!=="off"?"hi":"")+'"><td>'+p.name+(function(){var on=ALL.filter(function(l){return l.mode!=="off"&&((l.variants||[]).some(function(v){return v.variant===p.name&&!v.halted})||(!(l.variants||[]).length&&l.variant===p.name))}).map(function(l){return (l.label||"BTC 5m").replace(" 5m","")});return on.length?' <span class="tag real">live on '+on.join(", ")+'</span>':""})()+'</td><td class="mut">'+p.rule+'</td><td class="r">'+p.trades+'</td><td class="r">'+(p.trades?Math.round(p.won/p.trades*100)+"%":"—")+'</td><td class="r '+cls(p.net)+'">'+signed(p.net)+'</td><td class="r">'+(p.open||"")+'</td></tr>'}).join("");
 function pv(ps,name){var p=(ps||[]).filter(function(x){return x.name===name})[0];if(!p||!p.trades)return '<td class="r mut">—</td>';return '<td class="r '+cls(p.net)+'">'+signed(p.net)+' <span class="mut">'+p.won+'/'+p.trades+'</span></td>'}
-el("series").innerHTML=(s.series||[]).length?(s.series||[]).map(function(r){var rb=r.lastBook||{};return '<tr><td>'+r.label+(r.lastError?' <span class="bad" title="'+esc(r.lastError)+'">!</span>':"")+'</td><td class="mut">'+(r.window?hhmm(r.window):"—")+(r.listed?"":" · not listed")+'</td><td class="r">'+cents(rb.upAsk)+'</td><td class="r">'+cents(rb.downAsk)+'</td><td class="r">'+r.windowsResolved+'</td>'+(r.live&&r.live.mode!=="off"?'<td class="r '+cls(r.live.net)+'">'+signed(r.live.net)+' <span class="mut">'+r.live.won+'/'+r.live.trades+(r.live.open?' · '+r.live.open+' open':'')+'</span></td>':'<td class="r mut">—</td>')+pv(r.papers,"base")+pv(r.papers,"band80-30")+pv(r.papers,"band80-30-chase")+pv(r.papers,"band80-30-j70")+pv(r.papers,"cheap10-first90")+pv(r.papers,"fav93")+pv(r.papers,"fav93-mid")+pv(r.papers,"cheap12-first60")+'</tr>'}).join(""):'<tr><td class="empty" colspan="14">only the BTC 5m market is recorded</td></tr>';
+el("series").innerHTML=(s.series||[]).length?(s.series||[]).map(function(r){var rb=r.lastBook||{};return '<tr><td>'+coin(r.label)+r.label+(r.lastError?' <span class="bad" title="'+esc(r.lastError)+'">!</span>':"")+'</td><td class="mut">'+(r.window?hhmm(r.window):"—")+(r.listed?"":" · not listed")+'</td><td class="r">'+cents(rb.upAsk)+'</td><td class="r">'+cents(rb.downAsk)+'</td><td class="r">'+r.windowsResolved+'</td>'+(r.live&&r.live.mode!=="off"?'<td class="r '+cls(r.live.net)+'">'+signed(r.live.net)+' <span class="mut">'+r.live.won+'/'+r.live.trades+(r.live.open?' · '+r.live.open+' open':'')+'</span></td>':'<td class="r mut">—</td>')+pv(r.papers,"base")+pv(r.papers,"band80-30")+pv(r.papers,"band80-30-chase")+pv(r.papers,"band80-30-j70")+pv(r.papers,"cheap10-first90")+pv(r.papers,"fav93")+pv(r.papers,"fav93-mid")+pv(r.papers,"cheap12-first60")+'</tr>'}).join(""):'<tr><td class="empty" colspan="14">only the BTC 5m market is recorded</td></tr>';
 el("feeds").innerHTML=s.feeds.map(function(f){return '<tr><td>'+f.name+'</td><td class="'+(f.healthy?"ok":"bad")+'">'+(f.healthy?"live":"down")+'</td><td class="r">'+money(f.last&&f.last.price)+'</td><td class="r">'+(f.last?Math.round((Date.now()-f.last.t)/1000)+"s":"—")+'</td><td class="r">'+f.ticks+'</td></tr>'}).join("");
 el("wd").textContent=s.windowsDone;el("ws").textContent=s.windowsResolved;el("wp").textContent=s.pending;el("sn").textContent=s.snapshots;
 el("err").textContent=s.lastError?"last error: "+s.lastError:"";
@@ -225,6 +230,6 @@ var last=ps.length?ps[ps.length-1]:null;var col=open==null||last==null?"#7b8294"
 if(h.pts.length>1){var d=h.pts.map(function(p,i){return (i?"L":"M")+X(p.x).toFixed(1)+","+Y(p.p).toFixed(1)}).join(" ");var lp=h.pts[h.pts.length-1];
 g+='<path d="'+d+'" fill="none" stroke="'+col+'" stroke-width="1.5"/><circle cx="'+X(lp.x).toFixed(1)+'" cy="'+Y(lp.p).toFixed(1)+'" r="2" fill="'+col+'"/>'}
 var lf=h.left!=null?Math.floor(h.left/60)+":"+String(h.left%60).padStart(2,"0"):"—";var dl=(last!=null&&open!=null)?bp(last)+" bp":"";
-return '<div class="chart"><div class="t"><span><b>'+h.label+'</b> <span class="mut">'+lf+'</span></span><span class="'+(col==="#3ddc84"?"ok":col==="#ff6b6b"?"bad":"mut")+'">'+dl+'</span></div><svg viewBox="0 0 '+W+' '+HT+'">'+g+'</svg><div class="t"><span class="mut">'+money(h.last)+'</span><span><span class="ok">UP '+cents(h.up)+'</span> <span class="bad">DOWN '+cents(h.down)+'</span></span></div></div>'}).join("")}
+return '<div class="chart"><div class="t"><span>'+coin(h.label)+'<b>'+h.label+'</b> <span class="mut">'+lf+'</span></span><span class="'+(col==="#3ddc84"?"ok":col==="#ff6b6b"?"bad":"mut")+'">'+dl+'</span></div><svg viewBox="0 0 '+W+' '+HT+'">'+g+'</svg><div class="t"><span class="mut">'+money(h.last)+'</span><span><span class="ok">UP '+cents(h.up)+'</span> <span class="bad">DOWN '+cents(h.down)+'</span></span></div></div>'}).join("")}
 poll();setInterval(poll,1000);
 </script></body></html>`;
