@@ -553,17 +553,22 @@ export class LiveTrader {
   }
 
   /**
-   * One-off: "convertUsdc": <dollars> in data/live.json swaps that much native USDC (a top-up sent from an exchange)
-   * into USDC.e on Uniswap, after which wrapPending turns it into pUSD. Each value runs once: data/usdc-swaps.json
-   * remembers the amounts already done, so change the number to convert more. Nothing happens below 50c.
+   * "convertUsdc" in data/live.json: "auto" swaps any native USDC that turns up in the funds wallet (a top-up sent
+   * from an exchange) into USDC.e on Uniswap, after which wrapPending turns it into pUSD; a number swaps that much
+   * once (data/usdc-swaps.json remembers the amounts already done). Nothing happens below $1.
    */
   async swapNative() {
-    const want = Number(loadJson<{ convertUsdc?: unknown }>("live.json", {}).convertUsdc ?? 0);
+    const raw = loadJson<{ convertUsdc?: unknown }>("live.json", {}).convertUsdc;
+    // "auto" converts whatever native USDC turns up (top-ups from an exchange); a number converts that much, once.
+    const auto = raw === "auto" || raw === true;
+    const want = auto ? Infinity : Number(raw ?? 0);
     const usdc = this.chain?.["USDC"] ?? 0;
-    if (this.series.key || this.swapping || relayBusy || this.config.mode === "off" || !(want > 0) || usdc < 0.5) return;
+    if (this.series.key || this.swapping || relayBusy || this.config.mode === "off" || !(want > 0) || usdc < 1) return;
+    // The relayer reports "wallet busy" for a while after a claim or wrap went through; give it a minute.
+    if (this.lastWrap?.tx && Date.now() - this.lastWrap.at < 60000) return;
     const done = loadJson<Swap[]>("usdc-swaps.json", []);
-    if (done.some((d) => d.tx && Math.abs(d.want - want) < 1e-6)) return;
-    if (this.lastSwap && !this.lastSwap.tx && Date.now() - this.lastSwap.at < 600000) return;
+    if (!auto && done.some((d) => d.tx && Math.abs(d.want - want) < 1e-6)) return;
+    if (this.lastSwap && !this.lastSwap.tx && Date.now() - this.lastSwap.at < (/wallet busy/.test(this.lastSwap.error ?? "") ? 60000 : 600000)) return;
     const amount = Math.min(want, usdc);
     const units = BigInt(Math.floor(amount * 1e6));
     this.swapping = true;
@@ -592,7 +597,7 @@ export class LiveTrader {
       await this.refreshBalance();
     } catch (error) {
       this.lastSwap = { want, amount, tx: null, at: Date.now(), error: error instanceof Error ? error.message : String(error) };
-      console.log(`live: swapping native USDC failed (${this.lastSwap.error}), retrying in 10 minutes`);
+      console.log(`live: swapping native USDC failed (${this.lastSwap.error}), retrying later`);
     } finally {
       saveJson("usdc-swaps.json", [...done, this.lastSwap]);
       this.swapping = false;
