@@ -79,7 +79,15 @@ tr.dim td{color:var(--mut)}
 .log td{font-size:13px}
 .empty{color:var(--mut);padding:14px 0;text-align:center}
 .note{color:var(--mut);font-size:12px;margin-top:14px}
-.spark{height:46px;width:100%;display:block}
+.charts{display:grid;grid-template-columns:repeat(6,1fr);gap:10px;margin-top:16px}
+@media(max-width:1200px){.charts{grid-template-columns:repeat(3,1fr)}}
+@media(max-width:700px){.charts{grid-template-columns:repeat(2,1fr)}}
+.chart{background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:8px 8px 4px}
+.chart .t{display:flex;justify-content:space-between;font-size:11px;margin-bottom:2px;white-space:nowrap}
+.chart .t b{font-weight:600}
+.chart svg{width:100%;display:block}
+.chart .gl{stroke:var(--line);stroke-width:1}
+.chart .gt{font-size:9px;fill:var(--mut);font-family:inherit}
 </style></head><body><main>
 <div class="top"><h1>Pred bot</h1><span class="pill" id="mode">off</span><span class="pill" id="listed">—</span><span class="sub" id="sub">loading</span></div>
 
@@ -92,7 +100,7 @@ tr.dim td{color:var(--mut)}
     <div><div class="k">down ask</div><div class="v big" id="downask">—</div></div>
     <div><div class="k">leaning</div><div class="v big" id="lean">—</div></div>
   </div>
-  <svg class="spark" id="spark" viewBox="0 0 600 46" preserveAspectRatio="none"></svg>
+  <div class="charts" id="charts"></div>
 </div></div>
 
 <div class="grid">
@@ -139,7 +147,6 @@ var money=function(n){return n==null?"—":"$"+Number(n).toLocaleString("en-US",
 var signed=function(n){return n==null?"—":(n<0?"-":"+")+"$"+Math.abs(n).toFixed(2)};
 var cents=function(n){return n==null?"—":Math.round(n*100)+"¢"};
 var hhmm=function(sec){return new Date(sec*1000).toLocaleTimeString("en-GB",{timeZone:"Asia/Seoul",hour:"2-digit",minute:"2-digit"})};
-var hist=[];
 function cls(n){return n==null?"":n<0?"bad":n>0?"ok":""}
 async function poll(){try{var s=await (await fetch("/api/status")).json();
 var b=s.lastBook||{};var L=s.live||{mode:"off"};
@@ -159,8 +166,7 @@ el("delta").textContent=d==null?"—":(d>=0?"+":"")+d.toFixed(1)+" bp";el("delta
 el("upask").textContent=cents(b.upAsk);el("downask").textContent=cents(b.downAsk);
 var lean=(b.upAsk!=null&&b.downAsk!=null)?(b.upAsk>b.downAsk?"UP "+cents(b.upAsk):"DOWN "+cents(b.downAsk)):"—";
 el("lean").textContent=lean;el("lean").className="v big "+(lean.indexOf("UP")===0?"ok":lean.indexOf("DOWN")===0?"bad":"");
-if(b.chainlink!=null){if(!hist.length||hist[hist.length-1].w!==s.window){if(hist.length&&hist[hist.length-1].w!==s.window)hist=[];}hist.push({w:s.window,p:b.chainlink});if(hist.length>300)hist.shift();}
-drawSpark(b.open);
+feedChart("btc5m","BTC 5m",300,s);(s.series||[]).forEach(function(r){feedChart(r.series||r.label,r.label,/15m/.test(r.label)?900:300,r)});drawCharts();
 el("lrule").textContent=ALL.filter(function(l){return l.mode!=="off"}).length+" live";
 el("lsince").textContent=L.statsSince?"strategy rows count real trades since "+new Date(L.statsSince).toLocaleString("en-GB",{timeZone:"Asia/Seoul",hour12:false})+" KST; the totals above cover everything":"";
 el("lrules").innerHTML=ALL.filter(function(l){return l.mode!=="off"}).map(function(l){var vs=(l.variants&&l.variants.length)?l.variants:[{variant:l.variant,size:l.size,trades:l.trades,won:l.won,net:l.net,halted:false,streak:0,haltAfterLosses:0}];return vs.map(function(v,i){return '<tr class="'+(v.halted?"dim":"")+'"><td>'+(i?'':(l.label||"BTC 5m"))+'</td><td><b>'+v.variant+'</b>'+(l.mode==="dry"?' <span class="mut">dry</span>':'')+(v.halted?' <span class="tag bad">halted</span>':'')+'</td><td class="r">$'+v.size+'</td><td class="r">'+(i?'':'-$'+l.maxLossPerDay)+'</td><td class="r '+(i?'mut':cls(l.todayNet))+'">'+(i?'':signed(l.todayNet))+'</td><td class="r '+cls(v.net)+'">'+signed(v.net)+'</td><td class="r">'+v.trades+'</td><td class="r">'+(v.trades?Math.round(v.won/v.trades*100)+"%":"—")+'</td><td class="r '+(v.streak?"bad":"mut")+'">'+(v.haltAfterLosses?(v.streak+"/"+v.haltAfterLosses):"")+'</td></tr>'}).join("")}).join("")||'<tr><td class="empty" colspan="9">real orders are off</td></tr>';
@@ -200,11 +206,23 @@ el("wd").textContent=s.windowsDone;el("ws").textContent=s.windowsResolved;el("wp
 el("err").textContent=s.lastError?"last error: "+s.lastError:"";
 el("note").textContent="Paper rule: "+s.paper.rule+". Data is in the data/ folder next to the app. Set \\"mode\\" to \\"off\\" in data/live.json to stop real orders.";
 }catch(e){el("sub").textContent="status unavailable"}}
-function drawSpark(open){var svg=el("spark");if(hist.length<2){svg.innerHTML="";return}
-var ps=hist.map(function(h){return h.p});var lo=Math.min.apply(null,ps.concat(open==null?[]:[open])),hi=Math.max.apply(null,ps.concat(open==null?[]:[open]));if(hi-lo<1){hi=lo+1}
-var x=function(i){return i/(hist.length-1)*600},y=function(p){return 42-(p-lo)/(hi-lo)*38};
-var d=ps.map(function(p,i){return (i?"L":"M")+x(i).toFixed(1)+","+y(p).toFixed(1)}).join(" ");
-var last=ps[ps.length-1];var col=open==null?"#7b8294":last>=open?"#3ddc84":"#ff6b6b";
-svg.innerHTML=(open==null?"":'<line x1="0" x2="600" y1="'+y(open).toFixed(1)+'" y2="'+y(open).toFixed(1)+'" stroke="#7b8294" stroke-dasharray="4 4" stroke-width="1"/>')+'<path d="'+d+'" fill="none" stroke="'+col+'" stroke-width="1.5" vector-effect="non-scaling-stroke"/>';}
+var H={};
+function feedChart(key,label,sec,r){var b=r.lastBook;if(!b||b.window==null)return;var h=H[key];if(!h||h.w!==b.window){h=H[key]={w:b.window,sec:sec,label:label,pts:[],open:null,lastT:null}}
+h.left=b.left;h.up=b.upAsk;h.down=b.downAsk;if(b.open!=null)h.open=b.open;h.last=b.chainlink;
+if(b.chainlink!=null&&b.t!==h.lastT){h.lastT=b.t;var x=Math.max(0,Math.min(1,1-b.left/sec));h.pts.push({x:x,p:b.chainlink})}}
+function drawCharts(){var W=220,HT=92,L=40,R=6,T=6,B=14,pw=W-L-R,ph=HT-T-B;
+el("charts").innerHTML=Object.keys(H).map(function(k){var h=H[k];var open=h.open;var ps=h.pts.map(function(p){return p.p});var vals=ps.concat(open==null?[]:[open]);
+var lo=vals.length?Math.min.apply(null,vals):0,hi=vals.length?Math.max.apply(null,vals):1;var ref=open!=null?open:(lo+hi)/2;var span=Math.max(hi-lo,ref*0.0003);var pad=span*0.2;lo=Math.min(lo,ref-span/2)-pad;hi=Math.max(hi,ref+span/2)+pad;
+var X=function(x){return L+x*pw},Y=function(p){return T+(1-(p-lo)/(hi-lo))*ph};var bp=function(p){if(open==null)return "";var v=(p-open)/open*1e4;return (v<0?"\u2212":"+")+Math.abs(v).toFixed(1)};
+var mins=h.sec/60,g="";for(var m=1;m<mins;m++){if(mins>5&&m%5)continue;g+='<line class="gl" x1="'+X(m/mins).toFixed(1)+'" x2="'+X(m/mins).toFixed(1)+'" y1="'+T+'" y2="'+(T+ph)+'"/>'}
+for(var m=0;m<=mins;m+=(mins>5?5:1)){g+='<text class="gt" x="'+X(m/mins).toFixed(1)+'" y="'+(HT-3)+'" text-anchor="'+(m===0?"start":m===mins?"end":"middle")+'">'+m+'m</text>'}
+[0.25,0.5,0.75].forEach(function(f){var y=T+f*ph;g+='<line class="gl" x1="'+L+'" x2="'+(L+pw)+'" y1="'+y.toFixed(1)+'" y2="'+y.toFixed(1)+'" stroke-dasharray="2 3"/>'});
+g+='<text class="gt" x="'+(L-3)+'" y="'+(T+7)+'" text-anchor="end">'+(open==null?"":bp(hi)+"bp")+'</text><text class="gt" x="'+(L-3)+'" y="'+(T+ph)+'" text-anchor="end">'+(open==null?"":bp(lo)+"bp")+'</text>';
+if(open!=null)g+='<line x1="'+L+'" x2="'+(L+pw)+'" y1="'+Y(open).toFixed(1)+'" y2="'+Y(open).toFixed(1)+'" stroke="#7b8294" stroke-dasharray="4 3" stroke-width="1"/><text class="gt" x="'+(L-3)+'" y="'+(Y(open)+3).toFixed(1)+'" text-anchor="end">open</text>';
+var last=ps.length?ps[ps.length-1]:null;var col=open==null||last==null?"#7b8294":last>=open?"#3ddc84":"#ff6b6b";
+if(h.pts.length>1){var d=h.pts.map(function(p,i){return (i?"L":"M")+X(p.x).toFixed(1)+","+Y(p.p).toFixed(1)}).join(" ");var lp=h.pts[h.pts.length-1];
+g+='<path d="'+d+'" fill="none" stroke="'+col+'" stroke-width="1.5"/><circle cx="'+X(lp.x).toFixed(1)+'" cy="'+Y(lp.p).toFixed(1)+'" r="2" fill="'+col+'"/>'}
+var lf=h.left!=null?Math.floor(h.left/60)+":"+String(h.left%60).padStart(2,"0"):"—";var dl=(last!=null&&open!=null)?bp(last)+" bp":"";
+return '<div class="chart"><div class="t"><span><b>'+h.label+'</b> <span class="mut">'+lf+'</span></span><span class="'+(col==="#3ddc84"?"ok":col==="#ff6b6b"?"bad":"mut")+'">'+dl+'</span></div><svg viewBox="0 0 '+W+' '+HT+'">'+g+'</svg><div class="t"><span class="mut">'+money(h.last)+'</span><span><span class="ok">UP '+cents(h.up)+'</span> <span class="bad">DOWN '+cents(h.down)+'</span></span></div></div>'}).join("")}
 poll();setInterval(poll,1000);
 </script></body></html>`;
