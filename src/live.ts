@@ -346,6 +346,8 @@ export class LiveTrader {
   private track(t: LiveTrade) {
     if (t.dry || t.pnl == null) return;
     const rule = this.config.variants.find((v) => v.variant === t.variant);
+    // Re-read first so a halt set or cleared by hand in the file is kept, not overwritten.
+    this.halts = loadJson<Record<string, Halt>>(`${this.prefix}live-halts.json`, this.halts);
     const h = this.halts[t.variant] ?? { streak: 0, halted: false, haltedAt: null };
     h.streak = t.won ? 0 : h.streak + 1;
     if (rule && rule.haltAfterLosses > 0 && h.streak >= rule.haltAfterLosses && !h.halted) {
@@ -464,7 +466,9 @@ export class LiveTrader {
     this.config = liveConfig(this.series.key);
     const rule = this.config.variants.find((v) => v.variant === trade.variant);
     if (this.config.mode === "off" || !rule) return;
-    if (rule.haltAfterLosses > 0 && this.halts[trade.variant]?.halted) return;
+    // Halts are read from the file before every order, so editing data/<prefix>live-halts.json takes effect at once.
+    this.halts = loadJson<Record<string, Halt>>(`${this.prefix}live-halts.json`, this.halts);
+    if (this.halts[trade.variant]?.halted) return;
     if (this.open.some((t) => t.window === trade.window && t.variant === trade.variant)) return;
     const size = rule.size;
     if (this.todayLoss() >= this.config.maxLossPerDay) {
