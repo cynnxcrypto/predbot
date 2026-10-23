@@ -1,4 +1,6 @@
-import { SERIES, checkpointsFor, prefixOf, windowStart, type Series } from "./config.js";
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+import { DATA, SERIES, checkpointsFor, dayOf, prefixOf, windowStart, type Series } from "./config.js";
 import { feedsFor, startFeeds, type FeedSet } from "./feeds/index.js";
 import { PaperTrader, VARIANTS } from "./paperlive.js";
 import { LiveTrader } from "./live.js";
@@ -331,10 +333,39 @@ export class Recorder {
     }
   }
 
+  private seedWindow = 0;
+  private seed: { t: number; price: number }[] = [];
+
+  /** After a restart the feed has no ticks from before it started; the book rows on disk have the window's earlier prices. */
+  private seedPrices(openMs: number): { t: number; price: number }[] {
+    if (this.seedWindow === this.markWindow) return this.seed;
+    this.seedWindow = this.markWindow;
+    this.seed = [];
+    const first = this.f.chainlink.between(openMs, openMs + this.series.windowSec * 1000)[0];
+    const until = first ? first.t : Date.now();
+    if (until - openMs < 3000) return this.seed;
+    try {
+      const file = join(DATA, `${this.prefix}book`, `${dayOf(until)}.jsonl`);
+      if (!existsSync(file)) return this.seed;
+      for (const line of readFileSync(file, "utf8").split("\n")) {
+        if (!line.includes(`"window":${this.markWindow},`)) continue;
+        try {
+          const row = JSON.parse(line) as { t: number; window: number; chainlink: number | null };
+          if (row.window === this.markWindow && row.chainlink != null && row.t >= openMs && row.t < until) this.seed.push({ t: row.t, price: row.chainlink });
+        } catch {
+          // skip a half-written line
+        }
+      }
+    } catch {
+      // the chart simply starts at the restart
+    }
+    return this.seed;
+  }
+
   private windowPrices(): [number, number][] {
     if (!this.markWindow) return [];
     const openMs = this.markWindow * 1000;
-    const ticks = this.f.chainlink.between(openMs, openMs + this.series.windowSec * 1000);
+    const ticks = [...this.seedPrices(openMs), ...this.f.chainlink.between(openMs, openMs + this.series.windowSec * 1000)];
     const step = Math.max(1, Math.ceil(ticks.length / 180));
     const out: [number, number][] = [];
     ticks.forEach((t, i) => { if (i % step === 0 || i === ticks.length - 1) out.push([Math.round((t.t - openMs) / 100) / 10, t.price]); });

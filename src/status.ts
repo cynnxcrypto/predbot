@@ -1,6 +1,7 @@
 import { createServer } from "node:http";
 import { STATUS_PORT } from "./config.js";
 import type { Recorder } from "./recorder.js";
+import { loadJson } from "./store.js";
 
 /**
  * A one-page status view on 127.0.0.1 so you can see the recorder is alive without reading logs.
@@ -19,7 +20,9 @@ export function serveStatus(recorder: Recorder, build: string, others: Recorder[
       return;
     }
     res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
-    res.end(PAGE);
+    // Coin logos come from LogoKit when data/live.json has a "logokitToken" (a publishable token, free plan is fine).
+    const token = String(loadJson<{ logokitToken?: string }>("live.json", {}).logokitToken ?? "").replace(/[^A-Za-z0-9_-]/g, "");
+    res.end(PAGE.replace("__LOGOKIT__", token));
   });
   return new Promise<typeof server>((resolve, reject) => {
     server.once("error", reject);
@@ -89,6 +92,8 @@ tr.dim td{color:var(--mut)}
 .chart svg{width:100%;display:block}
 .chart .gl{stroke:var(--line);stroke-width:1}
 .chart .gt{font-size:9px;fill:var(--mut);font-family:inherit}
+.coin.img{background:none;object-fit:contain}.coin[hidden]{display:none}
+.dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:7px;vertical-align:1px;background:transparent}.dot.on{background:var(--up);box-shadow:0 0 6px var(--up)}
 .coin{display:inline-flex;width:16px;height:16px;border-radius:50%;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:#0f1117;vertical-align:-3px;margin-right:6px;font-family:ui-sans-serif,system-ui,sans-serif}
 .coin.btc{background:#f7931a}.coin.eth{background:#8c9eff}.coin.sol{background:#14f195}.coin.xrp{background:#b3bccb}
 </style></head><body><main>
@@ -144,14 +149,16 @@ tr.dim td{color:var(--mut)}
   <div class="stats"><div><div class="k">windows</div><div class="v" id="wd">—</div></div><div><div class="k">settled</div><div class="v" id="ws">—</div></div><div><div class="k">waiting</div><div class="v" id="wp">—</div></div><div><div class="k">snapshots</div><div class="v" id="sn">—</div></div></div>
   <div class="note" id="err"></div></div>
 </div>
-<div class="note" id="note"></div>
+<div class="note" id="note"></div><div class="note" id="logos"></div>
 </main><script>
 var el=function(id){return document.getElementById(id)};
 var money=function(n){return n==null?"—":"$"+Number(n).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2})};
 var signed=function(n){return n==null?"—":(n<0?"-":"+")+"$"+Math.abs(n).toFixed(2)};
 var cents=function(n){return n==null?"—":Math.round(n*100)+"¢"};
 var COINS={btc:"\u20bf",eth:"\u039e",sol:"\u25ce",xrp:"\u2715"};
-var coin=function(label){var k=String(label||"").slice(0,3).toLowerCase();return COINS[k]?'<span class="coin '+k+'" title="'+k.toUpperCase()+'">'+COINS[k]+"</span>":""};
+var LOGOKIT="__LOGOKIT__";
+var coin=function(label){var k=String(label||"").slice(0,3).toLowerCase();if(!COINS[k])return "";var badge='<span class="coin '+k+'" title="'+k.toUpperCase()+'">'+COINS[k]+"</span>";
+return (LOGOKIT?'<img class="coin img" alt="'+k.toUpperCase()+'" src="https://img.logokit.com/crypto/'+k.toUpperCase()+'?token='+LOGOKIT+'&size=64" hidden onload="this.hidden=false;this.nextSibling.hidden=true" onerror="this.remove()">':"")+badge};
 var hhmm=function(sec){return new Date(sec*1000).toLocaleTimeString("en-GB",{timeZone:"Asia/Seoul",hour:"2-digit",minute:"2-digit"})};
 function cls(n){return n==null?"":n<0?"bad":n>0?"ok":""}
 async function poll(){try{var s=await (await fetch("/api/status")).json();
@@ -204,13 +211,13 @@ var mine=t.side==="UP"?b.upAsk:b.downAsk;var mk=mine!=null?" · "+cents(mine):""
 if(up==null)return {txt:"open"+mk+" · "+win,c:"mut"};
 var ahead=up===0?0:(up>0)===(t.side==="UP")?1:-1;
 return {txt:(ahead>0?"ahead":ahead<0?"behind":"even")+mk+" · "+win,c:ahead>0?"ok":ahead<0?"bad":"mut"}}
-el("log").innerHTML=rows.length?rows.map(function(t){var o=t.pnl==null&&t.ok&&!t.dry?openState(t):null;var res=o?o.txt:t.pnl==null?(t.ok?"dry":t.status==="skipped"?"skipped":"no fill"):signed(t.pnl);var c=o?o.c:t.pnl==null?"mut":cls(t.pnl);var px=t.shares>0?Math.round(t.cost/t.shares*100)+"¢":cents(t.ask);return '<tr class="'+(t.ok?"":"dim")+'"><td>'+hhmm(t.window)+'</td><td class="'+(t.side==="UP"?"ok":"bad")+'">'+coin(t.mk)+(OL.length?'<span class="mut">'+t.mk.replace(" 5m","")+'</span> ':"")+t.side+'</td><td class="mut">'+(t.variant||"")+'</td><td>'+px+(t.shares>0?" × "+t.shares.toFixed(1):"")+'</td><td class="r">'+(t.cost>0?money(t.cost):"")+'</td><td class="r '+c+'">'+res+'</td></tr>'}).join(""):'<tr><td class="empty" colspan="6">no filled orders yet</td></tr>';
+el("log").innerHTML=rows.length?rows.map(function(t){var o=t.pnl==null&&t.ok&&!t.dry?openState(t):null;var res=o?o.txt:t.pnl==null?(t.ok?"dry":t.status==="skipped"?"skipped":"no fill"):signed(t.pnl);var c=o?o.c:t.pnl==null?"mut":cls(t.pnl);var px=t.shares>0?Math.round(t.cost/t.shares*100)+"¢":cents(t.ask);return '<tr class="'+(t.ok?"":"dim")+'"><td><span class="dot'+(o?" on":"")+'"></span>'+hhmm(t.window)+'</td><td class="'+(t.side==="UP"?"ok":"bad")+'">'+coin(t.mk)+(OL.length?'<span class="mut">'+t.mk.replace(" 5m","")+'</span> ':"")+t.side+'</td><td class="mut">'+(t.variant||"")+'</td><td>'+px+(t.shares>0?" × "+t.shares.toFixed(1):"")+'</td><td class="r">'+(t.cost>0?money(t.cost):"")+'</td><td class="r '+c+'">'+res+'</td></tr>'}).join(""):'<tr><td class="empty" colspan="6">no filled orders yet</td></tr>';
 el("papers").innerHTML=(s.papers||[]).map(function(p){return '<tr class="'+(p.name===L.variant&&L.mode!=="off"?"hi":"")+'"><td>'+p.name+(function(){var on=ALL.filter(function(l){return l.mode!=="off"&&((l.variants||[]).some(function(v){return v.variant===p.name&&!v.halted})||(!(l.variants||[]).length&&l.variant===p.name))}).map(function(l){return (l.label||"BTC 5m").replace(" 5m","")});return on.length?' <span class="tag real">live on '+on.join(", ")+'</span>':""})()+'</td><td class="mut">'+p.rule+'</td><td class="r">'+p.trades+'</td><td class="r">'+(p.trades?Math.round(p.won/p.trades*100)+"%":"—")+'</td><td class="r '+cls(p.net)+'">'+signed(p.net)+'</td><td class="r">'+(p.open||"")+'</td></tr>'}).join("");
 function pv(ps,name){var p=(ps||[]).filter(function(x){return x.name===name})[0];if(!p||!p.trades)return '<td class="r mut">—</td>';return '<td class="r '+cls(p.net)+'">'+signed(p.net)+' <span class="mut">'+p.won+'/'+p.trades+'</span></td>'}
 el("series").innerHTML=(s.series||[]).length?(s.series||[]).map(function(r){var rb=r.lastBook||{};return '<tr><td>'+coin(r.label)+r.label+(r.lastError?' <span class="bad" title="'+esc(r.lastError)+'">!</span>':"")+'</td><td class="mut">'+(r.window?hhmm(r.window):"—")+(r.listed?"":" · not listed")+'</td><td class="r">'+cents(rb.upAsk)+'</td><td class="r">'+cents(rb.downAsk)+'</td><td class="r">'+r.windowsResolved+'</td>'+(r.live&&r.live.mode!=="off"?'<td class="r '+cls(r.live.net)+'">'+signed(r.live.net)+' <span class="mut">'+r.live.won+'/'+r.live.trades+(r.live.open?' · '+r.live.open+' open':'')+'</span></td>':'<td class="r mut">—</td>')+pv(r.papers,"base")+pv(r.papers,"band80-30")+pv(r.papers,"band80-30-chase")+pv(r.papers,"band80-30-j70")+pv(r.papers,"cheap10-first90")+pv(r.papers,"fav93")+pv(r.papers,"fav93-mid")+pv(r.papers,"cheap12-first60")+'</tr>'}).join(""):'<tr><td class="empty" colspan="14">only the BTC 5m market is recorded</td></tr>';
 el("feeds").innerHTML=s.feeds.map(function(f){return '<tr><td>'+f.name+'</td><td class="'+(f.healthy?"ok":"bad")+'">'+(f.healthy?"live":"down")+'</td><td class="r">'+money(f.last&&f.last.price)+'</td><td class="r">'+(f.last?Math.round((Date.now()-f.last.t)/1000)+"s":"—")+'</td><td class="r">'+f.ticks+'</td></tr>'}).join("");
 el("wd").textContent=s.windowsDone;el("ws").textContent=s.windowsResolved;el("wp").textContent=s.pending;el("sn").textContent=s.snapshots;
-el("err").textContent=s.lastError?"last error: "+s.lastError:"";
+el("err").textContent=s.lastError?"last error: "+s.lastError:"";el("logos").innerHTML=LOGOKIT?'Coin logos by <a href="https://logokit.com" style="color:var(--mut)">LogoKit</a>':"";
 el("note").textContent="Paper rule: "+s.paper.rule+". Data is in the data/ folder next to the app. Set \\"mode\\" to \\"off\\" in data/live.json to stop real orders.";
 }catch(e){el("sub").textContent="status unavailable"}}
 var H={};
