@@ -269,6 +269,18 @@ export function liveConfig(seriesKey = ""): LiveConfig {
   };
 }
 
+/** Relayer transactions sent per UTC day (data/relayer-usage.json), so the dashboard can project whether the ~65/day quota lasts until the 00:00 UTC reset. */
+const utcDay = (ms = Date.now()) => new Date(ms).toISOString().slice(0, 10);
+function noteRelayCall() {
+  const file = loadJson<Record<string, number>>("relayer-usage.json", {});
+  const day = utcDay();
+  file[day] = (file[day] ?? 0) + 1;
+  for (const k of Object.keys(file)) if (k < utcDay(Date.now() - 3 * 86400000)) delete file[k];
+  saveJson("relayer-usage.json", file);
+}
+export function relayerUsedToday(): number {
+  return loadJson<Record<string, number>>("relayer-usage.json", {})[utcDay()] ?? 0;
+}
 /** The relayer runs one batch at a time from our wallet; the traders share this lock. */
 let relayBusy = false;
 /** Every trader, so the BTC 5m one can claim all series' wins in one transaction. */
@@ -699,6 +711,7 @@ export class LiveTrader {
         { target: USDC_E, value: "0", data: erc20.encodeFunctionData("approve", [ONRAMP, units]) },
         { target: ONRAMP, value: "0", data: onrampAbi.encodeFunctionData("wrap", [USDC_E, this.config.funder, units]) },
       ];
+      noteRelayCall();
       const sent = await relay.executeDepositWalletBatch(calls, this.config.funder, String(Math.floor(Date.now() / 1000) + 600));
       const done = await sent.wait();
       const hash = done?.transactionHash || sent.transactionHash || null;
@@ -752,6 +765,7 @@ export class LiveTrader {
         { target: USDC_NATIVE, value: "0", data: erc20.encodeFunctionData("approve", [UNISWAP_ROUTER, units]) },
         { target: UNISWAP_ROUTER, value: "0", data: routerAbi.encodeFunctionData("exactInputSingle", [params]) },
       ];
+      noteRelayCall();
       const sent = await relay.executeDepositWalletBatch(calls, this.config.funder, String(Math.floor(Date.now() / 1000) + 600));
       const finished = await sent.wait();
       const hash = finished?.transactionHash || sent.transactionHash || null;
@@ -812,6 +826,7 @@ export class LiveTrader {
         calls.push({ target: USDC_E, value: "0", data: erc20.encodeFunctionData("approve", [ONRAMP, units]) });
         calls.push({ target: ONRAMP, value: "0", data: onrampAbi.encodeFunctionData("wrap", [USDC_E, this.config.funder, units]) });
       }
+      noteRelayCall();
       const sent = await relay.executeDepositWalletBatch(calls, this.config.funder, String(Math.floor(Date.now() / 1000) + 600));
       const done = await sent.wait();
       const hash = done?.transactionHash || sent.transactionHash || null;
@@ -920,7 +935,7 @@ export class LiveTrader {
       startBalance: c.startBalance,
       deposits: c.deposits,
       minBalance: c.minBalance,
-      claims: this.series.key ? null : { everyMin: c.claimEveryMin, lastAt: lastClaimAt || null, nextAt: lastClaimAt ? lastClaimAt + c.claimEveryMin * 60_000 : null, blockedUntil: relayerBlocked() ? relayerBlockedUntil : null },
+      claims: this.series.key ? null : { everyMin: c.claimEveryMin, usedToday: relayerUsedToday(), perBatch: 12, quota: 65, lastAt: lastClaimAt || null, nextAt: lastClaimAt ? lastClaimAt + c.claimEveryMin * 60_000 : null, blockedUntil: relayerBlocked() ? relayerBlockedUntil : null },
       toClaim: this.redeems.reduce((sum, r) => sum + r.shares, 0),
       variants: c.variants.map((v) => {
         const h = this.halts[v.variant];
