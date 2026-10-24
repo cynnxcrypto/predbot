@@ -394,9 +394,8 @@ export class LiveTrader {
   days(): LiveDay[] {
     if (this.daysCache && Date.now() - this.daysCache.at < 60_000) return this.daysCache.days;
     const byDay = new Map<string, LiveDay>();
-    const active = new Set(this.config.variants.map((v) => v.variant));
     for (const t of readAll<LiveTrade>(`${this.prefix}live`)) {
-      if (t.dry || t.t < this.config.statsSince || !active.has(t.variant)) continue;
+      if (t.dry || t.t < this.config.statsSince) continue;
       const day = kstDay(t.window * 1000);
       let d = byDay.get(day);
       if (!d) byDay.set(day, (d = { day, orders: 0, filled: 0, skipped: 0, noFill: 0, settled: 0, won: 0, net: 0 }));
@@ -407,7 +406,7 @@ export class LiveTrader {
     }
     // Settled results come from the totals file (the day rows above are written at order time, before the result is known).
     for (const t of loadJson<LiveTrade[]>(`${this.prefix}live-totals.json`, []).map(withFee)) {
-      if (t.dry || t.pnl == null || t.t < this.config.statsSince || !active.has(t.variant)) continue;
+      if (t.dry || t.pnl == null || t.t < this.config.statsSince) continue;
       const day = kstDay(t.window * 1000);
       let d = byDay.get(day);
       if (!d) byDay.set(day, (d = { day, orders: 0, filled: 0, skipped: 0, noFill: 0, settled: 0, won: 0, net: 0 }));
@@ -1040,9 +1039,10 @@ export class LiveTrader {
     const c = this.config;
     // "manual" (bets placed by hand on the dashboard) is a permanent strategy: always counted, shown once it has trades.
     const active = new Set([...c.variants.map((v) => v.variant), "manual"]);
+    // Totals count every real trade since statsSince, rules since removed from live.json included (enrique, 24 Oct: "completely legit, not dependent on strategies activated").
     const shown = { trades: 0, won: 0, net: 0, today: 0 };
-    for (const [name, v] of this.byVariant) if (active.has(name)) { shown.trades += v.trades; shown.won += v.won; shown.net += v.net; }
-    for (const [key, net] of this.dayVarNet) { const [day, name] = key.split("|"); if (day === kstDay() && active.has(name)) shown.today += net; }
+    for (const v of this.byVariant.values()) { shown.trades += v.trades; shown.won += v.won; shown.net += v.net; }
+    for (const [key, net] of this.dayVarNet) { const [day] = key.split("|"); if (day === kstDay()) shown.today += net; }
     return {
       series: this.series.key,
       label: this.series.label,
@@ -1069,9 +1069,9 @@ export class LiveTrader {
       won: shown.won,
       net: Math.round(shown.net * 100) / 100,
       todayNet: Math.round(shown.today * 100) / 100,
-      open: this.open.filter((t) => active.has(t.variant)).length,
+      open: this.open.length,
       // Rules taken out of live.json: their trades stay in the files and the wallet, but off the panel.
-      hidden: { trades: this.trades - shown.trades, net: Math.round((this.net - shown.net) * 100) / 100, open: Math.round(this.open.filter((t) => !active.has(t.variant)).reduce((sum, t) => sum + t.cost + (t.fee ?? 0), 0) * 100) / 100 },
+      hidden: { trades: 0, net: 0, open: 0 },
       lastError: this.lastError,
       lastOrderAt: this.lastOrderAt,
       chain: this.chain,
