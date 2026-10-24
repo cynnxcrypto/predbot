@@ -464,8 +464,11 @@ export class LiveTrader {
     return this.dayNet.get(kstDay()) ?? 0;
   }
 
+  /** Loss counted against the daily stop: today's rule trades only. Bets placed by hand are enrique's own call and
+   *  do not switch the rules off (enrique, 25 Oct 2026: "the manual strats should for sure reset everyday"). */
   private todayLoss() {
-    return -this.todayNet;
+    const manual = this.dayVarNet.get(`${kstDay()}|manual`) ?? 0;
+    return -(this.todayNet - manual);
   }
 
   /** Load keys, derive API credentials, read the balance. Safe to call many times. */
