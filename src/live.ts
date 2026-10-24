@@ -338,6 +338,8 @@ export class LiveTrader {
   private dayNet = new Map<string, number>();
   /** Net per day and variant ("day|variant"), so the dashboard can show only the rules still configured. */
   private dayVarNet = new Map<string, number>();
+  /** Per-day, per-variant counts (trades, won, net), keyed "day|variant", for the today columns on the dashboard. */
+  private dayVar = new Map<string, { trades: number; won: number; net: number }>();
   /** Settled totals per variant, for the status page. */
   private byVariant = new Map<string, { trades: number; won: number; net: number }>();
   /** Loss streaks per variant (see haltAfterLosses). */
@@ -435,6 +437,11 @@ export class LiveTrader {
     const day = kstDay(t.window * 1000);
     this.dayNet.set(day, (this.dayNet.get(day) ?? 0) + t.pnl);
     this.dayVarNet.set(`${day}|${t.variant}`, (this.dayVarNet.get(`${day}|${t.variant}`) ?? 0) + t.pnl);
+    let dv = this.dayVar.get(`${day}|${t.variant}`);
+    if (!dv) this.dayVar.set(`${day}|${t.variant}`, (dv = { trades: 0, won: 0, net: 0 }));
+    dv.trades += 1;
+    if (t.won) dv.won += 1;
+    dv.net += t.pnl;
     let v = this.byVariant.get(t.variant);
     if (!v) this.byVariant.set(t.variant, (v = { trades: 0, won: 0, net: 0 }));
     v.trades += 1;
@@ -1065,8 +1072,9 @@ export class LiveTrader {
       variants: c.variants.map((v) => {
         const h = this.halts[v.variant];
         const t = this.byVariant.get(v.variant);
-        return { ...v, halted: Boolean(v.haltAfterLosses && h?.halted), paused: Boolean(h?.paused), streak: h?.streak ?? 0, haltedAt: h?.haltedAt ?? null, trades: t?.trades ?? 0, won: t?.won ?? 0, net: Math.round((t?.net ?? 0) * 100) / 100 };
-      }).concat(((m) => (m && m.trades) || this.open.some((t) => t.variant === "manual") ? [{ variant: "manual", manual: true, size: 0, haltAfterLosses: 0, halted: false, paused: false, streak: 0, haltedAt: null, trades: m?.trades ?? 0, won: m?.won ?? 0, net: Math.round((m?.net ?? 0) * 100) / 100 }] : [])(this.byVariant.get("manual"))),
+        const d = this.dayVar.get(`${kstDay()}|${v.variant}`);
+        return { ...v, halted: Boolean(v.haltAfterLosses && h?.halted), paused: Boolean(h?.paused), streak: h?.streak ?? 0, haltedAt: h?.haltedAt ?? null, trades: t?.trades ?? 0, won: t?.won ?? 0, net: Math.round((t?.net ?? 0) * 100) / 100, today: { trades: d?.trades ?? 0, won: d?.won ?? 0, net: Math.round((d?.net ?? 0) * 100) / 100 } };
+      }).concat(((m, d) => (m && m.trades) || this.open.some((t) => t.variant === "manual") ? [{ variant: "manual", manual: true, size: 0, haltAfterLosses: 0, halted: false, paused: false, streak: 0, haltedAt: null, trades: m?.trades ?? 0, won: m?.won ?? 0, net: Math.round((m?.net ?? 0) * 100) / 100, today: { trades: d?.trades ?? 0, won: d?.won ?? 0, net: Math.round((d?.net ?? 0) * 100) / 100 } }] : [])(this.byVariant.get("manual"), this.dayVar.get(`${kstDay()}|manual`))),
       ready: this.ready,
       wallet: this.wallet,
       funder: c.funder || null,
