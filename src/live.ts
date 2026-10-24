@@ -691,7 +691,10 @@ export class LiveTrader {
     if (ask == null || !(ask > 0) || ask >= 1) return { ok: false, error: `no ${side} ask on the book right now` };
     const min = Math.max(1, Math.ceil(5 * ask * 100) / 100);
     if (!(amount >= min)) return { ok: false, error: `minimum is $${min.toFixed(2)} (5 shares at ${Math.round(ask * 100)}c)` };
-    const limit = Math.min(0.99, Math.round((ask + 0.02) * 100) / 100);
+    // A hand bet is a decision already made: pay up to 5c over the ask, and if the book moved between the look and
+    // the match ("no orders found to match"), look once more and try again with the fresh ask.
+    const MANUAL_SLIP = 0.05;
+    let limit = Math.min(0.99, Math.round((ask + MANUAL_SLIP) * 100) / 100);
     const size = Math.round(amount * 100) / 100;
     const row: LiveTrade = {
       window: market.start,
@@ -714,28 +717,47 @@ export class LiveTrader {
       won: null,
       pnl: null,
     };
-    try {
-      const order = await this.client.createMarketOrder(
-        { tokenID: token, amount: size, side: Side.BUY, price: limit, orderType: OrderType.FAK },
-        { tickSize: "0.01", negRisk: false },
-      );
-      if (row.dry) {
-        row.ok = true;
-        row.status = "dry";
-      } else {
-        const res = await this.client.postOrder(order, OrderType.FAK);
-        row.ok = Boolean(res?.success);
-        row.orderId = res?.orderID ?? null;
-        row.status = res?.status ?? null;
-        const detail = (res as unknown as { error?: unknown })?.error;
-        row.error = res?.success ? null : (res?.errorMsg || (detail ? JSON.stringify(detail).slice(0, 200) : "order rejected"));
-        row.cost = Number(res?.makingAmount) || 0;
-        row.shares = Number(res?.takingAmount) || 0;
-        row.fee = feeOf(row.cost, row.shares);
-        this.lastOrderAt = Date.now();
+    for (let attempt = 0; attempt < 2; attempt++) {
+      if (attempt > 0) {
+        if (windowEnd - Math.floor(Date.now() / 1000) <= 3) break;
+        let fresh: number | null = null;
+        try {
+          fresh = (await book(token, 1500)).bestAsk;
+        } catch {
+          fresh = null;
+        }
+        if (fresh == null || !(fresh > 0) || fresh >= 1) break;
+        row.freshAsk = fresh;
+        limit = Math.min(0.99, Math.round((fresh + MANUAL_SLIP) * 100) / 100);
+        row.limit = limit;
+        row.error = null;
       }
-    } catch (error) {
-      row.error = error instanceof Error ? error.message : String(error);
+      try {
+        const order = await this.client.createMarketOrder(
+          { tokenID: token, amount: size, side: Side.BUY, price: limit, orderType: OrderType.FAK },
+          { tickSize: "0.01", negRisk: false },
+        );
+        if (row.dry) {
+          row.ok = true;
+          row.status = "dry";
+        } else {
+          const res = await this.client.postOrder(order, OrderType.FAK);
+          row.ok = Boolean(res?.success);
+          row.orderId = res?.orderID ?? null;
+          row.status = res?.status ?? null;
+          const detail = (res as unknown as { error?: unknown })?.error;
+          row.error = res?.success ? null : (res?.errorMsg || (detail ? JSON.stringify(detail).slice(0, 200) : "order rejected"));
+          row.cost = Number(res?.makingAmount) || 0;
+          row.shares = Number(res?.takingAmount) || 0;
+          row.fee = feeOf(row.cost, row.shares);
+          this.lastOrderAt = Date.now();
+        }
+      } catch (error) {
+        row.error = error instanceof Error ? error.message : String(error);
+      }
+      if (row.ok && (row.dry || row.shares > 0)) break;
+      if (!/no orders found to match/i.test(row.error ?? "")) break;
+      console.log(`live ${this.series.label}: MANUAL ${side} no match at ${Math.round(limit * 100)}c, looking again`);
     }
     console.log(`live ${this.series.label}: MANUAL ${side} $${size} up to ${Math.round(limit * 100)}c -> ${row.ok && (row.dry || row.shares > 0) ? `${row.dry ? "dry, signed only" : `bought ${row.shares.toFixed(2)} for $${row.cost.toFixed(2)}`}` : `not filled (${row.error ?? row.status ?? "no fill"})`}`);
     this.remember(row);
