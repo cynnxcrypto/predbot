@@ -395,7 +395,6 @@ tr.dim{transition:opacity .4s}
       <div><div class="k" id="netk">all time</div><div class="v big" id="net">—</div></div>
       <div><div class="k">trades</div><div class="v big" id="ltr">—</div></div>
       <div><div class="k">won</div><div class="v big" id="lwon">—</div></div>
-      <div><div class="k">orders</div><div class="v big" id="lord">—</div></div>
     </div>
     <div class="mut" id="ledger" style="font-size:12px;margin-bottom:12px"></div>
     <table style="margin-bottom:12px"><thead><tr><th>strategy</th><th class="r">size</th><th class="r">net</th><th class="r">trades</th><th class="r">won</th><th class="r">streak</th><th></th></tr></thead><tbody id="lrules"></tbody></table><div class="note" id="lsince"></div>
@@ -477,7 +476,7 @@ el("net").textContent=signed(an);el("net").className="v big "+cls(an);
 el("ltr").textContent=tr;
 el("lwon").textContent=tr?Math.round(wn/tr*100)+"%":"—";
 var LD=L.days||[];var tot={o:0,s:0};ALL.forEach(function(l){(l.days||[]).forEach(function(d){tot.o+=d.orders;tot.s+=d.skipped})});
-el("lord").textContent=L.mode==="off"&&!LD.length?"—":tot.o;
+
 var PV=(s.papers||[]).filter(function(p){return p.name===L.variant})[0]||{};var PD=PV.days||[];
 el("cmprule").textContent=L.variant?"rule "+L.variant+" · real at $"+L.size+" vs paper at $20":"";
 var dayset={};LD.forEach(function(d){dayset[d.day]=1});PD.forEach(function(d){dayset[d.day]=1});
