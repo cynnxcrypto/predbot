@@ -485,9 +485,10 @@ return '<tr><td>'+day+'</td><td class="r">'+(r?r.orders:0)+'</td><td class="r">'
 function esc(x){return String(x).replace(/[&<>"]/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]})}
 function addr(a,label){if(!a)return label+" —";return label+' <a href="https://polygonscan.com/address/'+a+'" target="_blank" rel="noopener" title="'+a+'">'+a.slice(0,6)+"…"+a.slice(-4)+'</a>'}
 el("lstate").innerHTML=L.mode==="off"?"Real orders are off. Nothing trades for real.":(L.ready?"Wallet ready · "+addr(L.funder,"funds")+" · "+addr(L.wallet,"signer"):"Wallet not ready"+(L.lastError?": "+esc(L.lastError):""))+(L.lastError&&L.ready?" · "+esc(L.lastError):"")+(function(){var c=L.claims;if(!c)return "";if(c.blockedUntil)return ' · <span class="bad">claims paused: relayer quota used up, resumes '+hhmm(c.blockedUntil/1000)+' KST</span>';return " · wins claimed every "+c.everyMin+" min"+(c.nextAt?", next ~"+hhmm(c.nextAt/1000)+" KST":"")})();
-var nopen=sum("open");el("lopen").textContent=nopen?nopen+" open":"";
 var rows=[];ALL.forEach(function(l){(l.recent||[]).forEach(function(t){rows.push(Object.assign({mk:l.label||"BTC 5m"},t))})});
-rows.sort(function(a,b){return (b.t||0)-(a.t||0)});var FITLOG=window.matchMedia&&window.matchMedia("(min-width:1400px)").matches;if(!FITLOG)rows=rows.slice(0,25);
+rows.sort(function(a,b){return (b.t||0)-(a.t||0)});
+var nopen=0,nsettling=0;rows.forEach(function(t){if(t.pnl==null&&t.ok&&!t.dry){if(openState(t).done)nsettling++;else nopen++}});el("lopen").textContent=[nopen?nopen+" open":"",nsettling?nsettling+" settling":""].filter(Boolean).join(" · ");
+var FITLOG=window.matchMedia&&window.matchMedia("(min-width:1400px)").matches;if(!FITLOG)rows=rows.slice(0,25);
 function feeOf(t){if(t.fee!=null)return t.fee;if(!(t.shares>0)||!(t.cost>0))return 0;var p=t.cost/t.shares;return 0.07*t.shares*p*(1-p)}
 function openState(t){if(t.shares<=0)return {txt:"open",c:"mut"};var win="+"+money(t.shares-t.cost-feeOf(t))+" if win";
 var rr=RS[t.mk]||{};var b=rr.lastBook||{};if(t.window!==(rr.window||b.window)){var pl=rr.pendingLean?rr.pendingLean[t.window]:null;if(pl==null||pl===0)return {txt:"waiting for result · "+win,c:"mut",done:true};var ok=(pl>0)===(t.side==="UP");return {txt:(ok?"likely win · "+win.replace(" if win",""):"likely loss · \u2212"+money(t.cost+feeOf(t)))+" · waiting",c:ok?"ok":"bad",done:true}}
