@@ -442,7 +442,7 @@ async function pauseRule(series,variant,on){var r=await fetch("/api/pause",{meth
 async function discard(name,restore){if(!restore&&!confirm("Discard "+name+" for good? It stops simulating on every market."))return;var r=await fetch("/api/discard",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({name:name,restore:restore})});var j=await r.json();if(!r.ok)alert(j.error||"failed");else poll()}
 async function poll(){try{var s=await (await fetch("/api/status")).json();var prevV=snapV();
 var b=s.lastBook||{};var L=s.live||{mode:"off"};
-var hasRules=function(l){return !!l&&l.mode!=="off"&&(((l.variants&&l.variants.length)?l.variants:(l.variant?[l]:[])).length>0)};var OL=(s.series||[]).map(function(r){return r.live}).filter(function(l){return hasRules(l)});
+var hasRules=function(l){return !!l&&l.mode!=="off"&&(((l.variants&&l.variants.length)?l.variants:(l.variant?[l]:[])).length>0)};var hasHistory=function(l){return !!l&&((l.trades||0)>0||(l.days||[]).length>0||(l.open||0)>0)};var OL=(s.series||[]).map(function(r){return r.live}).filter(function(l){return hasRules(l)||hasHistory(l)});
 var RS={};RS[L.label||"BTC 5m"]=s;(s.series||[]).forEach(function(r){RS[r.label]=r});var ALL=[L].concat(OL);var sum=function(k){return ALL.reduce(function(a,l){return a+(l[k]||0)},0)};
 var left=s.window?Math.max(0,s.window+300-Math.floor(Date.now()/1000)):0;
 el("clock").textContent=String(Math.floor(left/60))+":"+String(left%60).padStart(2,"0");
