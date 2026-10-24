@@ -42,6 +42,14 @@ export type Variant = {
   /** Salvage: once `salvageAt` seconds or less are left, if our side's best bid is at or under `salvageBid`, sell into the bids. */
   salvageAt?: number;
   salvageBid?: number;
+  /** Stop: while a trade is open, if our side's best bid is at or under `stopBid`, sell into the bids (cut the loss early). */
+  stopBid?: number;
+  /** Take profit: while a trade is open, if our side's best bid is at or above `tpBid`, sell into the bids (bank the gain, skip the tail risk). */
+  tpBid?: number;
+  /** Two-sided arbitrage: when upAsk + downAsk is at or under `arbSum`, buy both sides for `size` each; one of them pays $1 a share. */
+  arbSum?: number;
+  /** Previous-window rule: in the first `first` seconds, buy the side that matches ("same") or opposes ("opposite") the direction the last window closed with (the book's favourite at its last snapshot), ask at or under `cap`. */
+  prevDir?: "same" | "opposite";
   /** Maker test: at the trigger, instead of taking the ask, rest a bid this far under it (no fee); it fills if the ask later comes down to it, else the window is skipped. */
   rest?: number;
   /** Only trade when the UTC hour is inside [from, to). */
@@ -117,6 +125,11 @@ export const VARIANTS: Variant[] = [
   { name: "fav95-last3", left: 0, cap: 0.97, size: 5, favAt: 0.95, favFrom: 240, strictCap: true, added: "2026-10-24", idea: "favourite at 95-97c, only in the last 3 minutes of a 15m window (last minute of a 5m)" },
   { name: "fav97-last3", left: 0, cap: 0.995, size: 5, favAt: 0.97, favFrom: 240, added: "2026-10-24", idea: "favourite at 97c+, only in the last 3 minutes of a 15m window (last minute of a 5m)" },
   { name: "fav95-hold-last3", left: 0, cap: 0.97, size: 5, favAt: 0.95, favFrom: 240, strictCap: true, holdRows: 10, holdAt: 0.9, added: "2026-10-24", idea: "fav95-hold, but only in the last 3 minutes of a 15m window (last minute of a 5m)" },
+  { name: "fav93-stop", left: 0, cap: 0.995, size: 5, favAt: 0.93, stopBid: 0.7, added: "2026-10-24", idea: "fav93, but sell back the moment our side's bid drops to 70c: trade a few 30c hits for the rare -93c loss (paper only: real rules do not sell)" },
+  { name: "band80-tp95", left: 30, floor: 0.8, cap: 0.9, size: 20, tpBid: 0.95, added: "2026-10-24", idea: "band80-30, but sell as soon as our side's bid reaches 95c instead of holding to the close" },
+  { name: "arb97", left: 0, cap: 0.995, size: 5, arbSum: 0.97, added: "2026-10-24", idea: "buy both sides whenever the two asks add up to 97c or less: a sure 3c+ a share (rare: 6 times in 14,000 snapshots)" },
+  { name: "prev-momentum", left: 0, cap: 0.6, size: 5, first: 30, prevDir: "same", added: "2026-10-24", idea: "in the first 30s buy the side the last window closed on, at 60c or less" },
+  { name: "prev-reverse", left: 0, cap: 0.6, size: 5, first: 30, prevDir: "opposite", added: "2026-10-24", idea: "in the first 30s buy against the side the last window closed on, at 60c or less" },
   { name: "fav93-against", left: 0, cap: 0.995, size: 5, favAt: 0.93, leadMax: 0, added: "2026-10-23", idea: "fav93 only while Chainlink is still on the other side of open (the book leads the price)" },
   { name: "band90-30", left: 30, floor: 0.9, cap: 0.95, size: 5, added: "2026-10-23", idea: "projection side priced 90-95c with 30s left: band80-30 one notch surer" },
   { name: "band80-30-lead", left: 30, floor: 0.8, cap: 0.9, size: 5, leadMin: 0, leadMax: 3, added: "2026-10-23", idea: "band80-30 only with a small Chainlink lead (0-3bp) toward the side" },
@@ -147,7 +160,12 @@ export type PaperTrade = {
   pnl: number | null;
   /** Set when the salvage rule sold the shares before the close: the average price received. */
   soldAt?: number;
+  /** Arb rows: shares held on the other side (both sides were bought); the winner pays out whichever side resolves. */
+  otherShares?: number;
 };
+
+/** How each series' last window closed (the book's favourite at its final snapshot), for the prevDir rule. Keyed by file prefix. */
+const lastClose = new Map<string, { window: number; up: boolean | null }>();
 
 const mean = (xs: number[]) => (xs.length ? xs.reduce((s, x) => s + x, 0) / xs.length : null);
 
@@ -225,8 +243,11 @@ export class PaperTrader {
   consider(row: BookRow) {
     const { left: LEFT, cap: CAP, size: SIZE } = this.v;
     if (discarded().has(this.v.name)) return;
-    if (this.v.salvageAt != null) this.considerSalvage(row);
+    if (this.v.salvageAt != null || this.v.stopBid != null || this.v.tpBid != null) this.considerExit(row);
     const prev = this.prevAsk?.window === row.window ? this.prevAsk : null;
+    if (this.prevAsk && this.prevAsk.window !== row.window && this.prevAsk.up != null && this.prevAsk.down != null) {
+      lastClose.set(this.prefix, { window: this.prevAsk.window, up: this.prevAsk.up > this.prevAsk.down ? true : this.prevAsk.down > this.prevAsk.up ? false : null });
+    }
     this.prevAsk = { window: row.window, up: row.upAsk, down: row.downAsk };
     if (row.upAsk != null && row.downAsk != null) latestLean.set(this.prefix, { window: row.window, up: row.upAsk > row.downAsk ? true : row.downAsk > row.upAsk ? false : null });
     if (this.resting && (this.resting.window !== row.window || row.left < 1)) this.resting = null;
@@ -240,6 +261,8 @@ export class PaperTrader {
       return;
     }
     if (!this.gateOk(row)) return;
+    if (this.v.arbSum != null) return this.considerArb(row);
+    if (this.v.prevDir != null) return this.considerPrev(row);
     if (this.v.first != null) return this.considerEarly(row);
     if (this.v.favAt != null) return this.considerFav(row);
     if (row.left > LEFT || row.left < 1 || !row.chainlink) return;
@@ -313,7 +336,8 @@ export class PaperTrader {
     if (!trade) return;
     trade.resolvedUp = resolvedUp;
     trade.won = (trade.side === "UP") === resolvedUp;
-    trade.pnl = (trade.won ? trade.shares : 0) - trade.cost - trade.fee;
+    trade.pnl = (trade.won ? trade.shares : (trade.otherShares ?? 0)) - trade.cost - trade.fee;
+    if (trade.otherShares != null) trade.won = trade.pnl > 0;
     this.open = this.open.filter((t) => t !== trade);
     this.count(trade);
     append(this.kind, trade, window * 1000);
@@ -324,13 +348,17 @@ export class PaperTrader {
     console.log(`paper ${this.v.name}: ${trade.side} ${trade.won ? "won" : "lost"} ${trade.pnl >= 0 ? "+" : "-"}$${Math.abs(trade.pnl).toFixed(2)}; running ${this.won}/${this.trades}, net ${this.net >= 0 ? "+" : "-"}$${Math.abs(this.net).toFixed(2)}`);
   }
 
-  /** The salvage rule: sell an open trade into the bids once it looks dead, instead of holding it to zero. */
-  private considerSalvage(row: BookRow) {
+  /** Exits before the close: salvage (dead trade late in the window), stop (bid fell to stopBid) and take profit (bid reached tpBid), all sold into the bids. */
+  private considerExit(row: BookRow) {
     const trade = this.open.find((t) => t.window === row.window);
-    if (!trade || row.left > (this.v.salvageAt ?? 0) || row.left < 1) return;
+    if (!trade || row.left < 1 || trade.otherShares != null) return;
     const bids = trade.side === "UP" ? row.upBids : row.downBids;
     const best = bids[0]?.[0];
-    if (best == null || best > (this.v.salvageBid ?? 0)) return;
+    if (best == null) return;
+    const salvage = this.v.salvageAt != null && row.left <= this.v.salvageAt && best <= (this.v.salvageBid ?? 0);
+    const stop = this.v.stopBid != null && best <= this.v.stopBid + 1e-9;
+    const tp = this.v.tpBid != null && best >= this.v.tpBid - 1e-9;
+    if (!salvage && !stop && !tp) return;
     let left = trade.shares;
     let got = 0;
     for (const [price, qty] of [...bids].sort((a, b) => b[0] - a[0])) {
@@ -341,8 +369,8 @@ export class PaperTrader {
     }
     if (left > 1e-9) return; // not enough bids to get out; hold
     trade.soldAt = Math.round((got / trade.shares) * 1000) / 1000;
-    trade.won = false;
     trade.pnl = got - trade.cost - trade.fee;
+    trade.won = trade.pnl > 0;
     this.open = this.open.filter((t) => t !== trade);
     this.count(trade);
     append(this.kind, trade, trade.window * 1000);
@@ -403,6 +431,103 @@ export class PaperTrader {
     this.open.push(trade);
     saveJson(this.openFile, this.open);
     console.log(`paper ${this.v.name}: ${trade.side} ${shares.toFixed(1)} shares at ${Math.round(ask * 100)}c, ${this.windowSec - row.left}s into the window${fee === 0 ? " (resting bid filled)" : ""}`);
+    this.onTrade?.(trade);
+  }
+
+  /** The `arbSum` rule: both asks together under $1 means a sure payout; buy both sides, the winner pays. Once per window. */
+  private considerArb(row: BookRow) {
+    const { size: SIZE } = this.v;
+    const sum = this.v.arbSum ?? 0;
+    if (row.left < 1 || this.open.some((t) => t.window === row.window)) return;
+    const upBest = row.upAsks[0]?.[0];
+    const downBest = row.downAsks[0]?.[0];
+    if (upBest == null || downBest == null || upBest + downBest > sum + 1e-9) return;
+    const leg = (levels: [number, number][], cap: number) => {
+      let budget = SIZE;
+      let shares = 0;
+      let cost = 0;
+      let fee = 0;
+      for (const [price, qty] of levels) {
+        if (price > cap + 1e-9 || budget <= 0) break;
+        const take = Math.min(qty, budget / price);
+        shares += take;
+        cost += take * price;
+        fee += take * 0.07 * price * (1 - price);
+        budget -= take * price;
+      }
+      return { shares, cost, fee };
+    };
+    const up = leg(row.upAsks, sum - downBest);
+    const down = leg(row.downAsks, sum - upBest);
+    if (up.shares <= 0 || down.shares <= 0) return;
+    const favUp = upBest >= downBest;
+    const trade: PaperTrade = {
+      variant: this.v.name,
+      window: row.window,
+      t: row.t,
+      left: row.left,
+      side: favUp ? "UP" : "DOWN",
+      ask: favUp ? upBest : downBest,
+      shares: favUp ? up.shares : down.shares,
+      otherShares: favUp ? down.shares : up.shares,
+      cost: up.cost + down.cost,
+      fee: up.fee + down.fee,
+      projected: row.chainlink ?? 0,
+      openAverage: row.open ?? 0,
+      resolvedUp: null,
+      won: null,
+      pnl: null,
+    };
+    this.open.push(trade);
+    saveJson(this.openFile, this.open);
+    console.log(`paper ${this.v.name}: both sides at ${Math.round(upBest * 100)}c + ${Math.round(downBest * 100)}c with ${row.left}s left, $${trade.cost.toFixed(2)} for ${Math.min(up.shares, down.shares).toFixed(1)}+ shares`);
+    this.onTrade?.(trade);
+  }
+
+  /** The `prevDir` rule: early in the window, follow (or fade) the way the last window closed. */
+  private considerPrev(row: BookRow) {
+    const { cap: CAP, size: SIZE } = this.v;
+    const elapsed = this.windowSec - row.left;
+    if (elapsed < 0 || elapsed > (this.v.first ?? 0) || row.left < 1) return;
+    if (this.open.some((t) => t.window === row.window)) return;
+    const last = lastClose.get(this.prefix);
+    if (!last || last.up == null || last.window !== row.window - this.windowSec) return;
+    const up = this.v.prevDir === "same" ? last.up : !last.up;
+    const levels = up ? row.upAsks : row.downAsks;
+    const ask = levels[0]?.[0];
+    if (ask == null || ask > CAP) return;
+    let budget = SIZE;
+    let shares = 0;
+    let cost = 0;
+    let fee = 0;
+    for (const [price, qty] of levels) {
+      if (price > CAP || budget <= 0) break;
+      const take = Math.min(qty, budget / price);
+      shares += take;
+      cost += take * price;
+      fee += take * 0.07 * price * (1 - price);
+      budget -= take * price;
+    }
+    if (shares <= 0) return;
+    const trade: PaperTrade = {
+      variant: this.v.name,
+      window: row.window,
+      t: row.t,
+      left: row.left,
+      side: up ? "UP" : "DOWN",
+      ask,
+      shares,
+      cost,
+      fee,
+      projected: row.chainlink ?? 0,
+      openAverage: row.open ?? 0,
+      resolvedUp: null,
+      won: null,
+      pnl: null,
+    };
+    this.open.push(trade);
+    saveJson(this.openFile, this.open);
+    console.log(`paper ${this.v.name}: ${trade.side} ${shares.toFixed(1)} shares at ${Math.round(ask * 100)}c, ${elapsed}s in (last window closed ${last.up ? "UP" : "DOWN"})`);
     this.onTrade?.(trade);
   }
 
@@ -538,6 +663,6 @@ export class PaperTrader {
 
   status() {
     const { left: LEFT, cap: CAP, size: SIZE } = this.v;
-    return { name: this.v.name, size: SIZE, added: this.v.added ?? null, idea: this.v.idea ?? null, discarded: discarded().has(this.v.name), rule: this.v.favAt != null ? `favourite when its ask reaches ${Math.round(this.v.favAt * 100)}c, ${this.v.favFrom != null ? (this.v.favTo != null ? `${this.v.favFrom}-${this.v.favTo}s in` : `from ${this.v.favFrom}s in`) : "any time"}, $${SIZE}` : this.v.first != null ? `first ${this.v.first}s, either side <= ${Math.round(CAP * 100)}c, $${SIZE}${this.v.salvageAt != null ? `, sell at ${this.v.salvageAt}s left if bid <= ${Math.round((this.v.salvageBid ?? 0) * 100)}c` : ""}` : `<=${LEFT}s, ask ${this.v.floor ? Math.round(this.v.floor * 100) + "c to " : "<= "}${Math.round(CAP * 100)}c${this.v.noFall ? ", not falling" : ""}, $${SIZE}`, trades: this.trades, won: this.won, net: Math.round(this.net * 100) / 100, open: this.open.length, noAsk: this.noAsk, days: [...this.byDay.values()].sort((a, b) => (a.day < b.day ? 1 : -1)) };
+    return { name: this.v.name, size: SIZE, added: this.v.added ?? null, idea: this.v.idea ?? null, discarded: discarded().has(this.v.name), rule: this.v.arbSum != null ? `both sides whenever the asks add up to ${Math.round(this.v.arbSum * 100)}c or less, $${SIZE} each` : this.v.prevDir != null ? `first ${this.v.first}s, ${this.v.prevDir === "same" ? "with" : "against"} the last close, ask <= ${Math.round(CAP * 100)}c, $${SIZE}` : this.v.favAt != null ? `favourite when its ask reaches ${Math.round(this.v.favAt * 100)}c, ${this.v.favFrom != null ? (this.v.favTo != null ? `${this.v.favFrom}-${this.v.favTo}s in` : `from ${this.v.favFrom}s in`) : "any time"}, $${SIZE}` : this.v.first != null ? `first ${this.v.first}s, either side <= ${Math.round(CAP * 100)}c, $${SIZE}${this.v.salvageAt != null ? `, sell at ${this.v.salvageAt}s left if bid <= ${Math.round((this.v.salvageBid ?? 0) * 100)}c` : ""}` : `<=${LEFT}s, ask ${this.v.floor ? Math.round(this.v.floor * 100) + "c to " : "<= "}${Math.round(CAP * 100)}c${this.v.noFall ? ", not falling" : ""}, $${SIZE}`, trades: this.trades, won: this.won, net: Math.round(this.net * 100) / 100, open: this.open.length, noAsk: this.noAsk, days: [...this.byDay.values()].sort((a, b) => (a.day < b.day ? 1 : -1)) };
   }
 }
