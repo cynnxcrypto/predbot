@@ -259,18 +259,20 @@ export function liveConfig(seriesKey = ""): LiveConfig {
     if (entry.mode === "off" || (entry.mode === "dry" && globalMode === "live")) mode = entry.mode;
   }
   const maxLossPerDay = Number(raw.maxLossPerDay ?? DEFAULT.maxLossPerDay);
-  const list: VariantEntry[] = Array.isArray(raw.variants) && raw.variants.length ? raw.variants : [raw];
+  // An explicit "variants" list is taken as is, even when empty (a market with no rules trades nothing); the old
+  // single-"variant" form still works. There is no built-in fallback rule any more: an empty list used to turn into
+  // band80-30 silently, which is how a removed rule kept reappearing on the dashboard (24 Oct 2026).
+  const list: VariantEntry[] = Array.isArray(raw.variants) ? raw.variants : [raw];
   const variants: LiveVariant[] = [];
   for (const v of list) {
-    const name = String(v.variant ?? (v === raw ? DEFAULT.variant : "")).trim();
+    const name = String(v.variant ?? "").trim();
     const halt = Number(v.haltAfterLosses ?? 0);
     if (name && !variants.some((x) => x.variant === name)) variants.push({ variant: name, size: sizeOf(v.size), haltAfterLosses: Number.isFinite(halt) && halt > 0 ? Math.floor(halt) : 0 });
   }
-  if (!variants.length) variants.push({ variant: DEFAULT.variant, size: DEFAULT.size, haltAfterLosses: 0 });
   return {
     mode,
-    variant: variants[0].variant,
-    size: variants[0].size,
+    variant: variants[0]?.variant ?? "",
+    size: variants[0]?.size ?? DEFAULT.size,
     maxLossPerDay: Number.isFinite(maxLossPerDay) && maxLossPerDay > 0 ? maxLossPerDay : DEFAULT.maxLossPerDay,
     funder: String(file.funder ?? "").trim(),
     variants,
