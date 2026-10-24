@@ -668,6 +668,87 @@ export class LiveTrader {
     }
   }
 
+  /**
+   * A bet enrique places by hand from the dashboard, tracked as the permanent "manual" strategy. Buys `side` on the
+   * running window for `amount` dollars, paying up to 2c over the fresh ask (fill-and-kill). Polymarket fills at least
+   * 5 shares, so the amount must cover 5 x the ask (and $1); the daily stop, halts and the balance floor do not apply,
+   * because the person clicking is the decision. Settles, books fees and gets claimed like every other real trade.
+   */
+  async manualBuy(side: "UP" | "DOWN", amount: number, market: Market, windowEnd: number): Promise<{ ok: boolean; error?: string; trade?: LiveTrade }> {
+    this.config = liveConfig(this.series.key);
+    if (this.config.mode === "off") return { ok: false, error: "real orders are off (live.json mode)" };
+    const left = windowEnd - Math.floor(Date.now() / 1000);
+    if (left <= 3) return { ok: false, error: "this window is closing, wait for the next one" };
+    if (!this.ready) await this.start();
+    if (!this.ready || !this.client) return { ok: false, error: this.lastError ?? "wallet not ready" };
+    const token = side === "UP" ? market.upToken : market.downToken;
+    let ask: number | null = null;
+    try {
+      ask = (await book(token, 1500)).bestAsk;
+    } catch {
+      ask = null;
+    }
+    if (ask == null || !(ask > 0) || ask >= 1) return { ok: false, error: `no ${side} ask on the book right now` };
+    const min = Math.max(1, Math.ceil(5 * ask * 100) / 100);
+    if (!(amount >= min)) return { ok: false, error: `minimum is $${min.toFixed(2)} (5 shares at ${Math.round(ask * 100)}c)` };
+    const limit = Math.min(0.99, Math.round((ask + 0.02) * 100) / 100);
+    const size = Math.round(amount * 100) / 100;
+    const row: LiveTrade = {
+      window: market.start,
+      t: Date.now(),
+      left,
+      variant: "manual",
+      side,
+      token,
+      ask,
+      limit,
+      freshAsk: ask,
+      dry: this.config.mode === "dry",
+      ok: false,
+      orderId: null,
+      status: null,
+      error: null,
+      cost: 0,
+      shares: 0,
+      resolvedUp: null,
+      won: null,
+      pnl: null,
+    };
+    try {
+      const order = await this.client.createMarketOrder(
+        { tokenID: token, amount: size, side: Side.BUY, price: limit, orderType: OrderType.FAK },
+        { tickSize: "0.01", negRisk: false },
+      );
+      if (row.dry) {
+        row.ok = true;
+        row.status = "dry";
+      } else {
+        const res = await this.client.postOrder(order, OrderType.FAK);
+        row.ok = Boolean(res?.success);
+        row.orderId = res?.orderID ?? null;
+        row.status = res?.status ?? null;
+        const detail = (res as unknown as { error?: unknown })?.error;
+        row.error = res?.success ? null : (res?.errorMsg || (detail ? JSON.stringify(detail).slice(0, 200) : "order rejected"));
+        row.cost = Number(res?.makingAmount) || 0;
+        row.shares = Number(res?.takingAmount) || 0;
+        row.fee = feeOf(row.cost, row.shares);
+        this.lastOrderAt = Date.now();
+      }
+    } catch (error) {
+      row.error = error instanceof Error ? error.message : String(error);
+    }
+    console.log(`live ${this.series.label}: MANUAL ${side} $${size} up to ${Math.round(limit * 100)}c -> ${row.ok && (row.dry || row.shares > 0) ? `${row.dry ? "dry, signed only" : `bought ${row.shares.toFixed(2)} for $${row.cost.toFixed(2)}`}` : `not filled (${row.error ?? row.status ?? "no fill"})`}`);
+    this.remember(row);
+    saveJson(`${this.prefix}live-state.json`, { at: Date.now(), ...this.status(), lastTrade: row });
+    if (row.ok && (row.dry || row.shares > 0)) {
+      this.open.push(row);
+      saveJson(`${this.prefix}live-open.json`, this.open);
+      return { ok: true, trade: row };
+    }
+    append(`${this.prefix}live`, row, row.window * 1000);
+    return { ok: false, error: row.error ?? row.status ?? "not filled", trade: row };
+  }
+
   settle(window: number, resolvedUp: boolean) {
     // Several variants can hold the same window; each is its own trade.
     const trades = this.open.filter((t) => t.window === window);
@@ -935,7 +1016,8 @@ export class LiveTrader {
 
   status() {
     const c = this.config;
-    const active = new Set(c.variants.map((v) => v.variant));
+    // "manual" (bets placed by hand on the dashboard) is a permanent strategy: always counted, shown once it has trades.
+    const active = new Set([...c.variants.map((v) => v.variant), "manual"]);
     const shown = { trades: 0, won: 0, net: 0, today: 0 };
     for (const [name, v] of this.byVariant) if (active.has(name)) { shown.trades += v.trades; shown.won += v.won; shown.net += v.net; }
     for (const [key, net] of this.dayVarNet) { const [day, name] = key.split("|"); if (day === kstDay() && active.has(name)) shown.today += net; }
@@ -956,7 +1038,7 @@ export class LiveTrader {
         const h = this.halts[v.variant];
         const t = this.byVariant.get(v.variant);
         return { ...v, halted: Boolean(v.haltAfterLosses && h?.halted), paused: Boolean(h?.paused), streak: h?.streak ?? 0, haltedAt: h?.haltedAt ?? null, trades: t?.trades ?? 0, won: t?.won ?? 0, net: Math.round((t?.net ?? 0) * 100) / 100 };
-      }),
+      }).concat(((m) => (m && m.trades) || this.open.some((t) => t.variant === "manual") ? [{ variant: "manual", manual: true, size: 0, haltAfterLosses: 0, halted: false, paused: false, streak: 0, haltedAt: null, trades: m?.trades ?? 0, won: m?.won ?? 0, net: Math.round((m?.net ?? 0) * 100) / 100 }] : [])(this.byVariant.get("manual"))),
       ready: this.ready,
       wallet: this.wallet,
       funder: c.funder || null,
