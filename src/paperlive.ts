@@ -84,18 +84,18 @@ export function setDiscarded(name: string, on: boolean) {
 export const FAV_MAX_LEFT_15M = 180;
 
 export const VARIANTS: Variant[] = [
-  { name: "base", left: Number(process.env.PAPER_LEFT ?? 30), cap: Number(process.env.PAPER_CAP ?? 0.9), size: Number(process.env.PAPER_SIZE ?? 20) },
-  { name: "early45", left: 45, cap: 0.9, size: 20 },
-  { name: "late20", left: 20, cap: 0.9, size: 20 },
-  { name: "late15", left: 15, cap: 0.9, size: 20 },
-  { name: "cheap70", left: 30, cap: 0.7, size: 20 },
+  { name: "base", left: Number(process.env.PAPER_LEFT ?? 30), cap: Number(process.env.PAPER_CAP ?? 0.9), size: Number(process.env.PAPER_SIZE ?? 5) },
+  { name: "early45", left: 45, cap: 0.9, size: 5 },
+  { name: "late20", left: 20, cap: 0.9, size: 5 },
+  { name: "late15", left: 15, cap: 0.9, size: 5 },
+  { name: "cheap70", left: 30, cap: 0.7, size: 5 },
   // Only buy when the book already leans the same way (ask 80c to 90c): the one band that was positive on all three recorded days.
-  { name: "band80", left: 45, floor: 0.8, cap: 0.9, size: 20 },
-  { name: "band80-30", left: 30, floor: 0.8, cap: 0.9, size: 20 },
+  { name: "band80", left: 45, floor: 0.8, cap: 0.9, size: 5 },
+  { name: "band80-30", left: 30, floor: 0.8, cap: 0.9, size: 5 },
   // band80-30 with the live fill rule: skip the second the ask fell. In the recorded books this kept 93% of wins.
-  { name: "band80-30-chase", left: 30, floor: 0.8, cap: 0.9, size: 20, noFall: true },
+  { name: "band80-30-chase", left: 30, floor: 0.8, cap: 0.9, size: 5, noFall: true },
   // band80-30 with the jump guard: every real loss up to 23 Oct came from an ask that was under ~70-75c one second before it first read 80-90c.
-  { name: "band80-30-j70", left: 30, floor: 0.8, cap: 0.9, size: 20, prevFloor: 0.70, added: "2026-10-22", idea: "band80-30, but skip when the side's ask was under 70c a second earlier (every real loss was such a jump)" },
+  { name: "band80-30-j70", left: 30, floor: 0.8, cap: 0.9, size: 5, prevFloor: 0.70, added: "2026-10-22", idea: "band80-30, but skip when the side's ask was under 70c a second earlier (every real loss was such a jump)" },
   // enrique's long shot (20 Oct): either side under 10c in the first 90s of the window, $5 a trade.
   { name: "cheap10-first90", left: 0, cap: 0.1, size: 5, first: 90 },
   // enrique's favourite rule (21 Oct): buy the favourite the first time its ask reaches 93c, $5. Replay: 2c a trade on BTC 5m, 12-16c on BTC 15m.
@@ -126,7 +126,7 @@ export const VARIANTS: Variant[] = [
   { name: "fav97-last3", left: 0, cap: 0.995, size: 5, favAt: 0.97, favFrom: 240, added: "2026-10-24", idea: "favourite at 97c+, only in the last 3 minutes of a 15m window (last minute of a 5m)" },
   { name: "fav95-hold-last3", left: 0, cap: 0.97, size: 5, favAt: 0.95, favFrom: 240, strictCap: true, holdRows: 10, holdAt: 0.9, added: "2026-10-24", idea: "fav95-hold, but only in the last 3 minutes of a 15m window (last minute of a 5m)" },
   { name: "fav93-stop", left: 0, cap: 0.995, size: 5, favAt: 0.93, stopBid: 0.7, added: "2026-10-24", idea: "fav93, but sell back the moment our side's bid drops to 70c: trade a few 30c hits for the rare -93c loss (paper only: real rules do not sell)" },
-  { name: "band80-tp95", left: 30, floor: 0.8, cap: 0.9, size: 20, tpBid: 0.95, added: "2026-10-24", idea: "band80-30, but sell as soon as our side's bid reaches 95c instead of holding to the close" },
+  { name: "band80-tp95", left: 30, floor: 0.8, cap: 0.9, size: 5, tpBid: 0.95, added: "2026-10-24", idea: "band80-30, but sell as soon as our side's bid reaches 95c instead of holding to the close" },
   { name: "arb97", left: 0, cap: 0.995, size: 5, arbSum: 0.97, added: "2026-10-24", idea: "buy both sides whenever the two asks add up to 97c or less: a sure 3c+ a share (rare: 6 times in 14,000 snapshots)" },
   { name: "prev-momentum", left: 0, cap: 0.6, size: 5, first: 30, prevDir: "same", added: "2026-10-24", idea: "in the first 30s buy the side the last window closed on, at 60c or less" },
   { name: "prev-reverse", left: 0, cap: 0.6, size: 5, first: 30, prevDir: "opposite", added: "2026-10-24", idea: "in the first 30s buy against the side the last window closed on, at 60c or less" },
