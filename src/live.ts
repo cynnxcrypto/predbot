@@ -344,6 +344,8 @@ export class LiveTrader {
   private byVariant = new Map<string, { trades: number; won: number; net: number }>();
   /** Loss streaks per variant (see haltAfterLosses). */
   halts: Record<string, Halt>;
+  /** How closed windows look on our own Chainlink feed (true = up) until Polymarket settles them; see provisional(). */
+  private likely = new Map<number, boolean>();
   lastError: string | null = null;
   lastOrderAt: number | null = null;
   wallet: string | null = null;
@@ -580,6 +582,14 @@ export class LiveTrader {
     this.halts = loadJson<Record<string, Halt>>(`${this.prefix}live-halts.json`, this.halts);
     if (this.halts[trade.variant]?.halted || this.halts[trade.variant]?.paused) return;
     if (this.open.some((t) => t.window === trade.window && t.variant === trade.variant)) return;
+    // Settlement lags the close by minutes: a loss our own feed can already see counts toward the halt now.
+    if (rule.haltAfterLosses > 0) {
+      const pending = this.pendingLosses(trade.variant);
+      if (pending && (this.halts[trade.variant]?.streak ?? 0) + pending >= rule.haltAfterLosses) {
+        console.log(`live ${this.series.label}: ${trade.variant} skipped window ${trade.window}, ${pending} unsettled trade(s) look lost and would trip the halt`);
+        return;
+      }
+    }
     const size = rule.size;
     if (this.todayLoss() >= this.config.maxLossPerDay) {
       if (this.lastError !== "daily loss limit reached") console.log(`live: daily loss limit reached (-$${this.todayLoss().toFixed(2)}), no more orders today`);
@@ -785,6 +795,7 @@ export class LiveTrader {
 
   settle(window: number, resolvedUp: boolean) {
     // Several variants can hold the same window; each is its own trade.
+    this.likely.delete(window);
     const trades = this.open.filter((t) => t.window === window);
     if (!trades.length) return;
     this.open = this.open.filter((t) => t.window !== window);
@@ -1042,7 +1053,23 @@ export class LiveTrader {
   }
 
 
+  /**
+   * The recorder's own verdict on a window that just closed (Chainlink close vs open), several minutes before
+   * Polymarket settles it. The halt counts those as losses so a rule cannot slip one more order in during the lag.
+   */
+  provisional(window: number, up: boolean | null) {
+    if (up == null) return;
+    this.likely.set(window, up);
+    for (const w of this.likely.keys()) if (w < window - 3600) this.likely.delete(w);
+  }
+
+  /** Open trades of a variant whose window has closed and looks lost on our own feed (not yet settled). */
+  private pendingLosses(variant: string) {
+    return this.open.filter((t) => t.variant === variant && t.won == null && this.likely.has(t.window) && (t.side === "UP") !== this.likely.get(t.window)).length;
+  }
+
   abandon(window: number) {
+    this.likely.delete(window);
     const before = this.open.length;
     this.open = this.open.filter((t) => t.window !== window);
     if (this.open.length !== before) saveJson(`${this.prefix}live-open.json`, this.open);

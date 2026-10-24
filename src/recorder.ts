@@ -316,6 +316,8 @@ export class Recorder {
       status: null,
     };
     this.pending.push({ window: start, row, tries: 0, nextAt: Date.now() + 20000 });
+    const o = row.chainlinkAtOpen, c = row.chainlinkAtClose;
+    this.live?.provisional(start, o != null && c != null && c !== o ? c > o : null);
     this.windowsDone += 1;
     saveJson(`${this.prefix}pending.json`, this.pending);
   }
