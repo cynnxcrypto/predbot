@@ -476,7 +476,7 @@ el("today").textContent=signed(tn);el("today").className="v big "+cls(tn);
 el("net").textContent=signed(an);el("net").className="v big "+cls(an);
 el("ltr").textContent=tr;
 el("lwon").textContent=tr?Math.round(wn/tr*100)+"%":"—";
-var LD=L.days||[];var tot=LD.reduce(function(a,d){a.o+=d.orders;a.s+=d.skipped;return a},{o:0,s:0});
+var LD=L.days||[];var tot={o:0,s:0};ALL.forEach(function(l){(l.days||[]).forEach(function(d){tot.o+=d.orders;tot.s+=d.skipped})});
 el("lord").textContent=L.mode==="off"&&!LD.length?"—":tot.o;
 var PV=(s.papers||[]).filter(function(p){return p.name===L.variant})[0]||{};var PD=PV.days||[];
 el("cmprule").textContent=L.variant?"rule "+L.variant+" · real at $"+L.size+" vs paper at $20":"";
