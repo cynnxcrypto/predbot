@@ -576,12 +576,15 @@ export class LiveTrader {
       this.lastError = "daily loss limit reached";
       return;
     }
+    // A new Korean day (or a raised stop) lifts the limit: drop the stale notice so the dashboard stops showing it.
+    if (this.lastError === "daily loss limit reached") this.lastError = null;
     if (this.config.minBalance > 0 && this.balance != null && this.balance < this.config.minBalance) {
       const msg = `paused: balance $${this.balance.toFixed(2)} is under the $${this.config.minBalance} floor`;
       if (this.lastError !== msg) console.log(`live ${this.series.label}: ${msg}`);
       this.lastError = msg;
       return;
     }
+    if (this.lastError && this.lastError.startsWith("paused: balance")) this.lastError = null;
     if (!this.ready) await this.start();
     if (!this.ready || !this.client) return;
     const token = trade.side === "UP" ? market.upToken : market.downToken;
