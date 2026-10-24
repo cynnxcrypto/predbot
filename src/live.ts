@@ -223,6 +223,19 @@ export function setLiveRuleSize(seriesKey: string, variant: string, size: number
   return { changed: true, size: next };
 }
 
+/** Change one market's daily loss stop in data/live.json ($5 to $500). Re-read before every order. */
+export function setLiveMaxLoss(seriesKey: string, maxLoss: number) {
+  const file = loadJson<RawLive>("live.json", {});
+  const next = Math.max(5, Math.min(500, Math.round(maxLoss)));
+  let target: { maxLossPerDay?: number } | undefined = file;
+  if (seriesKey) target = (file.markets ?? []).find((x) => x.series === seriesKey);
+  if (!target) return { changed: false, maxLoss: null };
+  if (target.maxLossPerDay === next) return { changed: false, maxLoss: next };
+  target.maxLossPerDay = next;
+  saveJson("live.json", file);
+  return { changed: true, maxLoss: next };
+}
+
 export function liveConfig(seriesKey = ""): LiveConfig {
   const file = loadJson<Partial<Omit<LiveConfig, "statsSince">> & MarketEntry & { markets?: MarketEntry[]; statsSince?: string | number }>("live.json", {});
   const since = typeof file.statsSince === "number" ? file.statsSince : Date.parse(String(file.statsSince ?? ""));

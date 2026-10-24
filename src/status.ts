@@ -3,7 +3,7 @@ import { STATUS_PORT } from "./config.js";
 import type { Recorder } from "./recorder.js";
 import { LOGOS } from "./logos.js";
 import { VARIANTS, discarded, setDiscarded } from "./paperlive.js";
-import { addLiveRule, liveConfig, MIN_SIZE, removeLiveRule, setLiveRuleSize } from "./live.js";
+import { addLiveRule, liveConfig, MIN_SIZE, removeLiveRule, setLiveMaxLoss, setLiveRuleSize } from "./live.js";
 
 /**
  * A one-page status view on 127.0.0.1 so you can see the recorder is alive without reading logs.
@@ -114,6 +114,43 @@ export function serveStatus(recorder: Recorder, build: string, others: Recorder[
         console.log(`dashboard: ${variant} on ${r.series.label} bet size set to $${out.size}${out.changed ? "" : " (no change)"}`);
         res.writeHead(200, { "content-type": "application/json" });
         res.end(JSON.stringify({ ok: true, series, variant, size: out.size, changed: out.changed }));
+      });
+      return;
+    }
+    if (req.url === "/api/maxloss" && req.method === "POST") {
+      let body = "";
+      req.on("data", (chunk) => (body += chunk));
+      req.on("end", () => {
+        let series = "";
+        let maxLoss = NaN;
+        try {
+          const parsed = JSON.parse(body || "{}") as { series?: string; maxLoss?: number };
+          series = String(parsed.series ?? "");
+          maxLoss = Number(parsed.maxLoss);
+        } catch {
+          maxLoss = NaN;
+        }
+        const r = [recorder, ...others].find((x) => x.series.key === series);
+        if (!r?.live) {
+          res.writeHead(400, { "content-type": "application/json" });
+          res.end(JSON.stringify({ error: "unknown market" }));
+          return;
+        }
+        if (!Number.isFinite(maxLoss) || maxLoss < 5 || maxLoss > 500) {
+          res.writeHead(400, { "content-type": "application/json" });
+          res.end(JSON.stringify({ error: "daily stop must be $5 to $500" }));
+          return;
+        }
+        const out = setLiveMaxLoss(series, maxLoss);
+        if (out.maxLoss == null) {
+          res.writeHead(404, { "content-type": "application/json" });
+          res.end(JSON.stringify({ error: "that market is not on real money" }));
+          return;
+        }
+        r.live.config = liveConfig(series);
+        console.log(`dashboard: ${r.series.label} daily stop set to $${out.maxLoss}${out.changed ? "" : " (no change)"}`);
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ ok: true, series, maxLoss: out.maxLoss, changed: out.changed }));
       });
       return;
     }
@@ -363,6 +400,7 @@ function tickV(prev){Array.prototype.forEach.call(document.querySelectorAll(".v.
 async function goLive(series,label,name){if(!confirm("Put "+name+" on REAL money for "+label+" at $5 a trade, halting after 2 straight losses?"))return;var r=await fetch("/api/golive",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({series:series,variant:name,size:5})});var j=await r.json();if(!r.ok){alert(j.error||"failed");return}await poll();var c=document.getElementById("cell-"+String(label+"|"+name).replace(/[^a-z0-9]/gi,"_"));if(c){c.classList.add("sent")}var panel=el("lrules").closest(".panel");if(panel){panel.classList.remove("pulse");void panel.offsetWidth;panel.classList.add("pulse")}}
 async function toPaper(series,variant,btn){if(!confirm("Take "+variant+" off real money here? It keeps simulating on paper."))return;var tr=btn&&btn.closest("tr");if(tr){tr.classList.add("out");await new Promise(function(ok){setTimeout(ok,420)})}var r=await fetch("/api/topaper",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({series:series,variant:variant})});var j=await r.json();if(!r.ok){alert(j.error||"failed");if(tr)tr.classList.remove("out");return}await poll()}
 async function editSize(series,variant,cur){var v=prompt("Bet size in $ for "+variant+" (5 to 50). $5 is the minimum Polymarket fills.",cur);if(v==null)return;var n=Number(v);if(!(n>=5&&n<=50)){alert("Bet size must be $5 to $50");return}var r=await fetch("/api/size",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({series:series,variant:variant,size:n})});var j=await r.json();if(!r.ok)alert(j.error||"failed");else poll()}
+async function editMaxLoss(series,cur){var v=prompt("Daily loss stop in $ for this market (5 to 500). Real orders stop for the rest of the KST day once today's loss reaches it.",cur);if(v==null)return;var n=Number(v);if(!(n>=5&&n<=500)){alert("Daily stop must be $5 to $500");return}var r=await fetch("/api/maxloss",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({series:series,maxLoss:n})});var j=await r.json();if(!r.ok)alert(j.error||"failed");else poll()}
 async function pauseRule(series,variant,on){var r=await fetch("/api/pause",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({series:series,variant:variant,on:on})});var j=await r.json();if(!r.ok)alert(j.error||"failed");else poll()}
 async function discard(name,restore){if(!restore&&!confirm("Discard "+name+" for good? It stops simulating on every market."))return;var r=await fetch("/api/discard",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({name:name,restore:restore})});var j=await r.json();if(!r.ok)alert(j.error||"failed");else poll()}
 async function poll(){try{var s=await (await fetch("/api/status")).json();var prevV=snapV();
@@ -392,7 +430,7 @@ el("ledger").textContent=(L.startBalance!=null&&L.balance!=null)?(function(){var
 var dep=L.deposits||0;var expWallet=L.startBalance+dep+sum("net")+hidNet-open-claim;var gap=wallet-expWallet;
 return "wallet "+money(wallet)+" vs ledger "+money(expWallet)+" (started at "+money(L.startBalance)+(dep?" + "+money(dep)+" deposited":"")+(sum("net")>=0?" +":" \u2212")+money(Math.abs(sum("net")))+(open?" \u2212 "+money(open)+" in open trades":"")+(claim?" \u2212 "+money(claim)+" won, not claimed yet":"")+") \u2192 "+(gap>=0?"+":"\u2212")+money(Math.abs(gap))+" unexplained"+(ch.USDC>0.5?" \u00b7 plus "+money(ch.USDC)+" native USDC not yet converted":"")})():"";el("claim").textContent=el("claim").textContent==="—"?"—":el("claim").textContent;
 el("netk").textContent=L.statsSince?"since start":"all time";var hidT=0,hidN=0;ALL.forEach(function(l){if(l.hidden){hidT+=l.hidden.trades||0;hidN+=l.hidden.net||0}});el("lsince").textContent=(L.statsSince?"everything in this panel counts real trades since "+new Date(L.statsSince).toLocaleString("en-GB",{timeZone:"Asia/Seoul",hour12:false})+" KST; the totals above cover everything":"")+(hidT?(L.statsSince?" · ":"")+"not shown: "+hidT+" trades from rules moved back to paper, "+signed(hidN):"");
-swap("lrules",ALL.filter(function(l){return l.mode!=="off"}).map(function(l){var vs=(l.variants&&l.variants.length)?l.variants:[{variant:l.variant,size:l.size,trades:l.trades,won:l.won,net:l.net,halted:false,streak:0,haltAfterLosses:0}];var st=function(v){return v.halted?2:v.paused?1:0};vs=vs.slice().sort(function(a,b){return st(a)-st(b)});var lb=l.label||"BTC 5m";var head='<tr class="grp" data-k="'+esc("g|"+lb)+'"><td colspan="7"><span>'+coin(lb)+'<b>'+lb+'</b></span><span class="gs">today <b class="'+cls(l.todayNet)+'">'+signed(l.todayNet)+'</b> · stop at −$'+l.maxLossPerDay+' a day · '+vs.length+' rule'+(vs.length===1?'':'s')+'</span></td></tr>';return head+vs.map(function(v,i){return '<tr class="'+(v.halted||v.paused?"dim":"")+'" data-k="'+esc(lb+"|"+v.variant)+'"><td><b>'+v.variant+'</b>'+(l.mode==="dry"?' <span class="mut">dry</span>':'')+(v.halted?' <span class="tag bad">halted</span>':'')+(v.paused?' <span class="tag mut" style="border:1px solid var(--mut)">paused</span>':'')+'</td><td class="r"><button class="sz" title="edit bet size ($5 to $50)" onclick="editSize(\\''+(l.series||"")+'\\',\\''+v.variant+'\\','+v.size+')">$'+v.size+'<span class="pen">&#9998;</span></button></td><td class="r '+cls(v.net)+'">'+signed(v.net)+'</td><td class="r">'+v.trades+'</td><td class="r">'+(v.trades?Math.round(v.won/v.trades*100)+"%":"—")+'</td><td class="r '+(v.streak?"bad":"mut")+'">'+(v.haltAfterLosses?(v.streak+"/"+v.haltAfterLosses):"")+'</td><td class="r"><button class="btn'+(v.paused?' restore':'')+' icon" title="'+(v.paused?'resume':'pause')+'" onclick="pauseRule(\\''+(l.series||"")+'\\',\\''+v.variant+'\\','+(v.paused?'false':'true')+')">'+(v.paused?'&#9654;':'&#10074;&#10074;')+'</button> <button class="btn icon paper" title="back to paper only" onclick="toPaper(\\''+(l.series||"")+'\\',\\''+v.variant+'\\',this)">&#8617;</button></td></tr>'}).join("")}).join("")||'<tr><td class="empty" colspan="7">real orders are off</td></tr>');
+swap("lrules",ALL.filter(function(l){return l.mode!=="off"}).map(function(l){var vs=(l.variants&&l.variants.length)?l.variants:[{variant:l.variant,size:l.size,trades:l.trades,won:l.won,net:l.net,halted:false,streak:0,haltAfterLosses:0}];var st=function(v){return v.halted?2:v.paused?1:0};vs=vs.slice().sort(function(a,b){return st(a)-st(b)});var lb=l.label||"BTC 5m";var head='<tr class="grp" data-k="'+esc("g|"+lb)+'"><td colspan="7"><span>'+coin(lb)+'<b>'+lb+'</b></span><span class="gs">today <b class="'+cls(l.todayNet)+'">'+signed(l.todayNet)+'</b> · <button class="sz" title="edit the daily loss stop for this market ($5 to $500)" onclick="editMaxLoss(\\''+(l.series||"")+'\\','+l.maxLossPerDay+')">stop at −$'+l.maxLossPerDay+' a day<span class="pen">&#9998;</span></button> · '+vs.length+' rule'+(vs.length===1?'':'s')+'</span></td></tr>';return head+vs.map(function(v,i){return '<tr class="'+(v.halted||v.paused?"dim":"")+'" data-k="'+esc(lb+"|"+v.variant)+'"><td><b>'+v.variant+'</b>'+(l.mode==="dry"?' <span class="mut">dry</span>':'')+(v.halted?' <span class="tag bad">halted</span>':'')+(v.paused?' <span class="tag mut" style="border:1px solid var(--mut)">paused</span>':'')+'</td><td class="r"><button class="sz" title="edit bet size ($5 to $50)" onclick="editSize(\\''+(l.series||"")+'\\',\\''+v.variant+'\\','+v.size+')">$'+v.size+'<span class="pen">&#9998;</span></button></td><td class="r '+cls(v.net)+'">'+signed(v.net)+'</td><td class="r">'+v.trades+'</td><td class="r">'+(v.trades?Math.round(v.won/v.trades*100)+"%":"—")+'</td><td class="r '+(v.streak?"bad":"mut")+'">'+(v.haltAfterLosses?(v.streak+"/"+v.haltAfterLosses):"")+'</td><td class="r"><button class="btn'+(v.paused?' restore':'')+' icon" title="'+(v.paused?'resume':'pause')+'" onclick="pauseRule(\\''+(l.series||"")+'\\',\\''+v.variant+'\\','+(v.paused?'false':'true')+')">'+(v.paused?'&#9654;':'&#10074;&#10074;')+'</button> <button class="btn icon paper" title="back to paper only" onclick="toPaper(\\''+(l.series||"")+'\\',\\''+v.variant+'\\',this)">&#8617;</button></td></tr>'}).join("")}).join("")||'<tr><td class="empty" colspan="7">real orders are off</td></tr>');
 el("bal").textContent=money(L.balance);
 var tn=sum("todayNet"),an=sum("net"),tr=sum("trades"),wn=sum("won");
 el("today").textContent=signed(tn);el("today").className="v big "+cls(tn);
