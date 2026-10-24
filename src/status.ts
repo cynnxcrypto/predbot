@@ -271,7 +271,7 @@ h1{font-size:20px;margin:0;font-weight:700;letter-spacing:.2px}
 .panel.real{border-color:var(--up)}
 .sub{color:var(--mut);font-size:12px;margin-left:auto}
 .grid{display:grid;grid-template-columns:1fr;gap:14px;margin-bottom:14px}
-@media(min-width:1400px){.grid{grid-template-columns:1fr 1fr}}
+@media(min-width:1400px){.grid{grid-template-columns:1fr 1fr}.panel.logp{display:flex;flex-direction:column;overflow:hidden}.logwrap{flex:1;min-height:0;position:relative}.logwrap>div{position:absolute;inset:0;overflow:hidden}}
 td,th{white-space:nowrap}
 .panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px 18px;overflow-x:auto}
 .hero{display:flex;align-items:center;gap:28px;flex-wrap:wrap}
@@ -394,15 +394,14 @@ tr.dim{transition:opacity .4s}
       <div><div class="k">trades</div><div class="v big" id="ltr">—</div></div>
       <div><div class="k">won</div><div class="v big" id="lwon">—</div></div>
       <div><div class="k">orders</div><div class="v big" id="lord">—</div></div>
-      <div><div class="k">skipped</div><div class="v big" id="lskip">—</div></div>
     </div>
     <div class="mut" id="ledger" style="font-size:12px;margin-bottom:12px"></div>
     <table style="margin-bottom:12px"><thead><tr><th>strategy</th><th class="r">size</th><th class="r">net</th><th class="r">trades</th><th class="r">won</th><th class="r">streak</th><th></th></tr></thead><tbody id="lrules"></tbody></table><div class="note" id="lsince"></div>
     <div class="mut" id="lstate" style="font-size:12px"></div>
     <div class="mut" style="font-size:12px;margin-top:6px">Only this panel, the trade log and the "real" columns below are real orders on Polymarket, settled from your wallet.</div>
   </div>
-  <div class="panel real"><div class="ph"><div class="k">real trade log <span class="tag real">real</span></div><div class="mut" id="lopen"></div></div>
-    <table class="log"><tbody id="log"></tbody></table>
+  <div class="panel real logp"><div class="ph"><div class="k">real trade log <span class="tag real">real</span></div><div class="mut" id="lopen"></div></div>
+    <div class="logwrap" id="logwrap"><div><table class="log"><tbody id="log"></tbody></table></div></div>
   </div>
 </div>
 
@@ -466,7 +465,7 @@ el("quota").innerHTML=!parts.length&&!used?'<div class="qhead"><span class="lbl"
 el("lrule").textContent=ALL.filter(function(l){return l.mode!=="off"}).length+" live";
 el("ledger").textContent=(L.startBalance!=null&&L.balance!=null)?(function(){var ch=L.chain||{};var wallet=(ch.pUSD!=null?ch.pUSD:L.balance)+(ch["USDC.e"]||0);var open=0,stake=0,exp=0,claim=0;ALL.forEach(function(l){claim+=l.toClaim||0;var rr=RS[l.label||"BTC 5m"]||{};var rb=rr.lastBook||{};(l.recent||[]).forEach(function(t){if(t.pnl==null&&t.ok&&!t.dry&&t.shares>0){open+=(t.cost||0)+feeOf(t);stake+=t.cost||0;var p=null;if(t.window===rr.window){var a=t.side==="UP"?rb.upAsk:rb.downAsk;p=a!=null?a:t.cost/t.shares}else{var pl=rr.pendingLean?rr.pendingLean[t.window]:null;p=pl==null||pl===0?t.cost/t.shares:((pl>0)===(t.side==="UP")?1:0)}exp+=t.shares*p}})});el("claim").textContent=money(claim+exp);el("claim").title=money(claim)+" won and waiting for payout + "+money(exp)+" expected from "+money(stake)+" in open trades";var hidNet=0,hidOpen=0;ALL.forEach(function(l){if(l.hidden){hidNet+=l.hidden.net||0;hidOpen+=l.hidden.open||0}});open+=hidOpen;exp+=hidOpen;
 var dep=L.deposits||0;var expWallet=L.startBalance+dep+sum("net")+hidNet-open-claim;var gap=wallet-expWallet;
-return "wallet "+money(wallet)+" vs ledger "+money(expWallet)+" (started at "+money(L.startBalance)+(dep?" + "+money(dep)+" deposited":"")+(sum("net")>=0?" +":" \u2212")+money(Math.abs(sum("net")))+(open?" \u2212 "+money(open)+" in open trades":"")+(claim?" \u2212 "+money(claim)+" won, not claimed yet":"")+") \u2192 "+(gap>=0?"+":"\u2212")+money(Math.abs(gap))+" unexplained"+(ch.USDC>0.5?" \u00b7 plus "+money(ch.USDC)+" native USDC not yet converted":"")})():"";el("claim").textContent=el("claim").textContent==="—"?"—":el("claim").textContent;
+return (ch.USDC>0.5?money(ch.USDC)+" native USDC not yet converted":"")})():"";el("claim").textContent=el("claim").textContent==="—"?"—":el("claim").textContent;
 el("netk").textContent=L.statsSince?"since start":"all time";var hidT=0,hidN=0;ALL.forEach(function(l){if(l.hidden){hidT+=l.hidden.trades||0;hidN+=l.hidden.net||0}});el("lsince").textContent=(L.statsSince?"everything in this panel counts real trades since "+new Date(L.statsSince).toLocaleString("en-GB",{timeZone:"Asia/Seoul",hour12:false})+" KST; the totals above cover everything":"")+(hidT?(L.statsSince?" · ":"")+"not shown: "+hidT+" trades from rules moved back to paper, "+signed(hidN):"");
 swap("lrules",ALL.filter(function(l){return hasRules(l)}).map(function(l){var vs=(l.variants&&l.variants.length)?l.variants:[{variant:l.variant,size:l.size,trades:l.trades,won:l.won,net:l.net,halted:false,streak:0,haltAfterLosses:0}];var st=function(v){return v.halted?2:v.paused?1:0};vs=vs.slice().sort(function(a,b){return st(a)-st(b)});var lb=l.label||"BTC 5m";var head='<tr class="grp" data-k="'+esc("g|"+lb)+'"><td colspan="7"><span>'+coin(lb)+'<b>'+lb+'</b></span><span class="gs">today <b class="'+cls(l.todayNet)+'">'+signed(l.todayNet)+'</b> · <button class="sz" title="edit the daily loss stop for this market ($5 to $500)" onclick="editMaxLoss(\\''+(l.series||"")+'\\','+l.maxLossPerDay+')">stop at −$'+l.maxLossPerDay+' a day<span class="pen">&#9998;</span></button> · '+vs.filter(function(v){return !v.manual}).length+' rule'+(vs.filter(function(v){return !v.manual}).length===1?'':'s')+'</span></td></tr>';return head+vs.map(function(v,i){return '<tr class="'+(v.halted||v.paused?"dim":"")+'" data-k="'+esc(lb+"|"+v.variant)+'"><td><b>'+v.variant+'</b>'+(l.mode==="dry"?' <span class="mut">dry</span>':'')+(v.halted?' <span class="tag bad">halted</span>':'')+(v.paused?' <span class="tag mut" style="border:1px solid var(--mut)">paused</span>':'')+'</td><td class="r">'+(v.manual?'<span class="mut" title="bets you place with the UP/DOWN buttons under the charts">by hand</span>':'<button class="sz" title="edit bet size ($5 to $50)" onclick="editSize(\\''+(l.series||"")+'\\',\\''+v.variant+'\\','+v.size+')">$'+v.size+'<span class="pen">&#9998;</span></button>')+'</td><td class="r '+cls(v.net)+'">'+signed(v.net)+'</td><td class="r">'+v.trades+'</td><td class="r">'+(v.trades?Math.round(v.won/v.trades*100)+"%":"—")+'</td><td class="r '+(v.streak?"bad":"mut")+'">'+(v.haltAfterLosses?(v.streak+"/"+v.haltAfterLosses):"")+'</td><td class="r">'+(v.manual?'':'<button class="btn'+(v.paused?' restore':'')+' icon" title="'+(v.paused?'resume':'pause')+'" onclick="pauseRule(\\''+(l.series||"")+'\\',\\''+v.variant+'\\','+(v.paused?'false':'true')+')">'+(v.paused?'&#9654;':'&#10074;&#10074;')+'</button> <button class="btn icon paper" title="back to paper only" onclick="toPaper(\\''+(l.series||"")+'\\',\\''+v.variant+'\\',this)">&#8617;</button>')+'</td></tr>'}).join("")}).join("")||'<tr><td class="empty" colspan="7">real orders are off</td></tr>');
 el("bal").textContent=money(L.balance);
@@ -476,7 +475,7 @@ el("net").textContent=signed(an);el("net").className="v big "+cls(an);
 el("ltr").textContent=tr;
 el("lwon").textContent=tr?Math.round(wn/tr*100)+"%":"—";
 var LD=L.days||[];var tot=LD.reduce(function(a,d){a.o+=d.orders;a.s+=d.skipped;return a},{o:0,s:0});
-el("lord").textContent=L.mode==="off"&&!LD.length?"—":tot.o;el("lskip").textContent=L.mode==="off"&&!LD.length?"—":tot.s;
+el("lord").textContent=L.mode==="off"&&!LD.length?"—":tot.o;
 var PV=(s.papers||[]).filter(function(p){return p.name===L.variant})[0]||{};var PD=PV.days||[];
 el("cmprule").textContent=L.variant?"rule "+L.variant+" · real at $"+L.size+" vs paper at $20":"";
 var dayset={};LD.forEach(function(d){dayset[d.day]=1});PD.forEach(function(d){dayset[d.day]=1});
@@ -488,7 +487,7 @@ function addr(a,label){if(!a)return label+" —";return label+' <a href="https:/
 el("lstate").innerHTML=L.mode==="off"?"Real orders are off. Nothing trades for real.":(L.ready?"Wallet ready · "+addr(L.funder,"funds")+" · "+addr(L.wallet,"signer"):"Wallet not ready"+(L.lastError?": "+esc(L.lastError):""))+(L.lastError&&L.ready?" · "+esc(L.lastError):"")+(function(){var c=L.claims;if(!c)return "";if(c.blockedUntil)return ' · <span class="bad">claims paused: relayer quota used up, resumes '+hhmm(c.blockedUntil/1000)+' KST</span>';return " · wins claimed every "+c.everyMin+" min"+(c.nextAt?", next ~"+hhmm(c.nextAt/1000)+" KST":"")})();
 var nopen=sum("open");el("lopen").textContent=nopen?nopen+" open":"";
 var rows=[];ALL.forEach(function(l){(l.recent||[]).forEach(function(t){rows.push(Object.assign({mk:l.label||"BTC 5m"},t))})});
-rows.sort(function(a,b){return (b.t||0)-(a.t||0)});rows=rows.slice(0,25);
+rows.sort(function(a,b){return (b.t||0)-(a.t||0)});var FITLOG=window.matchMedia&&window.matchMedia("(min-width:1400px)").matches;if(!FITLOG)rows=rows.slice(0,25);
 function feeOf(t){if(t.fee!=null)return t.fee;if(!(t.shares>0)||!(t.cost>0))return 0;var p=t.cost/t.shares;return 0.07*t.shares*p*(1-p)}
 function openState(t){if(t.shares<=0)return {txt:"open",c:"mut"};var win="+"+money(t.shares-t.cost-feeOf(t))+" if win";
 var rr=RS[t.mk]||{};var b=rr.lastBook||{};if(t.window!==(rr.window||b.window)){var pl=rr.pendingLean?rr.pendingLean[t.window]:null;if(pl==null||pl===0)return {txt:"waiting for result · "+win,c:"mut",done:true};var ok=(pl>0)===(t.side==="UP");return {txt:(ok?"likely win · "+win.replace(" if win",""):"likely loss · \u2212"+money(t.cost+feeOf(t)))+" · waiting",c:ok?"ok":"bad",done:true}}
@@ -498,6 +497,7 @@ if(up==null)return {txt:"open"+mk+" · "+win,c:"mut"};
 var ahead=up===0?0:(up>0)===(t.side==="UP")?1:-1;
 return {txt:(ahead>0?"ahead":ahead<0?"behind":"even")+mk+" · "+win,c:ahead>0?"ok":ahead<0?"bad":"mut"}}
 swap("log",rows.length?rows.map(function(t){var o=t.pnl==null&&t.ok&&!t.dry?openState(t):null;var res=o?o.txt:t.pnl==null?(t.ok?"dry":t.status==="skipped"?"skipped":"no fill"):signed(t.pnl);var c=o?o.c:t.pnl==null?"mut":cls(t.pnl);var px=t.shares>0?Math.round(t.cost/t.shares*100)+"¢":cents(t.ask);return '<tr class="'+(t.ok?"":"dim")+'" data-k="'+esc(t.mk+"|"+t.window+"|"+(t.variant||"")+"|"+(t.t||""))+'" data-res="'+(t.pnl==null?"open":t.pnl>=0?"ok":"bad")+'"><td><span class="dot'+(o&&!o.done?" on":"")+'"></span>'+hhmm(t.window)+'</td><td class="'+(t.side==="UP"?"ok":"bad")+'">'+coin(t.mk)+(OL.length?'<span class="mut">'+t.mk.replace(" 5m","")+'</span> ':"")+t.side+'</td><td class="mut">'+(t.variant||"")+'</td><td>'+px+(t.shares>0?" × "+t.shares.toFixed(1):"")+'</td><td class="r">'+(t.cost>0?money(t.cost):"")+'</td><td class="r '+c+'">'+res+'</td></tr>'}).join(""):'<tr><td class="empty" colspan="6">no filled orders yet</td></tr>');
+if(FITLOG){var lw=el("logwrap");var lh=lw?lw.clientHeight:0;if(lh>0)Array.prototype.forEach.call(el("log").children,function(tr){tr.style.display=(tr.offsetTop+tr.offsetHeight>lh+1)?"none":""})}
 (function(){var M=[{label:"BTC 5m",key:"",papers:s.papers}].concat((s.series||[]).map(function(r){return {label:r.label,key:r.key||"",papers:r.papers}}));var LIVE={};ALL.forEach(function(l){if(l.mode==="off")return;var lb=l.label||"BTC 5m";((l.variants&&l.variants.length)?l.variants:(l.variant?[{variant:l.variant}]:[])).forEach(function(v){LIVE[lb+"|"+v.variant]=true})});var cid=function(k){return "cell-"+esc(k).replace(/[^a-z0-9]/gi,"_")};
 var names=(s.papers||[]).map(function(p){return p.name});var rows=names.map(function(n){var meta=(s.papers||[]).filter(function(p){return p.name===n})[0]||{};var cells=[],tot=0,tr=0,wn=0;M.forEach(function(m){var p=(m.papers||[]).filter(function(x){return x.name===n})[0];if(!p||!p.trades){cells.push(null);return}var net=p.net*5/(p.size||5);tot+=net;tr+=p.trades;wn+=p.won;cells.push({net:net,won:p.won,trades:p.trades,label:m.label,key:m.key})});return {name:n,meta:meta,cells:cells,tot:tot,tr:tr,wn:wn}});
 rows.sort(function(a,b){if(a.meta.discarded!==b.meta.discarded)return a.meta.discarded?1:-1;if(!a.tr!==!b.tr)return a.tr?-1:1;return b.tot-a.tot});
