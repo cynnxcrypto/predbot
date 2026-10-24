@@ -72,6 +72,9 @@ export function setDiscarded(name: string, on: boolean) {
 }
 
 /** The variants run side by side. "base" keeps the original file names; the env vars tune it. */
+/** On 15-minute windows favourite rules only enter in the last 3 minutes. */
+export const FAV_MAX_LEFT_15M = 180;
+
 export const VARIANTS: Variant[] = [
   { name: "base", left: Number(process.env.PAPER_LEFT ?? 30), cap: Number(process.env.PAPER_CAP ?? 0.9), size: Number(process.env.PAPER_SIZE ?? 20) },
   { name: "early45", left: 45, cap: 0.9, size: 20 },
@@ -467,6 +470,9 @@ export class PaperTrader {
     this.history.rows.push({ up: upBest ?? null, down: downBest ?? null });
     if (this.history.rows.length > 30) this.history.rows.shift();
     if (upBest == null || downBest == null) return;
+    // 15-minute windows: no favourite rule enters with more than 3 minutes left (enrique, 24 Oct 2026). Replay of 340
+    // BTC 15m windows: a 93c favourite first seen with 9+ minutes left won 90%, under 3 minutes 99-100%.
+    if (this.windowSec >= 900 && row.left > FAV_MAX_LEFT_15M) return;
     if (this.favSeen === row.window) return;
     const up = upBest >= downBest;
     const ask = up ? upBest : downBest;
