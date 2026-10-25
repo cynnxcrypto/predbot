@@ -127,7 +127,7 @@ export const VARIANTS: Variant[] = [
   { name: "fav95-hold-last3", left: 0, cap: 0.97, size: 5, favAt: 0.95, favFrom: 240, strictCap: true, holdRows: 10, holdAt: 0.9, added: "2026-10-24", idea: "fav95-hold, but only in the last 3 minutes of a 15m window (last minute of a 5m)" },
   { name: "fav93-stop", left: 0, cap: 0.995, size: 5, favAt: 0.93, stopBid: 0.7, added: "2026-10-24", idea: "fav93, but sell back the moment our side's bid drops to 70c: trade a few 30c hits for the rare -93c loss (paper only: real rules do not sell)" },
   { name: "band80-tp95", left: 30, floor: 0.8, cap: 0.9, size: 5, tpBid: 0.95, added: "2026-10-24", idea: "band80-30, but sell as soon as our side's bid reaches 95c instead of holding to the close" },
-  { name: "arb97", left: 0, cap: 0.995, size: 5, arbSum: 0.97, added: "2026-10-24", idea: "buy both sides whenever the two asks add up to 97c or less: a sure 3c+ a share (rare: 6 times in 14,000 snapshots)" },
+  { name: "arb97", left: 0, cap: 0.995, size: 5, arbSum: 0.97, added: "2026-10-24", idea: "buy the same number of shares on both sides whenever the two asks add up to 97c or less: 3c+ a share whichever way it goes (the live book feed catches split-second prints the old 1s snapshots missed; many may not be fillable)" },
   { name: "prev-momentum", left: 0, cap: 0.6, size: 5, first: 30, prevDir: "same", added: "2026-10-24", idea: "in the first 30s buy the side the last window closed on, at 60c or less" },
   { name: "prev-reverse", left: 0, cap: 0.6, size: 5, first: 30, prevDir: "opposite", added: "2026-10-24", idea: "in the first 30s buy against the side the last window closed on, at 60c or less" },
   { name: "fav93-against", left: 0, cap: 0.995, size: 5, favAt: 0.93, leadMax: 0, added: "2026-10-23", idea: "fav93 only while Chainlink is still on the other side of open (the book leads the price)" },
@@ -454,24 +454,16 @@ export class PaperTrader {
     const upBest = row.upAsks[0]?.[0];
     const downBest = row.downAsks[0]?.[0];
     if (upBest == null || downBest == null || upBest + downBest > sum + 1e-9) return;
-    const leg = (levels: [number, number][], cap: number) => {
-      let budget = SIZE;
-      let shares = 0;
-      let cost = 0;
-      let fee = 0;
-      for (const [price, qty] of levels) {
-        if (price > cap + 1e-9 || budget <= 0) break;
-        const take = Math.min(qty, budget / price);
-        shares += take;
-        cost += take * price;
-        fee += take * 0.07 * price * (1 - price);
-        budget -= take * price;
-      }
-      return { shares, cost, fee };
-    };
-    const up = leg(row.upAsks, sum - downBest);
-    const down = leg(row.downAsks, sum - upBest);
-    if (up.shares <= 0 || down.shares <= 0) return;
+    // A real arbitrage holds the SAME number of shares on both sides, so the payout is fixed whichever side wins:
+    // shares x $1 back for shares x (upAsk + downAsk) paid. Spending $5 on each side instead buys more of the
+    // cheaper side and only pays off when that side wins, which is a bet, not an arb.
+    const upQty = row.upAsks[0]?.[1] ?? 0;
+    const downQty = row.downAsks[0]?.[1] ?? 0;
+    const shares = Math.min(upQty, downQty, (2 * SIZE) / (upBest + downBest));
+    if (shares <= 0) return;
+    const legOf = (price: number) => ({ shares, cost: shares * price, fee: shares * 0.07 * price * (1 - price) });
+    const up = legOf(upBest);
+    const down = legOf(downBest);
     const favUp = upBest >= downBest;
     const trade: PaperTrade = {
       variant: this.v.name,
