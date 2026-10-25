@@ -1079,7 +1079,7 @@ export class LiveTrader {
     const c = this.config;
     // Halts and pauses can be edited in the file by hand; show the file's state, not the copy loaded at the last order.
     this.halts = loadJson<Record<string, Halt>>(`${this.prefix}live-halts.json`, this.halts);
-    // "manual" (bets placed by hand on the dashboard) is a permanent strategy: always counted, shown once it has trades.
+    // "manual" (bets placed by hand on the dashboard) is always counted in the totals; its row shows only on a day with a hand bet (or one open).
     const active = new Set([...c.variants.map((v) => v.variant), "manual"]);
     // Totals count every real trade since statsSince, rules since removed from live.json included (enrique, 24 Oct: "completely legit, not dependent on strategies activated").
     const shown = { trades: 0, won: 0, net: 0, today: 0 };
@@ -1103,7 +1103,7 @@ export class LiveTrader {
         const t = this.byVariant.get(v.variant);
         const d = this.dayVar.get(`${kstDay()}|${v.variant}`);
         return { ...v, halted: Boolean(v.haltAfterLosses && h?.halted), paused: Boolean(h?.paused), streak: h?.streak ?? 0, haltedAt: h?.haltedAt ?? null, trades: t?.trades ?? 0, won: t?.won ?? 0, net: Math.round((t?.net ?? 0) * 100) / 100, today: { trades: d?.trades ?? 0, won: d?.won ?? 0, net: Math.round((d?.net ?? 0) * 100) / 100 } };
-      }).concat(((m, d) => (m && m.trades) || this.open.some((t) => t.variant === "manual") ? [{ variant: "manual", manual: true, size: 0, haltAfterLosses: 0, halted: false, paused: false, streak: 0, haltedAt: null, trades: m?.trades ?? 0, won: m?.won ?? 0, net: Math.round((m?.net ?? 0) * 100) / 100, today: { trades: d?.trades ?? 0, won: d?.won ?? 0, net: Math.round((d?.net ?? 0) * 100) / 100 } }] : [])(this.byVariant.get("manual"), this.dayVar.get(`${kstDay()}|manual`))),
+      }).concat(((m, d) => (d && d.trades) || this.open.some((t) => t.variant === "manual") ? [{ variant: "manual", manual: true, size: 0, haltAfterLosses: 0, halted: false, paused: false, streak: 0, haltedAt: null, trades: m?.trades ?? 0, won: m?.won ?? 0, net: Math.round((m?.net ?? 0) * 100) / 100, today: { trades: d?.trades ?? 0, won: d?.won ?? 0, net: Math.round((d?.net ?? 0) * 100) / 100 } }] : [])(this.byVariant.get("manual"), this.dayVar.get(`${kstDay()}|manual`))),
       ready: this.ready,
       wallet: this.wallet,
       funder: c.funder || null,
