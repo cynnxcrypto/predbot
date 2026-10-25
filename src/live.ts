@@ -1077,6 +1077,8 @@ export class LiveTrader {
 
   status() {
     const c = this.config;
+    // Halts and pauses can be edited in the file by hand; show the file's state, not the copy loaded at the last order.
+    this.halts = loadJson<Record<string, Halt>>(`${this.prefix}live-halts.json`, this.halts);
     // "manual" (bets placed by hand on the dashboard) is a permanent strategy: always counted, shown once it has trades.
     const active = new Set([...c.variants.map((v) => v.variant), "manual"]);
     // Totals count every real trade since statsSince, rules since removed from live.json included (enrique, 24 Oct: "completely legit, not dependent on strategies activated").
