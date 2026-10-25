@@ -44,7 +44,7 @@ import { append, loadJson, readAll, saveJson } from "./store.js";
 
 export type LiveMode = "off" | "dry" | "live";
 export type LiveVariant = { variant: string; size: number; haltAfterLosses: number };
-export type LiveConfig = { mode: LiveMode; variant: string; size: number; maxLossPerDay: number; funder: string; variants: LiveVariant[]; statsSince: number; startBalance: number | null; deposits: number; claimEveryMin: number; minBalance: number };
+export type LiveConfig = { mode: LiveMode; variant: string; size: number; maxLossPerDay: number; funder: string; variants: LiveVariant[]; statsSince: number; startBalance: number | null; deposits: number; claimEveryMin: number; minBalance: number; claimBelow: number };
 type VariantEntry = { variant?: string; size?: number; haltAfterLosses?: number };
 type MarketEntry = VariantEntry & { series?: string; maxLossPerDay?: number; mode?: string; variants?: VariantEntry[] };
 /** Streak of straight losses per variant and whether it tripped the halt. */
@@ -146,7 +146,7 @@ async function sharesHeld(funder: string, conditionId: string): Promise<number> 
   }
   return Number(total) / 1e6;
 }
-const DEFAULT: LiveConfig = { mode: "off", variant: "band80-30", size: 5, maxLossPerDay: 25, funder: "", variants: [], statsSince: 0, startBalance: null, deposits: 0, claimEveryMin: 60, minBalance: 0 };
+const DEFAULT: LiveConfig = { mode: "off", variant: "band80-30", size: 5, maxLossPerDay: 25, funder: "", variants: [], statsSince: 0, startBalance: null, deposits: 0, claimEveryMin: 60, minBalance: 0, claimBelow: 60 };
 
 const sizeOf = (raw: unknown) => {
   const size = Number(raw ?? DEFAULT.size);
@@ -246,6 +246,8 @@ export function liveConfig(seriesKey = ""): LiveConfig {
   // "claimEveryMin": wins are claimed in one relayer transaction this often (the relayer has a daily quota; 23 Oct 2026 it ran
   // out after ~65 transactions). Winning shares are safe while they wait.
   const claimEveryMin = Number.isFinite(Number(file.claimEveryMin)) && Number(file.claimEveryMin) >= 1 ? Number(file.claimEveryMin) : DEFAULT.claimEveryMin;
+  // "claimBelow": when the wallet drops under this many dollars, wins are claimed at once (5 min apart at most) instead of waiting for the timer; 0 turns it off.
+  const claimBelow = Number.isFinite(Number(file.claimBelow)) && Number(file.claimBelow) >= 0 ? Number(file.claimBelow) : DEFAULT.claimBelow;
   // "minBalance": no new real orders while the wallet's pUSD is under this (0 = no floor). Re-read before every order.
   const minBalance = Number.isFinite(Number(file.minBalance)) && Number(file.minBalance) > 0 ? Number(file.minBalance) : 0;
   const globalMode: LiveMode = file.mode === "live" || file.mode === "dry" ? file.mode : "off";
@@ -253,7 +255,7 @@ export function liveConfig(seriesKey = ""): LiveConfig {
   let mode = globalMode;
   if (seriesKey) {
     const entry = (file.markets ?? []).find((m) => m.series === seriesKey);
-    if (!entry) return { ...DEFAULT, mode: "off", funder: String(file.funder ?? "").trim(), statsSince: Number.isFinite(since) ? since : 0, startBalance, deposits, claimEveryMin, minBalance };
+    if (!entry) return { ...DEFAULT, mode: "off", funder: String(file.funder ?? "").trim(), statsSince: Number.isFinite(since) ? since : 0, startBalance, deposits, claimEveryMin, minBalance, claimBelow };
     raw = entry;
     // A market may be quieter than the global mode (off or dry), never louder.
     if (entry.mode === "off" || (entry.mode === "dry" && globalMode === "live")) mode = entry.mode;
@@ -280,6 +282,7 @@ export function liveConfig(seriesKey = ""): LiveConfig {
     startBalance,
     deposits,
     claimEveryMin,
+    claimBelow,
     minBalance,
   };
 }
@@ -942,7 +945,10 @@ export class LiveTrader {
     const due: { trader: LiveTrader; redeem: Redeem }[] = [];
     for (const trader of traders) for (const r of trader.redeems) if (r.nextAt <= now) due.push({ trader, redeem: r });
     if (!due.length) return;
-    if (lastClaimAt && now - lastClaimAt < (claimBacklog ? 5 : this.config.claimEveryMin) * 60_000) return;
+    // Low on funds (orders would start failing): claim early, but never more often than every 5 minutes and only with quota to spare.
+    const lowFunds = this.config.claimBelow > 0 && this.balance != null && this.balance < this.config.claimBelow && relayerUsedToday() < 60;
+    if (lastClaimAt && now - lastClaimAt < (claimBacklog || lowFunds ? 5 : this.config.claimEveryMin) * 60_000) return;
+    if (lowFunds) console.log(`live: balance $${this.balance!.toFixed(2)} is under the $${this.config.claimBelow} claim floor, claiming ${due.length} window(s) now`);
     due.sort((a, b) => a.redeem.window - b.redeem.window);
     const batch = claimSingles ? due.slice(0, 1) : due.slice(0, 12);
     this.redeeming = true;
