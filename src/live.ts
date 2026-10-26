@@ -200,9 +200,9 @@ export function removeLiveRule(seriesKey: string, variant: string) {
   return { changed: true };
 }
 
-/** Minimum real bet: Polymarket fills at least 5 shares, which at a 93c favourite is ~$4.65, so under $5 orders bounce. */
-export const MIN_SIZE = 5;
-/** Change one real rule's bet size in data/live.json ($5 to $50). The trader re-reads the file before every order. */
+/** Minimum real bet: Polymarket wants $1 and at least 5 shares, so a 93c favourite needs ~$4.65 while a 17c long shot fills from $1. */
+export const MIN_SIZE = 1;
+/** Change one real rule's bet size in data/live.json ($1 to $50). The trader re-reads the file before every order. */
 export function setLiveRuleSize(seriesKey: string, variant: string, size: number) {
   const file = loadJson<RawLive>("live.json", {});
   const next = Math.max(MIN_SIZE, Math.min(50, Math.round(size * 100) / 100));
