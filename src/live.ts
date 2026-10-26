@@ -396,6 +396,21 @@ export class LiveTrader {
     if (this.redeems.length) saveJson(`${this.prefix}live-redeem.json`, this.redeems);
   }
 
+  /** Today's (KST) unfilled real orders per rule (no fill or skipped), so the rule row can say "1 trade, 2 no fill"; rebuilt at most once a minute. */
+  private missesCache: { at: number; day: string; misses: Map<string, number> } | null = null;
+  private missesToday(): Map<string, number> {
+    const day = kstDay();
+    if (this.missesCache && this.missesCache.day === day && Date.now() - this.missesCache.at < 60_000) return this.missesCache.misses;
+    const misses = new Map<string, number>();
+    for (const t of readAll<LiveTrade>(`${this.prefix}live`)) {
+      if (t.dry || t.t < this.config.statsSince || kstDay(t.window * 1000) !== day) continue;
+      if (t.ok && t.shares > 0) continue;
+      misses.set(t.variant, (misses.get(t.variant) ?? 0) + 1);
+    }
+    this.missesCache = { at: Date.now(), day, misses };
+    return misses;
+  }
+
   /** Per-UTC-day summary of every real order row (filled, skipped, no fill), rebuilt at most once a minute. */
   private daysCache: { at: number; days: LiveDay[] } | null = null;
   days(): LiveDay[] {
@@ -428,6 +443,7 @@ export class LiveTrader {
 
   private remember(row: LiveTrade) {
     this.daysCache = null;
+    this.missesCache = null;
     this.recent = [row, ...this.recent.filter((t) => t !== row)].slice(0, 40);
   }
 
@@ -1106,12 +1122,12 @@ export class LiveTrader {
       minBalance: c.minBalance,
       claims: this.series.key ? null : { everyMin: c.claimEveryMin, usedToday: relayerUsedToday(), perBatch: 12, quota: 65, lastAt: lastClaimAt || null, nextAt: lastClaimAt ? lastClaimAt + c.claimEveryMin * 60_000 : null, blockedUntil: relayerBlocked() ? relayerBlockedUntil : null },
       toClaim: this.redeems.reduce((sum, r) => sum + r.shares, 0),
-      variants: c.variants.map((v) => {
+      variants: ((misses) => c.variants.map((v) => {
         const h = this.halts[v.variant];
         const t = this.byVariant.get(v.variant);
         const d = this.dayVar.get(`${kstDay()}|${v.variant}`);
-        return { ...v, halted: Boolean(v.haltAfterLosses && h?.halted), paused: Boolean(h?.paused), streak: h?.streak ?? 0, haltedAt: h?.haltedAt ?? null, trades: t?.trades ?? 0, won: t?.won ?? 0, net: Math.round((t?.net ?? 0) * 100) / 100, today: { trades: d?.trades ?? 0, won: d?.won ?? 0, net: Math.round((d?.net ?? 0) * 100) / 100 } };
-      }).concat(((m, d) => (d && d.trades) || this.open.some((t) => t.variant === "manual") ? [{ variant: "manual", manual: true, size: 0, haltAfterLosses: 0, halted: false, paused: false, streak: 0, haltedAt: null, trades: m?.trades ?? 0, won: m?.won ?? 0, net: Math.round((m?.net ?? 0) * 100) / 100, today: { trades: d?.trades ?? 0, won: d?.won ?? 0, net: Math.round((d?.net ?? 0) * 100) / 100 } }] : [])(this.byVariant.get("manual"), this.dayVar.get(`${kstDay()}|manual`))),
+        return { ...v, halted: Boolean(v.haltAfterLosses && h?.halted), paused: Boolean(h?.paused), streak: h?.streak ?? 0, haltedAt: h?.haltedAt ?? null, trades: t?.trades ?? 0, won: t?.won ?? 0, net: Math.round((t?.net ?? 0) * 100) / 100, today: { trades: d?.trades ?? 0, won: d?.won ?? 0, net: Math.round((d?.net ?? 0) * 100) / 100, misses: misses.get(v.variant) ?? 0 } };
+      }).concat(((m, d) => (d && d.trades) || this.open.some((t) => t.variant === "manual") ? [{ variant: "manual", manual: true, size: 0, haltAfterLosses: 0, halted: false, paused: false, streak: 0, haltedAt: null, trades: m?.trades ?? 0, won: m?.won ?? 0, net: Math.round((m?.net ?? 0) * 100) / 100, today: { trades: d?.trades ?? 0, won: d?.won ?? 0, net: Math.round((d?.net ?? 0) * 100) / 100, misses: misses.get("manual") ?? 0 } }] : [])(this.byVariant.get("manual"), this.dayVar.get(`${kstDay()}|manual`))))(this.missesToday()),
       ready: this.ready,
       wallet: this.wallet,
       funder: c.funder || null,
