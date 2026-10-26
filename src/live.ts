@@ -531,6 +531,8 @@ export class LiveTrader {
       await this.client.updateBalanceAllowance({ asset_type: AssetType.COLLATERAL }).catch(() => undefined);
       const bal = await this.client.getBalanceAllowance({ asset_type: AssetType.COLLATERAL });
       this.balance = Number(bal.balance) / 1e6;
+      // The "under the floor" notice used to wait for the next signal to clear; drop it as soon as the wallet is back over the floor.
+      if (this.lastError && this.lastError.startsWith("paused: balance") && !(this.config.minBalance > 0 && this.balance < this.config.minBalance)) this.lastError = null;
     } catch (error) {
       this.lastError = error instanceof Error ? error.message : String(error);
     }
