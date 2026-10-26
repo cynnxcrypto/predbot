@@ -1129,7 +1129,8 @@ export class LiveTrader {
       lastSwap: this.lastSwap,
       lastRedeem: this.lastRedeem,
       // The log shows orders that actually bought shares (or dry runs); skipped and unfilled orders only count in the day table.
-      recent: this.recent.filter((t) => t.ok && (t.shares > 0 || t.dry) && active.has(t.variant)).slice(0, 20),
+      // Hand bets ("manual") stay in the log only on the KST day they were placed, or while open, like their rule row.
+      recent: this.recent.filter((t) => t.ok && (t.shares > 0 || t.dry) && active.has(t.variant) && (t.variant !== "manual" || t.won == null || kstDay(t.window * 1000) === kstDay())).slice(0, 20),
       days: this.days(),
     };
   }
