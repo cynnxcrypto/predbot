@@ -521,6 +521,9 @@ export class LiveTrader {
         this.creds = creds;
         this.client = client;
         this.wallet = signer.address;
+        // A resting cheap-rule order left behind by a restart would fill unseen; the BTC 5m trader (first to start,
+        // same signer for every market) cancels everything still open on the exchange. All other orders are fill-or-kill.
+        if (!this.series.key) await client.cancelAll().then(() => console.log("live: cancelled any resting orders from before the restart")).catch((e: unknown) => console.log(`live: cancelAll failed (${e instanceof Error ? e.message : String(e)})`));
         this.ready = true;
         this.lastError = null;
         saveJson(`${this.prefix}live-state.json`, { at: Date.now(), ...this.status() });
@@ -595,7 +598,11 @@ export class LiveTrader {
   }
 
   /** Called when a paper variant takes a trade. Mirrors it for real when that variant is the live one. */
-  async onPaperTrade(trade: PaperTrade, market: Market, cap: number, skipOnFall = true) {
+  /**
+   * `first` is set for the early cheap rules (buy within the first `first` seconds of the window): when their
+   * fill-or-kill finds nothing, the order is retried for 10 s and then left resting at the cap until that phase ends.
+   */
+  async onPaperTrade(trade: PaperTrade, market: Market, cap: number, skipOnFall = true, first: number | null = null) {
     this.config = liveConfig(this.series.key);
     const rule = this.config.variants.find((v) => v.variant === trade.variant);
     if (this.config.mode === "off" || !rule) return;
@@ -701,6 +708,10 @@ export class LiveTrader {
       this.lastError = row.error;
       console.log(`live: order failed (${row.error})`);
     }
+    // Cheap early rules: at 17c there is often nothing resting the second paper fires (4 of the first 8 real orders on
+    // 26 Oct 2026 died with "no orders found to match"), while on the books the ask is still at the cap within 10 s in
+    // 88% of windows. enrique, 27 Oct 00:16 KST: "okay do retry and rest".
+    if (first != null && !row.dry && !(row.ok && row.shares > 0)) await this.chase(row, trade, token, limit, size, first);
     this.remember(row);
     saveJson(`${this.prefix}live-state.json`, { at: Date.now(), ...this.status(), lastTrade: row });
     if (row.ok && (row.dry || row.shares > 0)) {
@@ -708,6 +719,106 @@ export class LiveTrader {
       saveJson(`${this.prefix}live-open.json`, this.open);
     } else {
       append(`${this.prefix}live`, row, trade.window * 1000);
+    }
+  }
+
+  /** Send one fill-or-kill buy for `size` dollars at up to `limit`; fills land on `row`. Returns true when something filled. */
+  private async fak(row: LiveTrade, token: string, limit: number, size: number): Promise<boolean> {
+    if (!this.client) return false;
+    const order = await this.client.createMarketOrder(
+      { tokenID: token, amount: size, side: Side.BUY, price: limit, orderType: OrderType.FAK },
+      { tickSize: "0.01", negRisk: false },
+    );
+    const res = await this.client.postOrder(order, OrderType.FAK);
+    this.lastOrderAt = Date.now();
+    row.ok = Boolean(res?.success);
+    row.orderId = res?.orderID ?? null;
+    row.status = res?.status ?? null;
+    const detail = (res as unknown as { error?: unknown })?.error;
+    row.error = res?.success ? null : (res?.errorMsg || (detail ? JSON.stringify(detail).slice(0, 200) : "order rejected"));
+    row.cost = Number(res?.makingAmount) || 0;
+    row.shares = Number(res?.takingAmount) || 0;
+    row.fee = feeOf(row.cost, row.shares);
+    return row.ok && row.shares > 0;
+  }
+
+  /**
+   * After an unfilled fill-or-kill on an early cheap rule: retry every second for 10 s while the fresh ask is still at or
+   * under the cap, then rest a limit buy at the cap until the rule's phase (`first` seconds into the window) is over and
+   * cancel what is left. A resting fill is a maker fill, which Polymarket does not charge the taker fee on.
+   */
+  private async chase(row: LiveTrade, trade: PaperTrade, token: string, limit: number, size: number, first: number) {
+    const sleep = (ms: number) => new Promise<void>((ok) => setTimeout(ok, ms));
+    const phaseEnd = (trade.window + first) * 1000;
+    const retryUntil = Math.min(Date.now() + 10_000, phaseEnd);
+    let tries = 0;
+    try {
+      while (Date.now() < retryUntil && this.client) {
+        await sleep(1000);
+        let ask: number | null = null;
+        try {
+          ask = (await book(token, 1500)).bestAsk;
+        } catch {
+          ask = null;
+        }
+        if (ask == null || ask > limit + 1e-9) continue;
+        tries += 1;
+        if (await this.fak(row, token, limit, size)) {
+          row.status = `matched after ${tries} ${tries === 1 ? "retry" : "retries"}`;
+          console.log(`live ${this.series.label}: bought ${row.shares.toFixed(2)} ${trade.side} for $${row.cost.toFixed(2)} on retry ${tries}`);
+          return;
+        }
+      }
+      if (!this.client || phaseEnd - Date.now() < 3000) return;
+      // Rest at the cap. Polymarket wants at least 5 shares and $1; `size` dollars at the cap is 8.8 shares for $1.50 at 17c.
+      const shares = Math.floor((size / limit) * 100) / 100;
+      const order = await this.client.createOrder({ tokenID: token, price: limit, side: Side.BUY, size: shares }, { tickSize: "0.01", negRisk: false });
+      const res = await this.client.postOrder(order, OrderType.GTC);
+      this.lastOrderAt = Date.now();
+      if (!res?.success || !res.orderID) {
+        row.error = res?.errorMsg || "resting order rejected";
+        return;
+      }
+      row.orderId = res.orderID;
+      row.status = "resting";
+      row.error = null;
+      console.log(`live ${this.series.label}: resting ${shares} ${trade.side} at ${Math.round(limit * 100)}c for ${Math.round((phaseEnd - Date.now()) / 1000)}s`);
+      const read = async () => {
+        const o = await this.client!.getOrder(res.orderID);
+        return { matched: Number(o?.size_matched) || 0, status: String(o?.status ?? "") };
+      };
+      // Shares the order crossed with on arrival were bought at the asks (cost in makingAmount); the rest fill at the cap.
+      const crossed = Number(res.takingAmount) || 0;
+      const crossedCost = Number(res.makingAmount) || 0;
+      let matched = crossed;
+      while (Date.now() < phaseEnd) {
+        await sleep(2000);
+        const o = await read().catch(() => null);
+        if (!o) continue;
+        matched = Math.max(matched, o.matched);
+        if (matched >= shares - 0.01 || /MATCHED|CANCEL/i.test(o.status)) break;
+      }
+      if (matched < shares - 0.01) {
+        await this.client.cancelOrder({ orderID: res.orderID }).catch(() => undefined);
+        const o = await read().catch(() => null);
+        if (o) matched = Math.max(matched, o.matched);
+      }
+      if (matched > 0.01) {
+        row.ok = true;
+        row.shares = matched;
+        row.cost = Math.round((crossedCost + Math.max(0, matched - crossed) * limit) * 1e6) / 1e6;
+        row.fee = feeOf(crossedCost, crossed);
+        row.status = matched >= shares - 0.01 ? "matched while resting" : "partly matched while resting";
+        console.log(`live ${this.series.label}: resting order filled ${matched.toFixed(2)} ${trade.side} for $${row.cost.toFixed(2)}`);
+      } else {
+        row.ok = false;
+        row.status = "cancelled";
+        row.error = "no fill while resting";
+        console.log(`live ${this.series.label}: resting order cancelled, nothing filled`);
+      }
+    } catch (error) {
+      row.error = error instanceof Error ? error.message : String(error);
+      console.log(`live ${this.series.label}: chase failed (${row.error})`);
     }
   }
 

@@ -274,7 +274,7 @@ export class Recorder {
     const live = this.live;
     for (const p of this.papers) {
       // The skip-when-the-ask-fell rule is for favourite buys; a long shot getting cheaper is not a reason to skip.
-      p.onTrade = live ? (trade) => void live.onPaperTrade(trade, market, p.v.cap, p.v.first == null) : null;
+      p.onTrade = live ? (trade) => void live.onPaperTrade(trade, market, p.v.cap, p.v.first == null, p.v.first ?? null) : null;
       p.consider(row);
     }
     const checkpoint = this.checkpoints.find((cp) => cp >= left && !this.marks.has(cp) && cp - left <= 2);
