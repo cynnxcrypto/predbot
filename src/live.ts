@@ -513,9 +513,13 @@ export class LiveTrader {
         if (!this.config.funder) throw new Error("data/live.json has no funder address");
         const signer = new Wallet(pk.startsWith("0x") ? pk : `0x${pk}`);
         const base = new ClobClient({ host: HOST, chain: Chain.POLYGON, signer, signatureType: 3, funderAddress: this.config.funder });
-        const creds = await base.createOrDeriveApiKey();
+        // Neither call has a timeout of its own: on 27 Oct 2026 the XRP 5m trader hung here from the 00:25 KST restart on
+        // (no state write, no orders, while its paper rule fired 30 times) and `starting` never cleared, so nothing retried.
+        // A 20 s cap turns a stalled start into a failed one, which the minute refresh retries.
+        const timed = <T>(p: Promise<T>, what: string) => Promise.race([p, new Promise<never>((_, no) => setTimeout(() => no(new Error(`${what} timed out after 20s`)), 20_000).unref())]);
+        const creds = await timed(base.createOrDeriveApiKey(), "deriving the API key");
         const client = new ClobClient({ host: HOST, chain: Chain.POLYGON, signer, creds, signatureType: 3, funderAddress: this.config.funder });
-        const bal = await client.getBalanceAllowance({ asset_type: AssetType.COLLATERAL });
+        const bal = await timed(client.getBalanceAllowance({ asset_type: AssetType.COLLATERAL }), "reading the balance");
         this.balance = Number(bal.balance) / 1e6;
         this.signer = signer;
         this.creds = creds;
