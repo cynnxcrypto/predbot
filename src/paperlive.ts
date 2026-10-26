@@ -26,6 +26,8 @@ export type Variant = {
   prevFloor?: number;
   /** Early-window long shot: buy whichever side is cheapest, at or under `cap`, within the first `first` seconds of the window (no projection). */
   first?: number;
+  /** Early rule: consider only this side ("UP" or "DOWN"); the other side is ignored even when cheaper. */
+  onlySide?: "UP" | "DOWN";
   /** Favourite rule: buy the higher-priced side the first time its best ask is at or above `favAt`, any time in the window, paying up to `cap` (no projection). */
   favAt?: number;
   /** For favAt: only act between these seconds into the window, measured on a 5-minute window and scaled for longer ones. */
@@ -152,6 +154,8 @@ export const VARIANTS: Variant[] = [
   { name: "fav97-hold-last3", left: 0, cap: 0.995, size: 5, favAt: 0.97, favFrom: 240, holdRows: 10, holdAt: 0.9, added: "2026-10-24", idea: "fav97-last3 with the hold filter (90c+ on the ten snapshots before)" },
   { name: "fav-lead-last30", left: 0, cap: 0.995, size: 5, favAt: 0.5, favFrom: 270, leadMin: 3, added: "2026-10-24", idea: "favourite with 30s left only when Chainlink already leads 3bp+ the same way (price agrees with the book)" },
   { name: "fav95-lead-last30", left: 0, cap: 0.995, size: 5, favAt: 0.95, favFrom: 270, leadMin: 3, added: "2026-10-26", idea: "fav-lead-last30 with a 95c floor: favourite at 95c+ with 30s left (90s on 15m) and a 3bp+ Chainlink lead; replay of 349 BTC 15m windows 20-26 Oct: 92/92, the five lead-rule losses were all 68-93c favourites" },
+  { name: "up15-first100", left: 0, cap: 0.17, size: 5, first: 100, onlySide: "UP", added: "2026-10-26", idea: "buy UP only, when it costs 17c or less in the first 100s (an early sharp drop): replay 23-26 Oct, 7 coins, UP at 8-17c early won 19% vs ~15% break-even (+$740 at $5 over 1,128 trades), while the DOWN mirror lost; fills at cheap asks are the known problem" },
+  { name: "down15-first100", left: 0, cap: 0.17, size: 5, first: 100, onlySide: "DOWN", added: "2026-10-26", idea: "the DOWN mirror of up15-first100, kept as the control: it lost in the replay" },
   { name: "late10-any", left: 10, cap: 0.995, size: 5, added: "2026-10-24", idea: "every window: the projected side with 10s left at any price" },
   { name: "late5-98", left: 5, cap: 0.98, size: 5, added: "2026-10-24", idea: "projected side with 5s left, only if it costs 98c or less" },
 ];
@@ -543,7 +547,7 @@ export class PaperTrader {
     if (this.open.some((t) => t.window === row.window)) return;
     const upBest = row.upAsks[0]?.[0];
     const downBest = row.downAsks[0]?.[0];
-    const candidates = [upBest != null && upBest <= CAP ? { up: true, ask: upBest } : null, downBest != null && downBest <= CAP ? { up: false, ask: downBest } : null].filter((c): c is { up: boolean; ask: number } => c != null);
+    const candidates = [upBest != null && upBest <= CAP && this.v.onlySide !== "DOWN" ? { up: true, ask: upBest } : null, downBest != null && downBest <= CAP && this.v.onlySide !== "UP" ? { up: false, ask: downBest } : null].filter((c): c is { up: boolean; ask: number } => c != null);
     if (!candidates.length) return;
     const pick = candidates.sort((a, b) => a.ask - b.ask)[0];
     if (!this.leadOk(row, pick.up)) return;
