@@ -59,6 +59,10 @@ export type Variant = {
   /** Fresh-move rule: buy the side the Chainlink price just moved toward, when it moved at least `jumpBp` bps within the last `jumpSec` seconds (default 15) and that side's ask rose less than 1c meanwhile; ask at or under `cap`, one trade per window, not in the last 30 s. */
   jumpBp?: number;
   jumpSec?: number;
+  /** Jump/bounce rules: only with at least this many seconds left (default 30). */
+  jumpMinLeft?: number;
+  /** Bounce rule: buy UP (or DOWN, per onlySide) when the Chainlink price has come back at least this many bps from the window's low (high for DOWN), ask at or under `cap`; no ask condition. */
+  bounceBp?: number;
   /** Maker test: at the trigger, instead of taking the ask, rest a bid this far under it (no fee); it fills if the ask later comes down to it, else the window is skipped. */
   rest?: number;
   /** Only trade when the UTC hour is inside [from, to). */
@@ -177,6 +181,10 @@ export const VARIANTS: Variant[] = [
   { name: "up25-first300", left: 0, cap: 0.25, size: 5, first: 300, onlySide: "UP", added: "2026-10-27", idea: "15m version: UP at 25c or less in the first 300s: replay n=205, 31.7% won, +$303" },
   { name: "jump5-fresh", left: 0, cap: 0.6, size: 5, jumpBp: 5, added: "2026-10-27", idea: "buy the side the price just moved toward: 5+ bps within 15s, that side's ask not yet up, ask 60c or less, 30s+ left: replay 23-27 Oct n=657, 31.7% won at avg 28c, +$459 (4 of 5 days positive, UP side carried it)" },
   { name: "jump8-fresh", left: 0, cap: 0.6, size: 5, jumpBp: 8, added: "2026-10-27", idea: "same with an 8+ bps move: replay n=141, 35.5% won, +$511 (small sample, 4 of 5 days positive)" },
+  { name: "jump5-up20", left: 0, cap: 0.2, size: 5, jumpBp: 5, jumpSec: 10, jumpMinLeft: 120, onlySide: "UP", added: "2026-10-27", idea: "cheap UP that just started bouncing: price up 5+ bps within 10s, UP ask 20c or less and not yet up, 120s+ left: replay 23-27 Oct (1s books, 7 coins) n=250, 26.4% won at avg 12c, +$1,810, positive all 5 days and 7/7 coins; the DOWN mirror lost -$573" },
+  { name: "jump4-up20-5s", left: 0, cap: 0.2, size: 5, jumpBp: 4, jumpSec: 5, jumpMinLeft: 120, onlySide: "UP", added: "2026-10-27", idea: "faster version: 4+ bps within 5s, UP 20c or less, 120s+ left: replay n=345, 22.3% won, +$1,664, 5/5 days, 7/7 coins" },
+  { name: "jump6-up20", left: 0, cap: 0.2, size: 5, jumpBp: 6, jumpSec: 10, jumpMinLeft: 120, onlySide: "UP", added: "2026-10-27", idea: "stricter: 6+ bps within 10s: replay n=164, 31.7% won, +$1,652 (+$10/trade), 5/5 days" },
+  { name: "bounce8-up20", left: 0, cap: 0.2, size: 5, bounceBp: 8, jumpMinLeft: 120, onlySide: "UP", added: "2026-10-27", idea: "UP 20c or less once the price has come back 8+ bps from the window's low, 120s+ left (no ask condition): replay n=424, 23.6% won, +$1,292, 5/5 days, 6/7 coins" },
   { name: "up15-first100-flat", left: 0, cap: 0.17, size: 5, first: 100, onlySide: "UP", maxMoveBp: 3, added: "2026-10-27", idea: "up15-first100 only when the price is within 3 bps of the open (the book overreacts to a tiny move): replay 23-27 Oct n=355, 21.1% won, +$462 (+$1.30/trade); drops of 3-15 bps were net -$126 over 1,281 trades" },
   { name: "up15-first100-crash", left: 0, cap: 0.17, size: 5, first: 100, onlySide: "UP", minMoveBp: 15, added: "2026-10-27", idea: "up15-first100 only after a drop of 15 bps or more (crash then rebound): replay n=98, 29.6% won, +$358 (small sample)" },
   { name: "late10-any", left: 10, cap: 0.995, size: 5, added: "2026-10-24", idea: "every window: the projected side with 10s left at any price" },
@@ -315,7 +323,7 @@ export class PaperTrader {
     if (!this.gateOk(row)) return;
     if (this.v.arbSum != null) return this.considerArb(row);
     if (this.v.prevDir != null) return this.considerPrev(row);
-    if (this.v.jumpBp != null) return this.considerJump(row);
+    if (this.v.jumpBp != null || this.v.bounceBp != null) return this.considerJump(row);
     if (this.v.first != null) return this.considerEarly(row);
     if (this.v.favAt != null) return this.considerFav(row);
     if (row.left > LEFT || row.left < 1 || !row.chainlink) return;
@@ -597,28 +605,46 @@ export class PaperTrader {
     this.take(row, pick, CAP, SIZE, `${elapsed}s into the window`);
   }
 
-  private jumps: { window: number; rows: { t: number; bps: number; up: number | null; down: number | null }[] } = { window: 0, rows: [] };
-  /** The `jumpBp` rule (27 Oct 2026, enrique: "moments where bps has been very strong on one side but the bets haven't priced it in yet"). */
+  private jumps: { window: number; min: number; max: number; rows: { t: number; bps: number; up: number | null; down: number | null }[] } = { window: 0, min: 0, max: 0, rows: [] };
+  /**
+   * The `jumpBp` and `bounceBp` rules (27 Oct 2026, enrique: "moments where bps has been very strong on one side but the bets
+   * haven't priced it in yet"). jumpBp: the price moved at least that many bps toward a side within `jumpSec` seconds and that
+   * side's ask has not risen meanwhile. bounceBp: the price has come back that many bps from the window's extreme. Both buy at
+   * or under `cap`, respect onlySide, one trade per window, only with `jumpMinLeft` seconds left (default 30).
+   */
   private considerJump(row: BookRow) {
     const { cap: CAP, size: SIZE } = this.v;
-    if (row.left < 30 || row.chainlink == null || !row.open) return;
-    if (this.jumps.window !== row.window) this.jumps = { window: row.window, rows: [] };
+    if (row.left < (this.v.jumpMinLeft ?? 30) || row.chainlink == null || !row.open) return;
     const bps = ((row.chainlink - row.open) / row.open) * 1e4;
+    if (this.jumps.window !== row.window) this.jumps = { window: row.window, min: bps, max: bps, rows: [] };
+    const J = this.jumps;
+    J.min = Math.min(J.min, bps);
+    J.max = Math.max(J.max, bps);
     const upBest = row.upAsks[0]?.[0] ?? null;
     const downBest = row.downAsks[0]?.[0] ?? null;
     const span = (this.v.jumpSec ?? 15) * 1000;
-    const rows = this.jumps.rows;
-    rows.push({ t: row.t, bps, up: upBest, down: downBest });
-    while (rows.length && rows[0].t < row.t - span - 1000) rows.shift();
+    J.rows.push({ t: row.t, bps, up: upBest, down: downBest });
+    while (J.rows.length && J.rows[0].t < row.t - span - 1000) J.rows.shift();
     if (this.open.some((t) => t.window === row.window)) return;
-    const ref = rows.find((r) => r.t <= row.t - span);
-    if (!ref) return;
-    const move = bps - ref.bps;
     let pick: { up: boolean; ask: number } | null = null;
-    if (move >= (this.v.jumpBp ?? 0) && upBest != null && upBest <= CAP && ref.up != null && upBest - ref.up < 0.01) pick = { up: true, ask: upBest };
-    else if (-move >= (this.v.jumpBp ?? 0) && downBest != null && downBest <= CAP && ref.down != null && downBest - ref.down < 0.01) pick = { up: false, ask: downBest };
+    let note = "";
+    if (this.v.bounceBp != null) {
+      const upOk = this.v.onlySide !== "DOWN" && bps - J.min >= this.v.bounceBp && upBest != null && upBest <= CAP;
+      const downOk = this.v.onlySide !== "UP" && J.max - bps >= this.v.bounceBp && downBest != null && downBest <= CAP;
+      if (upOk) pick = { up: true, ask: upBest! };
+      else if (downOk) pick = { up: false, ask: downBest! };
+      if (pick) note = `${(pick.up ? bps - J.min : J.max - bps).toFixed(1)} bps off the window ${pick.up ? "low" : "high"}`;
+    } else {
+      const ref = J.rows.find((r) => r.t <= row.t - span);
+      if (!ref) return;
+      const move = bps - ref.bps;
+      const need = this.v.jumpBp ?? 0;
+      if (this.v.onlySide !== "DOWN" && move >= need && upBest != null && upBest <= CAP && ref.up != null && upBest - ref.up < 0.01) pick = { up: true, ask: upBest };
+      else if (this.v.onlySide !== "UP" && -move >= need && downBest != null && downBest <= CAP && ref.down != null && downBest - ref.down < 0.01) pick = { up: false, ask: downBest };
+      note = `${move >= 0 ? "+" : ""}${move.toFixed(1)} bps in ${this.v.jumpSec ?? 15}s`;
+    }
     if (!pick || !this.leadOk(row, pick.up)) return;
-    this.take(row, pick, CAP, SIZE, `${move >= 0 ? "+" : ""}${move.toFixed(1)} bps in ${this.v.jumpSec ?? 15}s`);
+    this.take(row, pick, CAP, SIZE, note);
   }
 
   /** Take the ask side's levels up to `cap` for `size` dollars and book the trade. */
