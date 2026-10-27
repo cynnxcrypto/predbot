@@ -63,6 +63,8 @@ export type Variant = {
   jumpMinLeft?: number;
   /** Gate: only trade when the two best asks sum to at most this (a tight book; 1.02 = 2c overround). Wide books are the makers' uncertainty premium and the cheap side pays it. */
   maxOverround?: number;
+  /** Pre-open rule: the Chainlink price moved at least this many bps over the 60 s before the window opened; buy the side it moved toward (per onlySide) at or under `cap`, only in the first 60 s, one trade per window. */
+  preOpenBp?: number;
   /** Fade rule: the Chainlink price moved at least this many bps in `jumpSec` seconds; buy the side it moved AGAINST at or under `cap` (the no-Binance control for the feed-lead rules). */
   fadeBp?: number;
   /** Bounce rule: buy UP (or DOWN, per onlySide) when the Chainlink price has come back at least this many bps from the window's low (high for DOWN), ask at or under `cap`; no ask condition. */
@@ -207,6 +209,7 @@ export const VARIANTS: Variant[] = [
   { name: "feed3-up40", left: 0, cap: 0.4, size: 5, feedLeadBp: 3, jumpMinLeft: 120, onlySide: "UP", added: "2026-10-28", idea: "wider cap: Binance 3+ bps above Chainlink, UP 40c or less, 120s+ left. Replay 25-27 Oct 15m n=158, 38% won, +$270 (+$1.71/trade, positive 25, 26, 27 Oct); 5m n=794, 31% won, +$1,596 (+$2.01/trade, 25 and 28 Oct negative). Three times the trades of feed3-up20 at a third of the per-trade edge" },
   { name: "feed3-up20-tight", left: 0, cap: 0.2, size: 5, feedLeadBp: 3, jumpMinLeft: 120, onlySide: "UP", maxOverround: 1.02, added: "2026-10-28", idea: "feed3-up20 only when the book is tight (UP ask + DOWN ask <= 1.02). Replay 25-27 Oct (1s books, 6 coins): n=249, 25% won, +$1,459 (+$5.86/trade) vs +$4.30 for feed3-up20 on 371; with a 6c+ overround only +$3.12. Buying any cheap side (<=30c, 120s+ left) is -$0.41/trade in a tight book and -$0.95 in a wide one (4,399 vs 2,787 windows): a wide spread is the makers' uncertainty premium, never a bargain" },
   { name: "fav99-last30", left: 0, cap: 0.995, size: 5, favAt: 0.99, favFrom: 270, strictCap: true, added: "2026-10-28", idea: "the only cell of a 10,635-window calibration table (14 days, BTC/ETH/SOL 5m history, 1-min price path, 5 minute marks x 10 price buckets) that beats its fee: the favourite at 99c or more with 30 s or less left wins 99.9% (n=5,642) for +$0.016 a trade, 0.3% on the stake. Every other price level at every minute mark is priced to within +-$0.10 a trade of fair; 97-99c at 1 min left +$0.05 (n=1,371) and nothing else above noise" },
+  { name: "preopen3-down60", left: 0, cap: 0.6, size: 5, preOpenBp: 3, onlySide: "DOWN", added: "2026-10-28", idea: "momentum from before the open: Chainlink fell 3+ bps in the 60 s before the window opened, buy DOWN at 60c or less in the first minute. History (Binance 1-min candles, 14 days, 6 coins' 1-s books 25-27 Oct): a 3 bps pre-open fall -> DOWN wins 55-62% at the first ask, +$0.5 a trade on 343-385 cases; the UP mirror only +$0.07..0.24. Pre-open taker-buy share predicts the close just as well (57% UP after a 65%+ buy minute, 42% after a 35%- one, 24,000 windows) but the book prices that flow: -$0.1..-$0.5 a trade" },
   { name: "feed3-cheap20", left: 0, cap: 0.2, size: 5, feedLeadBp: 3, jumpMinLeft: 120, added: "2026-10-27", idea: "both sides: whichever side Binance leads by 3+ bps, at 20c or less: replay n=707, 18% won, +$1,421; the DOWN half alone lost -$265, so this mostly tests whether DOWN ever pays" },
   { name: "up15-first100-vol14", left: 0, cap: 0.17, size: 5, first: 100, onlySide: "UP", prevRangeBp: 14, added: "2026-10-27", idea: "up15-first100 only when the previous 6 windows ranged 14+ bps on average (cheap sides pay in a volatile tape): replay 25-27 Oct UP<=20c n=428, 24% won, +$417 (+$0.97/trade) vs -$1/trade in calm tape; 26 Oct carried it (+$555), 27 Oct -$96" },
   { name: "up15-first100-flat", left: 0, cap: 0.17, size: 5, first: 100, onlySide: "UP", maxMoveBp: 3, added: "2026-10-27", idea: "up15-first100 only when the price is within 3 bps of the open (the book overreacts to a tiny move): replay 23-27 Oct n=355, 21.1% won, +$462 (+$1.30/trade); drops of 3-15 bps were net -$126 over 1,281 trades" },
@@ -302,6 +305,27 @@ function noteRange(prefix: string, row: BookRow, windowSec: number) {
   if (cur) { cur.min = Math.min(cur.min, bps); cur.max = Math.max(cur.max, bps); } else m.set(row.window, { min: bps, max: bps });
   for (const w of m.keys()) if (w < row.window - 12 * windowSec) m.delete(w);
 }
+/** The last ~90 s of Chainlink prints per series, so a new window can read the move over the 60 s before its open (preOpenBp rule). */
+const tails = new Map<string, { t: number; p: number }[]>();
+function noteTail(prefix: string, row: BookRow) {
+  if (row.chainlink == null) return;
+  let a = tails.get(prefix);
+  if (!a) tails.set(prefix, (a = []));
+  if (a.length && a[a.length - 1].t === row.t) return;
+  a.push({ t: row.t, p: row.chainlink });
+  while (a.length && a[0].t < row.t - 90_000) a.shift();
+}
+/** Chainlink move in bps over the 60 s before `openMs`, or null when the series has no prints there (recorder start, gap). */
+function preOpenMove(prefix: string, openMs: number): number | null {
+  const a = tails.get(prefix);
+  if (!a) return null;
+  const at = a.filter((x) => x.t <= openMs && x.t >= openMs - 70_000);
+  if (at.length < 5) return null;
+  const from = at.find((x) => x.t >= openMs - 62_000);
+  const to = at[at.length - 1];
+  if (!from || to.t - from.t < 45_000) return null;
+  return ((to.p - from.p) / from.p) * 1e4;
+}
 /** Mean range of the previous 6 windows of this series (at least 4 seen), or null. */
 function prevRange(prefix: string, window: number, windowSec: number): number | null {
   const m = ranges.get(prefix);
@@ -390,6 +414,7 @@ export class PaperTrader {
     noteClose(this.prefix, row, this.windowSec);
     noteFeed(this.prefix, row);
     noteRange(this.prefix, row, this.windowSec);
+    noteTail(this.prefix, row);
     this.prevAsk = { window: row.window, up: row.upAsk, down: row.downAsk };
     if (row.upAsk != null && row.downAsk != null) latestLean.set(this.prefix, { window: row.window, up: row.upAsk > row.downAsk ? true : row.downAsk > row.upAsk ? false : null });
     if (this.resting && (this.resting.window !== row.window || row.left < 1)) this.resting = null;
@@ -406,6 +431,7 @@ export class PaperTrader {
     if (this.v.arbSum != null) return this.considerArb(row);
     if (this.v.prevDir != null) return this.considerPrev(row);
     if (this.v.feedLeadBp != null) return this.considerFeed(row);
+    if (this.v.preOpenBp != null) return this.considerPreOpen(row);
     if (this.v.jumpBp != null || this.v.bounceBp != null || this.v.fadeBp != null) return this.considerJump(row);
     if (this.v.first != null) return this.considerEarly(row);
     if (this.v.favAt != null) return this.considerFav(row);
@@ -695,6 +721,27 @@ export class PaperTrader {
     const pick = candidates.sort((a, b) => a.ask - b.ask)[0];
     if (!this.leadOk(row, pick.up)) return;
     this.take(row, pick, CAP, SIZE, `${elapsed}s into the window`);
+  }
+
+  /**
+   * The `preOpenBp` rule (28 Oct 2026, hourly round 8): Binance taker flow and the price move in the minute before the open both
+   * predict the close (55-57% UP after a strong buy minute, 41-44% after a strong sell minute, 24,000 history windows), but the
+   * book prices the flow; only the price move leaves a little: DOWN after a 3 bps fall in the last pre-open minute +$0.5 a trade.
+   */
+  private considerPreOpen(row: BookRow) {
+    const { cap: CAP, size: SIZE } = this.v;
+    if (row.left < this.windowSec - 60) return;
+    if (this.open.some((t) => t.window === row.window)) return;
+    const move = preOpenMove(this.prefix, row.window * 1000);
+    if (move == null) return;
+    const need = this.v.preOpenBp ?? 0;
+    const upBest = row.upAsks[0]?.[0] ?? null;
+    const downBest = row.downAsks[0]?.[0] ?? null;
+    let pick: { up: boolean; ask: number } | null = null;
+    if (this.v.onlySide !== "DOWN" && move >= need && upBest != null && upBest <= CAP && upBest >= 0.03) pick = { up: true, ask: upBest };
+    else if (this.v.onlySide !== "UP" && -move >= need && downBest != null && downBest <= CAP && downBest >= 0.03) pick = { up: false, ask: downBest };
+    if (!pick || !this.leadOk(row, pick.up)) return;
+    this.take(row, pick, CAP, SIZE, `Chainlink ${move >= 0 ? "+" : ""}${move.toFixed(1)} bps in the minute before the open`);
   }
 
   private jumps: { window: number; min: number; max: number; rows: { t: number; bps: number; up: number | null; down: number | null }[] } = { window: 0, min: 0, max: 0, rows: [] };
