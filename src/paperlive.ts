@@ -61,6 +61,8 @@ export type Variant = {
   jumpSec?: number;
   /** Jump/bounce rules: only with at least this many seconds left (default 30). */
   jumpMinLeft?: number;
+  /** Gate: only trade when the two best asks sum to at most this (a tight book; 1.02 = 2c overround). Wide books are the makers' uncertainty premium and the cheap side pays it. */
+  maxOverround?: number;
   /** Fade rule: the Chainlink price moved at least this many bps in `jumpSec` seconds; buy the side it moved AGAINST at or under `cap` (the no-Binance control for the feed-lead rules). */
   fadeBp?: number;
   /** Bounce rule: buy UP (or DOWN, per onlySide) when the Chainlink price has come back at least this many bps from the window's low (high for DOWN), ask at or under `cap`; no ask condition. */
@@ -203,6 +205,7 @@ export const VARIANTS: Variant[] = [
   { name: "cldrop3-up20", left: 0, cap: 0.2, size: 5, fadeBp: 3, jumpSec: 10, jumpMinLeft: 120, onlySide: "UP", added: "2026-10-28", idea: "CONTROL for the feed rules: Chainlink fell 3+ bps in 10 s and UP asks 20c or less, 120s+ left, buy UP whatever Binance says. Replay 25-27 Oct n=1,818, 16% won, -$1,363 (-$0.75/trade); the same drops with Binance 3+ bps above Chainlink: n=361, 21% won, +$1,549 (+$4.29/trade). If this control loses live while feed3-up20 wins, the Binance disagreement is the edge; if both lose, it was never there" },
   { name: "feed3-up20-far", left: 0, cap: 0.2, size: 5, feedLeadBp: 3, jumpMinLeft: 300, onlySide: "UP", added: "2026-10-28", idea: "15-minute markets only in practice (needs 300s+ left): Binance 3+ bps above Chainlink, UP 20c or less. Replay 25-27 Oct BTC+ETH 15m n=60, 25% won, +$179 (+$2.99/trade); the same entry without the lead -$0.56/trade; 26 Oct carried it (+$125), 25 Oct 0 of 5" },
   { name: "feed3-up40", left: 0, cap: 0.4, size: 5, feedLeadBp: 3, jumpMinLeft: 120, onlySide: "UP", added: "2026-10-28", idea: "wider cap: Binance 3+ bps above Chainlink, UP 40c or less, 120s+ left. Replay 25-27 Oct 15m n=158, 38% won, +$270 (+$1.71/trade, positive 25, 26, 27 Oct); 5m n=794, 31% won, +$1,596 (+$2.01/trade, 25 and 28 Oct negative). Three times the trades of feed3-up20 at a third of the per-trade edge" },
+  { name: "feed3-up20-tight", left: 0, cap: 0.2, size: 5, feedLeadBp: 3, jumpMinLeft: 120, onlySide: "UP", maxOverround: 1.02, added: "2026-10-28", idea: "feed3-up20 only when the book is tight (UP ask + DOWN ask <= 1.02). Replay 25-27 Oct (1s books, 6 coins): n=249, 25% won, +$1,459 (+$5.86/trade) vs +$4.30 for feed3-up20 on 371; with a 6c+ overround only +$3.12. Buying any cheap side (<=30c, 120s+ left) is -$0.41/trade in a tight book and -$0.95 in a wide one (4,399 vs 2,787 windows): a wide spread is the makers' uncertainty premium, never a bargain" },
   { name: "feed3-cheap20", left: 0, cap: 0.2, size: 5, feedLeadBp: 3, jumpMinLeft: 120, added: "2026-10-27", idea: "both sides: whichever side Binance leads by 3+ bps, at 20c or less: replay n=707, 18% won, +$1,421; the DOWN half alone lost -$265, so this mostly tests whether DOWN ever pays" },
   { name: "up15-first100-vol14", left: 0, cap: 0.17, size: 5, first: 100, onlySide: "UP", prevRangeBp: 14, added: "2026-10-27", idea: "up15-first100 only when the previous 6 windows ranged 14+ bps on average (cheap sides pay in a volatile tape): replay 25-27 Oct UP<=20c n=428, 24% won, +$417 (+$0.97/trade) vs -$1/trade in calm tape; 26 Oct carried it (+$555), 27 Oct -$96" },
   { name: "up15-first100-flat", left: 0, cap: 0.17, size: 5, first: 100, onlySide: "UP", maxMoveBp: 3, added: "2026-10-27", idea: "up15-first100 only when the price is within 3 bps of the open (the book overreacts to a tiny move): replay 23-27 Oct n=355, 21.1% won, +$462 (+$1.30/trade); drops of 3-15 bps were net -$126 over 1,281 trades" },
@@ -546,6 +549,11 @@ export class PaperTrader {
     if (this.v.prevRangeBp != null) {
       const r = prevRange(this.prefix, row.window, this.windowSec);
       if (r == null || r < this.v.prevRangeBp) return false;
+    }
+    if (this.v.maxOverround != null) {
+      const ua = row.upAsks[0]?.[0];
+      const da = row.downAsks[0]?.[0];
+      if (ua == null || da == null || ua + da > this.v.maxOverround + 1e-9) return false;
     }
     return true;
   }
