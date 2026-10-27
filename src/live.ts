@@ -66,6 +66,18 @@ function withFee(t: LiveTrade): LiveTrade {
   return t;
 }
 
+export type BalanceHistory = { points: [number, number][]; deposits: { t: number; amount: number }[]; wallet: [number, number][]; from: number };
+
+/** One balance sample a minute at most, and only when it moved a cent, into data/balance/<day>.jsonl. */
+let lastLogged: { t: number; bal: number } | null = null;
+function logBalance(bal: number) {
+  const now = Date.now();
+  if (lastLogged && Math.abs(lastLogged.bal - bal) < 0.01 && now - lastLogged.t < 600_000) return;
+  if (lastLogged && now - lastLogged.t < 60_000) return;
+  lastLogged = { t: now, bal: Math.round(bal * 100) / 100 };
+  append("balance", lastLogged, now);
+}
+
 export type LiveDay = { day: string; orders: number; filled: number; skipped: number; noFill: number; settled: number; won: number; net: number };
 
 export type LiveTrade = {
@@ -576,6 +588,7 @@ export class LiveTrader {
       await this.client.updateBalanceAllowance({ asset_type: AssetType.COLLATERAL }).catch(() => undefined);
       const bal = await this.client.getBalanceAllowance({ asset_type: AssetType.COLLATERAL });
       this.balance = Number(bal.balance) / 1e6;
+      if (!this.series.key) logBalance(this.balance);
       // The "under the floor" notice used to wait for the next signal to clear; drop it as soon as the wallet is back over the floor.
       if (this.lastError && this.lastError.startsWith("paused: balance") && !(this.config.minBalance > 0 && this.balance < this.config.minBalance)) this.lastError = null;
     } catch (error) {
@@ -1242,12 +1255,53 @@ export class LiveTrader {
     if (this.open.length !== before) saveJson(`${this.prefix}live-open.json`, this.open);
   }
 
+  /**
+   * The wallet since the first real order, for the dashboard chart: one point an hour rebuilt from every market's fills (cost and
+   * fee out when placed, shares back when a win settles) and the USDC top-ups, anchored so the last point is today's wallet;
+   * plus the real balance samples logged once a minute since 27 Oct 2026 (data/balance/). BTC 5m trader only, rebuilt every 5 min.
+   */
+  private historyCache: { at: number; value: BalanceHistory | null } | null = null;
+  balanceHistory(): BalanceHistory | null {
+    if (this.series.key) return null;
+    if (this.historyCache && Date.now() - this.historyCache.at < 300_000) return this.historyCache.value;
+    const events: { t: number; d: number }[] = [];
+    for (const s of SERIES) {
+      const prefix = prefixOf(s);
+      const open = loadJson<LiveTrade[]>(`${prefix}live-open.json`, []);
+      for (const t of loadJson<LiveTrade[]>(`${prefix}live-totals.json`, []).concat(open).map(withFee)) {
+        if (t.dry || !t.ok || !(t.shares > 0)) continue;
+        events.push({ t: t.t, d: -(t.cost + (t.fee ?? 0)) });
+        if (t.won) events.push({ t: (t.window + s.windowSec) * 1000, d: t.shares });
+      }
+    }
+    const deposits = loadJson<Swap[]>("usdc-swaps.json", []).filter((x) => x.tx && !x.error).map((x) => ({ t: x.at, amount: x.amount }));
+    for (const d of deposits) events.push({ t: d.t, d: d.amount });
+    events.sort((a, b) => a.t - b.t);
+    if (!events.length) return (this.historyCache = { at: Date.now(), value: null }).value;
+    const now = Date.now();
+    const total = events.reduce((sum, e) => sum + e.d, 0);
+    const offset = this.balance != null ? this.balance - total : (this.config.startBalance ?? 0);
+    const points: [number, number][] = [];
+    let i = 0, cum = 0;
+    for (let h = Math.floor(events[0].t / 3_600_000) * 3_600_000; h <= now; h += 3_600_000) {
+      while (i < events.length && events[i].t <= h) cum += events[i++].d;
+      points.push([h, Math.round((offset + cum) * 100) / 100]);
+    }
+    points.push([now, Math.round((offset + total) * 100) / 100]);
+    const log = readAll<{ t: number; bal: number }>("balance").map((r) => [r.t, r.bal] as [number, number]);
+    const step = Math.max(1, Math.ceil(log.length / 600));
+    const value: BalanceHistory = { points, deposits, wallet: log.filter((_, k) => k % step === 0 || k === log.length - 1), from: events[0].t };
+    this.historyCache = { at: Date.now(), value };
+    return value;
+  }
+
   status() {
     const c = this.config;
     // Halts and pauses can be edited in the file by hand; show the file's state, not the copy loaded at the last order.
     this.halts = loadJson<Record<string, Halt>>(`${this.prefix}live-halts.json`, this.halts);
-    // "manual" (bets placed by hand on the dashboard) is always counted in the totals; its row shows only on a day with a hand bet (or one open).
-    const active = new Set([...c.variants.map((v) => v.variant), "manual"]);
+    // "manual" (bets placed by hand on the dashboard) counts in the totals and the day table, but has no rule row and stays out of the
+    // trade log (enrique, 27 Oct: "clear the manual stuff ... from the strats and trades").
+    const active = new Set(c.variants.map((v) => v.variant));
     // Totals count every real trade since statsSince, rules since removed from live.json included (enrique, 24 Oct: "completely legit, not dependent on strategies activated").
     const shown = { trades: 0, won: 0, net: 0, today: 0 };
     for (const v of this.byVariant.values()) { shown.trades += v.trades; shown.won += v.won; shown.net += v.net; }
@@ -1270,7 +1324,7 @@ export class LiveTrader {
         const t = this.byVariant.get(v.variant);
         const d = this.dayVar.get(`${kstDay()}|${v.variant}`);
         return { ...v, halted: Boolean(v.haltAfterLosses && h?.halted), paused: Boolean(h?.paused), streak: h?.streak ?? 0, haltedAt: h?.haltedAt ?? null, trades: t?.trades ?? 0, won: t?.won ?? 0, net: Math.round((t?.net ?? 0) * 100) / 100, today: { trades: d?.trades ?? 0, won: d?.won ?? 0, net: Math.round((d?.net ?? 0) * 100) / 100, misses: misses.get(v.variant) ?? 0 } };
-      }).concat(((m, d) => (d && d.trades) || this.open.some((t) => t.variant === "manual") ? [{ variant: "manual", manual: true, size: 0, haltAfterLosses: 0, halted: false, paused: false, streak: 0, haltedAt: null, trades: m?.trades ?? 0, won: m?.won ?? 0, net: Math.round((m?.net ?? 0) * 100) / 100, today: { trades: d?.trades ?? 0, won: d?.won ?? 0, net: Math.round((d?.net ?? 0) * 100) / 100, misses: misses.get("manual") ?? 0 } }] : [])(this.byVariant.get("manual"), this.dayVar.get(`${kstDay()}|manual`))))(this.missesToday()),
+      }))(this.missesToday()),
       ready: this.ready,
       wallet: this.wallet,
       funder: c.funder || null,
@@ -1290,9 +1344,9 @@ export class LiveTrader {
       lastSwap: this.lastSwap,
       lastRedeem: this.lastRedeem,
       // The log shows orders that actually bought shares (or dry runs); skipped and unfilled orders only count in the day table.
-      // Hand bets ("manual") stay in the log only on the KST day they were placed, or while open, like their rule row.
-      recent: this.recent.filter((t) => t.ok && (t.shares > 0 || t.dry) && active.has(t.variant) && (t.variant !== "manual" || t.won == null || kstDay(t.window * 1000) === kstDay())).slice(0, 20),
+      recent: this.recent.filter((t) => t.ok && (t.shares > 0 || t.dry) && active.has(t.variant)).slice(0, 20),
       days: this.days(),
+      history: this.balanceHistory(),
     };
   }
 }
