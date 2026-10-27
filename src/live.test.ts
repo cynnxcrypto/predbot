@@ -42,5 +42,7 @@ test("live.json: several variants per series, each with its own size and halt", 
   const sol = liveConfig("sol5m");
   assert.equal(sol.mode, "dry");
   assert.deepEqual(sol.variants, [{ variant: "fav93-mid", size: 5, haltAfterLosses: 2 }]);
-  assert.equal(liveConfig("eth15m").mode, "off");
+  // A market with no entry follows the global mode (manual bets) but has no rules.
+  assert.equal(liveConfig("eth15m").mode, "live");
+  assert.equal(liveConfig("eth15m").variants.length, 0);
 });

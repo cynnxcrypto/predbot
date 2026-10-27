@@ -276,7 +276,8 @@ export function liveConfig(seriesKey = ""): LiveConfig {
   let mode = globalMode;
   if (seriesKey) {
     const entry = (file.markets ?? []).find((m) => m.series === seriesKey);
-    if (!entry) return { ...DEFAULT, mode: "off", funder: String(file.funder ?? "").trim(), statsSince: Number.isFinite(since) ? since : 0, startBalance, deposits, claimEveryMin, minBalance, claimBelow };
+    // A market with no entry has no rules, but manual bets from the dashboard still follow the global mode (27 Oct 2026: enrique wanted the UP/DOWN buttons on every market).
+    if (!entry) return { ...DEFAULT, mode: globalMode, variants: [], variant: "", funder: String(file.funder ?? "").trim(), statsSince: Number.isFinite(since) ? since : 0, startBalance, deposits, claimEveryMin, minBalance, claimBelow };
     raw = entry;
     // A market may be quieter than the global mode (off or dry), never louder.
     if (entry.mode === "off" || (entry.mode === "dry" && globalMode === "live")) mode = entry.mode;
