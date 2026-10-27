@@ -223,6 +223,27 @@ export function setLiveRuleSize(seriesKey: string, variant: string, size: number
   return { changed: true, size: next };
 }
 
+/** Change one real rule's loss halt in data/live.json: stop after N straight losses (0 = never). Re-read before every order. */
+export function setLiveRuleHalt(seriesKey: string, variant: string, losses: number) {
+  const file = loadJson<RawLive>("live.json", {});
+  const next = Math.max(0, Math.min(50, Math.round(losses)));
+  let list: RawVariant[];
+  if (!seriesKey) {
+    list = Array.isArray(file.variants) && file.variants.length ? file.variants : file.variant ? [{ variant: file.variant, size: file.size, haltAfterLosses: file.haltAfterLosses }] : [];
+    file.variants = list;
+    delete file.variant;
+  } else {
+    const m = (file.markets ?? []).find((x) => x.series === seriesKey);
+    list = m?.variants ?? [];
+  }
+  const v = list.find((x) => x.variant === variant);
+  if (!v) return { changed: false, losses: null };
+  if (v.haltAfterLosses === next) return { changed: false, losses: next };
+  v.haltAfterLosses = next;
+  saveJson("live.json", file);
+  return { changed: true, losses: next };
+}
+
 /** Change one market's daily loss stop in data/live.json ($5 to $500). Re-read before every order. */
 export function setLiveMaxLoss(seriesKey: string, maxLoss: number) {
   const file = loadJson<RawLive>("live.json", {});
@@ -1175,6 +1196,12 @@ export class LiveTrader {
     this.halts = loadJson<Record<string, Halt>>(`${this.prefix}live-halts.json`, this.halts);
     const h = this.halts[variant] ?? { streak: 0, halted: false, haltedAt: null };
     h.paused = on;
+    if (!on && h.halted) {
+      // Play on a halted row: lift the loss halt too and start the streak count again.
+      h.halted = false;
+      h.haltedAt = null;
+      h.streak = 0;
+    }
     this.halts[variant] = h;
     saveJson(`${this.prefix}live-halts.json`, this.halts);
     saveJson(`${this.prefix}live-state.json`, { at: Date.now(), ...this.status() });
