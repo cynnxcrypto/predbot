@@ -63,6 +63,10 @@ export type Variant = {
   jumpMinLeft?: number;
   /** Bounce rule: buy UP (or DOWN, per onlySide) when the Chainlink price has come back at least this many bps from the window's low (high for DOWN), ask at or under `cap`; no ask condition. */
   bounceBp?: number;
+  /** Feed-lead rule: buy the side Binance is ahead of Chainlink on, when (Binance - Chainlink) in bps, minus its rolling median over the last ~10 minutes, is at least this much; ask at or under `cap`, one trade per window, only with `jumpMinLeft` seconds left (default 120). */
+  feedLeadBp?: number;
+  /** For `first` rules: only trade when the mean Chainlink range (high minus low, bps) of the previous 6 windows is at least this. */
+  prevRangeBp?: number;
   /** Maker test: at the trigger, instead of taking the ask, rest a bid this far under it (no fee); it fills if the ask later comes down to it, else the window is skipped. */
   rest?: number;
   /** Only trade when the UTC hour is inside [from, to). */
@@ -185,6 +189,11 @@ export const VARIANTS: Variant[] = [
   { name: "jump4-up20-5s", left: 0, cap: 0.2, size: 5, jumpBp: 4, jumpSec: 5, jumpMinLeft: 120, onlySide: "UP", added: "2026-10-27", idea: "faster version: 4+ bps within 5s, UP 20c or less, 120s+ left: replay n=345, 22.3% won, +$1,664, 5/5 days, 7/7 coins" },
   { name: "jump6-up20", left: 0, cap: 0.2, size: 5, jumpBp: 6, jumpSec: 10, jumpMinLeft: 120, onlySide: "UP", added: "2026-10-27", idea: "stricter: 6+ bps within 10s: replay n=164, 31.7% won, +$1,652 (+$10/trade), 5/5 days" },
   { name: "bounce8-up20", left: 0, cap: 0.2, size: 5, bounceBp: 8, jumpMinLeft: 120, onlySide: "UP", added: "2026-10-27", idea: "UP 20c or less once the price has come back 8+ bps from the window's low, 120s+ left (no ask condition): replay n=424, 23.6% won, +$1,292, 5/5 days, 6/7 coins" },
+  { name: "feed3-up20", left: 0, cap: 0.2, size: 5, feedLeadBp: 3, jumpMinLeft: 120, onlySide: "UP", added: "2026-10-27", idea: "Binance is 3+ bps above Chainlink (against the usual gap) and UP still asks 20c or less, 120s+ left: replay 25-27 Oct (1s books, 6 coins) n=336, 23% won, +$1,649 (+$4.91/trade); the same entry without the Binance lead loses -$0.58/trade; 25 Oct -$128, 26-27 Oct +$1,777" },
+  { name: "feed2-up20", left: 0, cap: 0.2, size: 5, feedLeadBp: 2, jumpMinLeft: 120, onlySide: "UP", added: "2026-10-27", idea: "looser: Binance 2+ bps ahead: replay n=610, 20% won, +$1,953 (+$3.20/trade), fires about twice as often" },
+  { name: "feed4-up30", left: 0, cap: 0.3, size: 5, feedLeadBp: 4, jumpMinLeft: 120, onlySide: "UP", added: "2026-10-27", idea: "stricter lead, higher cap: Binance 4+ bps ahead, UP 30c or less: replay n=258, 31% won, +$1,432 (+$5.55/trade)" },
+  { name: "feed3-cheap20", left: 0, cap: 0.2, size: 5, feedLeadBp: 3, jumpMinLeft: 120, added: "2026-10-27", idea: "both sides: whichever side Binance leads by 3+ bps, at 20c or less: replay n=707, 18% won, +$1,421; the DOWN half alone lost -$265, so this mostly tests whether DOWN ever pays" },
+  { name: "up15-first100-vol14", left: 0, cap: 0.17, size: 5, first: 100, onlySide: "UP", prevRangeBp: 14, added: "2026-10-27", idea: "up15-first100 only when the previous 6 windows ranged 14+ bps on average (cheap sides pay in a volatile tape): replay 25-27 Oct UP<=20c n=428, 24% won, +$417 (+$0.97/trade) vs -$1/trade in calm tape; 26 Oct carried it (+$555), 27 Oct -$96" },
   { name: "up15-first100-flat", left: 0, cap: 0.17, size: 5, first: 100, onlySide: "UP", maxMoveBp: 3, added: "2026-10-27", idea: "up15-first100 only when the price is within 3 bps of the open (the book overreacts to a tiny move): replay 23-27 Oct n=355, 21.1% won, +$462 (+$1.30/trade); drops of 3-15 bps were net -$126 over 1,281 trades" },
   { name: "up15-first100-crash", left: 0, cap: 0.17, size: 5, first: 100, onlySide: "UP", minMoveBp: 15, added: "2026-10-27", idea: "up15-first100 only after a drop of 15 bps or more (crash then rebound): replay n=98, 29.6% won, +$358 (small sample)" },
   { name: "late10-any", left: 10, cap: 0.995, size: 5, added: "2026-10-24", idea: "every window: the projected side with 10s left at any price" },
@@ -230,6 +239,47 @@ function prevClose(prefix: string, window: number, windowSec: number): boolean |
 }
 
 const mean = (xs: number[]) => (xs.length ? xs.reduce((s, x) => s + x, 0) / xs.length : null);
+
+/** Binance-minus-Chainlink gap in bps, per series: the last ~600 snapshots (about 10 minutes) and the median over them, for the feedLeadBp rule. */
+const feedGaps = new Map<string, { t: number; gaps: number[]; median: number | null }>();
+function noteFeed(prefix: string, row: BookRow) {
+  if (row.binance == null || row.chainlink == null || !row.chainlink) return;
+  let f = feedGaps.get(prefix);
+  if (!f) feedGaps.set(prefix, (f = { t: 0, gaps: [], median: null }));
+  if (f.t === row.t) return;
+  f.t = row.t;
+  f.gaps.push(((row.binance - row.chainlink) / row.chainlink) * 1e4);
+  if (f.gaps.length > 600) f.gaps.splice(0, f.gaps.length - 600);
+  if (f.gaps.length < 300) { f.median = null; return; }
+  const sorted = f.gaps.slice().sort((a, b) => a - b);
+  f.median = sorted[sorted.length >> 1];
+}
+/** How far Binance is ahead of Chainlink right now, in bps over the series' usual gap; null until ~5 minutes of samples exist. */
+function feedLead(prefix: string, row: BookRow): number | null {
+  const f = feedGaps.get(prefix);
+  if (!f || f.median == null || row.binance == null || row.chainlink == null || !row.chainlink) return null;
+  return ((row.binance - row.chainlink) / row.chainlink) * 1e4 - f.median;
+}
+
+/** Chainlink range (high minus low, bps from the open) of each window seen, per series, for the prevRangeBp gate. */
+const ranges = new Map<string, Map<number, { min: number; max: number }>>();
+function noteRange(prefix: string, row: BookRow, windowSec: number) {
+  if (row.chainlink == null || !row.open) return;
+  const bps = ((row.chainlink - row.open) / row.open) * 1e4;
+  let m = ranges.get(prefix);
+  if (!m) ranges.set(prefix, (m = new Map()));
+  const cur = m.get(row.window);
+  if (cur) { cur.min = Math.min(cur.min, bps); cur.max = Math.max(cur.max, bps); } else m.set(row.window, { min: bps, max: bps });
+  for (const w of m.keys()) if (w < row.window - 12 * windowSec) m.delete(w);
+}
+/** Mean range of the previous 6 windows of this series (at least 4 seen), or null. */
+function prevRange(prefix: string, window: number, windowSec: number): number | null {
+  const m = ranges.get(prefix);
+  if (!m) return null;
+  const xs: number[] = [];
+  for (let k = 1; k <= 6; k++) { const r = m.get(window - k * windowSec); if (r) xs.push(r.max - r.min); }
+  return xs.length >= 4 ? mean(xs) : null;
+}
 
 /** Where a paper trader runs: file-name prefix for the series, its settlement feed and window length. */
 export type PaperHome = { prefix?: string; feed?: Feed; windowSec?: number };
@@ -308,6 +358,8 @@ export class PaperTrader {
     if (this.v.salvageAt != null || this.v.stopBid != null || this.v.tpBid != null) this.considerExit(row);
     const prev = this.prevAsk?.window === row.window ? this.prevAsk : null;
     noteClose(this.prefix, row, this.windowSec);
+    noteFeed(this.prefix, row);
+    noteRange(this.prefix, row, this.windowSec);
     this.prevAsk = { window: row.window, up: row.upAsk, down: row.downAsk };
     if (row.upAsk != null && row.downAsk != null) latestLean.set(this.prefix, { window: row.window, up: row.upAsk > row.downAsk ? true : row.downAsk > row.upAsk ? false : null });
     if (this.resting && (this.resting.window !== row.window || row.left < 1)) this.resting = null;
@@ -323,6 +375,7 @@ export class PaperTrader {
     if (!this.gateOk(row)) return;
     if (this.v.arbSum != null) return this.considerArb(row);
     if (this.v.prevDir != null) return this.considerPrev(row);
+    if (this.v.feedLeadBp != null) return this.considerFeed(row);
     if (this.v.jumpBp != null || this.v.bounceBp != null) return this.considerJump(row);
     if (this.v.first != null) return this.considerEarly(row);
     if (this.v.favAt != null) return this.considerFav(row);
@@ -463,6 +516,10 @@ export class PaperTrader {
       const move = Math.abs((row.chainlink - row.open) / row.open) * 1e4;
       if (this.v.maxMoveBp != null && move > this.v.maxMoveBp) return false;
       if (this.v.minMoveBp != null && move < this.v.minMoveBp) return false;
+    }
+    if (this.v.prevRangeBp != null) {
+      const r = prevRange(this.prefix, row.window, this.windowSec);
+      if (r == null || r < this.v.prevRangeBp) return false;
     }
     return true;
   }
@@ -606,6 +663,28 @@ export class PaperTrader {
   }
 
   private jumps: { window: number; min: number; max: number; rows: { t: number; bps: number; up: number | null; down: number | null }[] } = { window: 0, min: 0, max: 0, rows: [] };
+  /**
+   * The `feedLeadBp` rule (27 Oct 2026, from the first look at the Binance and Coinbase prices the recorder stores next to
+   * Chainlink): Binance quotes a different pair (USDT) so it sits a steady few bps away from Chainlink; when it moves ahead of
+   * that usual gap, Chainlink tends to follow within seconds, and a side still asking 20c has not priced it. Buys the side Binance
+   * leads toward at or under `cap`, respects onlySide, one trade per window, only with `jumpMinLeft` seconds left (default 120).
+   */
+  private considerFeed(row: BookRow) {
+    const { cap: CAP, size: SIZE } = this.v;
+    if (row.left < (this.v.jumpMinLeft ?? 120)) return;
+    if (this.open.some((t) => t.window === row.window)) return;
+    const lead = feedLead(this.prefix, row);
+    if (lead == null) return;
+    const need = this.v.feedLeadBp ?? 0;
+    const upBest = row.upAsks[0]?.[0] ?? null;
+    const downBest = row.downAsks[0]?.[0] ?? null;
+    let pick: { up: boolean; ask: number } | null = null;
+    if (this.v.onlySide !== "DOWN" && lead >= need && upBest != null && upBest <= CAP && upBest >= 0.03) pick = { up: true, ask: upBest };
+    else if (this.v.onlySide !== "UP" && -lead >= need && downBest != null && downBest <= CAP && downBest >= 0.03) pick = { up: false, ask: downBest };
+    if (!pick || !this.leadOk(row, pick.up)) return;
+    this.take(row, pick, CAP, SIZE, `Binance ${lead >= 0 ? "+" : ""}${lead.toFixed(1)} bps vs Chainlink (over its usual gap)`);
+  }
+
   /**
    * The `jumpBp` and `bounceBp` rules (27 Oct 2026, enrique: "moments where bps has been very strong on one side but the bets
    * haven't priced it in yet"). jumpBp: the price moved at least that many bps toward a side within `jumpSec` seconds and that
