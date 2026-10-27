@@ -54,6 +54,8 @@ export type Variant = {
   prevDir?: "same" | "opposite";
   /** For `first` rules: only trade when the previous window of this series closed this way (the book's favourite at its last snapshot). */
   afterPrev?: "UP" | "DOWN";
+  /** Only trade when the Chainlink price is at least this many bps away from the window's open (the mirror of maxMoveBp). */
+  minMoveBp?: number;
   /** Maker test: at the trigger, instead of taking the ask, rest a bid this far under it (no fee); it fills if the ask later comes down to it, else the window is skipped. */
   rest?: number;
   /** Only trade when the UTC hour is inside [from, to). */
@@ -170,6 +172,8 @@ export const VARIANTS: Variant[] = [
   { name: "up20-first60-eve", left: 0, cap: 0.2, size: 5, first: 60, onlySide: "UP", hoursUtc: [11, 15], added: "2026-10-27", idea: "up20-first60 only 20:00-24:00 KST: replay +60-70%/trade" },
   { name: "up13-first450", left: 0, cap: 0.13, size: 5, first: 450, onlySide: "UP", added: "2026-10-27", idea: "15m version: UP at 13c or less in the first 450s: replay n=129, 18.6% won, +$310 (+48%/trade) on BTC/ETH 15m" },
   { name: "up25-first300", left: 0, cap: 0.25, size: 5, first: 300, onlySide: "UP", added: "2026-10-27", idea: "15m version: UP at 25c or less in the first 300s: replay n=205, 31.7% won, +$303" },
+  { name: "up15-first100-flat", left: 0, cap: 0.17, size: 5, first: 100, onlySide: "UP", maxMoveBp: 3, added: "2026-10-27", idea: "up15-first100 only when the price is within 3 bps of the open (the book overreacts to a tiny move): replay 23-27 Oct n=355, 21.1% won, +$462 (+$1.30/trade); drops of 3-15 bps were net -$126 over 1,281 trades" },
+  { name: "up15-first100-crash", left: 0, cap: 0.17, size: 5, first: 100, onlySide: "UP", minMoveBp: 15, added: "2026-10-27", idea: "up15-first100 only after a drop of 15 bps or more (crash then rebound): replay n=98, 29.6% won, +$358 (small sample)" },
   { name: "late10-any", left: 10, cap: 0.995, size: 5, added: "2026-10-24", idea: "every window: the projected side with 10s left at any price" },
   { name: "late5-98", left: 5, cap: 0.98, size: 5, added: "2026-10-24", idea: "projected side with 5s left, only if it costs 98c or less" },
 ];
@@ -440,9 +444,11 @@ export class PaperTrader {
       const [from, to] = this.v.hoursUtc;
       if (from <= to ? h < from || h >= to : h < from && h >= to) return false;
     }
-    if (this.v.maxMoveBp != null) {
+    if (this.v.maxMoveBp != null || this.v.minMoveBp != null) {
       if (row.chainlink == null || row.open == null) return false;
-      if (Math.abs((row.chainlink - row.open) / row.open) * 1e4 > this.v.maxMoveBp) return false;
+      const move = Math.abs((row.chainlink - row.open) / row.open) * 1e4;
+      if (this.v.maxMoveBp != null && move > this.v.maxMoveBp) return false;
+      if (this.v.minMoveBp != null && move < this.v.minMoveBp) return false;
     }
     return true;
   }
