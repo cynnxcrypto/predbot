@@ -10,7 +10,9 @@
  *
  * Output (data/history/):
  *  - <prefix>windows.jsonl: one row per window {start, conditionId, upToken, downToken, resolvedUp, prices: [[t, upPrice]...], trades: [[t, side, price, size]...]}
- *    where side is 1 for buying UP (or selling DOWN) and -1 for buying DOWN (or selling UP).
+ *    where side is 1 for buying UP (or selling DOWN) and -1 for buying DOWN (or selling UP), and price is always in UP terms
+ *    (a DOWN-token trade at 0.15 is stored as 0.85). Rows carry tapeVersion 2 from 28 Oct 2026; earlier rows stored the traded
+ *    token's own price, so the two sides cannot be told apart from the price there without the price path.
  *  - binance-<symbol>-spot-1m.jsonl / -futures-1m.jsonl: [openTimeMs, open, high, low, close, volume, trades, takerBuyVolume]
  *  - binance-<symbol>-funding.jsonl: {t, rate}; binance-<symbol>-oi-5m.jsonl: {t, oi}
  *  - state.json: progress and last run, for the status page.
@@ -69,19 +71,30 @@ async function getJson<T>(url: string, tries = 4): Promise<T | null> {
 }
 
 type GammaEvent = { markets?: { conditionId?: string; clobTokenIds?: string; outcomePrices?: string; closed?: boolean }[] };
-type HistoryWindow = { start: number; conditionId: string; upToken: string; downToken: string; resolvedUp: boolean | null; prices: [number, number][]; trades: [number, number, number, number][] };
+type HistoryWindow = { start: number; conditionId: string; upToken: string; downToken: string; resolvedUp: boolean | null; prices: [number, number][]; trades: [number, number, number, number][]; tapeVersion?: number };
 
 /** Window starts already in the file, so a rerun only fetches what is new. */
+/** Starts already on file. Rows from before tapeVersion 2 (trade prices in the traded token's own terms) are dropped and
+ *  rewritten out of the file, so those windows get pulled again with the tape in UP terms. */
 function doneStarts(file: string): Set<number> {
   const out = new Set<number>();
   if (!existsSync(file)) return out;
+  const keep: string[] = [];
+  let dropped = 0;
   for (const line of readFileSync(file, "utf8").split("\n")) {
     if (!line) continue;
     try {
-      out.add((JSON.parse(line) as { start: number }).start);
+      const w = JSON.parse(line) as { start: number; tapeVersion?: number };
+      if ((w.tapeVersion ?? 1) < 2) { dropped += 1; continue; }
+      out.add(w.start);
+      keep.push(line);
     } catch {
       /* skip a torn line */
     }
+  }
+  if (dropped) {
+    writeFileSync(file, keep.length ? keep.join("\n") + "\n" : "");
+    log(`${file}: dropped ${dropped} window(s) with the old trade-tape format, pulling them again`);
   }
   return out;
 }
@@ -115,14 +128,16 @@ async function fetchWindow(series: Series, start: number): Promise<HistoryWindow
     const page = await getJson<{ side?: string; asset?: string; outcome?: string; size?: number | string; price?: number | string; timestamp?: number | string }[]>(`https://data-api.polymarket.com/trades?market=${market.conditionId}&limit=1000&offset=${offset}`);
     if (!page || !Array.isArray(page)) break;
     for (const t of page) {
-      const buyUp = (t.side === "BUY") === (t.asset === tokens[0] || /^up$/i.test(t.outcome ?? ""));
+      const upToken = t.asset === tokens[0] || /^up$/i.test(t.outcome ?? "");
+      const buyUp = (t.side === "BUY") === upToken;
       const ts = Number(t.timestamp);
-      trades.push([ts > 1e12 ? Math.floor(ts / 1000) : ts, buyUp ? 1 : -1, Number(t.price), Number(t.size)]);
+      const price = Number(t.price);
+      trades.push([ts > 1e12 ? Math.floor(ts / 1000) : ts, buyUp ? 1 : -1, upToken ? price : Math.round((1 - price) * 1e4) / 1e4, Number(t.size)]);
     }
     if (page.length < 1000) break;
   }
   trades.sort((a, b) => a[0] - b[0]);
-  return { start, conditionId: market.conditionId, upToken: tokens[0], downToken: tokens[1], resolvedUp, prices, trades };
+  return { start, conditionId: market.conditionId, upToken: tokens[0], downToken: tokens[1], resolvedUp, prices, trades, tapeVersion: 2 };
 }
 
 async function pullWindows(series: Series) {
