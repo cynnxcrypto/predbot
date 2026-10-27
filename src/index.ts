@@ -1,4 +1,5 @@
-import { execSync } from "node:child_process";
+import { execSync, spawn, type ChildProcess } from "node:child_process";
+import { join } from "node:path";
 import { createServer } from "node:net";
 import { ROOT, SERIES, STATUS_PORT } from "./config.js";
 import { Recorder } from "./recorder.js";
@@ -68,10 +69,29 @@ const server = await serveStatus(recorder, build(), recorders.slice(1));
 for (const r of recorders) r.start();
 console.log(`Pred bot recorder ${build()}. Status: http://127.0.0.1:${STATUS_PORT}. Recording ${recorders.map((r) => r.series.label).join(", ")}.`);
 
+/**
+ * The back-data downloader (src/history.ts) runs as its own process so its downloads never delay a snapshot: an hour after
+ * start (5 minutes in), then every 6 hours, each run resuming where the last one stopped. HISTORY=off disables it.
+ */
+let history: ChildProcess | null = null;
+function runHistory() {
+  if (history || process.env.HISTORY === "off") return;
+  const tsx = join(ROOT, "node_modules", ".bin", "tsx");
+  history = spawn(tsx, [join(ROOT, "src", "history.ts")], { cwd: ROOT, stdio: "ignore", env: process.env });
+  history.on("exit", () => {
+    history = null;
+  });
+}
+const historyTimer = setTimeout(runHistory, 300_000);
+const historyEvery = setInterval(runHistory, 6 * 3600_000);
+
 let stopping = false;
 function stop() {
   if (stopping) return;
   stopping = true;
+  clearTimeout(historyTimer);
+  clearInterval(historyEvery);
+  history?.kill("SIGTERM");
   for (const r of recorders) r.stop();
   server.close();
   setTimeout(() => process.exit(0), 300);
