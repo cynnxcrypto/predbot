@@ -73,6 +73,9 @@ export type Variant = {
   feedLeadBp?: number;
   /** Feed-lead rule: also require Coinbase to lead Chainlink by `feedLeadBp` the same way (two independent exchanges agreeing). */
   feedBoth?: boolean;
+  /** Cross-coin rule: at least `crossLeadCoins` OTHER 5m series (default 1) have Binance ahead of Chainlink by this many bps (over their usual gaps) within the last 3 s; buy that side here at or under `cap`. With `feedLeadBp` too, this series' own lead must also pass. */
+  crossLeadBp?: number;
+  crossLeadCoins?: number;
   /** For `first` rules: only trade when the mean Chainlink range (high minus low, bps) of the previous 6 windows is at least this. */
   prevRangeBp?: number;
   /** Maker test: at the trigger, instead of taking the ask, rest a bid this far under it (no fee); it fills if the ask later comes down to it, else the window is skipped. */
@@ -207,6 +210,8 @@ export const VARIANTS: Variant[] = [
   { name: "cldrop3-up20", left: 0, cap: 0.2, size: 5, fadeBp: 3, jumpSec: 10, jumpMinLeft: 120, onlySide: "UP", added: "2026-10-28", idea: "CONTROL for the feed rules: Chainlink fell 3+ bps in 10 s and UP asks 20c or less, 120s+ left, buy UP whatever Binance says. Replay 25-27 Oct n=1,818, 16% won, -$1,363 (-$0.75/trade); the same drops with Binance 3+ bps above Chainlink: n=361, 21% won, +$1,549 (+$4.29/trade). If this control loses live while feed3-up20 wins, the Binance disagreement is the edge; if both lose, it was never there" },
   { name: "feed3-up20-far", left: 0, cap: 0.2, size: 5, feedLeadBp: 3, jumpMinLeft: 300, onlySide: "UP", added: "2026-10-28", idea: "15-minute markets only in practice (needs 300s+ left): Binance 3+ bps above Chainlink, UP 20c or less. Replay 25-27 Oct BTC+ETH 15m n=60, 25% won, +$179 (+$2.99/trade); the same entry without the lead -$0.56/trade; 26 Oct carried it (+$125), 25 Oct 0 of 5" },
   { name: "feed3-up40", left: 0, cap: 0.4, size: 5, feedLeadBp: 3, jumpMinLeft: 120, onlySide: "UP", added: "2026-10-28", idea: "wider cap: Binance 3+ bps above Chainlink, UP 40c or less, 120s+ left. Replay 25-27 Oct 15m n=158, 38% won, +$270 (+$1.71/trade, positive 25, 26, 27 Oct); 5m n=794, 31% won, +$1,596 (+$2.01/trade, 25 and 28 Oct negative). Three times the trades of feed3-up20 at a third of the per-trade edge" },
+  { name: "cross3x2-up20", left: 0, cap: 0.2, size: 5, crossLeadBp: 3, crossLeadCoins: 2, jumpMinLeft: 120, onlySide: "UP", added: "2026-10-28", idea: "cross-coin spillover: at least 2 OTHER 5m coins have Binance 3+ bps above Chainlink (over their usual gaps) within 3 s, and UP here asks 20c or less, 120s+ left; this coin's own feed is not consulted. Replay 25-27 Oct (1s books, 6 coins) n=452, 22% won, +$1,484 (+$3.28/trade) vs -$0.79/trade for the same entry without it; with this coin's own lead under 1 bp still n=393, +$2.90/trade, so the Chainlink overshoot is market-wide, not per coin. Same regime as the feed rules: 25 Oct -$52, 26 Oct +$704, 27 Oct +$869, 28 Oct 00h -$37" },
+  { name: "cross3x2-up40", left: 0, cap: 0.4, size: 5, crossLeadBp: 3, crossLeadCoins: 2, jumpMinLeft: 120, onlySide: "UP", added: "2026-10-28", idea: "cross3x2-up20 with a 40c cap: replay n=916, 31% won, +$1,375 (+$1.50/trade) vs -$0.46/trade without; the only cheap-UP entry that was not negative on 25 Oct (+$10 on 111)" },
   { name: "feed3-up20-tight", left: 0, cap: 0.2, size: 5, feedLeadBp: 3, jumpMinLeft: 120, onlySide: "UP", maxOverround: 1.02, added: "2026-10-28", idea: "feed3-up20 only when the book is tight (UP ask + DOWN ask <= 1.02). Replay 25-27 Oct (1s books, 6 coins): n=249, 25% won, +$1,459 (+$5.86/trade) vs +$4.30 for feed3-up20 on 371; with a 6c+ overround only +$3.12. Buying any cheap side (<=30c, 120s+ left) is -$0.41/trade in a tight book and -$0.95 in a wide one (4,399 vs 2,787 windows): a wide spread is the makers' uncertainty premium, never a bargain" },
   { name: "fav99-last30", left: 0, cap: 0.995, size: 5, favAt: 0.99, favFrom: 270, strictCap: true, added: "2026-10-28", idea: "the only cell of a 10,635-window calibration table (14 days, BTC/ETH/SOL 5m history, 1-min price path, 5 minute marks x 10 price buckets) that beats its fee: the favourite at 99c or more with 30 s or less left wins 99.9% (n=5,642) for +$0.016 a trade, 0.3% on the stake. Every other price level at every minute mark is priced to within +-$0.10 a trade of fair; 97-99c at 1 min left +$0.05 (n=1,371) and nothing else above noise" },
   { name: "preopen3-down60", left: 0, cap: 0.6, size: 5, preOpenBp: 3, onlySide: "DOWN", added: "2026-10-28", idea: "momentum from before the open: Chainlink fell 3+ bps in the 60 s before the window opened, buy DOWN at 60c or less in the first minute. History (Binance 1-min candles, 14 days, 6 coins' 1-s books 25-27 Oct): a 3 bps pre-open fall -> DOWN wins 55-62% at the first ask, +$0.5 a trade on 343-385 cases; the UP mirror only +$0.07..0.24. Pre-open taker-buy share predicts the close just as well (57% UP after a 65%+ buy minute, 42% after a 35%- one, 24,000 windows) but the book prices that flow: -$0.1..-$0.5 a trade" },
@@ -285,6 +290,18 @@ function noteFeedOne(key: string, t: number, price: number | null, chainlink: nu
 function noteFeed(prefix: string, row: BookRow) {
   noteFeedOne(prefix + "|binance", row.t, row.binance, row.chainlink);
   noteFeedOne(prefix + "|coinbase", row.t, row.coinbase, row.chainlink);
+  if (/^[a-z]*5m-$|^$/.test(prefix)) {
+    const lead = feedLead(prefix, row);
+    if (lead != null) latestLead.set(prefix, { t: row.t, lead });
+  }
+}
+/** Each 5m series' latest Binance lead (bps over its usual gap), for the crossLeadBp rule. */
+const latestLead = new Map<string, { t: number; lead: number }>();
+/** How many OTHER 5m series had Binance ahead (up) or behind (down) Chainlink by `bp` within the last 3 s. */
+function crossLeads(prefix: string, t: number, bp: number, up: boolean): number {
+  let n = 0;
+  for (const [k, v] of latestLead) if (k !== prefix && t - v.t <= 3000 && (up ? v.lead >= bp : -v.lead >= bp)) n++;
+  return n;
 }
 /** How far an exchange (Binance by default) is ahead of Chainlink right now, in bps over the series' usual gap; null until ~5 minutes of samples exist. */
 function feedLead(prefix: string, row: BookRow, exchange: "binance" | "coinbase" = "binance"): number | null {
@@ -430,7 +447,7 @@ export class PaperTrader {
     if (!this.gateOk(row)) return;
     if (this.v.arbSum != null) return this.considerArb(row);
     if (this.v.prevDir != null) return this.considerPrev(row);
-    if (this.v.feedLeadBp != null) return this.considerFeed(row);
+    if (this.v.feedLeadBp != null || this.v.crossLeadBp != null) return this.considerFeed(row);
     if (this.v.preOpenBp != null) return this.considerPreOpen(row);
     if (this.v.jumpBp != null || this.v.bounceBp != null || this.v.fadeBp != null) return this.considerJump(row);
     if (this.v.first != null) return this.considerEarly(row);
@@ -755,19 +772,25 @@ export class PaperTrader {
     const { cap: CAP, size: SIZE } = this.v;
     if (row.left < (this.v.jumpMinLeft ?? 120)) return;
     if (this.open.some((t) => t.window === row.window)) return;
-    const lead = feedLead(this.prefix, row);
+    const own = this.v.feedLeadBp != null;
+    const lead = own ? feedLead(this.prefix, row) : 0;
     if (lead == null) return;
     const cb = this.v.feedBoth ? feedLead(this.prefix, row, "coinbase") : null;
     if (this.v.feedBoth && cb == null) return;
     const need = this.v.feedLeadBp ?? 0;
+    const cross = this.v.crossLeadBp;
+    const needCoins = this.v.crossLeadCoins ?? 1;
+    const crossOk = (up: boolean) => cross == null || crossLeads(this.prefix, row.t, cross, up) >= needCoins;
     const upBest = row.upAsks[0]?.[0] ?? null;
     const downBest = row.downAsks[0]?.[0] ?? null;
     let pick: { up: boolean; ask: number } | null = null;
-    if (this.v.onlySide !== "DOWN" && lead >= need && (cb == null || cb >= need) && upBest != null && upBest <= CAP && upBest >= 0.03) pick = { up: true, ask: upBest };
-    else if (this.v.onlySide !== "UP" && -lead >= need && (cb == null || -cb >= need) && downBest != null && downBest <= CAP && downBest >= 0.03) pick = { up: false, ask: downBest };
+    if (this.v.onlySide !== "DOWN" && lead >= need && (cb == null || cb >= need) && crossOk(true) && upBest != null && upBest <= CAP && upBest >= 0.03) pick = { up: true, ask: upBest };
+    else if (this.v.onlySide !== "UP" && -lead >= need && (cb == null || -cb >= need) && crossOk(false) && downBest != null && downBest <= CAP && downBest >= 0.03) pick = { up: false, ask: downBest };
     if (!pick || !this.leadOk(row, pick.up)) return;
     const sign = (x: number) => `${x >= 0 ? "+" : ""}${x.toFixed(1)}`;
-    this.take(row, pick, CAP, SIZE, cb == null ? `Binance ${sign(lead)} bps vs Chainlink (over its usual gap)` : `Binance ${sign(lead)} and Coinbase ${sign(cb)} bps vs Chainlink (over their usual gaps)`);
+    const crossNote = cross == null ? "" : `${crossLeads(this.prefix, row.t, cross, pick.up)} other coin(s) with Binance ${pick.up ? "+" : "-"}${cross}+ bps vs Chainlink`;
+    const ownNote = !own ? "" : cb == null ? `Binance ${sign(lead)} bps vs Chainlink (over its usual gap)` : `Binance ${sign(lead)} and Coinbase ${sign(cb)} bps vs Chainlink (over their usual gaps)`;
+    this.take(row, pick, CAP, SIZE, [ownNote, crossNote].filter(Boolean).join("; "));
   }
 
   /**
