@@ -65,6 +65,8 @@ export type Variant = {
   bounceBp?: number;
   /** Feed-lead rule: buy the side Binance is ahead of Chainlink on, when (Binance - Chainlink) in bps, minus its rolling median over the last ~10 minutes, is at least this much; ask at or under `cap`, one trade per window, only with `jumpMinLeft` seconds left (default 120). */
   feedLeadBp?: number;
+  /** Feed-lead rule: also require Coinbase to lead Chainlink by `feedLeadBp` the same way (two independent exchanges agreeing). */
+  feedBoth?: boolean;
   /** For `first` rules: only trade when the mean Chainlink range (high minus low, bps) of the previous 6 windows is at least this. */
   prevRangeBp?: number;
   /** Maker test: at the trigger, instead of taking the ask, rest a bid this far under it (no fee); it fills if the ask later comes down to it, else the window is skipped. */
@@ -192,6 +194,7 @@ export const VARIANTS: Variant[] = [
   { name: "feed3-up20", left: 0, cap: 0.2, size: 5, feedLeadBp: 3, jumpMinLeft: 120, onlySide: "UP", added: "2026-10-27", idea: "Binance is 3+ bps above Chainlink (against the usual gap) and UP still asks 20c or less, 120s+ left: replay 25-27 Oct (1s books, 6 coins) n=336, 23% won, +$1,649 (+$4.91/trade); the same entry without the Binance lead loses -$0.58/trade; 25 Oct -$128, 26-27 Oct +$1,777" },
   { name: "feed2-up20", left: 0, cap: 0.2, size: 5, feedLeadBp: 2, jumpMinLeft: 120, onlySide: "UP", added: "2026-10-27", idea: "looser: Binance 2+ bps ahead: replay n=610, 20% won, +$1,953 (+$3.20/trade), fires about twice as often" },
   { name: "feed4-up30", left: 0, cap: 0.3, size: 5, feedLeadBp: 4, jumpMinLeft: 120, onlySide: "UP", added: "2026-10-27", idea: "stricter lead, higher cap: Binance 4+ bps ahead, UP 30c or less: replay n=258, 31% won, +$1,432 (+$5.55/trade)" },
+  { name: "feed2x-up20", left: 0, cap: 0.2, size: 5, feedLeadBp: 3, feedBoth: true, jumpMinLeft: 120, onlySide: "UP", added: "2026-10-28", idea: "two exchanges agree: Binance AND Coinbase each 3+ bps above Chainlink (over their usual gaps), UP 20c or less, 120s+ left: replay 25-27 Oct (1s books, 6 coins) n=189, 29% won, +$1,461 (+$7.73/trade, vs +$4.91 for Binance alone); positive on all 6 coins. The DOWN mirror of every feed rule loses (-$0.70 to -$1.33/trade), so UP only" },
   { name: "feed3-cheap20", left: 0, cap: 0.2, size: 5, feedLeadBp: 3, jumpMinLeft: 120, added: "2026-10-27", idea: "both sides: whichever side Binance leads by 3+ bps, at 20c or less: replay n=707, 18% won, +$1,421; the DOWN half alone lost -$265, so this mostly tests whether DOWN ever pays" },
   { name: "up15-first100-vol14", left: 0, cap: 0.17, size: 5, first: 100, onlySide: "UP", prevRangeBp: 14, added: "2026-10-27", idea: "up15-first100 only when the previous 6 windows ranged 14+ bps on average (cheap sides pay in a volatile tape): replay 25-27 Oct UP<=20c n=428, 24% won, +$417 (+$0.97/trade) vs -$1/trade in calm tape; 26 Oct carried it (+$555), 27 Oct -$96" },
   { name: "up15-first100-flat", left: 0, cap: 0.17, size: 5, first: 100, onlySide: "UP", maxMoveBp: 3, added: "2026-10-27", idea: "up15-first100 only when the price is within 3 bps of the open (the book overreacts to a tiny move): replay 23-27 Oct n=355, 21.1% won, +$462 (+$1.30/trade); drops of 3-15 bps were net -$126 over 1,281 trades" },
@@ -240,25 +243,30 @@ function prevClose(prefix: string, window: number, windowSec: number): boolean |
 
 const mean = (xs: number[]) => (xs.length ? xs.reduce((s, x) => s + x, 0) / xs.length : null);
 
-/** Binance-minus-Chainlink gap in bps, per series: the last ~600 snapshots (about 10 minutes) and the median over them, for the feedLeadBp rule. */
+/** Exchange-minus-Chainlink gap in bps, per series and exchange (binance, coinbase): the last ~600 snapshots (about 10 minutes) and the median over them, for the feedLeadBp rule. */
 const feedGaps = new Map<string, { t: number; gaps: number[]; median: number | null }>();
-function noteFeed(prefix: string, row: BookRow) {
-  if (row.binance == null || row.chainlink == null || !row.chainlink) return;
-  let f = feedGaps.get(prefix);
-  if (!f) feedGaps.set(prefix, (f = { t: 0, gaps: [], median: null }));
-  if (f.t === row.t) return;
-  f.t = row.t;
-  f.gaps.push(((row.binance - row.chainlink) / row.chainlink) * 1e4);
+function noteFeedOne(key: string, t: number, price: number | null, chainlink: number | null) {
+  if (price == null || chainlink == null || !chainlink) return;
+  let f = feedGaps.get(key);
+  if (!f) feedGaps.set(key, (f = { t: 0, gaps: [], median: null }));
+  if (f.t === t) return;
+  f.t = t;
+  f.gaps.push(((price - chainlink) / chainlink) * 1e4);
   if (f.gaps.length > 600) f.gaps.splice(0, f.gaps.length - 600);
   if (f.gaps.length < 300) { f.median = null; return; }
   const sorted = f.gaps.slice().sort((a, b) => a - b);
   f.median = sorted[sorted.length >> 1];
 }
-/** How far Binance is ahead of Chainlink right now, in bps over the series' usual gap; null until ~5 minutes of samples exist. */
-function feedLead(prefix: string, row: BookRow): number | null {
-  const f = feedGaps.get(prefix);
-  if (!f || f.median == null || row.binance == null || row.chainlink == null || !row.chainlink) return null;
-  return ((row.binance - row.chainlink) / row.chainlink) * 1e4 - f.median;
+function noteFeed(prefix: string, row: BookRow) {
+  noteFeedOne(prefix + "|binance", row.t, row.binance, row.chainlink);
+  noteFeedOne(prefix + "|coinbase", row.t, row.coinbase, row.chainlink);
+}
+/** How far an exchange (Binance by default) is ahead of Chainlink right now, in bps over the series' usual gap; null until ~5 minutes of samples exist. */
+function feedLead(prefix: string, row: BookRow, exchange: "binance" | "coinbase" = "binance"): number | null {
+  const f = feedGaps.get(prefix + "|" + exchange);
+  const price = row[exchange];
+  if (!f || f.median == null || price == null || row.chainlink == null || !row.chainlink) return null;
+  return ((price - row.chainlink) / row.chainlink) * 1e4 - f.median;
 }
 
 /** Chainlink range (high minus low, bps from the open) of each window seen, per series, for the prevRangeBp gate. */
@@ -675,14 +683,17 @@ export class PaperTrader {
     if (this.open.some((t) => t.window === row.window)) return;
     const lead = feedLead(this.prefix, row);
     if (lead == null) return;
+    const cb = this.v.feedBoth ? feedLead(this.prefix, row, "coinbase") : null;
+    if (this.v.feedBoth && cb == null) return;
     const need = this.v.feedLeadBp ?? 0;
     const upBest = row.upAsks[0]?.[0] ?? null;
     const downBest = row.downAsks[0]?.[0] ?? null;
     let pick: { up: boolean; ask: number } | null = null;
-    if (this.v.onlySide !== "DOWN" && lead >= need && upBest != null && upBest <= CAP && upBest >= 0.03) pick = { up: true, ask: upBest };
-    else if (this.v.onlySide !== "UP" && -lead >= need && downBest != null && downBest <= CAP && downBest >= 0.03) pick = { up: false, ask: downBest };
+    if (this.v.onlySide !== "DOWN" && lead >= need && (cb == null || cb >= need) && upBest != null && upBest <= CAP && upBest >= 0.03) pick = { up: true, ask: upBest };
+    else if (this.v.onlySide !== "UP" && -lead >= need && (cb == null || -cb >= need) && downBest != null && downBest <= CAP && downBest >= 0.03) pick = { up: false, ask: downBest };
     if (!pick || !this.leadOk(row, pick.up)) return;
-    this.take(row, pick, CAP, SIZE, `Binance ${lead >= 0 ? "+" : ""}${lead.toFixed(1)} bps vs Chainlink (over its usual gap)`);
+    const sign = (x: number) => `${x >= 0 ? "+" : ""}${x.toFixed(1)}`;
+    this.take(row, pick, CAP, SIZE, cb == null ? `Binance ${sign(lead)} bps vs Chainlink (over its usual gap)` : `Binance ${sign(lead)} and Coinbase ${sign(cb)} bps vs Chainlink (over their usual gaps)`);
   }
 
   /**
