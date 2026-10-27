@@ -61,6 +61,8 @@ export type Variant = {
   jumpSec?: number;
   /** Jump/bounce rules: only with at least this many seconds left (default 30). */
   jumpMinLeft?: number;
+  /** Fade rule: the Chainlink price moved at least this many bps in `jumpSec` seconds; buy the side it moved AGAINST at or under `cap` (the no-Binance control for the feed-lead rules). */
+  fadeBp?: number;
   /** Bounce rule: buy UP (or DOWN, per onlySide) when the Chainlink price has come back at least this many bps from the window's low (high for DOWN), ask at or under `cap`; no ask condition. */
   bounceBp?: number;
   /** Feed-lead rule: buy the side Binance is ahead of Chainlink on, when (Binance - Chainlink) in bps, minus its rolling median over the last ~10 minutes, is at least this much; ask at or under `cap`, one trade per window, only with `jumpMinLeft` seconds left (default 120). */
@@ -198,6 +200,7 @@ export const VARIANTS: Variant[] = [
   { name: "feed3-up20-night", left: 0, cap: 0.2, size: 5, feedLeadBp: 3, jumpMinLeft: 120, onlySide: "UP", hoursUtc: [11, 3], added: "2026-10-28", idea: "feed3-up20 only 20:00-12:00 KST: replay 25-27 Oct (1s books, 6 coins) n=250, 27% won, +$1,626 (+$6.50/trade); the 12:00-20:00 KST half n=86 made +$23 (+$0.27/trade, two of three days negative)" },
   { name: "feed2-up20-night", left: 0, cap: 0.2, size: 5, feedLeadBp: 2, jumpMinLeft: 120, onlySide: "UP", hoursUtc: [11, 3], added: "2026-10-28", idea: "feed2-up20 only 20:00-12:00 KST: replay n=427, 24% won, +$1,810 (+$4.24/trade) vs +$0.78/trade 12:00-20:00 KST; twice the trades of the feed3 night rule" },
   { name: "feed5-up20", left: 0, cap: 0.2, size: 5, feedLeadBp: 5, jumpMinLeft: 120, onlySide: "UP", added: "2026-10-28", idea: "strict lead: Binance 5+ bps above Chainlink (over the usual gap), UP 20c or less, 120s+ left. In 331 of the 336 feed3 replay entries Chainlink had just fallen 2+ bps in 10 s while Binance had not followed, so the signal is a Chainlink overshoot that Binance disputes; the bigger the dispute the better: replay 25-27 Oct n=101, 39% won, +$1,258 (+$12.45/trade) but 25 Oct 0 of 11 (-$58)" },
+  { name: "cldrop3-up20", left: 0, cap: 0.2, size: 5, fadeBp: 3, jumpSec: 10, jumpMinLeft: 120, onlySide: "UP", added: "2026-10-28", idea: "CONTROL for the feed rules: Chainlink fell 3+ bps in 10 s and UP asks 20c or less, 120s+ left, buy UP whatever Binance says. Replay 25-27 Oct n=1,818, 16% won, -$1,363 (-$0.75/trade); the same drops with Binance 3+ bps above Chainlink: n=361, 21% won, +$1,549 (+$4.29/trade). If this control loses live while feed3-up20 wins, the Binance disagreement is the edge; if both lose, it was never there" },
   { name: "feed3-cheap20", left: 0, cap: 0.2, size: 5, feedLeadBp: 3, jumpMinLeft: 120, added: "2026-10-27", idea: "both sides: whichever side Binance leads by 3+ bps, at 20c or less: replay n=707, 18% won, +$1,421; the DOWN half alone lost -$265, so this mostly tests whether DOWN ever pays" },
   { name: "up15-first100-vol14", left: 0, cap: 0.17, size: 5, first: 100, onlySide: "UP", prevRangeBp: 14, added: "2026-10-27", idea: "up15-first100 only when the previous 6 windows ranged 14+ bps on average (cheap sides pay in a volatile tape): replay 25-27 Oct UP<=20c n=428, 24% won, +$417 (+$0.97/trade) vs -$1/trade in calm tape; 26 Oct carried it (+$555), 27 Oct -$96" },
   { name: "up15-first100-flat", left: 0, cap: 0.17, size: 5, first: 100, onlySide: "UP", maxMoveBp: 3, added: "2026-10-27", idea: "up15-first100 only when the price is within 3 bps of the open (the book overreacts to a tiny move): replay 23-27 Oct n=355, 21.1% won, +$462 (+$1.30/trade); drops of 3-15 bps were net -$126 over 1,281 trades" },
@@ -247,13 +250,23 @@ function prevClose(prefix: string, window: number, windowSec: number): boolean |
 const mean = (xs: number[]) => (xs.length ? xs.reduce((s, x) => s + x, 0) / xs.length : null);
 
 /** Exchange-minus-Chainlink gap in bps, per series and exchange (binance, coinbase): the last ~600 snapshots (about 10 minutes) and the median over them, for the feedLeadBp rule. */
-const feedGaps = new Map<string, { t: number; gaps: number[]; median: number | null }>();
+const feedGaps = new Map<string, { t: number; gaps: number[]; median: number | null }>(
+  Object.entries(loadJson<Record<string, { t: number; gaps: number[]; median: number | null }>>("feed-gaps.json", {})).filter(([, f]) => Date.now() - f.t < 1800_000),
+);
+let feedGapsSaved = 0;
+/** The bot restarts after every deploy; without this the ~5 minutes of gap samples the median needs were lost each time and the feed rules skipped the entries in between. */
+function saveFeedGaps() {
+  if (Date.now() - feedGapsSaved < 30_000) return;
+  feedGapsSaved = Date.now();
+  saveJson("feed-gaps.json", Object.fromEntries(feedGaps));
+}
 function noteFeedOne(key: string, t: number, price: number | null, chainlink: number | null) {
   if (price == null || chainlink == null || !chainlink) return;
   let f = feedGaps.get(key);
   if (!f) feedGaps.set(key, (f = { t: 0, gaps: [], median: null }));
   if (f.t === t) return;
   f.t = t;
+  saveFeedGaps();
   f.gaps.push(((price - chainlink) / chainlink) * 1e4);
   if (f.gaps.length > 600) f.gaps.splice(0, f.gaps.length - 600);
   if (f.gaps.length < 300) { f.median = null; return; }
@@ -387,7 +400,7 @@ export class PaperTrader {
     if (this.v.arbSum != null) return this.considerArb(row);
     if (this.v.prevDir != null) return this.considerPrev(row);
     if (this.v.feedLeadBp != null) return this.considerFeed(row);
-    if (this.v.jumpBp != null || this.v.bounceBp != null) return this.considerJump(row);
+    if (this.v.jumpBp != null || this.v.bounceBp != null || this.v.fadeBp != null) return this.considerJump(row);
     if (this.v.first != null) return this.considerEarly(row);
     if (this.v.favAt != null) return this.considerFav(row);
     if (row.left > LEFT || row.left < 1 || !row.chainlink) return;
@@ -727,6 +740,14 @@ export class PaperTrader {
       if (upOk) pick = { up: true, ask: upBest! };
       else if (downOk) pick = { up: false, ask: downBest! };
       if (pick) note = `${(pick.up ? bps - J.min : J.max - bps).toFixed(1)} bps off the window ${pick.up ? "low" : "high"}`;
+    } else if (this.v.fadeBp != null) {
+      const ref = J.rows.find((r) => r.t <= row.t - span);
+      if (!ref) return;
+      const move = bps - ref.bps;
+      const need = this.v.fadeBp;
+      if (this.v.onlySide !== "DOWN" && -move >= need && upBest != null && upBest <= CAP && upBest >= 0.03) pick = { up: true, ask: upBest };
+      else if (this.v.onlySide !== "UP" && move >= need && downBest != null && downBest <= CAP && downBest >= 0.03) pick = { up: false, ask: downBest };
+      note = `fading ${move >= 0 ? "+" : ""}${move.toFixed(1)} bps in ${this.v.jumpSec ?? 15}s`;
     } else {
       const ref = J.rows.find((r) => r.t <= row.t - span);
       if (!ref) return;
