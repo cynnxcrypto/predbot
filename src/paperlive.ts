@@ -195,8 +195,22 @@ export type PaperTrade = {
   otherShares?: number;
 };
 
-/** How each series' last window closed (the book's favourite at its final snapshot), for the prevDir rule. Keyed by file prefix. */
-const lastClose = new Map<string, { window: number; up: boolean | null }>();
+/** How each window closed (the book's favourite at its last snapshot with both asks), per series and window start, for the prevDir and afterPrev rules.
+ *  Keyed by window rather than "the last one seen" because rows of two windows can interleave while the recorder tracks the next market. */
+const closeBook = new Map<string, Map<number, { left: number; up: boolean | null }>>();
+function noteClose(prefix: string, row: BookRow, windowSec: number) {
+  if (row.upAsk == null || row.downAsk == null) return;
+  let m = closeBook.get(prefix);
+  if (!m) closeBook.set(prefix, (m = new Map()));
+  const cur = m.get(row.window);
+  if (cur && cur.left < row.left) return;
+  m.set(row.window, { left: row.left, up: row.upAsk > row.downAsk ? true : row.downAsk > row.upAsk ? false : null });
+  for (const w of m.keys()) if (w < row.window - 12 * windowSec) m.delete(w);
+}
+/** The previous window's close for this series, or null when it was not seen (recorder restart, gap). */
+function prevClose(prefix: string, window: number, windowSec: number): boolean | null {
+  return closeBook.get(prefix)?.get(window - windowSec)?.up ?? null;
+}
 
 const mean = (xs: number[]) => (xs.length ? xs.reduce((s, x) => s + x, 0) / xs.length : null);
 
@@ -276,9 +290,7 @@ export class PaperTrader {
     if (discarded().has(this.v.name)) return;
     if (this.v.salvageAt != null || this.v.stopBid != null || this.v.tpBid != null) this.considerExit(row);
     const prev = this.prevAsk?.window === row.window ? this.prevAsk : null;
-    if (this.prevAsk && this.prevAsk.window !== row.window && this.prevAsk.up != null && this.prevAsk.down != null) {
-      lastClose.set(this.prefix, { window: this.prevAsk.window, up: this.prevAsk.up > this.prevAsk.down ? true : this.prevAsk.down > this.prevAsk.up ? false : null });
-    }
+    noteClose(this.prefix, row, this.windowSec);
     this.prevAsk = { window: row.window, up: row.upAsk, down: row.downAsk };
     if (row.upAsk != null && row.downAsk != null) latestLean.set(this.prefix, { window: row.window, up: row.upAsk > row.downAsk ? true : row.downAsk > row.upAsk ? false : null });
     if (this.resting && (this.resting.window !== row.window || row.left < 1)) this.resting = null;
@@ -513,9 +525,9 @@ export class PaperTrader {
     const elapsed = this.windowSec - row.left;
     if (elapsed < 0 || elapsed > (this.v.first ?? 0) || row.left < 1) return;
     if (this.open.some((t) => t.window === row.window)) return;
-    const last = lastClose.get(this.prefix);
-    if (!last || last.up == null || last.window !== row.window - this.windowSec) return;
-    const up = this.v.prevDir === "same" ? last.up : !last.up;
+    const last = prevClose(this.prefix, row.window, this.windowSec);
+    if (last == null) return;
+    const up = this.v.prevDir === "same" ? last : !last;
     const levels = up ? row.upAsks : row.downAsks;
     const ask = levels[0]?.[0];
     if (ask == null || ask > CAP) return;
@@ -550,7 +562,7 @@ export class PaperTrader {
     };
     this.open.push(trade);
     saveJson(this.openFile, this.open);
-    console.log(`paper ${this.v.name}: ${trade.side} ${shares.toFixed(1)} shares at ${Math.round(ask * 100)}c, ${elapsed}s in (last window closed ${last.up ? "UP" : "DOWN"})`);
+    console.log(`paper ${this.v.name}: ${trade.side} ${shares.toFixed(1)} shares at ${Math.round(ask * 100)}c, ${elapsed}s in (last window closed ${last ? "UP" : "DOWN"})`);
     this.onTrade?.(trade);
   }
 
@@ -561,8 +573,8 @@ export class PaperTrader {
     if (this.open.some((t) => t.window === row.window)) return;
     if (!this.gateOk(row)) return;
     if (this.v.afterPrev) {
-      const last = lastClose.get(this.prefix);
-      if (!last || last.up == null || last.window !== row.window - this.windowSec || last.up !== (this.v.afterPrev === "UP")) return;
+      const last = prevClose(this.prefix, row.window, this.windowSec);
+      if (last == null || last !== (this.v.afterPrev === "UP")) return;
     }
     const upBest = row.upAsks[0]?.[0];
     const downBest = row.downAsks[0]?.[0];
