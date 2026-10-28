@@ -33,6 +33,8 @@ export type Variant = {
   /** For favAt: only act between these seconds into the window, measured on a 5-minute window and scaled for longer ones. */
   favFrom?: number;
   favTo?: number;
+  /** For favAt: a sliding threshold, [secondsIntoWindow, favAt] steps in ascending order (5-minute seconds, scaled for longer windows); the last step reached sets the threshold, favAt applies before the first. */
+  favSchedule?: [number, number][];
   /** For favAt: if the favourite's first look at or above favAt is already over `cap`, give the window up instead of waiting for the ask to fall back into range (falling back is adverse: replay 96.9% vs 98.8% wins on BTC 15m). */
   strictCap?: boolean;
   /** For favAt: the Chainlink move since open, in the favourite's direction, must be between these (basis points) at the first hit. */
@@ -240,6 +242,8 @@ export const VARIANTS: Variant[] = [
   { name: "flat1-cheap40-night", left: 0, cap: 0.4, minAsk: 0.2, size: 5, flatBp: 1, hoursUtc: [15, 21], added: "2026-10-28", idea: "flat1-cheap40 only 00:00-06:00 KST (US afternoon): 14-day history +$3.93/trade on 210 there vs +$0.85 on 224 in 12:00-18:00 KST; BTC is the best coin (+$3.91 on 266), DOGE the worst (+$0.30)" },
   { name: "flat1-cheap40", left: 0, cap: 0.4, minAsk: 0.2, size: 5, flatBp: 1, added: "2026-10-28", idea: "from an X post enrique shared (28 Oct): at 2 minutes left the price is within $10 (about 1 bp) of the open yet one side already asks 20-40c; buy that side, claimed 44% won. Our 1-s books 25-27 Oct (6 coins) say no: n=209, 27% won, -$2.70/trade at $14 (BTC within $10: n=93, 30%, -$1.31); but the 14-day history (price = last trade + 1c, move from Binance 1-min candles, so the ask is understated) says n=826, 36% won, +$2.53/trade, BTC +$3.91 on 266. This rule settles it live" },
   { name: "feed3-up20-tight", left: 0, cap: 0.2, size: 5, feedLeadBp: 3, jumpMinLeft: 120, onlySide: "UP", maxOverround: 1.02, added: "2026-10-28", idea: "feed3-up20 only when the book is tight (UP ask + DOWN ask <= 1.02). Replay 25-27 Oct (1s books, 6 coins): n=249, 25% won, +$1,459 (+$5.86/trade) vs +$4.30 for feed3-up20 on 371; with a 6c+ overround only +$3.12. Buying any cheap side (<=30c, 120s+ left) is -$0.41/trade in a tight book and -$0.95 in a wide one (4,399 vs 2,787 windows): a wide spread is the makers' uncertainty premium, never a bargain" },
+  { name: "slide90-80-70", left: 0, cap: 0.995, size: 5, favAt: 0.9, favSchedule: [[0, 0.9], [150, 0.8], [240, 0.7]], added: "2026-10-28", idea: "enrique's sliding entry (28 Oct 16:14 KST): a 90c favourite in the first 2.5 minutes, 80c in the middle, 70c in the last minute. 14-day history (31,434 5m windows, 1-min price path): the favourite's win rate barely depends on the minute: 70-80c wins 72.9% at 1 min in and 74.1% at 4.5 min in, 80-90c 82.5% -> 84.5%, only 90c+ climbs 93.8% -> 98.4% because late 90c+ is mostly 97-99c. The schedule replays -$0.070/trade on 27,814 (90.2% won), fixed 90c -$0.029, fixed 70c -$0.127: time is already in the price. Runs so the live books can disagree" },
+  { name: "slide95-85-75", left: 0, cap: 0.995, size: 5, favAt: 0.95, favSchedule: [[0, 0.95], [150, 0.85], [240, 0.75]], added: "2026-10-28", idea: "the same sliding entry 5c higher: 95c early, 85c middle, 75c last minute; replay n=26,478, 92.7% won, -$0.059/trade" },
   { name: "fav95-up-only", left: 0, cap: 0.995, size: 5, favAt: 0.95, onlySide: "UP", minWindowSec: 900, added: "2026-10-28", idea: "BTC 15m favourite at 95c+ in the last 3 minutes, UP side only. 11-day history (1,002 BTC 15m windows, trade tape): the UP favourite at 95c+ seen 9-14 min in won 97.4% (n=421, +$0.023/trade), the DOWN favourite 95.5% (n=446, -$0.071/trade); mirror image: cheap DOWN tickets (<=5c, minutes 5-13) win 1-2% and lose $3.5-4.2 a trade, red 10 of 11 days (n=271-326), cheap UP tickets win 5-8% and break even. Not drift: 49.3% of windows closed UP. A floor-rate edge (about 0.5% of stake), run as the test of that asymmetry" },
   { name: "fav95-down-only", left: 0, cap: 0.995, size: 5, favAt: 0.95, onlySide: "DOWN", minWindowSec: 900, added: "2026-10-28", idea: "control for fav95-up-only: the same rule on the DOWN favourite, which the 11-day BTC 15m history says wins 95.5% at 95c+ and loses -$0.071/trade" },
   { name: "fav99-last30", left: 0, cap: 0.995, size: 5, favAt: 0.99, favFrom: 270, strictCap: true, added: "2026-10-28", idea: "the only cell of a 10,635-window calibration table (14 days, BTC/ETH/SOL 5m history, 1-min price path, 5 minute marks x 10 price buckets) that beats its fee: the favourite at 99c or more with 30 s or less left wins 99.9% (n=5,642) for +$0.016 a trade, 0.3% on the stake. Every other price level at every minute mark is priced to within +-$0.10 a trade of fair; 97-99c at 1 min left +$0.05 (n=1,371) and nothing else above noise" },
@@ -1006,10 +1010,11 @@ export class PaperTrader {
   /** The `favAt` rule: the first time the favourite's best ask is at or above favAt, buy it (up to cap). */
   private considerFav(row: BookRow) {
     const { cap: CAP, size: SIZE } = this.v;
-    const favAt = this.v.favAt ?? 1;
     if (row.left < 1) return;
     const scale = this.windowSec / 300;
     const elapsed = this.windowSec - row.left;
+    let favAt = this.v.favAt ?? 1;
+    if (this.v.favSchedule) for (const [at, p] of this.v.favSchedule) if (elapsed >= at * scale) favAt = p;
     if (this.v.favFrom != null && elapsed < this.v.favFrom * scale) return;
     if (this.v.favTo != null && elapsed > this.v.favTo * scale) return;
     if (this.open.some((t) => t.window === row.window)) return;
