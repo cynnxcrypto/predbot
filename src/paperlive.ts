@@ -76,6 +76,9 @@ export type Variant = {
   /** Cross-coin rule: at least `crossLeadCoins` OTHER 5m series (default 1) have Binance ahead of Chainlink by this many bps (over their usual gaps) within the last 3 s; buy that side here at or under `cap`. With `feedLeadBp` too, this series' own lead must also pass. */
   crossLeadBp?: number;
   crossLeadCoins?: number;
+  /** Binance burst rule: the Binance price moved at least this many bps over the last `binMoveSec` seconds (default 2); buy that side at or under `cap`, one trade per window, only with `jumpMinLeft` seconds left (default 120). No Chainlink, no median, no warm-up. */
+  binMoveBp?: number;
+  binMoveSec?: number;
   /** For `first` rules: only trade when the mean Chainlink range (high minus low, bps) of the previous 6 windows is at least this. */
   prevRangeBp?: number;
   /** Maker test: at the trigger, instead of taking the ask, rest a bid this far under it (no fee); it fills if the ask later comes down to it, else the window is skipped. */
@@ -212,6 +215,8 @@ export const VARIANTS: Variant[] = [
   { name: "feed3-up40", left: 0, cap: 0.4, size: 5, feedLeadBp: 3, jumpMinLeft: 120, onlySide: "UP", added: "2026-10-28", idea: "wider cap: Binance 3+ bps above Chainlink, UP 40c or less, 120s+ left. Replay 25-27 Oct 15m n=158, 38% won, +$270 (+$1.71/trade, positive 25, 26, 27 Oct); 5m n=794, 31% won, +$1,596 (+$2.01/trade, 25 and 28 Oct negative). Three times the trades of feed3-up20 at a third of the per-trade edge" },
   { name: "cross3x2-up20", left: 0, cap: 0.2, size: 5, crossLeadBp: 3, crossLeadCoins: 2, jumpMinLeft: 120, onlySide: "UP", added: "2026-10-28", idea: "cross-coin spillover: at least 2 OTHER 5m coins have Binance 3+ bps above Chainlink (over their usual gaps) within 3 s, and UP here asks 20c or less, 120s+ left; this coin's own feed is not consulted. Replay 25-27 Oct (1s books, 6 coins) n=452, 22% won, +$1,484 (+$3.28/trade) vs -$0.79/trade for the same entry without it; with this coin's own lead under 1 bp still n=393, +$2.90/trade, so the Chainlink overshoot is market-wide, not per coin. Same regime as the feed rules: 25 Oct -$52, 26 Oct +$704, 27 Oct +$869, 28 Oct 00h -$37" },
   { name: "cross3x2-up40", left: 0, cap: 0.4, size: 5, crossLeadBp: 3, crossLeadCoins: 2, jumpMinLeft: 120, onlySide: "UP", added: "2026-10-28", idea: "cross3x2-up20 with a 40c cap: replay n=916, 31% won, +$1,375 (+$1.50/trade) vs -$0.46/trade without; the only cheap-UP entry that was not negative on 25 Oct (+$10 on 111)" },
+  { name: "binburst4-up20", left: 0, cap: 0.2, size: 5, binMoveBp: 4, binMoveSec: 2, jumpMinLeft: 120, onlySide: "UP", added: "2026-10-28", idea: "Binance alone: its price rose 4+ bps within 2 s and UP still asks 20c or less, 120s+ left; no Chainlink, no rolling median, so no warm-up after a restart. Replay 25-27 Oct (1s books, 6 coins) n=177, 29% won, +$1,495 (+$8.45/trade); 3 bps n=394, +$4.58; 6 bps n=54, 46%, +$16.33. In 174 of the 177 Chainlink had not yet moved half as much, so it is the same overshoot the feed rules catch, seen from the Binance side. Same regime: 25 Oct 0 of 20 (-$106), 26-27 Oct +$1,622, 28 Oct 00h 0 of 4. DOWN mirrors lose (-$0.4..-$1.7/trade)" },
+  { name: "binburst6-up40", left: 0, cap: 0.4, size: 5, binMoveBp: 6, binMoveSec: 2, jumpMinLeft: 120, onlySide: "UP", added: "2026-10-28", idea: "a big Binance burst (6+ bps in 2 s) with a 40c cap: replay n=104, 47% won, +$975 (+$9.38/trade); 25 Oct 1 of 9 (-$34), 26 Oct +$639, 27 Oct +$397" },
   { name: "feed3-up20-tight", left: 0, cap: 0.2, size: 5, feedLeadBp: 3, jumpMinLeft: 120, onlySide: "UP", maxOverround: 1.02, added: "2026-10-28", idea: "feed3-up20 only when the book is tight (UP ask + DOWN ask <= 1.02). Replay 25-27 Oct (1s books, 6 coins): n=249, 25% won, +$1,459 (+$5.86/trade) vs +$4.30 for feed3-up20 on 371; with a 6c+ overround only +$3.12. Buying any cheap side (<=30c, 120s+ left) is -$0.41/trade in a tight book and -$0.95 in a wide one (4,399 vs 2,787 windows): a wide spread is the makers' uncertainty premium, never a bargain" },
   { name: "fav99-last30", left: 0, cap: 0.995, size: 5, favAt: 0.99, favFrom: 270, strictCap: true, added: "2026-10-28", idea: "the only cell of a 10,635-window calibration table (14 days, BTC/ETH/SOL 5m history, 1-min price path, 5 minute marks x 10 price buckets) that beats its fee: the favourite at 99c or more with 30 s or less left wins 99.9% (n=5,642) for +$0.016 a trade, 0.3% on the stake. Every other price level at every minute mark is priced to within +-$0.10 a trade of fair; 97-99c at 1 min left +$0.05 (n=1,371) and nothing else above noise" },
   { name: "preopen3-down60", left: 0, cap: 0.6, size: 5, preOpenBp: 3, onlySide: "DOWN", added: "2026-10-28", idea: "momentum from before the open: Chainlink fell 3+ bps in the 60 s before the window opened, buy DOWN at 60c or less in the first minute. History (Binance 1-min candles, 14 days, 6 coins' 1-s books 25-27 Oct): a 3 bps pre-open fall -> DOWN wins 55-62% at the first ask, +$0.5 a trade on 343-385 cases; the UP mirror only +$0.07..0.24. Pre-open taker-buy share predicts the close just as well (57% UP after a 65%+ buy minute, 42% after a 35%- one, 24,000 windows) but the book prices that flow: -$0.1..-$0.5 a trade" },
@@ -294,6 +299,26 @@ function noteFeed(prefix: string, row: BookRow) {
     const lead = feedLead(prefix, row);
     if (lead != null) latestLead.set(prefix, { t: row.t, lead });
   }
+}
+/** The last ~15 s of Binance prints per series, for the binMoveBp rule. */
+const binTails = new Map<string, { t: number; p: number }[]>();
+function noteBin(prefix: string, row: BookRow) {
+  if (row.binance == null) return;
+  let a = binTails.get(prefix);
+  if (!a) binTails.set(prefix, (a = []));
+  if (a.length && a[a.length - 1].t === row.t) return;
+  a.push({ t: row.t, p: row.binance });
+  while (a.length && a[0].t < row.t - 15_000) a.shift();
+}
+/** Binance move in bps over the last `sec` seconds (vs the first print at or before t - sec); null when the tail does not reach back that far. */
+function binMove(prefix: string, t: number, sec: number): number | null {
+  const a = binTails.get(prefix);
+  if (!a || a.length < 2) return null;
+  const now = a[a.length - 1];
+  let ref: { t: number; p: number } | null = null;
+  for (const x of a) if (x.t <= t - sec * 1000) ref = x;
+  if (!ref || !ref.p) return null;
+  return ((now.p - ref.p) / ref.p) * 1e4;
 }
 /** Each 5m series' latest Binance lead (bps over its usual gap), for the crossLeadBp rule. */
 const latestLead = new Map<string, { t: number; lead: number }>();
@@ -432,6 +457,7 @@ export class PaperTrader {
     noteFeed(this.prefix, row);
     noteRange(this.prefix, row, this.windowSec);
     noteTail(this.prefix, row);
+    noteBin(this.prefix, row);
     this.prevAsk = { window: row.window, up: row.upAsk, down: row.downAsk };
     if (row.upAsk != null && row.downAsk != null) latestLean.set(this.prefix, { window: row.window, up: row.upAsk > row.downAsk ? true : row.downAsk > row.upAsk ? false : null });
     if (this.resting && (this.resting.window !== row.window || row.left < 1)) this.resting = null;
@@ -448,6 +474,7 @@ export class PaperTrader {
     if (this.v.arbSum != null) return this.considerArb(row);
     if (this.v.prevDir != null) return this.considerPrev(row);
     if (this.v.feedLeadBp != null || this.v.crossLeadBp != null) return this.considerFeed(row);
+    if (this.v.binMoveBp != null) return this.considerBinMove(row);
     if (this.v.preOpenBp != null) return this.considerPreOpen(row);
     if (this.v.jumpBp != null || this.v.bounceBp != null || this.v.fadeBp != null) return this.considerJump(row);
     if (this.v.first != null) return this.considerEarly(row);
@@ -768,6 +795,24 @@ export class PaperTrader {
    * that usual gap, Chainlink tends to follow within seconds, and a side still asking 20c has not priced it. Buys the side Binance
    * leads toward at or under `cap`, respects onlySide, one trade per window, only with `jumpMinLeft` seconds left (default 120).
    */
+  /** The `binMoveBp` rule (28 Oct 2026, round 10): a Binance burst over the last 2 s, no oracle comparison at all. */
+  private considerBinMove(row: BookRow) {
+    const { cap: CAP, size: SIZE } = this.v;
+    if (row.left < (this.v.jumpMinLeft ?? 120)) return;
+    if (this.open.some((t) => t.window === row.window)) return;
+    const sec = this.v.binMoveSec ?? 2;
+    const move = binMove(this.prefix, row.t, sec);
+    if (move == null) return;
+    const need = this.v.binMoveBp ?? 0;
+    const upBest = row.upAsks[0]?.[0] ?? null;
+    const downBest = row.downAsks[0]?.[0] ?? null;
+    let pick: { up: boolean; ask: number } | null = null;
+    if (this.v.onlySide !== "DOWN" && move >= need && upBest != null && upBest <= CAP && upBest >= 0.03) pick = { up: true, ask: upBest };
+    else if (this.v.onlySide !== "UP" && -move >= need && downBest != null && downBest <= CAP && downBest >= 0.03) pick = { up: false, ask: downBest };
+    if (!pick || !this.leadOk(row, pick.up)) return;
+    this.take(row, pick, CAP, SIZE, `Binance ${move >= 0 ? "+" : ""}${move.toFixed(1)} bps in ${sec} s`);
+  }
+
   private considerFeed(row: BookRow) {
     const { cap: CAP, size: SIZE } = this.v;
     if (row.left < (this.v.jumpMinLeft ?? 120)) return;
