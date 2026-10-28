@@ -83,6 +83,8 @@ export type Variant = {
   feedCbBp?: number;
   /** Book-depth veto for the feed rules: skip when the shares offered on our side's three best asks outnumber the shares bid on its three best bids (more sellers than buyers of that side). */
   bidOverAsk?: boolean;
+  /** Feed-lead rule: book the paper fill as if we paid this many cents over the ask (every ask level shifted up, still capped at `cap`), to price a slipped FAK order. */
+  payUpC?: number;
   /** Cross-coin rule: at least `crossLeadCoins` OTHER 5m series (default 1) have Binance ahead of Chainlink by this many bps (over their usual gaps) within the last 3 s; buy that side here at or under `cap`. With `feedLeadBp` too, this series' own lead must also pass. */
   crossLeadBp?: number;
   crossLeadCoins?: number;
@@ -236,6 +238,7 @@ export const VARIANTS: Variant[] = [
   { name: "cldrop3-up20", left: 0, cap: 0.2, size: 5, fadeBp: 3, jumpSec: 10, jumpMinLeft: 120, onlySide: "UP", added: "2026-10-28", idea: "CONTROL for the feed rules: Chainlink fell 3+ bps in 10 s and UP asks 20c or less, 120s+ left, buy UP whatever Binance says. Replay 25-27 Oct n=1,818, 16% won, -$1,363 (-$0.75/trade); the same drops with Binance 3+ bps above Chainlink: n=361, 21% won, +$1,549 (+$4.29/trade). If this control loses live while feed3-up20 wins, the Binance disagreement is the edge; if both lose, it was never there" },
   { name: "feed3-up20-far", left: 0, cap: 0.2, size: 5, feedLeadBp: 3, jumpMinLeft: 300, onlySide: "UP", added: "2026-10-28", idea: "15-minute markets only in practice (needs 300s+ left): Binance 3+ bps above Chainlink, UP 20c or less. Replay 25-27 Oct BTC+ETH 15m n=60, 25% won, +$179 (+$2.99/trade); the same entry without the lead -$0.56/trade; 26 Oct carried it (+$125), 25 Oct 0 of 5" },
   { name: "feed3-up40", left: 0, cap: 0.4, size: 5, feedLeadBp: 3, jumpMinLeft: 120, onlySide: "UP", added: "2026-10-28", idea: "wider cap: Binance 3+ bps above Chainlink, UP 40c or less, 120s+ left. Replay 25-27 Oct 15m n=158, 38% won, +$270 (+$1.71/trade, positive 25, 26, 27 Oct); 5m n=794, 31% won, +$1,596 (+$2.01/trade, 25 and 28 Oct negative). Three times the trades of feed3-up20 at a third of the per-trade edge" },
+  { name: "feed3-up40-pay3", left: 0, cap: 0.4, size: 5, feedLeadBp: 3, jumpMinLeft: 120, onlySide: "UP", payUpC: 3, added: "2026-10-29", idea: "feed3-up40 priced as if every fill paid 3c over the ask (levels shifted +3c, still capped at 40c): what a slipped FAK order would cost. Round 28 (25-28 Oct 1-s books, 6 coins, feed3 triggers): one second after a 20-40c trigger the UP ask has already risen in 55% of cases (median +1c, p75 +5c, p90 +11c), after 2 s in 63%; at trigger 20-40c makes +$0.57/trade (n=560), filled one second late at up to ask+3c +$0.39 (n=351), two seconds late +$0.28, five seconds late -$0.24: the 20-40c edge lives about 2 s. Cheap 3-20c triggers keep +$4.87/trade one second late and +$3.81 five seconds late. Round 27 found 27 real 20-40c orders rejected because the ask was gone, so this rule measures what paying up to catch them costs" },
   { name: "feed3-up60-min20", left: 0, cap: 0.6, minAsk: 0.2, size: 5, feedLeadBp: 3, jumpMinLeft: 120, onlySide: "UP", added: "2026-10-29", idea: "does the feed edge survive above 40c? Same trigger as feed3-up40-min20 with the cap at 60c. Round 27: on 28 Oct paper the 30-40c bucket won 48.4% against a 36.6% fee break-even (n=95), the widest margin of any bucket, and cross3x2-up40 showed 41.4% vs 36.6% there; nothing has measured 40-60c yet. Same round, fill audit of the real $2 test (75 fills vs 109 paper fires on the same windows): every fill was at the paper ask (0 of 75 paid more), outcomes agreed 75 of 75, but 34 paper fires got no real fill and 30 of those 34 were 20-40c tickets, the bucket that wins" },
   { name: "feed3-up40-min20", left: 0, cap: 0.4, minAsk: 0.2, size: 5, feedLeadBp: 3, jumpMinLeft: 120, onlySide: "UP", added: "2026-10-29", idea: "feed3-up40 without the cheap tickets: UP ask 20-40c only. Round 26 (28 Oct paper, 8 coins, no hype, by ask bucket vs the fee-adjusted break-even): 3-10c 11.8% won vs 6.9% needed (+$4.00/trade on paper), 10-20c 17.9% vs 15.9% (+$0.54), 20-30c 37.0% vs 26.3% (+$1.99), 30-40c 48.4% vs 36.6% (+$1.49); the real $2 test on the same day disagrees on the cheap end: 3-10c fills 1 of 18 won (-$13.3), 10-20c 4 of 24 (-$0.5), 20-30c 5 of 9 (+$16.2), 30-40c 7 of 9 (+$19.6). Paper assumes a fill at the best ask; the real cheap tickets are the ones the book lets us have, so this rule keeps only the 20-40c half where real and paper agree" },
   { name: "feed3-up40-eu", left: 0, cap: 0.4, size: 5, feedLeadBp: 3, jumpMinLeft: 120, onlySide: "UP", hoursUtc: [6, 12], added: "2026-10-29", idea: "feed3-up40 only 15:00-21:00 KST (06-12 UTC, the European morning). Round 25: the first full day of paper fills for the feed family (28 Oct, 8 coins, hype excluded) earned everything in that block: feed3-up40 15-18 KST 28 trades 54% +$12.75/trade, 18-21 KST 30 trades 33% +$6.40, against 21-24 KST 99 trades 28% +$0.24, 12-15 KST 21 trades 14% -$2.62, 03-06 KST 0/8; feed3-up20 and feed3-up20-x6 show the same shape (15-18 KST 50% won, 21-24 KST 9-11%). One day only, so this is the live check of the hour effect, not a verdict; the replay of 25-27 Oct (round 16) also had the burst/feed rules red 12-18 KST and green elsewhere, which disagrees on the 15-18 hour" },
@@ -969,7 +972,16 @@ export class PaperTrader {
     const sign = (x: number) => `${x >= 0 ? "+" : ""}${x.toFixed(1)}`;
     const crossNote = cross == null ? "" : `${crossLeads(this.prefix, row.t, cross, pick.up)} other coin(s) with Binance ${pick.up ? "+" : "-"}${cross}+ bps vs Chainlink`;
     const ownNote = !own ? "" : cb == null ? `Binance ${sign(lead)} bps vs Chainlink (over its usual gap${this.v.feedLeadPct != null ? `, bar ${need.toFixed(1)}` : ""})` : `Binance ${sign(lead)} and Coinbase ${sign(cb)} bps vs Chainlink (over their usual gaps)`;
-    this.take(row, pick, CAP, SIZE, [ownNote, crossNote].filter(Boolean).join("; "));
+    let takeRow = row;
+    let takeNote = [ownNote, crossNote].filter(Boolean).join("; ");
+    if (this.v.payUpC != null) {
+      const c = this.v.payUpC / 100;
+      const shift = (levels: [number, number][]): [number, number][] => levels.map(([p, q]) => [Math.round((p + c) * 100) / 100, q]);
+      takeRow = { ...row, upAsks: shift(row.upAsks), downAsks: shift(row.downAsks) };
+      pick = { up: pick.up, ask: Math.round((pick.ask + c) * 100) / 100 };
+      takeNote += `; paid +${this.v.payUpC}c over the ask`;
+    }
+    this.take(takeRow, pick, CAP, SIZE, takeNote);
   }
 
   /**
