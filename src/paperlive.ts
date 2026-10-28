@@ -84,6 +84,8 @@ export type Variant = {
   minAsk?: number;
   /** Feed-lead rule: the lead must have held at or above `feedLeadBp` continuously for this many seconds before entering (a sustained lead, not a one-print blip). */
   leadHoldSec?: number;
+  /** Flat-window rule (from an X post enrique shared, 28 Oct 2026): at about 2 minutes left (115-125 s), if Chainlink is within this many bps of the open, buy the CHEAPER side if it asks between `minAsk` and `cap`; one trade per window. */
+  flatBp?: number;
   /** For `first` rules: only trade when the mean Chainlink range (high minus low, bps) of the previous 6 windows is at least this. */
   prevRangeBp?: number;
   /** Maker test: at the trigger, instead of taking the ask, rest a bid this far under it (no fee); it fills if the ask later comes down to it, else the window is skipped. */
@@ -226,6 +228,7 @@ export const VARIANTS: Variant[] = [
   { name: "feed3-up20-x6", left: 0, cap: 0.2, size: 30, feedLeadBp: 3, jumpMinLeft: 120, onlySide: "UP", added: "2026-10-28", idea: "sizing test: feed3-up20 at $30: replay fills $28.1 of $30 at the best ask on average, return +79% of stake vs +86% at $5 (+$8,253 on 371 entries). Depth at the trigger does not predict the outcome (feed3 +$3.2 to +$5.2/trade in every ask-depth tercile), and the UP spread filter equals the overround filter already in feed3-up20-tight" },
   { name: "feed2-mid-last60", left: 0, cap: 0.8, minAsk: 0.6, size: 5, feedLeadBp: 2, jumpMinLeft: 5, feedMaxLeft: 60, added: "2026-10-28", idea: "the feed lead late and on the leading side at 60-80c: in the last 60 s, buy the side Binance leads Chainlink by 2+ bps (over its usual gap) when that side asks 60-80c. Replay 25-27 Oct (1s books, 6 coins): UP n=112, 78% won, +$55 (+$0.49/trade; control 60%, -$0.81), DOWN n=124, 76%, +$41 (+$0.33; control 67%, -$0.40); lead 3+ bps UP +$0.99/trade on 45. Small, but positive on 25, 26 and 27 Oct on both sides, unlike the cheap-UP rules. Buying the side Binance leads AGAINST loses -$2.1 to -$2.3/trade (40-42% won at 60-80c), so the lead is real information late in the window; on the 80-95c favourite the same lead only lifts the win rate from 81% to 92% (+$0.21/trade)" },
   { name: "feed3-up20-hold2", left: 0, cap: 0.2, size: 5, feedLeadBp: 3, leadHoldSec: 2, jumpMinLeft: 120, onlySide: "UP", added: "2026-10-28", idea: "feed3-up20 only after the lead has held 3+ bps for 2 s straight (a sustained divergence, not a one-print blip). Replay 25-27 Oct (1s books, 6 coins): n=110, 28% won, +$870 (+$7.91/trade) vs +$4.30 at the first print; 1 s hold n=239 +$4.91. Judged after the fact, first-print entries whose lead lasted under 1 s made +$1.99/trade (212), 1-3 s +$5.96 (144), 3-10 s +$20.81 (15). The ask rose within 3 s of the first print in 224 of 371 cases and entering 3 s late drops the edge to +$2.99, which also explains part of the live-vs-replay gap. Same regime: 25 Oct 0 of 8" },
+  { name: "flat1-cheap40", left: 0, cap: 0.4, minAsk: 0.2, size: 5, flatBp: 1, added: "2026-10-28", idea: "from an X post enrique shared (28 Oct): at 2 minutes left the price is within $10 (about 1 bp) of the open yet one side already asks 20-40c; buy that side, claimed 44% won. Our 1-s books 25-27 Oct (6 coins) say no: n=209, 27% won, -$2.70/trade at $14 (BTC within $10: n=93, 30%, -$1.31); but the 14-day history (price = last trade + 1c, move from Binance 1-min candles, so the ask is understated) says n=826, 36% won, +$2.53/trade, BTC +$3.91 on 266. This rule settles it live" },
   { name: "feed3-up20-tight", left: 0, cap: 0.2, size: 5, feedLeadBp: 3, jumpMinLeft: 120, onlySide: "UP", maxOverround: 1.02, added: "2026-10-28", idea: "feed3-up20 only when the book is tight (UP ask + DOWN ask <= 1.02). Replay 25-27 Oct (1s books, 6 coins): n=249, 25% won, +$1,459 (+$5.86/trade) vs +$4.30 for feed3-up20 on 371; with a 6c+ overround only +$3.12. Buying any cheap side (<=30c, 120s+ left) is -$0.41/trade in a tight book and -$0.95 in a wide one (4,399 vs 2,787 windows): a wide spread is the makers' uncertainty premium, never a bargain" },
   { name: "fav99-last30", left: 0, cap: 0.995, size: 5, favAt: 0.99, favFrom: 270, strictCap: true, added: "2026-10-28", idea: "the only cell of a 10,635-window calibration table (14 days, BTC/ETH/SOL 5m history, 1-min price path, 5 minute marks x 10 price buckets) that beats its fee: the favourite at 99c or more with 30 s or less left wins 99.9% (n=5,642) for +$0.016 a trade, 0.3% on the stake. Every other price level at every minute mark is priced to within +-$0.10 a trade of fair; 97-99c at 1 min left +$0.05 (n=1,371) and nothing else above noise" },
   { name: "preopen3-down60", left: 0, cap: 0.6, size: 5, preOpenBp: 3, onlySide: "DOWN", added: "2026-10-28", idea: "momentum from before the open: Chainlink fell 3+ bps in the 60 s before the window opened, buy DOWN at 60c or less in the first minute. History (Binance 1-min candles, 14 days, 6 coins' 1-s books 25-27 Oct): a 3 bps pre-open fall -> DOWN wins 55-62% at the first ask, +$0.5 a trade on 343-385 cases; the UP mirror only +$0.07..0.24. Pre-open taker-buy share predicts the close just as well (57% UP after a 65%+ buy minute, 42% after a 35%- one, 24,000 windows) but the book prices that flow: -$0.1..-$0.5 a trade" },
@@ -486,6 +489,7 @@ export class PaperTrader {
     if (this.v.prevDir != null) return this.considerPrev(row);
     if (this.v.feedLeadBp != null || this.v.crossLeadBp != null) return this.considerFeed(row);
     if (this.v.binMoveBp != null) return this.considerBinMove(row);
+    if (this.v.flatBp != null) return this.considerFlat(row);
     if (this.v.preOpenBp != null) return this.considerPreOpen(row);
     if (this.v.jumpBp != null || this.v.bounceBp != null || this.v.fadeBp != null) return this.considerJump(row);
     if (this.v.first != null) return this.considerEarly(row);
@@ -822,6 +826,25 @@ export class PaperTrader {
     else if (this.v.onlySide !== "UP" && -move >= need && downBest != null && downBest <= CAP && downBest >= 0.03) pick = { up: false, ask: downBest };
     if (!pick || !this.leadOk(row, pick.up)) return;
     this.take(row, pick, CAP, SIZE, `Binance ${move >= 0 ? "+" : ""}${move.toFixed(1)} bps in ${sec} s`);
+  }
+
+  /** The `flatBp` rule: the claim that a market still 20-40c on one side while the price has not moved is mispriced. */
+  private considerFlat(row: BookRow) {
+    const { cap: CAP, size: SIZE } = this.v;
+    if (row.left > 125 || row.left < 115 || row.chainlink == null || !row.open) return;
+    if (this.open.some((t) => t.window === row.window)) return;
+    const move = ((row.chainlink - row.open) / row.open) * 1e4;
+    if (Math.abs(move) > (this.v.flatBp ?? 1)) return;
+    const upBest = row.upAsks[0]?.[0] ?? null;
+    const downBest = row.downAsks[0]?.[0] ?? null;
+    if (upBest == null || downBest == null) return;
+    const up = upBest <= downBest;
+    const ask = up ? upBest : downBest;
+    if (ask < (this.v.minAsk ?? 0.2) || ask > CAP) return;
+    if (this.v.onlySide === "UP" && !up) return;
+    if (this.v.onlySide === "DOWN" && up) return;
+    if (!this.leadOk(row, up)) return;
+    this.take(row, { up, ask }, CAP, SIZE, `price ${move >= 0 ? "+" : ""}${move.toFixed(1)} bps from the open at 2 min, cheap side ${(ask * 100).toFixed(0)}c`);
   }
 
   private considerFeed(row: BookRow) {
