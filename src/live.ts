@@ -1301,7 +1301,6 @@ export class LiveTrader {
     this.halts = loadJson<Record<string, Halt>>(`${this.prefix}live-halts.json`, this.halts);
     // "manual" (bets placed by hand on the dashboard) counts in the totals and the day table, but has no rule row and stays out of the
     // trade log (enrique, 27 Oct: "clear the manual stuff ... from the strats and trades").
-    const active = new Set(c.variants.map((v) => v.variant));
     // Totals count every real trade since statsSince, rules since removed from live.json included (enrique, 24 Oct: "completely legit, not dependent on strategies activated").
     const shown = { trades: 0, won: 0, net: 0, today: 0 };
     for (const v of this.byVariant.values()) { shown.trades += v.trades; shown.won += v.won; shown.net += v.net; }
@@ -1344,7 +1343,8 @@ export class LiveTrader {
       lastSwap: this.lastSwap,
       lastRedeem: this.lastRedeem,
       // The log shows orders that actually bought shares (or dry runs); skipped and unfilled orders only count in the day table.
-      recent: this.recent.filter((t) => t.ok && (t.shares > 0 || t.dry) && active.has(t.variant)).slice(0, 20),
+      // Rules since taken off live.json stay in the log (enrique, 28 Oct: "no need to hide ... rules that are not live anymore"); hand bets stay out of it (27 Oct).
+      recent: this.recent.filter((t) => t.ok && (t.shares > 0 || t.dry) && t.variant !== "manual").slice(0, 20),
       days: this.days(),
       history: this.balanceHistory(),
     };
