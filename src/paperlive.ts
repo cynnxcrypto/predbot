@@ -79,6 +79,8 @@ export type Variant = {
   feedLeadPct?: number;
   /** Freshness gate for the feed rules: the lead must have risen (toward the side bought) by at least this many bps since the row 1-3 s earlier, i.e. Binance just jumped; a lead that crept up over several seconds is skipped. */
   leadJumpBp?: number;
+  /** Coinbase witness with its own bar: the Coinbase lead (bps over its usual gap) must agree by at least this much (feedBoth uses the Binance bar for both). */
+  feedCbBp?: number;
   /** Cross-coin rule: at least `crossLeadCoins` OTHER 5m series (default 1) have Binance ahead of Chainlink by this many bps (over their usual gaps) within the last 3 s; buy that side here at or under `cap`. With `feedLeadBp` too, this series' own lead must also pass. */
   crossLeadBp?: number;
   crossLeadCoins?: number;
@@ -232,6 +234,7 @@ export const VARIANTS: Variant[] = [
   { name: "cldrop3-up20", left: 0, cap: 0.2, size: 5, fadeBp: 3, jumpSec: 10, jumpMinLeft: 120, onlySide: "UP", added: "2026-10-28", idea: "CONTROL for the feed rules: Chainlink fell 3+ bps in 10 s and UP asks 20c or less, 120s+ left, buy UP whatever Binance says. Replay 25-27 Oct n=1,818, 16% won, -$1,363 (-$0.75/trade); the same drops with Binance 3+ bps above Chainlink: n=361, 21% won, +$1,549 (+$4.29/trade). If this control loses live while feed3-up20 wins, the Binance disagreement is the edge; if both lose, it was never there" },
   { name: "feed3-up20-far", left: 0, cap: 0.2, size: 5, feedLeadBp: 3, jumpMinLeft: 300, onlySide: "UP", added: "2026-10-28", idea: "15-minute markets only in practice (needs 300s+ left): Binance 3+ bps above Chainlink, UP 20c or less. Replay 25-27 Oct BTC+ETH 15m n=60, 25% won, +$179 (+$2.99/trade); the same entry without the lead -$0.56/trade; 26 Oct carried it (+$125), 25 Oct 0 of 5" },
   { name: "feed3-up40", left: 0, cap: 0.4, size: 5, feedLeadBp: 3, jumpMinLeft: 120, onlySide: "UP", added: "2026-10-28", idea: "wider cap: Binance 3+ bps above Chainlink, UP 40c or less, 120s+ left. Replay 25-27 Oct 15m n=158, 38% won, +$270 (+$1.71/trade, positive 25, 26, 27 Oct); 5m n=794, 31% won, +$1,596 (+$2.01/trade, 25 and 28 Oct negative). Three times the trades of feed3-up20 at a third of the per-trade edge" },
+  { name: "feed3-up20-cb1", left: 0, cap: 0.2, size: 5, feedLeadBp: 3, feedCbBp: 1, jumpMinLeft: 120, onlySide: "UP", added: "2026-10-28", idea: "Coinbase as a second witness with a low bar: Binance 3+ bps ahead of Chainlink and Coinbase at least 1 bp ahead too, UP ask 20c or less, 120s+ left. Round 23 replay 25-28 Oct (1-s books, 6 coins): feed3 triggers split by the Coinbase lead at that moment: Coinbase 3+ bps n=103, 27.2% won, +$7.37/trade; 1-3 bps n=171, 22.8%, +$4.24; under 1 bp n=124, 13.7%, +$0.55 (SOL and XRP negative there). So Coinbase under 1 bp is a veto: the rule keeps n=274 at +$5.42/trade (+$1,484) vs +$3.90 unfiltered. Coinbase alone as the trigger is weaker (n=497, 17.9%, +$1.70) and the BNB 'coinbase' feed is suspect (cb3 on BNB 5.6% won, 72 trades)" },
   { name: "feed3-up20-jump2", left: 0, cap: 0.2, size: 5, feedLeadBp: 3, leadJumpBp: 2, jumpMinLeft: 120, onlySide: "UP", added: "2026-10-28", idea: "fresh-jump filter on feed3-up20: Binance 3+ bps ahead of Chainlink AND the lead rose 2+ bps in the last 1-3 s (Binance just printed the move). Round 22 replay 25-28 Oct (1-s books, 6 coins): the lead is a one-row spike (Chainlink catches up within the next second in every case, half-life 0 s), so only being first matters; triggers where the lead jumped 2+ bps into the bar: n=278, 24.1% won, +$5.27/trade (+$1,466); triggers where it crept up over several seconds: n=120, 14.2%, +$0.72/trade (+$86). The UP ask was flat over the previous 5 s at 397 of 398 triggers, so an ask-not-moved filter adds nothing" },
   { name: "feedp98-up20", left: 0, cap: 0.2, size: 5, feedLeadBp: 2, feedLeadPct: 98, jumpMinLeft: 120, onlySide: "UP", added: "2026-10-28", idea: "adaptive lead bar: Binance must be ahead of Chainlink by more than the 98th percentile of that coin's own |lead| over the last ~10 min (floor 2 bps), UP ask 20c or less, 120s+ left. Round 21: coins differ in feed noise (p99 of |lead|: BTC 2.8 bps, BNB 3.5, ETH 4.3, SOL 4.4, XRP 4.5, DOGE 5.0), so a fixed 3 bps is a 1-in-100 event on BTC but routine on DOGE; replay 25-28 Oct (1-s books, 6 coins): fixed 3 bps n=398, 21.1%, +$3.90/trade (+$1,553); this p98 bar n=350, 22.3%, +$5.04/trade (+$1,763), better on DOGE (+$11.6/tr vs +$5.4) and SOL (+$6.6 vs +$2.8), worse on BTC (+$2.5 vs +$6.2). p99/p99.5 bars trade less for less (+$1,032/+$847). Both lose on 25 Oct" },
   { name: "feed7-up30", left: 0, cap: 0.3, size: 5, feedLeadBp: 7, jumpMinLeft: 120, onlySide: "UP", added: "2026-10-28", idea: "big-lead only: Binance 7+ bps above Chainlink (over the usual gap), UP ask 30c or less, 120s+ left. Round 20 replay 25-28 Oct (1-s books, 6 coins, 600-row rolling gap median): the win rate climbs with the size of the lead at UP<=20c: 3-4 bps 20% (+$3.4/trade, n=375), 4-5 bps 28% (+$6.3, n=178), 5-7 bps 34% (+$9.2, n=119), 7-10 bps 58% (+$20.9, n=31); at a 30c cap the 7+ cell is n=46, 52% won, +$14.4/trade (+$663), 40c cap n=57, 51%, +$11.9. Caveat: 25 Oct was red at every lead size (-$11 here) and the gains are 26-27 Oct; fires maybe 15 times a day across coins. Same round: Chainlink prints every second on our books (about 20 prints per 15 s), so there is no print bunching to fade; following prints are 51-52% same-direction and both fading and following the first print after a 15-60 s quiet spell lose -$0.1..-$1.7/trade" },
@@ -917,8 +920,10 @@ export class PaperTrader {
     const own = this.v.feedLeadBp != null || this.v.feedLeadPct != null;
     const lead = own ? feedLead(this.prefix, row) : 0;
     if (lead == null) return;
-    const cb = this.v.feedBoth ? feedLead(this.prefix, row, "coinbase") : null;
-    if (this.v.feedBoth && cb == null) return;
+    const wantCb = this.v.feedBoth || this.v.feedCbBp != null;
+    const cb = wantCb ? feedLead(this.prefix, row, "coinbase") : null;
+    if (wantCb && cb == null) return;
+    const cbNeed = this.v.feedCbBp ?? this.v.feedLeadBp ?? 0;
     let need = this.v.feedLeadBp ?? 0;
     if (this.v.feedLeadPct != null) {
       const q = feedLeadQuantile(this.prefix, this.v.feedLeadPct);
@@ -946,8 +951,8 @@ export class PaperTrader {
       jumpOk = (up: boolean) => ref != null && (up ? lead - ref.lead : ref.lead - lead) >= need2;
     }
     const held = (up: boolean) => hold <= 0 || (up ? this.leadSince.up : this.leadSince.down) != null && row.t - (up ? this.leadSince.up! : this.leadSince.down!) >= hold;
-    if (this.v.onlySide !== "DOWN" && lead >= need && (cb == null || cb >= need) && crossOk(true) && held(true) && jumpOk(true) && upBest != null && upBest <= CAP && upBest >= floor) pick = { up: true, ask: upBest };
-    else if (this.v.onlySide !== "UP" && -lead >= need && (cb == null || -cb >= need) && crossOk(false) && held(false) && jumpOk(false) && downBest != null && downBest <= CAP && downBest >= floor) pick = { up: false, ask: downBest };
+    if (this.v.onlySide !== "DOWN" && lead >= need && (cb == null || cb >= cbNeed) && crossOk(true) && held(true) && jumpOk(true) && upBest != null && upBest <= CAP && upBest >= floor) pick = { up: true, ask: upBest };
+    else if (this.v.onlySide !== "UP" && -lead >= need && (cb == null || -cb >= cbNeed) && crossOk(false) && held(false) && jumpOk(false) && downBest != null && downBest <= CAP && downBest >= floor) pick = { up: false, ask: downBest };
     if (!pick || !this.leadOk(row, pick.up)) return;
     const sign = (x: number) => `${x >= 0 ? "+" : ""}${x.toFixed(1)}`;
     const crossNote = cross == null ? "" : `${crossLeads(this.prefix, row.t, cross, pick.up)} other coin(s) with Binance ${pick.up ? "+" : "-"}${cross}+ bps vs Chainlink`;
