@@ -102,6 +102,9 @@ export type Variant = {
   flatBp?: number;
   /** Edge-follow gate: trade only while the last `trailN` closed paper trades of variant `trailOf` (default: this variant), across every series, net more than `trailMin` dollars (default 0). Point trailOf at an ungated sibling, or the gated rule can never restart once it stops. */
   trailN?: number;
+  /** Self-halt: after this many straight losses on this series, skip trades for `selfHaltMin` minutes (default 30), like the real haltAfterLosses stop; measures what the stop costs. */
+  selfHaltLosses?: number;
+  selfHaltMin?: number;
   /** Only run on series whose window is at least this long in seconds (900 = the 15-minute markets only). */
   minWindowSec?: number;
   trailOf?: string;
@@ -240,6 +243,7 @@ export const VARIANTS: Variant[] = [
   { name: "cldrop3-up20", left: 0, cap: 0.2, size: 5, fadeBp: 3, jumpSec: 10, jumpMinLeft: 120, onlySide: "UP", added: "2026-10-28", idea: "CONTROL for the feed rules: Chainlink fell 3+ bps in 10 s and UP asks 20c or less, 120s+ left, buy UP whatever Binance says. Replay 25-27 Oct n=1,818, 16% won, -$1,363 (-$0.75/trade); the same drops with Binance 3+ bps above Chainlink: n=361, 21% won, +$1,549 (+$4.29/trade). If this control loses live while feed3-up20 wins, the Binance disagreement is the edge; if both lose, it was never there" },
   { name: "feed3-up20-far", left: 0, cap: 0.2, size: 5, feedLeadBp: 3, jumpMinLeft: 300, onlySide: "UP", added: "2026-10-28", idea: "15-minute markets only in practice (needs 300s+ left): Binance 3+ bps above Chainlink, UP 20c or less. Replay 25-27 Oct BTC+ETH 15m n=60, 25% won, +$179 (+$2.99/trade); the same entry without the lead -$0.56/trade; 26 Oct carried it (+$125), 25 Oct 0 of 5" },
   { name: "feed3-up40", left: 0, cap: 0.4, size: 5, feedLeadBp: 3, jumpMinLeft: 120, onlySide: "UP", added: "2026-10-28", idea: "wider cap: Binance 3+ bps above Chainlink, UP 40c or less, 120s+ left. Replay 25-27 Oct 15m n=158, 38% won, +$270 (+$1.71/trade, positive 25, 26, 27 Oct); 5m n=794, 31% won, +$1,596 (+$2.01/trade, 25 and 28 Oct negative). Three times the trades of feed3-up20 at a third of the per-trade edge" },
+  { name: "feed3-up40-halt6", left: 0, cap: 0.4, size: 5, feedLeadBp: 3, jumpMinLeft: 120, onlySide: "UP", selfHaltLosses: 6, selfHaltMin: 30, added: "2026-10-29", idea: "feed3-up40 with the real test's stop built in: after 6 straight losses on a coin it sits out 30 minutes. Round 31 (paper feed3-up40, 10 series, 526 closed trades since 25 Oct): the next trade after 6 or more straight losses won 43.3% (+$2.84/trade, n=30) against 33.5% (+$1.70) overall, after 3 or more 35.5% (+$1.74): a losing run says nothing about the next trade. Every coin has had a run of 6-9 losses (a 36% rule runs 6 losses in a row about once per 100 trades per coin), and sitting out 30 minutes after each run would have skipped 24 trades that won 45.8% and made +$90; 15 min skips +$65, 60 min +$89, 120 min +$50. The real test halted on 5 of 6 coins in its first 9 hours this way. This rule shows live what the stop costs next to plain feed3-up40" },
   { name: "feed3-up20-early", left: 0, cap: 0.2, size: 5, feedLeadBp: 3, jumpMinLeft: 240, onlySide: "UP", added: "2026-10-29", idea: "feed3-up20 only in the first minute of the window (240+ s left). Round 30 (25-28 Oct 1-s books, 6 coins, feed3 triggers at UP <=20c, n=398): by seconds left at the trigger, 270-300 s 61.1% won +$14.61/trade (n=18), 240-270 s 33.3% +$12.77 (33), 180-210 s 23.7% +$4.25 (97), 210-240 s 19.3% +$2.45 (88), 150-180 s 16.5% +$2.42 (79), 120-150 s 10.8% +$0.59 (83): a cheap UP ask with Binance already leading early in the window has four minutes for Chainlink to follow, late in the window it is a lottery ticket. The 20-40c tickets show no time-left pattern (+$0.7 to +$2.3/trade in every band but one). Also by coin at 20-40c: BTC 46.3% +$2.78 (54), SOL 41.5% +$1.60 (142), BNB 41.7% +$1.86 (36), ETH 35.0% +$0.73 (137), DOGE 32.5% +$0.54 (117), XRP 30.3% -$0.05 (185)" },
   { name: "feed3-up40-near", left: 0, cap: 0.4, minAsk: 0.2, size: 5, feedLeadBp: 3, jumpMinLeft: 120, onlySide: "UP", clOpenBp: [1, 4], added: "2026-10-29", idea: "feed3-up40-min20 only when Chainlink is 1-4 bps under the open, i.e. UP is losing by a hair while Binance already leads. Round 29 (25-28 Oct 1-s books, 6 coins, feed3 triggers at UP 20-40c, n=671): Binance is already back above the open at 656 of 671 triggers while Chainlink is still below it at 649, so the trigger is Binance having crossed the open first. By how far Chainlink trails the open: 1-4 bps 46.8% won, +$2.26/trade (n=141); 4-10 bps 35.5%, +$0.88 (310); over 10 bps 31.2%, +$0.65 (157); within 1 bp 25.5%, -$1.50 (51, the ask is near 40c for a coin flip). Fee break-even at 30c is 30%. On the cheap <=20c tickets the split adds nothing (+$3.5 to +$4.1/trade everywhere)" },
   { name: "feed3-up40-pay3", left: 0, cap: 0.4, size: 5, feedLeadBp: 3, jumpMinLeft: 120, onlySide: "UP", payUpC: 3, added: "2026-10-29", idea: "feed3-up40 priced as if every fill paid 3c over the ask (levels shifted +3c, still capped at 40c): what a slipped FAK order would cost. Round 28 (25-28 Oct 1-s books, 6 coins, feed3 triggers): one second after a 20-40c trigger the UP ask has already risen in 55% of cases (median +1c, p75 +5c, p90 +11c), after 2 s in 63%; at trigger 20-40c makes +$0.57/trade (n=560), filled one second late at up to ask+3c +$0.39 (n=351), two seconds late +$0.28, five seconds late -$0.24: the 20-40c edge lives about 2 s. Cheap 3-20c triggers keep +$4.87/trade one second late and +$3.81 five seconds late. Round 27 found 27 real 20-40c orders rejected because the ask was gone, so this rule measures what paying up to catch them costs" },
@@ -505,6 +509,9 @@ export class PaperTrader {
   }
 
   /** Per-UTC-day totals, newest first in status(). */
+  /** selfHaltLosses: current loss streak on this series and the time the self-halt lifts. */
+  private lossStreak = 0;
+  private haltUntil = 0;
   private byDay = new Map<string, { day: string; trades: number; won: number; net: number; first: number }>();
 
   private count(t: PaperTrade) {
@@ -641,6 +648,13 @@ export class PaperTrader {
     if (trade.otherShares != null) trade.won = trade.pnl > 0;
     this.open = this.open.filter((t) => t !== trade);
     this.count(trade);
+    if (this.v.selfHaltLosses != null) {
+      this.lossStreak = trade.won ? 0 : this.lossStreak + 1;
+      if (this.lossStreak >= this.v.selfHaltLosses) {
+        this.haltUntil = (window + this.windowSec) * 1000 + (this.v.selfHaltMin ?? 30) * 60000;
+        this.lossStreak = 0;
+      }
+    }
     append(this.kind, trade, window * 1000);
     const totals = loadJson<PaperTrade[]>(this.totalsFile, []);
     totals.push(trade);
@@ -713,6 +727,7 @@ export class PaperTrader {
       const s = trailSum(this.v.trailOf ?? this.v.name, this.v.trailN);
       if (s == null || s <= (this.v.trailMin ?? 0)) return false;
     }
+    if (this.v.selfHaltLosses != null && row.t < this.haltUntil) return false;
     if (this.v.maxOverround != null) {
       const ua = row.upAsks[0]?.[0];
       const da = row.downAsks[0]?.[0];
