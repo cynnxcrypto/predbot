@@ -82,6 +82,8 @@ export type Variant = {
   /** Feed-lead rule, late variant: only with at most this many seconds left (pair with a small jumpMinLeft), and `minAsk`: the side's ask must be at least this (a favourite or mid price instead of the cheap side). */
   feedMaxLeft?: number;
   minAsk?: number;
+  /** Feed-lead rule: the lead must have held at or above `feedLeadBp` continuously for this many seconds before entering (a sustained lead, not a one-print blip). */
+  leadHoldSec?: number;
   /** For `first` rules: only trade when the mean Chainlink range (high minus low, bps) of the previous 6 windows is at least this. */
   prevRangeBp?: number;
   /** Maker test: at the trigger, instead of taking the ask, rest a bid this far under it (no fee); it fills if the ask later comes down to it, else the window is skipped. */
@@ -223,6 +225,7 @@ export const VARIANTS: Variant[] = [
   { name: "binburst4-up20-x6", left: 0, cap: 0.2, size: 30, binMoveBp: 4, binMoveSec: 2, jumpMinLeft: 120, onlySide: "UP", added: "2026-10-28", idea: "sizing test: binburst4-up20 at $30 instead of $5, filled through the book levels up to the 20c cap as the paper trader does. At the trigger the best UP ask held a median $70 (25th percentile $36-38; 1-s books 25-27 Oct, 6 coins), so replay fills $28.4 of the $30 on average and keeps the return (+152% of stake vs +169% at $5; +$7,628 on 177 entries). What replay cannot show is the ask reacting to a $30 taker; this rule measures it live" },
   { name: "feed3-up20-x6", left: 0, cap: 0.2, size: 30, feedLeadBp: 3, jumpMinLeft: 120, onlySide: "UP", added: "2026-10-28", idea: "sizing test: feed3-up20 at $30: replay fills $28.1 of $30 at the best ask on average, return +79% of stake vs +86% at $5 (+$8,253 on 371 entries). Depth at the trigger does not predict the outcome (feed3 +$3.2 to +$5.2/trade in every ask-depth tercile), and the UP spread filter equals the overround filter already in feed3-up20-tight" },
   { name: "feed2-mid-last60", left: 0, cap: 0.8, minAsk: 0.6, size: 5, feedLeadBp: 2, jumpMinLeft: 5, feedMaxLeft: 60, added: "2026-10-28", idea: "the feed lead late and on the leading side at 60-80c: in the last 60 s, buy the side Binance leads Chainlink by 2+ bps (over its usual gap) when that side asks 60-80c. Replay 25-27 Oct (1s books, 6 coins): UP n=112, 78% won, +$55 (+$0.49/trade; control 60%, -$0.81), DOWN n=124, 76%, +$41 (+$0.33; control 67%, -$0.40); lead 3+ bps UP +$0.99/trade on 45. Small, but positive on 25, 26 and 27 Oct on both sides, unlike the cheap-UP rules. Buying the side Binance leads AGAINST loses -$2.1 to -$2.3/trade (40-42% won at 60-80c), so the lead is real information late in the window; on the 80-95c favourite the same lead only lifts the win rate from 81% to 92% (+$0.21/trade)" },
+  { name: "feed3-up20-hold2", left: 0, cap: 0.2, size: 5, feedLeadBp: 3, leadHoldSec: 2, jumpMinLeft: 120, onlySide: "UP", added: "2026-10-28", idea: "feed3-up20 only after the lead has held 3+ bps for 2 s straight (a sustained divergence, not a one-print blip). Replay 25-27 Oct (1s books, 6 coins): n=110, 28% won, +$870 (+$7.91/trade) vs +$4.30 at the first print; 1 s hold n=239 +$4.91. Judged after the fact, first-print entries whose lead lasted under 1 s made +$1.99/trade (212), 1-3 s +$5.96 (144), 3-10 s +$20.81 (15). The ask rose within 3 s of the first print in 224 of 371 cases and entering 3 s late drops the edge to +$2.99, which also explains part of the live-vs-replay gap. Same regime: 25 Oct 0 of 8" },
   { name: "feed3-up20-tight", left: 0, cap: 0.2, size: 5, feedLeadBp: 3, jumpMinLeft: 120, onlySide: "UP", maxOverround: 1.02, added: "2026-10-28", idea: "feed3-up20 only when the book is tight (UP ask + DOWN ask <= 1.02). Replay 25-27 Oct (1s books, 6 coins): n=249, 25% won, +$1,459 (+$5.86/trade) vs +$4.30 for feed3-up20 on 371; with a 6c+ overround only +$3.12. Buying any cheap side (<=30c, 120s+ left) is -$0.41/trade in a tight book and -$0.95 in a wide one (4,399 vs 2,787 windows): a wide spread is the makers' uncertainty premium, never a bargain" },
   { name: "fav99-last30", left: 0, cap: 0.995, size: 5, favAt: 0.99, favFrom: 270, strictCap: true, added: "2026-10-28", idea: "the only cell of a 10,635-window calibration table (14 days, BTC/ETH/SOL 5m history, 1-min price path, 5 minute marks x 10 price buckets) that beats its fee: the favourite at 99c or more with 30 s or less left wins 99.9% (n=5,642) for +$0.016 a trade, 0.3% on the stake. Every other price level at every minute mark is priced to within +-$0.10 a trade of fair; 97-99c at 1 min left +$0.05 (n=1,371) and nothing else above noise" },
   { name: "preopen3-down60", left: 0, cap: 0.6, size: 5, preOpenBp: 3, onlySide: "DOWN", added: "2026-10-28", idea: "momentum from before the open: Chainlink fell 3+ bps in the 60 s before the window opened, buy DOWN at 60c or less in the first minute. History (Binance 1-min candles, 14 days, 6 coins' 1-s books 25-27 Oct): a 3 bps pre-open fall -> DOWN wins 55-62% at the first ask, +$0.5 a trade on 343-385 cases; the UP mirror only +$0.07..0.24. Pre-open taker-buy share predicts the close just as well (57% UP after a 65%+ buy minute, 42% after a 35%- one, 24,000 windows) but the book prices that flow: -$0.1..-$0.5 a trade" },
@@ -453,6 +456,8 @@ export class PaperTrader {
   private history: { window: number; rows: { up: number | null; down: number | null }[] } = { window: 0, rows: [] };
   /** Windows where the favourite rule already saw its first hit (taken or filtered out); it never fires twice. */
   private favSeen = 0;
+  /** For leadHoldSec: when the lead first went past the threshold toward UP / DOWN in the current run (ms), or null. */
+  private leadSince: { up: number | null; down: number | null } = { up: null, down: null };
 
   consider(row: BookRow) {
     const { left: LEFT, cap: CAP, size: SIZE } = this.v;
@@ -837,8 +842,14 @@ export class PaperTrader {
     const downBest = row.downAsks[0]?.[0] ?? null;
     let pick: { up: boolean; ask: number } | null = null;
     const floor = this.v.minAsk ?? 0.03;
-    if (this.v.onlySide !== "DOWN" && lead >= need && (cb == null || cb >= need) && crossOk(true) && upBest != null && upBest <= CAP && upBest >= floor) pick = { up: true, ask: upBest };
-    else if (this.v.onlySide !== "UP" && -lead >= need && (cb == null || -cb >= need) && crossOk(false) && downBest != null && downBest <= CAP && downBest >= floor) pick = { up: false, ask: downBest };
+    const hold = (this.v.leadHoldSec ?? 0) * 1000;
+    if (own) {
+      this.leadSince.up = lead >= need ? (this.leadSince.up ?? row.t) : null;
+      this.leadSince.down = -lead >= need ? (this.leadSince.down ?? row.t) : null;
+    }
+    const held = (up: boolean) => hold <= 0 || (up ? this.leadSince.up : this.leadSince.down) != null && row.t - (up ? this.leadSince.up! : this.leadSince.down!) >= hold;
+    if (this.v.onlySide !== "DOWN" && lead >= need && (cb == null || cb >= need) && crossOk(true) && held(true) && upBest != null && upBest <= CAP && upBest >= floor) pick = { up: true, ask: upBest };
+    else if (this.v.onlySide !== "UP" && -lead >= need && (cb == null || -cb >= need) && crossOk(false) && held(false) && downBest != null && downBest <= CAP && downBest >= floor) pick = { up: false, ask: downBest };
     if (!pick || !this.leadOk(row, pick.up)) return;
     const sign = (x: number) => `${x >= 0 ? "+" : ""}${x.toFixed(1)}`;
     const crossNote = cross == null ? "" : `${crossLeads(this.prefix, row.t, cross, pick.up)} other coin(s) with Binance ${pick.up ? "+" : "-"}${cross}+ bps vs Chainlink`;
