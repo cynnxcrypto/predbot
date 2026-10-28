@@ -88,6 +88,8 @@ export type Variant = {
   flatBp?: number;
   /** Edge-follow gate: trade only while the last `trailN` closed paper trades of variant `trailOf` (default: this variant), across every series, net more than `trailMin` dollars (default 0). Point trailOf at an ungated sibling, or the gated rule can never restart once it stops. */
   trailN?: number;
+  /** Only run on series whose window is at least this long in seconds (900 = the 15-minute markets only). */
+  minWindowSec?: number;
   trailOf?: string;
   trailMin?: number;
   /** For `first` rules: only trade when the mean Chainlink range (high minus low, bps) of the previous 6 windows is at least this. */
@@ -237,6 +239,8 @@ export const VARIANTS: Variant[] = [
   { name: "flat1-cheap40-night", left: 0, cap: 0.4, minAsk: 0.2, size: 5, flatBp: 1, hoursUtc: [15, 21], added: "2026-10-28", idea: "flat1-cheap40 only 00:00-06:00 KST (US afternoon): 14-day history +$3.93/trade on 210 there vs +$0.85 on 224 in 12:00-18:00 KST; BTC is the best coin (+$3.91 on 266), DOGE the worst (+$0.30)" },
   { name: "flat1-cheap40", left: 0, cap: 0.4, minAsk: 0.2, size: 5, flatBp: 1, added: "2026-10-28", idea: "from an X post enrique shared (28 Oct): at 2 minutes left the price is within $10 (about 1 bp) of the open yet one side already asks 20-40c; buy that side, claimed 44% won. Our 1-s books 25-27 Oct (6 coins) say no: n=209, 27% won, -$2.70/trade at $14 (BTC within $10: n=93, 30%, -$1.31); but the 14-day history (price = last trade + 1c, move from Binance 1-min candles, so the ask is understated) says n=826, 36% won, +$2.53/trade, BTC +$3.91 on 266. This rule settles it live" },
   { name: "feed3-up20-tight", left: 0, cap: 0.2, size: 5, feedLeadBp: 3, jumpMinLeft: 120, onlySide: "UP", maxOverround: 1.02, added: "2026-10-28", idea: "feed3-up20 only when the book is tight (UP ask + DOWN ask <= 1.02). Replay 25-27 Oct (1s books, 6 coins): n=249, 25% won, +$1,459 (+$5.86/trade) vs +$4.30 for feed3-up20 on 371; with a 6c+ overround only +$3.12. Buying any cheap side (<=30c, 120s+ left) is -$0.41/trade in a tight book and -$0.95 in a wide one (4,399 vs 2,787 windows): a wide spread is the makers' uncertainty premium, never a bargain" },
+  { name: "fav95-up-only", left: 0, cap: 0.995, size: 5, favAt: 0.95, onlySide: "UP", minWindowSec: 900, added: "2026-10-28", idea: "BTC 15m favourite at 95c+ in the last 3 minutes, UP side only. 11-day history (1,002 BTC 15m windows, trade tape): the UP favourite at 95c+ seen 9-14 min in won 97.4% (n=421, +$0.023/trade), the DOWN favourite 95.5% (n=446, -$0.071/trade); mirror image: cheap DOWN tickets (<=5c, minutes 5-13) win 1-2% and lose $3.5-4.2 a trade, red 10 of 11 days (n=271-326), cheap UP tickets win 5-8% and break even. Not drift: 49.3% of windows closed UP. A floor-rate edge (about 0.5% of stake), run as the test of that asymmetry" },
+  { name: "fav95-down-only", left: 0, cap: 0.995, size: 5, favAt: 0.95, onlySide: "DOWN", minWindowSec: 900, added: "2026-10-28", idea: "control for fav95-up-only: the same rule on the DOWN favourite, which the 11-day BTC 15m history says wins 95.5% at 95c+ and loses -$0.071/trade" },
   { name: "fav99-last30", left: 0, cap: 0.995, size: 5, favAt: 0.99, favFrom: 270, strictCap: true, added: "2026-10-28", idea: "the only cell of a 10,635-window calibration table (14 days, BTC/ETH/SOL 5m history, 1-min price path, 5 minute marks x 10 price buckets) that beats its fee: the favourite at 99c or more with 30 s or less left wins 99.9% (n=5,642) for +$0.016 a trade, 0.3% on the stake. Every other price level at every minute mark is priced to within +-$0.10 a trade of fair; 97-99c at 1 min left +$0.05 (n=1,371) and nothing else above noise" },
   { name: "preopen3-down60", left: 0, cap: 0.6, size: 5, preOpenBp: 3, onlySide: "DOWN", added: "2026-10-28", idea: "momentum from before the open: Chainlink fell 3+ bps in the 60 s before the window opened, buy DOWN at 60c or less in the first minute. History (Binance 1-min candles, 14 days, 6 coins' 1-s books 25-27 Oct): a 3 bps pre-open fall -> DOWN wins 55-62% at the first ask, +$0.5 a trade on 343-385 cases; the UP mirror only +$0.07..0.24. Pre-open taker-buy share predicts the close just as well (57% UP after a 65%+ buy minute, 42% after a 35%- one, 24,000 windows) but the book prices that flow: -$0.1..-$0.5 a trade" },
   { name: "feed3-cheap20", left: 0, cap: 0.2, size: 5, feedLeadBp: 3, jumpMinLeft: 120, added: "2026-10-27", idea: "both sides: whichever side Binance leads by 3+ bps, at 20c or less: replay n=707, 18% won, +$1,421; the DOWN half alone lost -$265, so this mostly tests whether DOWN ever pays" },
@@ -662,6 +666,7 @@ export class PaperTrader {
       const r = prevRange(this.prefix, row.window, this.windowSec);
       if (r == null || r < this.v.prevRangeBp) return false;
     }
+    if (this.v.minWindowSec != null && this.windowSec < this.v.minWindowSec) return false;
     if (this.v.trailN != null) {
       const s = trailSum(this.v.trailOf ?? this.v.name, this.v.trailN);
       if (s == null || s <= (this.v.trailMin ?? 0)) return false;
@@ -1021,6 +1026,7 @@ export class PaperTrader {
     const up = upBest >= downBest;
     const ask = up ? upBest : downBest;
     if (ask < favAt - 1e-9) return;
+    if (this.v.onlySide && (up ? "UP" : "DOWN") !== this.v.onlySide) return;
     if (ask > CAP) {
       if (this.v.strictCap) this.favSeen = row.window;
       return;
