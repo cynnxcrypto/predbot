@@ -107,6 +107,8 @@ export type Variant = {
   flatBp?: number;
   /** Seconds-left window for the flatBp rule (default 115-125). */
   flatLeft?: [number, number];
+  /** Collapsed-favourite rule (round 40, 29 Oct 2026): inside `flatLeft`, buy a side whose ask reached at least `peakDrop[0]` earlier in this window and now asks at most `peakDrop[1]` (and at least `minAsk`). One trade per window. */
+  peakDrop?: [number, number];
   /** Edge-follow gate: trade only while the last `trailN` closed paper trades of variant `trailOf` (default: this variant), across every series, net more than `trailMin` dollars (default 0). Point trailOf at an ungated sibling, or the gated rule can never restart once it stops. */
   trailN?: number;
   /** Self-halt: after this many straight losses on this series, skip trades for `selfHaltMin` minutes (default 30), like the real haltAfterLosses stop; measures what the stop costs. */
@@ -264,6 +266,7 @@ export const VARIANTS: Variant[] = [
   { name: "feed3-up20-early", left: 0, cap: 0.2, size: 5, feedLeadBp: 3, jumpMinLeft: 240, onlySide: "UP", added: "2026-10-29", idea: "feed3-up20 only in the first minute of the window (240+ s left). Round 30 (25-28 Oct 1-s books, 6 coins, feed3 triggers at UP <=20c, n=398): by seconds left at the trigger, 270-300 s 61.1% won +$14.61/trade (n=18), 240-270 s 33.3% +$12.77 (33), 180-210 s 23.7% +$4.25 (97), 210-240 s 19.3% +$2.45 (88), 150-180 s 16.5% +$2.42 (79), 120-150 s 10.8% +$0.59 (83): a cheap UP ask with Binance already leading early in the window has four minutes for Chainlink to follow, late in the window it is a lottery ticket. The 20-40c tickets show no time-left pattern (+$0.7 to +$2.3/trade in every band but one). Also by coin at 20-40c: BTC 46.3% +$2.78 (54), SOL 41.5% +$1.60 (142), BNB 41.7% +$1.86 (36), ETH 35.0% +$0.73 (137), DOGE 32.5% +$0.54 (117), XRP 30.3% -$0.05 (185)" },
   { name: "feed3-up40-near", left: 0, cap: 0.4, minAsk: 0.2, size: 5, feedLeadBp: 3, jumpMinLeft: 120, onlySide: "UP", clOpenBp: [1, 4], added: "2026-10-29", idea: "feed3-up40-min20 only when Chainlink is 1-4 bps under the open, i.e. UP is losing by a hair while Binance already leads. Round 29 (25-28 Oct 1-s books, 6 coins, feed3 triggers at UP 20-40c, n=671): Binance is already back above the open at 656 of 671 triggers while Chainlink is still below it at 649, so the trigger is Binance having crossed the open first. By how far Chainlink trails the open: 1-4 bps 46.8% won, +$2.26/trade (n=141); 4-10 bps 35.5%, +$0.88 (310); over 10 bps 31.2%, +$0.65 (157); within 1 bp 25.5%, -$1.50 (51, the ask is near 40c for a coin flip). Fee break-even at 30c is 30%. On the cheap <=20c tickets the split adds nothing (+$3.5 to +$4.1/trade everywhere)" },
   { name: "feed3-up40-pay3", left: 0, cap: 0.4, size: 5, feedLeadBp: 3, jumpMinLeft: 120, onlySide: "UP", payUpC: 3, added: "2026-10-29", idea: "feed3-up40 priced as if every fill paid 3c over the ask (levels shifted +3c, still capped at 40c): what a slipped FAK order would cost. Round 28 (25-28 Oct 1-s books, 6 coins, feed3 triggers): one second after a 20-40c trigger the UP ask has already risen in 55% of cases (median +1c, p75 +5c, p90 +11c), after 2 s in 63%; at trigger 20-40c makes +$0.57/trade (n=560), filled one second late at up to ask+3c +$0.39 (n=351), two seconds late +$0.28, five seconds late -$0.24: the 20-40c edge lives about 2 s. Cheap 3-20c triggers keep +$4.87/trade one second late and +$3.81 five seconds late. Round 27 found 27 real 20-40c orders rejected because the ask was gone, so this rule measures what paying up to catch them costs" },
+  { name: "recover-up50", left: 0, cap: 0.5, minAsk: 0.3, size: 5, peakDrop: [0.8, 0.5], flatLeft: [55, 65], onlySide: "UP", added: "2026-10-29", idea: "collapsed favourite: at about one minute left, buy UP at 30-50c when UP had asked 80c or more earlier in the same window. Round 40 on the 14-day history (26,470 5m windows, 6 coins, 1-minute UP price samples, $HOME/an/collapse1.py): UP that peaked >=80c in minutes 1-3 and sits at 30-50c at minute 4 wins 44.6% against a 40% fee break-even, +$0.016 per $1 share (n=224); at 50-65c it is exactly fair (59.9%, +$0.000, n=282); the DOWN mirror loses (38.1%, -$0.042, n=223; 50-65c -$0.116) and the no-collapse control at 30-65c is fair (-$0.003, n=3,281). Thin and one-sided, so a probe. Same round, whale prints on the Polymarket tape are a no-go: windows with a $400+ print at minutes 2-4 resolve with the favourite 82-92% of the time but the print is at 90c, i.e. it follows the price; buying with the whale nets -$0.00 to -$0.12 per share in every size and side cell, and the tape is UP-token heavy (DOWN-favourite windows have almost no prints), so tape flow cannot be read for direction" },
   { name: "feed3-up60-mid", left: 0, cap: 0.6, minAsk: 0.4, size: 5, feedLeadBp: 3, jumpMinLeft: 120, onlySide: "UP", added: "2026-10-29", idea: "the feed trigger on the 40-60c UP tickets only, so it can run on real money next to feed3-up40 without ordering the same 20-40c ticket twice. Lab since 09:00 KST 28 Oct, feed3-up60-min20 by ask bucket (all coins, $5 paper): 40-50c 52.4% won +$0.59/trade (n=124), 50-60c 63.7% +$0.69 (n=135), 60c+ 79% +$1.42 (n=24), against 30% +$0.77 at 20-30c and 41% +$0.68 at 30-40c (n=109/94). Same money per trade as the cheap half with twice the win rate, so half the losing streaks: enrique 29 Oct 14:33 KST asked for rules that are not 30%-win lottery tickets" },
   { name: "feed3-up60-min20", left: 0, cap: 0.6, minAsk: 0.2, size: 5, feedLeadBp: 3, jumpMinLeft: 120, onlySide: "UP", added: "2026-10-29", idea: "does the feed edge survive above 40c? Same trigger as feed3-up40-min20 with the cap at 60c. Round 27: on 28 Oct paper the 30-40c bucket won 48.4% against a 36.6% fee break-even (n=95), the widest margin of any bucket, and cross3x2-up40 showed 41.4% vs 36.6% there; nothing has measured 40-60c yet. Same round, fill audit of the real $2 test (75 fills vs 109 paper fires on the same windows): every fill was at the paper ask (0 of 75 paid more), outcomes agreed 75 of 75, but 34 paper fires got no real fill and 30 of those 34 were 20-40c tickets, the bucket that wins" },
   { name: "feed3-up40-min20", left: 0, cap: 0.4, minAsk: 0.2, size: 5, feedLeadBp: 3, jumpMinLeft: 120, onlySide: "UP", added: "2026-10-29", idea: "feed3-up40 without the cheap tickets: UP ask 20-40c only. Round 26 (28 Oct paper, 8 coins, no hype, by ask bucket vs the fee-adjusted break-even): 3-10c 11.8% won vs 6.9% needed (+$4.00/trade on paper), 10-20c 17.9% vs 15.9% (+$0.54), 20-30c 37.0% vs 26.3% (+$1.99), 30-40c 48.4% vs 36.6% (+$1.49); the real $2 test on the same day disagrees on the cheap end: 3-10c fills 1 of 18 won (-$13.3), 10-20c 4 of 24 (-$0.5), 20-30c 5 of 9 (+$16.2), 30-40c 7 of 9 (+$19.6). Paper assumes a fill at the best ask; the real cheap tickets are the ones the book lets us have, so this rule keeps only the 20-40c half where real and paper agree" },
@@ -483,6 +486,16 @@ function noteRange(prefix: string, row: BookRow, windowSec: number) {
   for (const w of m.keys()) if (w < row.window - 12 * windowSec) m.delete(w);
 }
 /** The last ~90 s of Chainlink prints per series, so a new window can read the move over the 60 s before its open (preOpenBp rule). */
+/** Per window, the highest ask each side has shown so far (for the peakDrop rule). */
+const peaks = new Map<string, { window: number; up: number; down: number }>();
+function notePeak(prefix: string, row: BookRow) {
+  const up = row.upAsks[0]?.[0] ?? row.upAsk ?? null;
+  const down = row.downAsks[0]?.[0] ?? row.downAsk ?? null;
+  const cur = peaks.get(prefix);
+  if (!cur || cur.window !== row.window) { peaks.set(prefix, { window: row.window, up: up ?? 0, down: down ?? 0 }); return; }
+  if (up != null) cur.up = Math.max(cur.up, up);
+  if (down != null) cur.down = Math.max(cur.down, down);
+}
 const tails = new Map<string, { t: number; p: number }[]>();
 function noteTail(prefix: string, row: BookRow) {
   if (row.chainlink == null) return;
@@ -600,6 +613,7 @@ export class PaperTrader {
     noteFeed(this.prefix, row);
     noteRange(this.prefix, row, this.windowSec);
     noteTail(this.prefix, row);
+    notePeak(this.prefix, row);
     noteBin(this.prefix, row);
     noteBasis(this.prefix, row);
     this.prevAsk = { window: row.window, up: row.upAsk, down: row.downAsk };
@@ -622,6 +636,7 @@ export class PaperTrader {
     if (this.v.basisBp != null) return this.considerBasis(row);
     if (this.v.roundBp != null) return this.considerRound(row);
     if (this.v.flatBp != null) return this.considerFlat(row);
+    if (this.v.peakDrop != null) return this.considerPeak(row);
     if (this.v.preOpenBp != null) return this.considerPreOpen(row);
     if (this.v.jumpBp != null || this.v.bounceBp != null || this.v.fadeBp != null) return this.considerJump(row);
     if (this.v.first != null) return this.considerEarly(row);
@@ -1038,6 +1053,27 @@ export class PaperTrader {
     if (this.v.onlySide === "DOWN" && up) return;
     if (!this.leadOk(row, up)) return;
     this.take(row, { up, ask }, CAP, SIZE, `price ${move >= 0 ? "+" : ""}${move.toFixed(1)} bps from the open at ${Math.round((fl0 + fl1) / 120)} min, cheap side ${(ask * 100).toFixed(0)}c`);
+  }
+
+  private considerPeak(row: BookRow) {
+    const { cap: CAP, size: SIZE } = this.v;
+    const [fl0, fl1] = this.v.flatLeft ?? [55, 65];
+    const [peakMin, nowMax] = this.v.peakDrop ?? [0.8, 0.5];
+    if (row.left > fl1 || row.left < fl0) return;
+    if (this.open.some((t) => t.window === row.window)) return;
+    const pk = peaks.get(this.prefix);
+    if (!pk || pk.window !== row.window) return;
+    const upBest = row.upAsks[0]?.[0] ?? null;
+    const downBest = row.downAsks[0]?.[0] ?? null;
+    const cands: { up: boolean; ask: number; peak: number }[] = [];
+    if (upBest != null && this.v.onlySide !== "DOWN" && pk.up >= peakMin && upBest <= nowMax) cands.push({ up: true, ask: upBest, peak: pk.up });
+    if (downBest != null && this.v.onlySide !== "UP" && pk.down >= peakMin && downBest <= nowMax) cands.push({ up: false, ask: downBest, peak: pk.down });
+    for (const c of cands) {
+      if (c.ask < (this.v.minAsk ?? 0.3) || c.ask > CAP) continue;
+      if (!this.leadOk(row, c.up)) continue;
+      this.take(row, { up: c.up, ask: c.ask }, CAP, SIZE, `${c.up ? "UP" : "DOWN"} was ${(c.peak * 100).toFixed(0)}c earlier this window, now ${(c.ask * 100).toFixed(0)}c with ${row.left}s left`);
+      return;
+    }
   }
 
   private considerFeed(row: BookRow) {
