@@ -2,7 +2,7 @@ import type { Symbol } from "../config.js";
 import { Feed } from "./socket.js";
 
 /** The three price feeds for one coin. */
-export type FeedSet = { chainlink: Feed; binance: Feed; coinbase: Feed };
+export type FeedSet = { chainlink: Feed; binance: Feed; coinbase: Feed; futures: Feed };
 
 const sets = new Map<Symbol, FeedSet>();
 
@@ -31,6 +31,15 @@ function make(symbol: Symbol): FeedSet {
       onText: (text, push) => {
         const row = JSON.parse(text) as { e?: string; T?: number; p?: string };
         if (row.e === "trade" && row.T && row.p) push(row.T, Number(row.p));
+      },
+    }),
+    /** Binance USDT-margined perpetual <coin>USDT trades: the leveraged crowd, for the futures-minus-spot basis. */
+    futures: new Feed({
+      name: `futures${tag}`,
+      url: `wss://fstream.binance.com/ws/${symbol}usdt@aggTrade`,
+      onText: (text, push) => {
+        const row = JSON.parse(text) as { e?: string; T?: number; p?: string };
+        if (row.e === "aggTrade" && row.T && row.p) push(row.T, Number(row.p));
       },
     }),
     /** Coinbase <coin>-USD ticker: a second, independent spot print. */
@@ -72,7 +81,7 @@ export function feedsFor(symbol: Symbol): FeedSet {
 export const { chainlink, binance, coinbase } = feedsFor("btc");
 /** Every feed created so far. */
 export function allFeeds(): Feed[] {
-  return [...sets.values()].flatMap((s) => [s.chainlink, s.binance, s.coinbase]);
+  return [...sets.values()].flatMap((s) => [s.chainlink, s.binance, s.coinbase, s.futures]);
 }
 /** Kept for older callers: the BTC feeds. */
 export const feeds = [chainlink, binance, coinbase];

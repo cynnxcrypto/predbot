@@ -93,6 +93,9 @@ export type Variant = {
   /** Binance burst rule: the Binance price moved at least this many bps over the last `binMoveSec` seconds (default 2); buy that side at or under `cap`, one trade per window, only with `jumpMinLeft` seconds left (default 120). No Chainlink, no median, no warm-up. */
   binMoveBp?: number;
   binMoveSec?: number;
+  /** Binance perpetual basis (futures minus spot, bps) moved this much over the last basisSec seconds: up means buy UP, down means buy DOWN. */
+  basisBp?: number;
+  basisSec?: number;
   /** Feed-lead rule, late variant: only with at most this many seconds left (pair with a small jumpMinLeft), and `minAsk`: the side's ask must be at least this (a favourite or mid price instead of the cheap side). */
   feedMaxLeft?: number;
   minAsk?: number;
@@ -245,6 +248,7 @@ export const VARIANTS: Variant[] = [
   { name: "cldrop3-up20", left: 0, cap: 0.2, size: 5, fadeBp: 3, jumpSec: 10, jumpMinLeft: 120, onlySide: "UP", added: "2026-10-28", idea: "CONTROL for the feed rules: Chainlink fell 3+ bps in 10 s and UP asks 20c or less, 120s+ left, buy UP whatever Binance says. Replay 25-27 Oct n=1,818, 16% won, -$1,363 (-$0.75/trade); the same drops with Binance 3+ bps above Chainlink: n=361, 21% won, +$1,549 (+$4.29/trade). If this control loses live while feed3-up20 wins, the Binance disagreement is the edge; if both lose, it was never there" },
   { name: "feed3-up20-far", left: 0, cap: 0.2, size: 5, feedLeadBp: 3, jumpMinLeft: 300, onlySide: "UP", added: "2026-10-28", idea: "15-minute markets only in practice (needs 300s+ left): Binance 3+ bps above Chainlink, UP 20c or less. Replay 25-27 Oct BTC+ETH 15m n=60, 25% won, +$179 (+$2.99/trade); the same entry without the lead -$0.56/trade; 26 Oct carried it (+$125), 25 Oct 0 of 5" },
   { name: "feed3-up40", left: 0, cap: 0.4, size: 5, feedLeadBp: 3, jumpMinLeft: 120, onlySide: "UP", added: "2026-10-28", idea: "wider cap: Binance 3+ bps above Chainlink, UP 40c or less, 120s+ left. Replay 25-27 Oct 15m n=158, 38% won, +$270 (+$1.71/trade, positive 25, 26, 27 Oct); 5m n=794, 31% won, +$1,596 (+$2.01/trade, 25 and 28 Oct negative). Three times the trades of feed3-up20 at a third of the per-trade edge" },
+  { name: "basis15-both60", left: 0, cap: 0.6, minAsk: 0.3, size: 5, basisBp: 1.5, basisSec: 180, jumpMinLeft: 240, added: "2026-10-29", idea: "a signal from a feed the bot did not have until now: the Binance perpetual. When the futures-minus-spot basis has widened 1.5+ bps over the last 3 minutes the leveraged crowd is leaning long, so buy UP in the first minute (ask 30-60c); when it has shrunk 1.5+ bps buy DOWN. Round 36 on the 14-day Binance 1-minute spot and perpetual candles against ~1,250 resolved 5m windows with a price path (BTC/ETH/SOL/XRP/DOGE): basis up 1.5+ bps over 3 min gives UP 61.5% (n=78) and +$0.032 per $1 share buying UP at the 60 s price after fee; basis down 1.5+ bps gives UP 37.8% (n=90) and +$0.051 per share buying DOWN; the 1-minute change and the basis level carry nothing (within $0.03 of zero on 1,250 windows). Small samples (~5% of windows), so this is a probe: the live rule needs the new futures feed, which the recorder adds this round" },
   { name: "binburst6-up40-min20", left: 0, cap: 0.4, minAsk: 0.2, size: 5, binMoveBp: 6, binMoveSec: 2, jumpMinLeft: 120, onlySide: "UP", added: "2026-10-29", idea: "binburst6-up40 without the cheap tickets (UP ask 20-40c only), the same cut that helped the feed rule in round 26. Thursday read 29 Oct: binburst6-up40 is the one green rule outside the feed family, +$201 on 97 paper trades since 27 Oct, 33% won, 7 of 9 coins positive. Round 35 on the 14-day Binance 1-minute candles (26,000 windows, 6 coins): taker flow does point the way (first-minute buy share >=65% gives UP 58-63%, sell share <=35% gives UP 36-39%, pre-window flow 54-55% / 43-45%) but it is fully priced by the 60 s mark: buying the flow side at the 60 s price nets -$0.0 to -$0.4/trade in every cell, with or without a 2x volume burst, so flow is not a signal we can trade; only the sub-5-second price burst is" },
   { name: "stress90-cheap40", left: 0, cap: 0.4, minAsk: 0.1, size: 5, flatBp: 9999, xchgDisagreePct: 90, added: "2026-10-29", idea: "at about 2 minutes left, buy the cheaper side at 10-40c only while Binance and Coinbase disagree (their spread is off its usual level by more than it is 90% of the time). Round 34 (25-28 Oct 1-s books, 5 coins, BNB out as its Coinbase feed is thin): the cheap side at 120 s left loses -$0.54/trade when the exchanges agree (n=1,492, 22.1% won) and makes +$0.29/trade when they disagree (n=157, 26.8%); the favourite is the other way round (-$0.24 calm, -$0.56 stressed). Which exchange sits higher does not pick the winner (buying the Binance side -$0.22/trade, the Coinbase side -$0.16 on 650-700 spikes), so the disagreement is a hint that cheap tickets are underpriced, not a direction. Small edge, about 6% of stake; this rule tests whether it holds" },
   { name: "feed3-both40-15m", left: 0, cap: 0.4, minAsk: 0.2, size: 5, feedLeadBp: 3, jumpMinLeft: 300, minWindowSec: 900, added: "2026-10-29", idea: "the feed rule on 15-minute markets only, both sides, ask 20-40c, at least 5 minutes left. Round 33 (25-28 Oct 1-s books, BTC and ETH 15m, about 265 windows each): UP with Binance 3+ bps over Chainlink (over its usual gap) at 20-40c won 48.8% +$2.97/trade on BTC (n=43) and 43.4% +$2.01 on ETH (99), best in the first five minutes of the window (BTC 52.2% +$3.24 on 23, ETH 46.9% +$2.10 on 64); unlike the 5m markets the DOWN side pays too on ETH 15m (39.0% won, +$1.13/trade, n=100; BTC 15m too few). Cheap <=20c tickets with under 300 s left lost 1 of 19 on 15m, and 40-60c is near flat (+$0.3 to +$0.5/trade). Lab since 09:00 KST 28 Oct on the 15m series: feed3-up40 +$158/67, cross3x2-up40 +$127/101, feed3-up40-min20 +$116/19" },
@@ -365,6 +369,29 @@ function noteFeed(prefix: string, row: BookRow) {
     const lead = feedLead(prefix, row);
     if (lead != null) latestLead.set(prefix, { t: row.t, lead });
   }
+}
+/** The last ~5 min of the Binance futures-minus-spot basis per series (bps), for the basisBp rule. */
+const basisTails = new Map<string, { t: number; b: number }[]>();
+function noteBasis(prefix: string, row: BookRow) {
+  if (row.futures == null || row.binance == null || !row.binance) return;
+  let a = basisTails.get(prefix);
+  if (!a) basisTails.set(prefix, (a = []));
+  if (a.length && a[a.length - 1].t === row.t) return;
+  a.push({ t: row.t, b: ((row.futures - row.binance) / row.binance) * 1e4 });
+  while (a.length && a[0].t < row.t - 300_000) a.shift();
+}
+/** Basis change in bps over the last `sec` seconds (vs the first print at or before t - sec); null when the tail does not reach back that far. */
+function basisMove(prefix: string, t: number, sec: number): number | null {
+  const a = basisTails.get(prefix);
+  if (!a || a.length < 2) return null;
+  const since = t - sec * 1000;
+  let ref: { t: number; b: number } | null = null;
+  for (const q of a) {
+    if (q.t <= since) ref = q;
+    else break;
+  }
+  if (!ref) return null;
+  return a[a.length - 1].b - ref.b;
 }
 /** The last ~15 s of Binance prints per series, for the binMoveBp rule. */
 const binTails = new Map<string, { t: number; p: number }[]>();
@@ -564,6 +591,7 @@ export class PaperTrader {
     noteRange(this.prefix, row, this.windowSec);
     noteTail(this.prefix, row);
     noteBin(this.prefix, row);
+    noteBasis(this.prefix, row);
     this.prevAsk = { window: row.window, up: row.upAsk, down: row.downAsk };
     if (row.upAsk != null && row.downAsk != null) latestLean.set(this.prefix, { window: row.window, up: row.upAsk > row.downAsk ? true : row.downAsk > row.upAsk ? false : null });
     if (this.resting && (this.resting.window !== row.window || row.left < 1)) this.resting = null;
@@ -581,6 +609,7 @@ export class PaperTrader {
     if (this.v.prevDir != null) return this.considerPrev(row);
     if (this.v.feedLeadBp != null || this.v.crossLeadBp != null) return this.considerFeed(row);
     if (this.v.binMoveBp != null) return this.considerBinMove(row);
+    if (this.v.basisBp != null) return this.considerBasis(row);
     if (this.v.flatBp != null) return this.considerFlat(row);
     if (this.v.preOpenBp != null) return this.considerPreOpen(row);
     if (this.v.jumpBp != null || this.v.bounceBp != null || this.v.fadeBp != null) return this.considerJump(row);
@@ -938,6 +967,25 @@ export class PaperTrader {
     else if (this.v.onlySide !== "UP" && -move >= need && downBest != null && downBest <= CAP && downBest >= 0.03) pick = { up: false, ask: downBest };
     if (!pick || !this.leadOk(row, pick.up)) return;
     this.take(row, pick, CAP, SIZE, `Binance ${move >= 0 ? "+" : ""}${move.toFixed(1)} bps in ${sec} s`);
+  }
+
+  /** The `basisBp` rule: the perpetual's premium over spot widened (or shrank) over the last minutes, so the leveraged crowd leans that way. */
+  private considerBasis(row: BookRow) {
+    const { cap: CAP, size: SIZE } = this.v;
+    if (row.left < (this.v.jumpMinLeft ?? 240)) return;
+    if (this.open.some((t) => t.window === row.window)) return;
+    const sec = this.v.basisSec ?? 180;
+    const move = basisMove(this.prefix, row.t, sec);
+    if (move == null) return;
+    const need = this.v.basisBp ?? 1.5;
+    const floor = this.v.minAsk ?? 0.03;
+    const upBest = row.upAsks[0]?.[0] ?? null;
+    const downBest = row.downAsks[0]?.[0] ?? null;
+    let pick: { up: boolean; ask: number } | null = null;
+    if (this.v.onlySide !== "DOWN" && move >= need && upBest != null && upBest <= CAP && upBest >= floor) pick = { up: true, ask: upBest };
+    else if (this.v.onlySide !== "UP" && -move >= need && downBest != null && downBest <= CAP && downBest >= floor) pick = { up: false, ask: downBest };
+    if (!pick) return;
+    this.take(row, pick, CAP, SIZE, `basis ${move >= 0 ? "+" : ""}${move.toFixed(2)} bps in ${sec} s`);
   }
 
   /** The `flatBp` rule: the claim that a market still 20-40c on one side while the price has not moved is mispriced. */

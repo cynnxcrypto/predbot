@@ -26,6 +26,8 @@ export type BookRow = {
   chainlink: number | null;
   binance: number | null;
   coinbase: number | null;
+  /** Binance perpetual last trade, for the futures-minus-spot basis; absent in rows written before 29 Oct 2026. */
+  futures?: number | null;
   open: number | null;
 };
 
@@ -200,7 +202,7 @@ export class Recorder {
     this.unwatch?.();
     if (this.timer) clearInterval(this.timer);
     if (this.balanceTimer) clearInterval(this.balanceTimer);
-    for (const feed of [this.f.chainlink, this.f.binance, this.f.coinbase]) feed.stop();
+    for (const feed of [this.f.chainlink, this.f.binance, this.f.coinbase, this.f.futures]) feed.stop();
     saveJson(`${this.prefix}pending.json`, this.pending);
   }
 
@@ -266,6 +268,7 @@ export class Recorder {
       chainlink: this.f.chainlink.last()?.price ?? null,
       binance: this.f.binance.last()?.price ?? null,
       coinbase: this.f.coinbase.last()?.price ?? null,
+      futures: this.f.futures?.last()?.price ?? null,
       open: this.f.chainlink.at(market.start * 1000)?.price ?? this.openFromDisk(market.start),
     };
     append(`${this.prefix}book`, row);
