@@ -122,6 +122,8 @@ export type Variant = {
   trailMin?: number;
   /** For `first` rules: only trade when the mean Chainlink range (high minus low, bps) of the previous 6 windows is at least this. */
   prevRangeBp?: number;
+  /** Calm gate (round 41, 29 Oct 2026): trade only when the mean Chainlink range of the previous 6 windows is BELOW the coin's typical range (CALM_RANGE, the upper tercile of 5m window ranges on the 25-28 Oct books) times this factor; 1 = skip the wildest third of the time. */
+  calmX?: number;
   /** Maker test: at the trigger, instead of taking the ask, rest a bid this far under it (no fee); it fills if the ask later comes down to it, else the window is skipped. */
   rest?: number;
   /** Only trade when the UTC hour is inside [from, to). */
@@ -253,6 +255,7 @@ export const VARIANTS: Variant[] = [
   { name: "feed5-up20", left: 0, cap: 0.2, size: 5, feedLeadBp: 5, jumpMinLeft: 120, onlySide: "UP", added: "2026-10-28", idea: "strict lead: Binance 5+ bps above Chainlink (over the usual gap), UP 20c or less, 120s+ left. In 331 of the 336 feed3 replay entries Chainlink had just fallen 2+ bps in 10 s while Binance had not followed, so the signal is a Chainlink overshoot that Binance disputes; the bigger the dispute the better: replay 25-27 Oct n=101, 39% won, +$1,258 (+$12.45/trade) but 25 Oct 0 of 11 (-$58)" },
   { name: "cldrop3-up20", left: 0, cap: 0.2, size: 5, fadeBp: 3, jumpSec: 10, jumpMinLeft: 120, onlySide: "UP", added: "2026-10-28", idea: "CONTROL for the feed rules: Chainlink fell 3+ bps in 10 s and UP asks 20c or less, 120s+ left, buy UP whatever Binance says. Replay 25-27 Oct n=1,818, 16% won, -$1,363 (-$0.75/trade); the same drops with Binance 3+ bps above Chainlink: n=361, 21% won, +$1,549 (+$4.29/trade). If this control loses live while feed3-up20 wins, the Binance disagreement is the edge; if both lose, it was never there" },
   { name: "feed3-up20-far", left: 0, cap: 0.2, size: 5, feedLeadBp: 3, jumpMinLeft: 300, onlySide: "UP", added: "2026-10-28", idea: "15-minute markets only in practice (needs 300s+ left): Binance 3+ bps above Chainlink, UP 20c or less. Replay 25-27 Oct BTC+ETH 15m n=60, 25% won, +$179 (+$2.99/trade); the same entry without the lead -$0.56/trade; 26 Oct carried it (+$125), 25 Oct 0 of 5" },
+  { name: "feed3-up40-calm", left: 0, cap: 0.4, size: 5, feedLeadBp: 3, jumpMinLeft: 120, onlySide: "UP", calmX: 1, added: "2026-10-29", idea: "feed3-up40 only when the market has NOT been wild: the mean Chainlink range of the previous 6 windows is under the coin's upper-tercile range (BTC 10 bps, BNB 11, ETH/DOGE/SOL 16, XRP 18). Round 41 on the 25-28 Oct 1-s books (feed trigger: Binance 3+ bps over its usual gap to Chainlink, UP ask 20-40c, 120+ s left, n=664, regime = mean range of the previous 3 windows): calm third +$1.13/trade (n=80, 37.5% won), middle third +$0.70 (201, 34.3%), wild third +$0.43 (383, 33.4%); the cheap <=20c tickets +$8.30 / +$7.79 / +$4.05 (30/49/157). The trigger fires mostly in wild windows, where the edge is thinnest, so this keeps the calmer two thirds. Same round, two clean no-gos on the 14-day history (~27,000 windows, 6 coins, 1-minute UP price samples, $HOME/an/vol1.py and mom1.py): favourites at 60-90c are priced the same in calm, mid and wild regimes (every cell -$0.00 to -$0.04 per share, i.e. the fee, at 60/120/180/240 s left), and the UP price path inside the window carries nothing: riding momentum (price up 0.1-0.35+ between minute marks) or fading it both net -$0.05 to +$0.02 per share in all 60+ cells" },
   { name: "feed3-up40", left: 0, cap: 0.4, size: 5, feedLeadBp: 3, jumpMinLeft: 120, onlySide: "UP", added: "2026-10-28", idea: "wider cap: Binance 3+ bps above Chainlink, UP 40c or less, 120s+ left. Replay 25-27 Oct 15m n=158, 38% won, +$270 (+$1.71/trade, positive 25, 26, 27 Oct); 5m n=794, 31% won, +$1,596 (+$2.01/trade, 25 and 28 Oct negative). Three times the trades of feed3-up20 at a third of the per-trade edge" },
   { name: "round3-up60", left: 0, cap: 0.6, minAsk: 0.3, size: 5, roundBp: 3, jumpMinLeft: 240, onlySide: "UP", added: "2026-10-29", idea: "round-number magnet: when the window opens within 3 bps BELOW a fine round price level (BTC $100, ETH $10, SOL $1, XRP 1c, DOGE 0.1c, BNB $5) buy UP in the first minute at 30-60c. Round 39 on the 14-day history (~1,480 resolved 5m windows with a price path, 6 coins, Binance 1-minute open as the open): just-below windows close UP 58.6% and buying UP at the 60 s price nets +$0.056 per $1 share after fee (n=116); on BTC alone 65.6% and +$0.117 (n=61). Just-above windows show nothing (50.6%, +$0.02 UP, -$0.04 DOWN, n=85), 3-8 bps either side nothing, and the coarse levels ($1,000 / $100) nothing (n=48-59, within $0.04 of zero). So it is one-directional and thin: a classic magnet story on a small sample, run live to see if it holds" },
   { name: "basis10-both60-2m", left: 0, cap: 0.6, minAsk: 0.3, size: 5, basisBp: 1.0, basisSec: 120, jumpMinLeft: 240, added: "2026-10-29", idea: "the perpetual-basis rule with a 2-minute look-back and a 1 bps bar, so it fires on about a third of windows instead of one in eight. Round 38 on the 14-day 1-minute spot and perpetual candles, now 6 coins (~1,400 resolved 5m windows with a price path): the basis change over the last 2 minutes picks the side at every bar: +1 bps or more gives UP 55.4% and +$0.055 per $1 share buying UP at the 60 s price after fee (n=202), -1 bps or more gives UP 43.3% and +$0.030 buying DOWN (n=201); at 1.5 bps +$0.043 / +$0.027 (n=84 / 94), at 2.5 bps +$0.186 / +$0.100 (n=18 / 26). The 5-minute change carries nothing (-$0.04..-$0.13 on both tails), so the signal is a short-lived lean of the leveraged crowd. Same round: the perp websocket never delivered on the Mac (23,000 rows, all empty) while Binance's REST side works there, so the futures feed now polls the REST price every 2 s whenever the stream is silent" },
@@ -383,6 +386,8 @@ function noteFeed(prefix: string, row: BookRow) {
 }
 /** Fine round price levels per coin for the roundBp rule (the grid the replay used). */
 const ROUND_GRID: Record<string, number> = { btc: 100, eth: 10, sol: 1, xrp: 0.01, doge: 0.001, bnb: 5, hype: 1 };
+/** Upper-tercile 5m window range (bps, Chainlink high minus low) per coin on the 25-28 Oct 2026 1-s books; above it a window counts as "wild". */
+const CALM_RANGE: Record<string, number> = { btc: 10.2, eth: 15.9, sol: 16.6, xrp: 18.1, doge: 16.2, bnb: 11.0, hype: 16 };
 /** The last ~5 min of the Binance futures-minus-spot basis per series (bps), for the basisBp rule. */
 const basisTails = new Map<string, { t: number; b: number }[]>();
 function noteBasis(prefix: string, row: BookRow) {
@@ -789,6 +794,11 @@ export class PaperTrader {
     if (this.v.prevRangeBp != null) {
       const r = prevRange(this.prefix, row.window, this.windowSec);
       if (r == null || r < this.v.prevRangeBp) return false;
+    }
+    if (this.v.calmX != null) {
+      const r = prevRange(this.prefix, row.window, this.windowSec);
+      const typical = CALM_RANGE[this.prefix.replace(/\d+m-$/, "") || "btc"] ?? 15;
+      if (r == null || r >= typical * this.v.calmX * (this.windowSec / 300)) return false;
     }
     if (this.v.minWindowSec != null && this.windowSec < this.v.minWindowSec) return false;
     if (this.v.trailN != null) {
