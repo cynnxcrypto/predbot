@@ -427,7 +427,7 @@ export class Recorder {
   }
 
   status() {
-    const feeds = [this.f.chainlink, this.f.binance, this.f.coinbase];
+    const feeds = [this.f.chainlink, this.f.binance, this.f.coinbase, this.f.futures];
     return {
       key: this.series.key,
       label: this.series.label,
