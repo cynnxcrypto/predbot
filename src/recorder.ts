@@ -211,7 +211,7 @@ export class Recorder {
     this.busy = true;
     try {
       const now = Math.floor(Date.now() / 1000);
-      const start = windowStart(now, this.series.windowSec);
+      const start = windowStart(now, this.series.windowSec, this.series.slugStyle);
       if (start !== this.markWindow) {
         if (this.markWindow) this.closeWindow(this.markWindow);
         this.markWindow = start;
@@ -436,7 +436,7 @@ export class Recorder {
       window: this.markWindow,
       // Chainlink prices of the current window as [seconds into the window, price], thinned to about 180 points, for the charts.
       prices: this.windowPrices(),
-      listed: Boolean(this.market && this.marketWindow === windowStart(undefined, this.series.windowSec)),
+      listed: Boolean(this.market && this.marketWindow === windowStart(undefined, this.series.windowSec, this.series.slugStyle)),
       snapshots: this.snapshots,
       pushedSnapshots: this.pushedSnapshots,
       bookFeed: bookFeed.status(),

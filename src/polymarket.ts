@@ -104,7 +104,7 @@ export type OfficialPrices = { open: number | null; close: number | null; raw: u
 export async function officialPrices(start: number, symbol = "BTC", windowSec = WINDOW_SEC): Promise<OfficialPrices> {
   const from = new Date(start * 1000).toISOString();
   const to = new Date((start + windowSec) * 1000).toISOString();
-  const variant = windowSec === 900 ? "fifteenminute" : windowSec === 3600 ? "onehour" : windowSec === 14400 ? "fourhour" : "fiveminute";
+  const variant = windowSec === 900 ? "fifteenminute" : windowSec === 3600 ? "onehour" : windowSec === 14400 ? "fourhour" : windowSec === 86400 ? "oneday" : "fiveminute";
   const body = await getJson<{ openPrice?: number | null; closePrice?: number | null }>(
     `https://polymarket.com/api/crypto/crypto-price?symbol=${symbol}&variant=${variant}&eventStartTime=${encodeURIComponent(from)}&endDate=${encodeURIComponent(to)}`,
     5000,

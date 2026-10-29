@@ -248,6 +248,7 @@ async function main() {
     }
   }
   for (const series of SERIES) {
+    if (series.slugStyle === "et-day") continue; // daily windows start at noon New York time, not on a unix multiple
     try {
       await pullWindows(series);
     } catch (error) {

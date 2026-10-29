@@ -17,8 +17,10 @@ export const CHECKPOINTS = [299, 270, 240, 210, 180, 150, 120, 90, 60, 45, 30, 2
 export type Symbol = "btc" | "eth" | "sol" | "xrp" | "doge" | "bnb" | "hype";
 /** One up/down market series the recorder follows. The first one keeps the original file names. */
 /** How an event slug is built from the series slug and the window start: "ts" = `<slug>-<unix start>` (5m/15m/4h),
- *  "et-hour" = `<slug>-<month>-<day>-<year>-<h(am|pm)>-et` in New York time (the hourly markets). */
-export type SlugStyle = "ts" | "et-hour";
+ *  "et-hour" = `<slug>-<month>-<day>-<year>-<h(am|pm)>-et` in New York time (the hourly markets),
+ *  "et-day" = `<slug>-on-<month>-<day>-<year>` named by the day the window ENDS; the daily markets run noon ET to noon ET
+ *  and settle on Binance 1-minute closes (polymarket.com, 29 Oct 2026). */
+export type SlugStyle = "ts" | "et-hour" | "et-day";
 export type Series = { key: string; label: string; slug: string; windowSec: number; symbol: Symbol; slugStyle?: SlugStyle };
 export const SERIES: Series[] = [
   { key: "", label: "BTC 5m", slug: SLUG, windowSec: WINDOW_SEC, symbol: "btc" },
@@ -50,9 +52,33 @@ export const SERIES: Series[] = [
   { key: "doge4h", label: "DOGE 4h", slug: "doge-updown-4h", windowSec: 14400, symbol: "doge" },
   { key: "bnb4h", label: "BNB 4h", slug: "bnb-updown-4h", windowSec: 14400, symbol: "bnb" },
   { key: "hype4h", label: "HYPE 4h", slug: "hype-updown-4h", windowSec: 14400, symbol: "hype" },
+  { key: "btc24h", label: "BTC 24h", slug: "bitcoin-up-or-down", windowSec: 86400, symbol: "btc", slugStyle: "et-day" },
+  { key: "eth24h", label: "ETH 24h", slug: "ethereum-up-or-down", windowSec: 86400, symbol: "eth", slugStyle: "et-day" },
+  { key: "sol24h", label: "SOL 24h", slug: "solana-up-or-down", windowSec: 86400, symbol: "sol", slugStyle: "et-day" },
+  { key: "xrp24h", label: "XRP 24h", slug: "xrp-up-or-down", windowSec: 86400, symbol: "xrp", slugStyle: "et-day" },
+  { key: "doge24h", label: "DOGE 24h", slug: "dogecoin-up-or-down", windowSec: 86400, symbol: "doge", slugStyle: "et-day" },
+  { key: "bnb24h", label: "BNB 24h", slug: "bnb-up-or-down", windowSec: 86400, symbol: "bnb", slugStyle: "et-day" },
+  { key: "hype24h", label: "HYPE 24h", slug: "hype-up-or-down", windowSec: 86400, symbol: "hype", slugStyle: "et-day" },
 ];
+const NY = (sec: number, opts: Intl.DateTimeFormatOptions) => new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", ...opts }).formatToParts(new Date(sec * 1000));
+const nyPart = (parts: Intl.DateTimeFormatPart[], t: string) => parts.find((p) => p.type === t)?.value ?? "";
+/** Unix seconds of noon New York time on the New York calendar day that contains `sec`. */
+export function noonEt(sec: number): number {
+  const d = NY(sec, { year: "numeric", month: "numeric", day: "numeric" });
+  const base = Date.UTC(Number(nyPart(d, "year")), Number(nyPart(d, "month")) - 1, Number(nyPart(d, "day"))) / 1000;
+  for (const off of [4, 5]) {
+    const t = base + (12 + off) * 3600; // EDT is UTC-4, EST UTC-5
+    const h = NY(t, { hour: "numeric", hour12: false });
+    if (Number(nyPart(h, "hour")) % 12 === 0) return t;
+  }
+  return base + 16 * 3600;
+}
 /** The event slug of one window of a series (see SlugStyle). */
 export function eventSlug(slug: string, start: number, style: SlugStyle = "ts"): string {
+  if (style === "et-day") {
+    const d = NY(start + 86400 - 3600, { month: "long", day: "numeric", year: "numeric" }); // the day the window ends, DST-safe
+    return `${slug}-on-${nyPart(d, "month").toLowerCase()}-${nyPart(d, "day")}-${nyPart(d, "year")}`;
+  }
   if (style !== "et-hour") return `${slug}-${start}`;
   const parts = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", month: "long", day: "numeric", year: "numeric", hour: "numeric", hour12: true }).formatToParts(new Date(start * 1000));
   const get = (t: string) => parts.find((p) => p.type === t)?.value ?? "";
@@ -72,7 +98,13 @@ export function checkpointsFor(windowSec: number): number[] {
 /** Local status page. Only listens on this computer. */
 export const STATUS_PORT = Number(process.env.STATUS_PORT ?? 8790);
 
-export const windowStart = (sec = Math.floor(Date.now() / 1000), windowSec = WINDOW_SEC) => Math.floor(sec / windowSec) * windowSec;
+export const windowStart = (sec = Math.floor(Date.now() / 1000), windowSec = WINDOW_SEC, style: SlugStyle = "ts") => {
+  if (style === "et-day") {
+    const noon = noonEt(sec);
+    return noon <= sec ? noon : noonEt(sec - 86400);
+  }
+  return Math.floor(sec / windowSec) * windowSec;
+};
 export const dayOf = (ms: number) => new Date(ms).toISOString().slice(0, 10);
 /** The calendar day in Korean time (UTC+9): what "today", the day table and the daily loss stop use. Data files stay on UTC days. */
 export const kstDay = (ms: number = Date.now()) => new Date(ms + 9 * 3600 * 1000).toISOString().slice(0, 10);
