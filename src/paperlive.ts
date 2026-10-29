@@ -96,6 +96,8 @@ export type Variant = {
   /** Binance perpetual basis (futures minus spot, bps) moved this much over the last basisSec seconds: up means buy UP, down means buy DOWN. */
   basisBp?: number;
   basisSec?: number;
+  /** Round-number magnet: the open sits this many bps or less below (UP) or above (DOWN) the nearest fine round price level. */
+  roundBp?: number;
   /** Feed-lead rule, late variant: only with at most this many seconds left (pair with a small jumpMinLeft), and `minAsk`: the side's ask must be at least this (a favourite or mid price instead of the cheap side). */
   feedMaxLeft?: number;
   minAsk?: number;
@@ -250,6 +252,7 @@ export const VARIANTS: Variant[] = [
   { name: "cldrop3-up20", left: 0, cap: 0.2, size: 5, fadeBp: 3, jumpSec: 10, jumpMinLeft: 120, onlySide: "UP", added: "2026-10-28", idea: "CONTROL for the feed rules: Chainlink fell 3+ bps in 10 s and UP asks 20c or less, 120s+ left, buy UP whatever Binance says. Replay 25-27 Oct n=1,818, 16% won, -$1,363 (-$0.75/trade); the same drops with Binance 3+ bps above Chainlink: n=361, 21% won, +$1,549 (+$4.29/trade). If this control loses live while feed3-up20 wins, the Binance disagreement is the edge; if both lose, it was never there" },
   { name: "feed3-up20-far", left: 0, cap: 0.2, size: 5, feedLeadBp: 3, jumpMinLeft: 300, onlySide: "UP", added: "2026-10-28", idea: "15-minute markets only in practice (needs 300s+ left): Binance 3+ bps above Chainlink, UP 20c or less. Replay 25-27 Oct BTC+ETH 15m n=60, 25% won, +$179 (+$2.99/trade); the same entry without the lead -$0.56/trade; 26 Oct carried it (+$125), 25 Oct 0 of 5" },
   { name: "feed3-up40", left: 0, cap: 0.4, size: 5, feedLeadBp: 3, jumpMinLeft: 120, onlySide: "UP", added: "2026-10-28", idea: "wider cap: Binance 3+ bps above Chainlink, UP 40c or less, 120s+ left. Replay 25-27 Oct 15m n=158, 38% won, +$270 (+$1.71/trade, positive 25, 26, 27 Oct); 5m n=794, 31% won, +$1,596 (+$2.01/trade, 25 and 28 Oct negative). Three times the trades of feed3-up20 at a third of the per-trade edge" },
+  { name: "round3-up60", left: 0, cap: 0.6, minAsk: 0.3, size: 5, roundBp: 3, jumpMinLeft: 240, onlySide: "UP", added: "2026-10-29", idea: "round-number magnet: when the window opens within 3 bps BELOW a fine round price level (BTC $100, ETH $10, SOL $1, XRP 1c, DOGE 0.1c, BNB $5) buy UP in the first minute at 30-60c. Round 39 on the 14-day history (~1,480 resolved 5m windows with a price path, 6 coins, Binance 1-minute open as the open): just-below windows close UP 58.6% and buying UP at the 60 s price nets +$0.056 per $1 share after fee (n=116); on BTC alone 65.6% and +$0.117 (n=61). Just-above windows show nothing (50.6%, +$0.02 UP, -$0.04 DOWN, n=85), 3-8 bps either side nothing, and the coarse levels ($1,000 / $100) nothing (n=48-59, within $0.04 of zero). So it is one-directional and thin: a classic magnet story on a small sample, run live to see if it holds" },
   { name: "basis10-both60-2m", left: 0, cap: 0.6, minAsk: 0.3, size: 5, basisBp: 1.0, basisSec: 120, jumpMinLeft: 240, added: "2026-10-29", idea: "the perpetual-basis rule with a 2-minute look-back and a 1 bps bar, so it fires on about a third of windows instead of one in eight. Round 38 on the 14-day 1-minute spot and perpetual candles, now 6 coins (~1,400 resolved 5m windows with a price path): the basis change over the last 2 minutes picks the side at every bar: +1 bps or more gives UP 55.4% and +$0.055 per $1 share buying UP at the 60 s price after fee (n=202), -1 bps or more gives UP 43.3% and +$0.030 buying DOWN (n=201); at 1.5 bps +$0.043 / +$0.027 (n=84 / 94), at 2.5 bps +$0.186 / +$0.100 (n=18 / 26). The 5-minute change carries nothing (-$0.04..-$0.13 on both tails), so the signal is a short-lived lean of the leveraged crowd. Same round: the perp websocket never delivered on the Mac (23,000 rows, all empty) while Binance's REST side works there, so the futures feed now polls the REST price every 2 s whenever the stream is silent" },
   { name: "fade15-under25-10m", left: 0, cap: 0.25, minAsk: 0.1, size: 5, flatBp: 9999, flatLeft: [595, 605], minWindowSec: 900, added: "2026-10-29", idea: "15-minute markets only: at the 10-minute mark buy the underdog at 10-25c when the favourite sits at 75-90c, whatever the price has done. Round 37 window-shape read on the 1-s books 25-28 Oct (BTC and ETH 15m, ~265 windows each): with 600 s left the 75-90c favourite wins only 26-29% less often than its price says, so the underdog returned +$299 on 180 trades at $5 (+$1.66/trade, 27% won; BTC +$218/90, ETH +$81/90), green on 3 of 4 days and in both quiet and choppy windows (window range under or over 12 bps). But the same read at 12 min (-$8 / +$52) and 7.5 min (-$14 / +$70) is flat, and 25 Oct is red at every mark, so this is most likely noise around one checkpoint; the rule is a probe to settle it live. 5m markets show nothing like it: the underdog loses -$0.10..-$0.21 per $1 in every price and range cell at 180 and 120 s" },
   { name: "basis15-both60", left: 0, cap: 0.6, minAsk: 0.3, size: 5, basisBp: 1.5, basisSec: 180, jumpMinLeft: 240, added: "2026-10-29", idea: "a signal from a feed the bot did not have until now: the Binance perpetual. When the futures-minus-spot basis has widened 1.5+ bps over the last 3 minutes the leveraged crowd is leaning long, so buy UP in the first minute (ask 30-60c); when it has shrunk 1.5+ bps buy DOWN. Round 36 on the 14-day Binance 1-minute spot and perpetual candles against ~1,250 resolved 5m windows with a price path (BTC/ETH/SOL/XRP/DOGE): basis up 1.5+ bps over 3 min gives UP 61.5% (n=78) and +$0.032 per $1 share buying UP at the 60 s price after fee; basis down 1.5+ bps gives UP 37.8% (n=90) and +$0.051 per share buying DOWN; the 1-minute change and the basis level carry nothing (within $0.03 of zero on 1,250 windows). Small samples (~5% of windows), so this is a probe: the live rule needs the new futures feed, which the recorder adds this round" },
@@ -374,6 +377,8 @@ function noteFeed(prefix: string, row: BookRow) {
     if (lead != null) latestLead.set(prefix, { t: row.t, lead });
   }
 }
+/** Fine round price levels per coin for the roundBp rule (the grid the replay used). */
+const ROUND_GRID: Record<string, number> = { btc: 100, eth: 10, sol: 1, xrp: 0.01, doge: 0.001, bnb: 5, hype: 1 };
 /** The last ~5 min of the Binance futures-minus-spot basis per series (bps), for the basisBp rule. */
 const basisTails = new Map<string, { t: number; b: number }[]>();
 function noteBasis(prefix: string, row: BookRow) {
@@ -614,6 +619,7 @@ export class PaperTrader {
     if (this.v.feedLeadBp != null || this.v.crossLeadBp != null) return this.considerFeed(row);
     if (this.v.binMoveBp != null) return this.considerBinMove(row);
     if (this.v.basisBp != null) return this.considerBasis(row);
+    if (this.v.roundBp != null) return this.considerRound(row);
     if (this.v.flatBp != null) return this.considerFlat(row);
     if (this.v.preOpenBp != null) return this.considerPreOpen(row);
     if (this.v.jumpBp != null || this.v.bounceBp != null || this.v.fadeBp != null) return this.considerJump(row);
@@ -971,6 +977,27 @@ export class PaperTrader {
     else if (this.v.onlySide !== "UP" && -move >= need && downBest != null && downBest <= CAP && downBest >= 0.03) pick = { up: false, ask: downBest };
     if (!pick || !this.leadOk(row, pick.up)) return;
     this.take(row, pick, CAP, SIZE, `Binance ${move >= 0 ? "+" : ""}${move.toFixed(1)} bps in ${sec} s`);
+  }
+
+  /** The `roundBp` rule: a window that opens just under a round price level tends to close above it. */
+  private considerRound(row: BookRow) {
+    const { cap: CAP, size: SIZE } = this.v;
+    if (row.left < (this.v.jumpMinLeft ?? 240)) return;
+    if (this.open.some((t) => t.window === row.window)) return;
+    if (!row.open) return;
+    const grid = ROUND_GRID[this.prefix.replace(/\d+m-$/, "") || "btc"];
+    if (!grid) return;
+    const near = Math.round(row.open / grid) * grid;
+    const d = ((row.open - near) / row.open) * 1e4;
+    const need = this.v.roundBp ?? 3;
+    const floor = this.v.minAsk ?? 0.03;
+    const upBest = row.upAsks[0]?.[0] ?? null;
+    const downBest = row.downAsks[0]?.[0] ?? null;
+    let pick: { up: boolean; ask: number } | null = null;
+    if (this.v.onlySide !== "DOWN" && d < 0 && -d <= need && upBest != null && upBest <= CAP && upBest >= floor) pick = { up: true, ask: upBest };
+    else if (this.v.onlySide !== "UP" && d > 0 && d <= need && downBest != null && downBest <= CAP && downBest >= floor) pick = { up: false, ask: downBest };
+    if (!pick) return;
+    this.take(row, pick, CAP, SIZE, `open ${d.toFixed(1)} bps from ${near}`);
   }
 
   /** The `basisBp` rule: the perpetual's premium over spot widened (or shrank) over the last minutes, so the leveraged crowd leans that way. */
