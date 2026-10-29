@@ -43,9 +43,13 @@ import { book, marketFor, type Market } from "./polymarket.js";
 import { append, loadJson, readAll, saveJson } from "./store.js";
 
 export type LiveMode = "off" | "dry" | "live";
-export type LiveVariant = { variant: string; size: number; haltAfterLosses: number };
+/** "ladder": sizes the rule climbs through on evidence (29 Oct 2026, enrique "adapt sizing if a rule is evolving positively, automatic"):
+ *  it starts on the first step; after every 100 settled real fills on this series it climbs one step if the cumulative net
+ *  at that mark is positive (and stops climbing at the first mark that is not), and it drops one step whenever the last
+ *  100 fills are net negative. The daily loss stop scales with the step (size / first step). See ladderLevel(). */
+export type LiveVariant = { variant: string; size: number; haltAfterLosses: number; ladder?: number[] };
 export type LiveConfig = { mode: LiveMode; variant: string; size: number; maxLossPerDay: number; funder: string; variants: LiveVariant[]; statsSince: number; startBalance: number | null; deposits: number; claimEveryMin: number; minBalance: number; claimBelow: number };
-type VariantEntry = { variant?: string; size?: number; haltAfterLosses?: number };
+type VariantEntry = { variant?: string; size?: number; haltAfterLosses?: number; ladder?: number[] };
 type MarketEntry = VariantEntry & { series?: string; maxLossPerDay?: number; mode?: string; variants?: VariantEntry[] };
 /** Streak of straight losses per variant and whether it tripped the halt. */
 export type Halt = { streak: number; halted: boolean; haltedAt: number | null; paused?: boolean };
@@ -55,6 +59,30 @@ export function feeOf(cost: number, shares: number): number {
   if (!(shares > 0) || !(cost > 0)) return 0;
   const p = cost / shares;
   return Math.round(0.07 * shares * p * (1 - p) * 1e6) / 1e6;
+}
+
+/** Which step of a size ladder a rule has earned, from its settled real fills in order (pnl per fill):
+ *  one step up per 100 fills while the cumulative net at each 100-fill mark is positive, one step back when the
+ *  last 100 fills are net negative; never below the first step or above the last. */
+export function ladderLevel(pnls: number[], ladder: number[]): { level: number; size: number; note: string } {
+  const n = pnls.length;
+  let level = 0;
+  let cum = 0;
+  for (let i = 0; i < n; i++) {
+    cum += pnls[i];
+    if ((i + 1) % 100 === 0) {
+      if (cum > 0 && level < ladder.length - 1) level += 1;
+      else if (cum <= 0) break;
+    }
+  }
+  let recent = 0;
+  if (n >= 100) {
+    for (let i = n - 100; i < n; i++) recent += pnls[i];
+    if (recent < 0 && level > 0) level -= 1;
+  }
+  const size = ladder[Math.min(level, ladder.length - 1)];
+  const note = n < 100 ? `step 1 of ${ladder.length}: ${n} of 100 fills` : `step ${level + 1} of ${ladder.length}: ${n} fills, last 100 ${recent >= 0 ? "+" : "-"}$${Math.abs(recent).toFixed(0)}`;
+  return { level, size, note };
 }
 
 /** Rows written before fees were booked: charge the fee now so totals match the wallet. */
@@ -165,7 +193,7 @@ const sizeOf = (raw: unknown) => {
   return Number.isFinite(size) && size > 0 ? Math.min(size, 50) : DEFAULT.size;
 };
 
-type RawVariant = { variant?: string; size?: number; haltAfterLosses?: number };
+type RawVariant = { variant?: string; size?: number; haltAfterLosses?: number; ladder?: number[] };
 type RawMarket = { series?: string; mode?: string; maxLossPerDay?: number; variants?: RawVariant[] };
 type RawLive = RawMarket & { markets?: RawMarket[]; variant?: string; size?: number; haltAfterLosses?: number };
 
@@ -303,7 +331,8 @@ export function liveConfig(seriesKey = ""): LiveConfig {
   for (const v of list) {
     const name = String(v.variant ?? "").trim();
     const halt = Number(v.haltAfterLosses ?? 0);
-    if (name && !variants.some((x) => x.variant === name)) variants.push({ variant: name, size: sizeOf(v.size), haltAfterLosses: Number.isFinite(halt) && halt > 0 ? Math.floor(halt) : 0 });
+    const ladder = Array.isArray(v.ladder) ? v.ladder.map((x) => sizeOf(Number(x))).filter((x) => Number.isFinite(x) && x > 0) : [];
+    if (name && !variants.some((x) => x.variant === name)) variants.push({ variant: name, size: ladder.length ? ladder[0] : sizeOf(v.size), haltAfterLosses: Number.isFinite(halt) && halt > 0 ? Math.floor(halt) : 0, ...(ladder.length > 1 ? { ladder } : {}) });
   }
   return {
     mode,
@@ -377,6 +406,8 @@ export class LiveTrader {
   private dayVarNet = new Map<string, number>();
   /** Per-day, per-variant counts (trades, won, net), keyed "day|variant", for the today columns on the dashboard. */
   private dayVar = new Map<string, { trades: number; won: number; net: number }>();
+  /** Settled pnl per variant in settlement order, for the size ladder. */
+  private fills = new Map<string, number[]>();
   /** Settled totals per variant, for the status page. */
   private byVariant = new Map<string, { trades: number; won: number; net: number }>();
   /** Loss streaks per variant (see haltAfterLosses). */
@@ -502,6 +533,18 @@ export class LiveTrader {
     v.trades += 1;
     if (t.won) v.won += 1;
     v.net += t.pnl;
+    if (t.ok && t.shares > 0) {
+      let f = this.fills.get(t.variant);
+      if (!f) this.fills.set(t.variant, (f = []));
+      f.push(t.pnl);
+    }
+  }
+
+  /** The size a rule trades at now: its ladder step when it has one, else its fixed size. */
+  sizeFor(rule: LiveVariant): { size: number; mult: number; note: string | null } {
+    if (!rule.ladder || rule.ladder.length < 2) return { size: rule.size, mult: 1, note: null };
+    const step = ladderLevel(this.fills.get(rule.variant) ?? [], rule.ladder);
+    return { size: step.size, mult: step.size / rule.ladder[0], note: step.note };
   }
 
   /** Update a variant's loss streak after a settled trade and trip its halt when it reaches the limit. */
@@ -657,8 +700,8 @@ export class LiveTrader {
         return;
       }
     }
-    const size = rule.size;
-    if (this.todayLoss() >= this.config.maxLossPerDay) {
+    const { size, mult } = this.sizeFor(rule);
+    if (this.todayLoss() >= this.config.maxLossPerDay * mult) {
       if (this.lastError !== "daily loss limit reached") console.log(`live: daily loss limit reached (-$${this.todayLoss().toFixed(2)}), no more orders today`);
       this.lastError = "daily loss limit reached";
       return;
@@ -1322,7 +1365,8 @@ export class LiveTrader {
         const h = this.halts[v.variant];
         const t = this.byVariant.get(v.variant);
         const d = this.dayVar.get(`${kstDay()}|${v.variant}`);
-        return { ...v, halted: Boolean(v.haltAfterLosses && h?.halted), paused: Boolean(h?.paused), streak: h?.streak ?? 0, haltedAt: h?.haltedAt ?? null, trades: t?.trades ?? 0, won: t?.won ?? 0, net: Math.round((t?.net ?? 0) * 100) / 100, today: { trades: d?.trades ?? 0, won: d?.won ?? 0, net: Math.round((d?.net ?? 0) * 100) / 100, misses: misses.get(v.variant) ?? 0 } };
+        const step = this.sizeFor(v);
+        return { ...v, size: step.size, ladderNote: step.note, halted: Boolean(v.haltAfterLosses && h?.halted), paused: Boolean(h?.paused), streak: h?.streak ?? 0, haltedAt: h?.haltedAt ?? null, trades: t?.trades ?? 0, won: t?.won ?? 0, net: Math.round((t?.net ?? 0) * 100) / 100, today: { trades: d?.trades ?? 0, won: d?.won ?? 0, net: Math.round((d?.net ?? 0) * 100) / 100, misses: misses.get(v.variant) ?? 0 } };
       }))(this.missesToday()),
       ready: this.ready,
       wallet: this.wallet,

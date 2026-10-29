@@ -7,7 +7,7 @@ import { test } from "node:test";
 // liveConfig reads data/live.json through DATA, so point DATA at a scratch folder before importing it.
 const dir = mkdtempSync(join(tmpdir(), "predbot-live-"));
 process.env.DATA_DIR = dir;
-const { liveConfig } = await import("./live.js");
+const { liveConfig, ladderLevel } = await import("./live.js");
 
 test("live.json: one variant per series stays as before", () => {
   writeFileSync(join(dir, "live.json"), JSON.stringify({ mode: "live", variant: "band80-30-j70", size: 5, maxLossPerDay: 25, funder: "0xabc" }));
@@ -45,4 +45,23 @@ test("live.json: several variants per series, each with its own size and halt", 
   // A market with no entry follows the global mode (manual bets) but has no rules.
   assert.equal(liveConfig("eth15m").mode, "live");
   assert.equal(liveConfig("eth15m").variants.length, 0);
+});
+
+test("size ladder: climbs on positive 100-fill marks, drops on a negative trailing 100", () => {
+  const L = [2, 4, 6];
+  assert.deepEqual(ladderLevel([], L).size, 2);
+  assert.equal(ladderLevel(Array(99).fill(1), L).size, 2);
+  assert.equal(ladderLevel(Array(100).fill(1), L).size, 4);
+  assert.equal(ladderLevel(Array(100).fill(-1), L).size, 2);
+  assert.equal(ladderLevel(Array(200).fill(1), L).size, 6);
+  assert.equal(ladderLevel(Array(300).fill(1), L).size, 6);
+  // 200 good fills then 100 bad ones: back one step
+  assert.equal(ladderLevel([...Array(200).fill(1), ...Array(100).fill(-1)], L).size, 4);
+  // first mark negative stops the climb for good even if later blocks are positive
+  assert.equal(ladderLevel([...Array(100).fill(-1), ...Array(100).fill(2)], L).size, 2);
+});
+
+test("live.json: ladder sets the starting size and is kept on the rule", () => {
+  writeFileSync(join(dir, "live.json"), JSON.stringify({ mode: "live", funder: "0xabc", variants: [{ variant: "feed3-up40", size: 2, haltAfterLosses: 12, ladder: [2, 4, 6] }] }));
+  assert.deepEqual(liveConfig().variants, [{ variant: "feed3-up40", size: 2, haltAfterLosses: 12, ladder: [2, 4, 6] }]);
 });
