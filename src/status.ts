@@ -308,7 +308,7 @@ h1{font-size:20px;margin:0;font-weight:700;letter-spacing:.2px}
 .tag.real{color:#0f1117;background:var(--up)}
 .wps{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px}.wp{display:inline-flex;align-items:center;gap:6px;font-size:11px;padding:3px 9px;border-radius:999px;border:1px solid var(--line);color:var(--mut);white-space:nowrap}.wp b{color:var(--fg);font-weight:600}.wp a{color:var(--fg);text-decoration:none;border-bottom:1px dotted var(--mut)}.wp .d{width:6px;height:6px;border-radius:50%;background:var(--mut)}.wp.ok .d{background:var(--up)}.wp.bad{border-color:var(--down)}.wp.bad .d{background:var(--down)}
 .tag.paper{color:var(--pur);border:1px solid var(--pur)}
-.panel.real{border-color:var(--up)}
+.panel.real{border-color:var(--up);overflow-x:hidden}.rules td:first-child{white-space:normal}.rules th,.rules td{padding-left:5px;padding-right:5px}
 .sub{color:var(--mut);font-size:12px;margin-left:auto}
 .grid{display:grid;grid-template-columns:1fr;gap:14px;margin-bottom:14px}
 @media(min-width:1400px){.grid{grid-template-columns:1fr 1fr}.panel.logp{display:flex;flex-direction:column;overflow:hidden}.logwrap{flex:1;min-height:0;position:relative}.logwrap>div{position:absolute;inset:0;overflow:hidden}}
