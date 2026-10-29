@@ -1408,6 +1408,8 @@ export class LiveTrader {
         const stopAt = this.ruleStop(v, step.mult);
         return { ...v, size: step.size, ladderNote: step.note, maxLossPerDay: v.maxLossPerDay ?? c.maxLossPerDay, stopAt, stopped: this.ruleLoss(v.variant) >= stopAt, halted: Boolean(v.haltAfterLosses && h?.halted), paused: Boolean(h?.paused), streak: h?.streak ?? 0, haltedAt: h?.haltedAt ?? null, trades: t?.trades ?? 0, won: t?.won ?? 0, net: Math.round((t?.net ?? 0) * 100) / 100, today: { trades: d?.trades ?? 0, won: d?.won ?? 0, net: Math.round((d?.net ?? 0) * 100) / 100, misses: misses.get(v.variant) ?? 0 } };
       }))(this.missesToday()),
+      // Every rule that ever traded real money on this market (live.json entries or not), for the paper-vs-real comparison.
+      realByVariant: Object.fromEntries([...this.byVariant].filter(([k, v]) => k !== "manual" && v.trades > 0).map(([k, v]) => [k, { trades: v.trades, won: v.won, net: Math.round(v.net * 100) / 100 }])),
       ready: this.ready,
       wallet: this.wallet,
       funder: c.funder || null,
