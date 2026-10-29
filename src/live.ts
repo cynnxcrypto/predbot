@@ -9,7 +9,9 @@
  *   config SERIES); a series without an entry never trades. "mode" is global: "off" stops every series.
  *   A series trades one variant ("variant" + "size") or several ("variants", each with its own size). A variant
  *   with "haltAfterLosses": N stops after N straight losses; the halt is kept in data/<prefix>live-halts.json
- *   (delete its entry, or set "halted": false, to let it trade again). "maxLossPerDay" is per series.
+ *   (delete its entry, or set "halted": false, to let it trade again). "maxLossPerDay" on a market is the daily loss stop
+ *   EACH rule in it gets (29 Oct 2026, enrique: "stop losses per rule, not per window", so a losing rule cannot switch a
+ *   winning one off); a variant may carry its own "maxLossPerDay" to override the market's.
  *   "statsSince": "2026-10-23T02:43:00Z" (top level) makes the dashboard (totals, per-variant rows, day table,
  *   trade log) count only trades from then on; older trades stay in the data files. The daily loss stop counts
  *   from then on too.
@@ -47,9 +49,9 @@ export type LiveMode = "off" | "dry" | "live";
  *  it starts on the first step; after every 100 settled real fills on this series it climbs one step if the cumulative net
  *  at that mark is positive (and stops climbing at the first mark that is not), and it drops one step whenever the last
  *  100 fills are net negative. The daily loss stop scales with the step (size / first step). See ladderLevel(). */
-export type LiveVariant = { variant: string; size: number; haltAfterLosses: number; ladder?: number[] };
+export type LiveVariant = { variant: string; size: number; haltAfterLosses: number; ladder?: number[]; maxLossPerDay?: number };
 export type LiveConfig = { mode: LiveMode; variant: string; size: number; maxLossPerDay: number; funder: string; variants: LiveVariant[]; statsSince: number; startBalance: number | null; deposits: number; claimEveryMin: number; minBalance: number; claimBelow: number };
-type VariantEntry = { variant?: string; size?: number; haltAfterLosses?: number; ladder?: number[] };
+type VariantEntry = { variant?: string; size?: number; haltAfterLosses?: number; ladder?: number[]; maxLossPerDay?: number };
 type MarketEntry = VariantEntry & { series?: string; maxLossPerDay?: number; mode?: string; variants?: VariantEntry[] };
 /** Streak of straight losses per variant and whether it tripped the halt. */
 export type Halt = { streak: number; halted: boolean; haltedAt: number | null; paused?: boolean };
@@ -193,7 +195,7 @@ const sizeOf = (raw: unknown) => {
   return Number.isFinite(size) && size > 0 ? Math.min(size, 50) : DEFAULT.size;
 };
 
-type RawVariant = { variant?: string; size?: number; haltAfterLosses?: number; ladder?: number[] };
+type RawVariant = { variant?: string; size?: number; haltAfterLosses?: number; ladder?: number[]; maxLossPerDay?: number };
 type RawMarket = { series?: string; mode?: string; maxLossPerDay?: number; variants?: RawVariant[] };
 type RawLive = RawMarket & { markets?: RawMarket[]; variant?: string; size?: number; haltAfterLosses?: number };
 
@@ -243,9 +245,11 @@ export function removeLiveRule(seriesKey: string, variant: string) {
 /** Minimum real bet: Polymarket wants $1 and at least 5 shares, so a 93c favourite needs ~$4.65 while a 17c long shot fills from $1. */
 export const MIN_SIZE = 1;
 /** Change one real rule's bet size in data/live.json ($1 to $50). The trader re-reads the file before every order. */
-export function setLiveRuleSize(seriesKey: string, variant: string, size: number) {
+export function setLiveRuleSize(seriesKey: string, variant: string, size: number, ladder: number[] | null = null) {
   const file = loadJson<RawLive>("live.json", {});
-  const next = Math.max(MIN_SIZE, Math.min(50, Math.round(size * 100) / 100));
+  const clamp = (x: number) => Math.max(MIN_SIZE, Math.min(50, Math.round(x * 100) / 100));
+  const steps = ladder && ladder.length > 1 ? ladder.map(clamp) : null;
+  const next = steps ? steps[0] : clamp(size);
   let list: RawVariant[];
   if (!seriesKey) {
     list = Array.isArray(file.variants) && file.variants.length ? file.variants : file.variant ? [{ variant: file.variant, size: file.size, haltAfterLosses: file.haltAfterLosses }] : [];
@@ -257,8 +261,11 @@ export function setLiveRuleSize(seriesKey: string, variant: string, size: number
   }
   const v = list.find((x) => x.variant === variant);
   if (!v) return { changed: false, size: null };
-  if (v.size === next) return { changed: false, size: next };
+  const sameLadder = (steps ? JSON.stringify(steps) : null) === (Array.isArray(v.ladder) && v.ladder.length > 1 ? JSON.stringify(v.ladder) : null);
+  if (v.size === next && sameLadder) return { changed: false, size: next };
   v.size = next;
+  if (steps) v.ladder = steps;
+  else delete v.ladder;
   saveJson("live.json", file);
   return { changed: true, size: next };
 }
@@ -284,12 +291,20 @@ export function setLiveRuleHalt(seriesKey: string, variant: string, losses: numb
   return { changed: true, losses: next };
 }
 
-/** Change one market's daily loss stop in data/live.json ($5 to $500). Re-read before every order. */
-export function setLiveMaxLoss(seriesKey: string, maxLoss: number) {
+/** Change one market's daily loss stop in data/live.json ($5 to $500); with a variant name, that one rule's own stop.
+ *  Re-read before every order. */
+export function setLiveMaxLoss(seriesKey: string, maxLoss: number, variant = "") {
   const file = loadJson<RawLive>("live.json", {});
   const next = Math.max(5, Math.min(500, Math.round(maxLoss)));
-  let target: { maxLossPerDay?: number } | undefined = file;
+  let target: { maxLossPerDay?: number; variants?: RawVariant[] } | undefined = file;
   if (seriesKey) target = (file.markets ?? []).find((x) => x.series === seriesKey);
+  if (target && variant) {
+    const list = Array.isArray(target.variants) && target.variants.length ? target.variants : (target as RawLive).variant ? [{ variant: (target as RawLive).variant, size: (target as RawLive).size, haltAfterLosses: (target as RawLive).haltAfterLosses }] : [];
+    const v = list.find((x) => x.variant === variant);
+    if (!v) return { changed: false, maxLoss: null };
+    if (!Array.isArray(target.variants) || !target.variants.length) { (target as RawLive).variants = list; delete (target as RawLive).variant; }
+    target = v;
+  }
   if (!target) return { changed: false, maxLoss: null };
   if (target.maxLossPerDay === next) return { changed: false, maxLoss: next };
   target.maxLossPerDay = next;
@@ -332,7 +347,8 @@ export function liveConfig(seriesKey = ""): LiveConfig {
     const name = String(v.variant ?? "").trim();
     const halt = Number(v.haltAfterLosses ?? 0);
     const ladder = Array.isArray(v.ladder) ? v.ladder.map((x) => sizeOf(Number(x))).filter((x) => Number.isFinite(x) && x > 0) : [];
-    if (name && !variants.some((x) => x.variant === name)) variants.push({ variant: name, size: ladder.length ? ladder[0] : sizeOf(v.size), haltAfterLosses: Number.isFinite(halt) && halt > 0 ? Math.floor(halt) : 0, ...(ladder.length > 1 ? { ladder } : {}) });
+    const own = Array.isArray(raw.variants) ? Number(v.maxLossPerDay) : NaN; // single-"variant" form: the number is the market's, not the rule's
+    if (name && !variants.some((x) => x.variant === name)) variants.push({ variant: name, size: ladder.length ? ladder[0] : sizeOf(v.size), haltAfterLosses: Number.isFinite(halt) && halt > 0 ? Math.floor(halt) : 0, ...(ladder.length > 1 ? { ladder } : {}), ...(Number.isFinite(own) && own > 0 ? { maxLossPerDay: own } : {}) });
   }
   return {
     mode,
@@ -404,6 +420,8 @@ export class LiveTrader {
   private dayNet = new Map<string, number>();
   /** Net per day and variant ("day|variant"), so the dashboard can show only the rules still configured. */
   private dayVarNet = new Map<string, number>();
+  /** day|variant keys whose daily stop was logged, so the notice prints once a day per rule. */
+  private dayStopped = new Set<string>();
   /** Per-day, per-variant counts (trades, won, net), keyed "day|variant", for the today columns on the dashboard. */
   private dayVar = new Map<string, { trades: number; won: number; net: number }>();
   /** Settled pnl per variant in settlement order, for the size ladder. */
@@ -576,6 +594,15 @@ export class LiveTrader {
     return -(this.todayNet - manual);
   }
 
+  /** Today's loss of one rule, the number its own daily stop is measured against (29 Oct 2026: per rule, not per market). */
+  private ruleLoss(variant: string) {
+    return -(this.dayVarNet.get(`${kstDay()}|${variant}`) ?? 0);
+  }
+
+  private ruleStop(rule: LiveVariant, mult = 1) {
+    return (rule.maxLossPerDay ?? this.config.maxLossPerDay) * mult;
+  }
+
   /** Load keys, derive API credentials, read the balance. Safe to call many times. */
   async start(): Promise<void> {
     this.config = liveConfig(this.series.key);
@@ -701,9 +728,10 @@ export class LiveTrader {
       }
     }
     const { size, mult } = this.sizeFor(rule);
-    if (this.todayLoss() >= this.config.maxLossPerDay * mult) {
-      if (this.lastError !== "daily loss limit reached") console.log(`live: daily loss limit reached (-$${this.todayLoss().toFixed(2)}), no more orders today`);
-      this.lastError = "daily loss limit reached";
+    if (this.ruleLoss(trade.variant) >= this.ruleStop(rule, mult)) {
+      const key = `${kstDay()}|${trade.variant}`;
+      if (!this.dayStopped.has(key)) console.log(`live ${this.series.label}: ${trade.variant} reached its daily loss stop (-$${this.ruleLoss(trade.variant).toFixed(2)} of $${this.ruleStop(rule, mult)}), no more orders from it today`);
+      this.dayStopped.add(key);
       return;
     }
     // A new Korean day (or a raised stop) lifts the limit: drop the stale notice so the dashboard stops showing it.
@@ -1366,7 +1394,8 @@ export class LiveTrader {
         const t = this.byVariant.get(v.variant);
         const d = this.dayVar.get(`${kstDay()}|${v.variant}`);
         const step = this.sizeFor(v);
-        return { ...v, size: step.size, ladderNote: step.note, halted: Boolean(v.haltAfterLosses && h?.halted), paused: Boolean(h?.paused), streak: h?.streak ?? 0, haltedAt: h?.haltedAt ?? null, trades: t?.trades ?? 0, won: t?.won ?? 0, net: Math.round((t?.net ?? 0) * 100) / 100, today: { trades: d?.trades ?? 0, won: d?.won ?? 0, net: Math.round((d?.net ?? 0) * 100) / 100, misses: misses.get(v.variant) ?? 0 } };
+        const stopAt = this.ruleStop(v, step.mult);
+        return { ...v, size: step.size, ladderNote: step.note, maxLossPerDay: v.maxLossPerDay ?? c.maxLossPerDay, stopAt, stopped: this.ruleLoss(v.variant) >= stopAt, halted: Boolean(v.haltAfterLosses && h?.halted), paused: Boolean(h?.paused), streak: h?.streak ?? 0, haltedAt: h?.haltedAt ?? null, trades: t?.trades ?? 0, won: t?.won ?? 0, net: Math.round((t?.net ?? 0) * 100) / 100, today: { trades: d?.trades ?? 0, won: d?.won ?? 0, net: Math.round((d?.net ?? 0) * 100) / 100, misses: misses.get(v.variant) ?? 0 } };
       }))(this.missesToday()),
       ready: this.ready,
       wallet: this.wallet,
