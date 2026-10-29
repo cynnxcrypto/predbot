@@ -111,6 +111,8 @@ export type Variant = {
   flatLeft?: [number, number];
   /** Ahead-side rule (round 44, 29 Oct 2026): inside `flatLeft`, when Chainlink is at least this many bps from the open, buy the side it favours if that side still asks between `minAsk` and `cap` (the book has not caught up with the underlying). One trade per window. */
   aheadBp?: number;
+  /** Book-imbalance fade (round 46, 29 Oct 2026): inside `flatLeft`, UP pressure = $ resting on UP bids + DOWN asks over all four sides; at or above this share buy DOWN, at or below 1 minus it buy UP, if that side asks between `minAsk` and `cap`. One trade per window. */
+  imbFade?: number;
   /** Collapsed-favourite rule (round 40, 29 Oct 2026): inside `flatLeft`, buy a side whose ask reached at least `peakDrop[0]` earlier in this window and now asks at most `peakDrop[1]` (and at least `minAsk`). One trade per window. */
   peakDrop?: [number, number];
   /** Edge-follow gate: trade only while the last `trailN` closed paper trades of variant `trailOf` (default: this variant), across every series, net more than `trailMin` dollars (default 0). Point trailOf at an ungated sibling, or the gated rule can never restart once it stops. */
@@ -268,6 +270,7 @@ export const VARIANTS: Variant[] = [
   { name: "ahead3-cheap50-15m", left: 0, cap: 0.5, minAsk: 0.1, size: 5, aheadBp: 3, flatLeft: [180, 720], minWindowSec: 900, added: "2026-10-29", idea: "15-minute markets, minutes 3-12: the underlying is 3+ bps from the open yet the side it favours still asks under 50c, i.e. the book has not caught up. Replay on 14 days of 15m history (6 coins, last trade +1c, one trade per window, $HOME/an/lag15.py): n=580, 54.5% won, +$1.31/trade at $5 (+$761), green 12 of 16 days, every coin positive except BTC (-$12/41); +3c slippage still +$1.10. Conditioning on price alone (R15) showed nothing; the mispricing only appears against the underlying." },
   { name: "ahead15-mid70-15m", left: 0, cap: 0.7, minAsk: 0.5, size: 5, aheadBp: 15, flatLeft: [180, 720], minWindowSec: 900, added: "2026-10-29", idea: "sibling of ahead3-cheap50-15m for the favourite zone: underlying 15+ bps from the open, favoured side at 50-70c. Replay (same script): n=190, 74% won, +$0.66/trade; SOL/XRP/ETH positive, DOGE flat. Fee-sensitive, so a live check." },
   { name: "ahead3-cheap50-late", left: 0, cap: 0.5, minAsk: 0.1, size: 5, aheadBp: 3, flatLeft: [60, 240], added: "2026-10-29", idea: "ahead3-cheap50-15m on every window length, 1-4 minutes before the close (minutes 1-4 of a 5m market). Round 45 replay on 14 days of 5m history (6 coins, last trade +1c): n=2,529, 53% won, +$1.72/trade at $5, but the gain grows with how stale the last trade is (<10 s old +$0.52, 30-90 s +$3.24, 90 s+ +$4.07), which is the stale-print artifact: a quiet tape understates the real ask. The fresh-print cell is close to fair, so this rule exists to measure the lag with real asks, not because the replay is trusted." },
+  { name: "imbfade65-mid", left: 0, cap: 0.7, minAsk: 0.3, size: 5, imbFade: 0.65, flatLeft: [175, 185], added: "2026-10-29", idea: "resting-depth imbalance as a crowd signal, faded: at 3 minutes left, when 65%+ of the resting dollars (UP bids plus DOWN asks vs the reverse) lean one way, buy the other side at 30-70c. Round 46 replay on 25-28 Oct 1-s books (6 coins 5m, $HOME/an/imb1.py): FOLLOWING the lean wins 45-51% and loses -$0.04..-$0.39/trade in every bucket; fading the 65%+ lean wins ~53%, about fair after the fee. Live check that resting depth carries no direction." },
   { name: "fade15-under25-10m", left: 0, cap: 0.25, minAsk: 0.1, size: 5, flatBp: 9999, flatLeft: [595, 605], minWindowSec: 900, added: "2026-10-29", idea: "15-minute markets only: at the 10-minute mark buy the underdog at 10-25c when the favourite sits at 75-90c, whatever the price has done. Round 37 window-shape read on the 1-s books 25-28 Oct (BTC and ETH 15m, ~265 windows each): with 600 s left the 75-90c favourite wins only 26-29% less often than its price says, so the underdog returned +$299 on 180 trades at $5 (+$1.66/trade, 27% won; BTC +$218/90, ETH +$81/90), green on 3 of 4 days and in both quiet and choppy windows (window range under or over 12 bps). But the same read at 12 min (-$8 / +$52) and 7.5 min (-$14 / +$70) is flat, and 25 Oct is red at every mark, so this is most likely noise around one checkpoint; the rule is a probe to settle it live. 5m markets show nothing like it: the underdog loses -$0.10..-$0.21 per $1 in every price and range cell at 180 and 120 s" },
   { name: "basis15-both60", left: 0, cap: 0.6, minAsk: 0.3, size: 5, basisBp: 1.5, basisSec: 180, jumpMinLeft: 240, added: "2026-10-29", idea: "a signal from a feed the bot did not have until now: the Binance perpetual. When the futures-minus-spot basis has widened 1.5+ bps over the last 3 minutes the leveraged crowd is leaning long, so buy UP in the first minute (ask 30-60c); when it has shrunk 1.5+ bps buy DOWN. Round 36 on the 14-day Binance 1-minute spot and perpetual candles against ~1,250 resolved 5m windows with a price path (BTC/ETH/SOL/XRP/DOGE): basis up 1.5+ bps over 3 min gives UP 61.5% (n=78) and +$0.032 per $1 share buying UP at the 60 s price after fee; basis down 1.5+ bps gives UP 37.8% (n=90) and +$0.051 per share buying DOWN; the 1-minute change and the basis level carry nothing (within $0.03 of zero on 1,250 windows). Small samples (~5% of windows), so this is a probe: the live rule needs the new futures feed, which the recorder adds this round" },
   { name: "binburst6-up40-min20", left: 0, cap: 0.4, minAsk: 0.2, size: 5, binMoveBp: 6, binMoveSec: 2, jumpMinLeft: 120, onlySide: "UP", added: "2026-10-29", idea: "binburst6-up40 without the cheap tickets (UP ask 20-40c only), the same cut that helped the feed rule in round 26. Thursday read 29 Oct: binburst6-up40 is the one green rule outside the feed family, +$201 on 97 paper trades since 27 Oct, 33% won, 7 of 9 coins positive. Round 35 on the 14-day Binance 1-minute candles (26,000 windows, 6 coins): taker flow does point the way (first-minute buy share >=65% gives UP 58-63%, sell share <=35% gives UP 36-39%, pre-window flow 54-55% / 43-45%) but it is fully priced by the 60 s mark: buying the flow side at the 60 s price nets -$0.0 to -$0.4/trade in every cell, with or without a 2x volume burst, so flow is not a signal we can trade; only the sub-5-second price burst is" },
@@ -651,6 +654,7 @@ export class PaperTrader {
     if (this.v.roundBp != null) return this.considerRound(row);
     if (this.v.flatBp != null) return this.considerFlat(row);
     if (this.v.aheadBp != null) return this.considerAhead(row);
+    if (this.v.imbFade != null) return this.considerImb(row);
     if (this.v.peakDrop != null) return this.considerPeak(row);
     if (this.v.preOpenBp != null) return this.considerPreOpen(row);
     if (this.v.jumpBp != null || this.v.bounceBp != null || this.v.fadeBp != null) return this.considerJump(row);
@@ -1090,6 +1094,28 @@ export class PaperTrader {
     if (ask == null || ask < (this.v.minAsk ?? 0.1) || ask > CAP) return;
     if (!this.leadOk(row, up)) return;
     this.take(row, { up, ask }, CAP, SIZE, `price ${move >= 0 ? "+" : ""}${move.toFixed(1)} bps from the open with ${row.left}s left, ${up ? "UP" : "DOWN"} still ${(ask * 100).toFixed(0)}c`);
+  }
+
+  /** The `imbFade` rule: resting depth as a crowd signal, faded (round 46 replay: following it loses, fading it is about fair). */
+  private considerImb(row: BookRow) {
+    const { cap: CAP, size: SIZE } = this.v;
+    const [fl0, fl1] = this.v.flatLeft ?? [175, 185];
+    if (row.left > fl1 || row.left < fl0) return;
+    if (this.open.some((t) => t.window === row.window)) return;
+    const usd = (ls: [number, number][] | undefined) => (ls ?? []).reduce((a, l) => a + l[0] * l[1], 0);
+    const upSide = usd(row.upBids) + usd(row.downAsks);
+    const downSide = usd(row.upAsks) + usd(row.downBids);
+    if (upSide + downSide <= 0) return;
+    const pr = upSide / (upSide + downSide);
+    const th = this.v.imbFade ?? 0.65;
+    const up = pr <= 1 - th ? true : pr >= th ? false : null;
+    if (up == null) return;
+    if (this.v.onlySide === "UP" && !up) return;
+    if (this.v.onlySide === "DOWN" && up) return;
+    const ask = (up ? row.upAsks[0]?.[0] : row.downAsks[0]?.[0]) ?? null;
+    if (ask == null || ask < (this.v.minAsk ?? 0.3) || ask > CAP) return;
+    if (!this.leadOk(row, up)) return;
+    this.take(row, { up, ask }, CAP, SIZE, `book leans ${up ? "DOWN" : "UP"} ${(Math.max(pr, 1 - pr) * 100).toFixed(0)}% by resting $, fading it at ${(ask * 100).toFixed(0)}c with ${row.left}s left`);
   }
 
   private considerPeak(row: BookRow) {
