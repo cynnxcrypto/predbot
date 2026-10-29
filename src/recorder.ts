@@ -221,7 +221,7 @@ export class Recorder {
       if (this.marketWindow !== start || !this.market) {
         if (Date.now() - this.marketTriedAt > 3000) {
           this.marketTriedAt = Date.now();
-          this.market = await marketFor(start, this.series.slug);
+          this.market = await marketFor(start, this.series.slug, this.series.slugStyle);
           this.marketWindow = start;
           if (this.market && this.listedAt == null) this.listedAt = Date.now();
           if (this.market) {
@@ -337,7 +337,7 @@ export class Recorder {
       item.tries += 1;
       const [prices, res] = await Promise.allSettled([
         officialPrices(item.window, this.series.symbol.toUpperCase(), this.series.windowSec),
-        resolution(item.window, this.series.slug),
+        resolution(item.window, this.series.slug, this.series.slugStyle),
       ]);
       if (res.status === "fulfilled") {
         item.row.status = res.value.status;

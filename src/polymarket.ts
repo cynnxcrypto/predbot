@@ -1,4 +1,4 @@
-import { SLUG, WINDOW_SEC } from "./config.js";
+import { SLUG, WINDOW_SEC, eventSlug, type SlugStyle } from "./config.js";
 import { bookFeed, makeBook } from "./feeds/book.js";
 
 const UA = "PredBotRecorder/0.1";
@@ -28,8 +28,8 @@ export type Market = { start: number; title: string | null; upToken: string; dow
 const markets = new Map<string, Market | null>();
 
 /** The Up and Down token ids for the window starting at `start`. Null when Polymarket has not listed it yet. */
-export async function marketFor(start: number, slug = SLUG): Promise<Market | null> {
-  const key = `${slug}-${start}`;
+export async function marketFor(start: number, slug = SLUG, style: SlugStyle = "ts"): Promise<Market | null> {
+  const key = eventSlug(slug, start, style);
   const cached = markets.get(key);
   if (cached) return cached;
   const events = await getJson<GammaEvent[]>(`https://gamma-api.polymarket.com/events?slug=${key}`);
@@ -81,8 +81,8 @@ export async function bookHttp(tokenId: string): Promise<Book> {
 export type Resolution = { resolvedUp: boolean | null; closed: boolean; status: string | null };
 
 /** How Polymarket settled the window, once it has. */
-export async function resolution(start: number, slug = SLUG): Promise<Resolution> {
-  const events = await getJson<GammaEvent[]>(`https://gamma-api.polymarket.com/events?slug=${slug}-${start}`);
+export async function resolution(start: number, slug = SLUG, style: SlugStyle = "ts"): Promise<Resolution> {
+  const events = await getJson<GammaEvent[]>(`https://gamma-api.polymarket.com/events?slug=${eventSlug(slug, start, style)}`);
   const market = events[0]?.markets?.[0];
   if (!market) return { resolvedUp: null, closed: false, status: null };
   let resolvedUp: boolean | null = null;
@@ -104,7 +104,7 @@ export type OfficialPrices = { open: number | null; close: number | null; raw: u
 export async function officialPrices(start: number, symbol = "BTC", windowSec = WINDOW_SEC): Promise<OfficialPrices> {
   const from = new Date(start * 1000).toISOString();
   const to = new Date((start + windowSec) * 1000).toISOString();
-  const variant = windowSec === 900 ? "fifteenminute" : "fiveminute";
+  const variant = windowSec === 900 ? "fifteenminute" : windowSec === 3600 ? "onehour" : windowSec === 14400 ? "fourhour" : "fiveminute";
   const body = await getJson<{ openPrice?: number | null; closePrice?: number | null }>(
     `https://polymarket.com/api/crypto/crypto-price?symbol=${symbol}&variant=${variant}&eventStartTime=${encodeURIComponent(from)}&endDate=${encodeURIComponent(to)}`,
     5000,

@@ -49,9 +49,15 @@ export type LiveMode = "off" | "dry" | "live";
  *  it starts on the first step; after every 100 settled real fills on this series it climbs one step if the cumulative net
  *  at that mark is positive (and stops climbing at the first mark that is not), and it drops one step whenever the last
  *  100 fills are net negative. The daily loss stop scales with the step (size / first step). See ladderLevel(). */
-export type LiveVariant = { variant: string; size: number; haltAfterLosses: number; ladder?: number[]; maxLossPerDay?: number };
+/** "chaseSec": after an unfilled fill-or-kill, retry every second for this many seconds while the fresh ask is at or under
+ *  the cap; with "restUntilLeft" also rest a limit buy at the cap until that many seconds are left in the window (replay says
+ *  resting fills 10 more of 96 but loses $65 of the gain: the late fills are the ones that stopped leading), else no rest.
+ *  29 Oct 2026 fill audit (enrique: "why are we missing the ones that would win, I want to fix that"): of 367 real feed-rule
+ *  orders since the $2 test, the 264 fills won 23% on paper while the 96 "no orders found to match" misses won 59%; the ask is
+ *  pulled the second Binance leads and comes back to the cap within 15 s in 71 of 96 cases (61% won, +$106 at $2). */
+export type LiveVariant = { variant: string; size: number; haltAfterLosses: number; ladder?: number[]; maxLossPerDay?: number; chaseSec?: number; restUntilLeft?: number };
 export type LiveConfig = { mode: LiveMode; variant: string; size: number; maxLossPerDay: number; funder: string; variants: LiveVariant[]; statsSince: number; startBalance: number | null; deposits: number; claimEveryMin: number; minBalance: number; claimBelow: number };
-type VariantEntry = { variant?: string; size?: number; haltAfterLosses?: number; ladder?: number[]; maxLossPerDay?: number };
+type VariantEntry = { variant?: string; size?: number; haltAfterLosses?: number; ladder?: number[]; maxLossPerDay?: number; chaseSec?: number; restUntilLeft?: number };
 type MarketEntry = VariantEntry & { series?: string; maxLossPerDay?: number; mode?: string; variants?: VariantEntry[] };
 /** Streak of straight losses per variant and whether it tripped the halt. */
 export type Halt = { streak: number; halted: boolean; haltedAt: number | null; paused?: boolean };
@@ -195,7 +201,7 @@ const sizeOf = (raw: unknown) => {
   return Number.isFinite(size) && size > 0 ? Math.min(size, 50) : DEFAULT.size;
 };
 
-type RawVariant = { variant?: string; size?: number; haltAfterLosses?: number; ladder?: number[]; maxLossPerDay?: number };
+type RawVariant = { variant?: string; size?: number; haltAfterLosses?: number; ladder?: number[]; maxLossPerDay?: number; chaseSec?: number; restUntilLeft?: number };
 type RawMarket = { series?: string; mode?: string; maxLossPerDay?: number; variants?: RawVariant[] };
 type RawLive = RawMarket & { markets?: RawMarket[]; variant?: string; size?: number; haltAfterLosses?: number };
 
@@ -348,7 +354,9 @@ export function liveConfig(seriesKey = ""): LiveConfig {
     const halt = Number(v.haltAfterLosses ?? 0);
     const ladder = Array.isArray(v.ladder) ? v.ladder.map((x) => sizeOf(Number(x))).filter((x) => Number.isFinite(x) && x > 0) : [];
     const own = Array.isArray(raw.variants) ? Number(v.maxLossPerDay) : NaN; // single-"variant" form: the number is the market's, not the rule's
-    if (name && !variants.some((x) => x.variant === name)) variants.push({ variant: name, size: ladder.length ? ladder[0] : sizeOf(v.size), haltAfterLosses: Number.isFinite(halt) && halt > 0 ? Math.floor(halt) : 0, ...(ladder.length > 1 ? { ladder } : {}), ...(Number.isFinite(own) && own > 0 ? { maxLossPerDay: own } : {}) });
+    const chase = Number(v.chaseSec ?? 0);
+    const restLeft = Number(v.restUntilLeft);
+    if (name && !variants.some((x) => x.variant === name)) variants.push({ variant: name, size: ladder.length ? ladder[0] : sizeOf(v.size), haltAfterLosses: Number.isFinite(halt) && halt > 0 ? Math.floor(halt) : 0, ...(ladder.length > 1 ? { ladder } : {}), ...(Number.isFinite(own) && own > 0 ? { maxLossPerDay: own } : {}), ...(Number.isFinite(chase) && chase > 0 ? { chaseSec: Math.min(120, chase), ...(Number.isFinite(restLeft) && restLeft >= 0 ? { restUntilLeft: restLeft } : {}) } : {}) });
   }
   return {
     mode,
@@ -821,7 +829,8 @@ export class LiveTrader {
     // Cheap early rules: at 17c there is often nothing resting the second paper fires (4 of the first 8 real orders on
     // 26 Oct 2026 died with "no orders found to match"), while on the books the ask is still at the cap within 10 s in
     // 88% of windows. enrique, 27 Oct 00:16 KST: "okay do retry and rest".
-    if (first != null && !row.dry && !(row.ok && row.shares > 0)) await this.chase(row, trade, token, limit, size, first);
+    if (first != null && !row.dry && !(row.ok && row.shares > 0)) await this.chase(row, trade, token, limit, size, (trade.window + first) * 1000, 10_000);
+    else if (rule.chaseSec && !row.dry && !(row.ok && row.shares > 0) && !row.status?.toString().startsWith("skipped")) await this.chase(row, trade, token, limit, size, rule.restUntilLeft != null ? (trade.window + this.series.windowSec - rule.restUntilLeft) * 1000 : Date.now() + rule.chaseSec * 1000, rule.chaseSec * 1000);
     this.remember(row);
     saveJson(`${this.prefix}live-state.json`, { at: Date.now(), ...this.status(), lastTrade: row });
     if (row.ok && (row.dry || row.shares > 0)) {
@@ -857,10 +866,9 @@ export class LiveTrader {
    * under the cap, then rest a limit buy at the cap until the rule's phase (`first` seconds into the window) is over and
    * cancel what is left. A resting fill is a maker fill, which Polymarket does not charge the taker fee on.
    */
-  private async chase(row: LiveTrade, trade: PaperTrade, token: string, limit: number, size: number, first: number) {
+  private async chase(row: LiveTrade, trade: PaperTrade, token: string, limit: number, size: number, phaseEnd: number, retryMs: number) {
     const sleep = (ms: number) => new Promise<void>((ok) => setTimeout(ok, ms));
-    const phaseEnd = (trade.window + first) * 1000;
-    const retryUntil = Math.min(Date.now() + 10_000, phaseEnd);
+    const retryUntil = Math.min(Date.now() + retryMs, phaseEnd);
     let tries = 0;
     try {
       while (Date.now() < retryUntil && this.client) {
@@ -1199,7 +1207,7 @@ export class LiveTrader {
       let units = 0n;
       for (const { trader, redeem } of batch) {
         redeem.tries += 1;
-        const market = await marketFor(redeem.window, trader.series.slug);
+        const market = await marketFor(redeem.window, trader.series.slug, trader.series.slugStyle);
         if (!market?.conditionId) throw new Error(`${trader.series.label} ${new Date(redeem.window * 1000).toISOString().slice(11, 16)}: market has no condition id yet`);
         for (const collateral of COLLATERALS) calls.push({ target: CTF, value: "0", data: ctfAbi.encodeFunctionData("redeemPositions", [collateral, ZERO32, market.conditionId, [1, 2]]) });
         shares += redeem.shares;
@@ -1259,7 +1267,7 @@ export class LiveTrader {
     for (const trader of traders) {
       for (const redeem of [...trader.redeems].slice(0, 20)) {
         try {
-          const market = await marketFor(redeem.window, trader.series.slug);
+          const market = await marketFor(redeem.window, trader.series.slug, trader.series.slugStyle);
           if (!market?.conditionId) continue;
           if ((await sharesHeld(this.config.funder, market.conditionId)) < 0.01) {
             trader.markClaimed(redeem, "manual");
