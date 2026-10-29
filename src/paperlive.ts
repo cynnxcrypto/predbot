@@ -104,6 +104,8 @@ export type Variant = {
   trailN?: number;
   /** Self-halt: after this many straight losses on this series, skip trades for `selfHaltMin` minutes (default 30), like the real haltAfterLosses stop; measures what the stop costs. */
   selfHaltLosses?: number;
+  /** Gate: only when Binance and Coinbase disagree, i.e. |Binance-Coinbase spread minus its usual level| is at or above this percentile of the stored samples (a stress gauge). */
+  xchgDisagreePct?: number;
   selfHaltMin?: number;
   /** Only run on series whose window is at least this long in seconds (900 = the 15-minute markets only). */
   minWindowSec?: number;
@@ -243,6 +245,7 @@ export const VARIANTS: Variant[] = [
   { name: "cldrop3-up20", left: 0, cap: 0.2, size: 5, fadeBp: 3, jumpSec: 10, jumpMinLeft: 120, onlySide: "UP", added: "2026-10-28", idea: "CONTROL for the feed rules: Chainlink fell 3+ bps in 10 s and UP asks 20c or less, 120s+ left, buy UP whatever Binance says. Replay 25-27 Oct n=1,818, 16% won, -$1,363 (-$0.75/trade); the same drops with Binance 3+ bps above Chainlink: n=361, 21% won, +$1,549 (+$4.29/trade). If this control loses live while feed3-up20 wins, the Binance disagreement is the edge; if both lose, it was never there" },
   { name: "feed3-up20-far", left: 0, cap: 0.2, size: 5, feedLeadBp: 3, jumpMinLeft: 300, onlySide: "UP", added: "2026-10-28", idea: "15-minute markets only in practice (needs 300s+ left): Binance 3+ bps above Chainlink, UP 20c or less. Replay 25-27 Oct BTC+ETH 15m n=60, 25% won, +$179 (+$2.99/trade); the same entry without the lead -$0.56/trade; 26 Oct carried it (+$125), 25 Oct 0 of 5" },
   { name: "feed3-up40", left: 0, cap: 0.4, size: 5, feedLeadBp: 3, jumpMinLeft: 120, onlySide: "UP", added: "2026-10-28", idea: "wider cap: Binance 3+ bps above Chainlink, UP 40c or less, 120s+ left. Replay 25-27 Oct 15m n=158, 38% won, +$270 (+$1.71/trade, positive 25, 26, 27 Oct); 5m n=794, 31% won, +$1,596 (+$2.01/trade, 25 and 28 Oct negative). Three times the trades of feed3-up20 at a third of the per-trade edge" },
+  { name: "stress90-cheap40", left: 0, cap: 0.4, minAsk: 0.1, size: 5, flatBp: 9999, xchgDisagreePct: 90, added: "2026-10-29", idea: "at about 2 minutes left, buy the cheaper side at 10-40c only while Binance and Coinbase disagree (their spread is off its usual level by more than it is 90% of the time). Round 34 (25-28 Oct 1-s books, 5 coins, BNB out as its Coinbase feed is thin): the cheap side at 120 s left loses -$0.54/trade when the exchanges agree (n=1,492, 22.1% won) and makes +$0.29/trade when they disagree (n=157, 26.8%); the favourite is the other way round (-$0.24 calm, -$0.56 stressed). Which exchange sits higher does not pick the winner (buying the Binance side -$0.22/trade, the Coinbase side -$0.16 on 650-700 spikes), so the disagreement is a hint that cheap tickets are underpriced, not a direction. Small edge, about 6% of stake; this rule tests whether it holds" },
   { name: "feed3-both40-15m", left: 0, cap: 0.4, minAsk: 0.2, size: 5, feedLeadBp: 3, jumpMinLeft: 300, minWindowSec: 900, added: "2026-10-29", idea: "the feed rule on 15-minute markets only, both sides, ask 20-40c, at least 5 minutes left. Round 33 (25-28 Oct 1-s books, BTC and ETH 15m, about 265 windows each): UP with Binance 3+ bps over Chainlink (over its usual gap) at 20-40c won 48.8% +$2.97/trade on BTC (n=43) and 43.4% +$2.01 on ETH (99), best in the first five minutes of the window (BTC 52.2% +$3.24 on 23, ETH 46.9% +$2.10 on 64); unlike the 5m markets the DOWN side pays too on ETH 15m (39.0% won, +$1.13/trade, n=100; BTC 15m too few). Cheap <=20c tickets with under 300 s left lost 1 of 19 on 15m, and 40-60c is near flat (+$0.3 to +$0.5/trade). Lab since 09:00 KST 28 Oct on the 15m series: feed3-up40 +$158/67, cross3x2-up40 +$127/101, feed3-up40-min20 +$116/19" },
   { name: "feed3-down20-mid", left: 0, cap: 0.2, size: 5, feedLeadBp: 3, jumpMinLeft: 120, onlySide: "DOWN", clOpenBp: [4, 10], added: "2026-10-29", idea: "the one DOWN cell the feed lead pays in: Binance 3+ bps under Chainlink (over its usual gap), DOWN ask <=20c, Chainlink 4-10 bps above the open. Round 32 (25-28 Oct 1-s books, 6 coins): the DOWN mirror of the feed rule is flat at every price, <=20c 13.4% won -$0.64/trade (n=463), 20-40c 32.7% -$0.02 (649), 40-60c 51.9% -$0.07 (913), while UP makes +$3.90, +$0.89 and +$0.11 in the same buckets: the edge is Polymarket underpricing cheap UP, not the feed lead itself. By how far DOWN trails the open at <=20c: over 10 bps 9.4% won -$1.64 (342, the bulk), 4-10 bps 24.5% +$2.06 (110), 1-4 bps 42.9% +$8.60 (7); DOWN with the lead 5+ bps 24.2% +$3.89 (33). So only a DOWN ticket that is cheap without the price being far gone is worth a test; expect few trades" },
   { name: "feed3-up40-halt6", left: 0, cap: 0.4, size: 5, feedLeadBp: 3, jumpMinLeft: 120, onlySide: "UP", selfHaltLosses: 6, selfHaltMin: 30, added: "2026-10-29", idea: "feed3-up40 with the real test's stop built in: after 6 straight losses on a coin it sits out 30 minutes. Round 31 (paper feed3-up40, 10 series, 526 closed trades since 25 Oct): the next trade after 6 or more straight losses won 43.3% (+$2.84/trade, n=30) against 33.5% (+$1.70) overall, after 3 or more 35.5% (+$1.74): a losing run says nothing about the next trade. Every coin has had a run of 6-9 losses (a 36% rule runs 6 losses in a row about once per 100 trades per coin), and sitting out 30 minutes after each run would have skipped 24 trades that won 45.8% and made +$90; 15 min skips +$65, 60 min +$89, 120 min +$50. The real test halted on 5 of 6 coins in its first 9 hours this way. This rule shows live what the stop costs next to plain feed3-up40" },
@@ -356,6 +359,7 @@ function noteFeedOne(key: string, t: number, price: number | null, chainlink: nu
 function noteFeed(prefix: string, row: BookRow) {
   noteFeedOne(prefix + "|binance", row.t, row.binance, row.chainlink);
   noteFeedOne(prefix + "|coinbase", row.t, row.coinbase, row.chainlink);
+  noteFeedOne(prefix + "|xchg", row.t, row.binance, row.coinbase);
   if (/^[a-z]*5m-$|^$/.test(prefix)) {
     const lead = feedLead(prefix, row);
     if (lead != null) latestLead.set(prefix, { t: row.t, lead });
@@ -414,8 +418,14 @@ function feedLead(prefix: string, row: BookRow, exchange: "binance" | "coinbase"
   if (!f || f.median == null || price == null || row.chainlink == null || !row.chainlink) return null;
   return ((price - row.chainlink) / row.chainlink) * 1e4 - f.median;
 }
+/** Binance-Coinbase spread in bps minus its usual level (600-row median), the exchange-disagreement gauge; null until the median exists. */
+function xchgDev(prefix: string, row: BookRow): number | null {
+  const f = feedGaps.get(prefix + "|xchg");
+  if (!f || f.median == null || row.binance == null || row.coinbase == null || !row.coinbase) return null;
+  return ((row.binance - row.coinbase) / row.coinbase) * 1e4 - f.median;
+}
 /** The `pct`-th percentile of |gap - median| over the stored samples for a series (bps), or null until the median exists. */
-function feedLeadQuantile(prefix: string, pct: number, exchange: "binance" | "coinbase" = "binance"): number | null {
+function feedLeadQuantile(prefix: string, pct: number, exchange: "binance" | "coinbase" | "xchg" = "binance"): number | null {
   const f = feedGaps.get(prefix + "|" + exchange);
   if (!f || f.median == null) return null;
   const med = f.median;
@@ -730,6 +740,11 @@ export class PaperTrader {
       if (s == null || s <= (this.v.trailMin ?? 0)) return false;
     }
     if (this.v.selfHaltLosses != null && row.t < this.haltUntil) return false;
+    if (this.v.xchgDisagreePct != null) {
+      const q = feedLeadQuantile(this.prefix, this.v.xchgDisagreePct, "xchg");
+      const d = xchgDev(this.prefix, row);
+      if (q == null || d == null || Math.abs(d) < q) return false;
+    }
     if (this.v.maxOverround != null) {
       const ua = row.upAsks[0]?.[0];
       const da = row.downAsks[0]?.[0];
