@@ -378,6 +378,16 @@ export function liveConfig(seriesKey = ""): LiveConfig {
 
 /** Relayer transactions sent per UTC day (data/relayer-usage.json), so the dashboard can project whether the ~65/day quota lasts until the 00:00 UTC reset. */
 const utcDay = (ms = Date.now()) => new Date(ms).toISOString().slice(0, 10);
+
+/** Won shares still waiting for Polymarket to pay out, across every market ($1 a share); cached 10 s. Counted toward the minBalance floor since 30 Oct 2026 (enrique: "count claims"). */
+let claimsCache: { at: number; usd: number } | null = null;
+export function pendingClaimsUsd(): number {
+  if (claimsCache && Date.now() - claimsCache.at < 10_000) return claimsCache.usd;
+  let usd = 0;
+  for (const s of SERIES) for (const r of loadJson<Redeem[]>(`${prefixOf(s)}live-redeem.json`, [])) usd += r.shares;
+  claimsCache = { at: Date.now(), usd };
+  return usd;
+}
 function noteRelayCall() {
   const file = loadJson<Record<string, number>>("relayer-usage.json", {});
   const day = utcDay();
@@ -670,7 +680,7 @@ export class LiveTrader {
       this.balance = Number(bal.balance) / 1e6;
       if (!this.series.key) logBalance(this.balance);
       // The "under the floor" notice used to wait for the next signal to clear; drop it as soon as the wallet is back over the floor.
-      if (this.lastError && this.lastError.startsWith("paused: balance") && !(this.config.minBalance > 0 && this.balance < this.config.minBalance)) this.lastError = null;
+      if (this.lastError && this.lastError.startsWith("paused: balance") && !(this.config.minBalance > 0 && this.balance + pendingClaimsUsd() < this.config.minBalance)) this.lastError = null;
     } catch (error) {
       this.lastError = error instanceof Error ? error.message : String(error);
     }
@@ -746,8 +756,9 @@ export class LiveTrader {
     }
     // A new Korean day (or a raised stop) lifts the limit: drop the stale notice so the dashboard stops showing it.
     if (this.lastError === "daily loss limit reached") this.lastError = null;
-    if (this.config.minBalance > 0 && this.balance != null && this.balance < this.config.minBalance) {
-      const msg = `paused: balance $${this.balance.toFixed(2)} is under the $${this.config.minBalance} floor`;
+    const claims = this.config.minBalance > 0 ? pendingClaimsUsd() : 0;
+    if (this.config.minBalance > 0 && this.balance != null && this.balance + claims < this.config.minBalance) {
+      const msg = `paused: balance $${this.balance.toFixed(2)}${claims > 0 ? ` + $${claims.toFixed(2)} to claim` : ""} is under the $${this.config.minBalance} floor`;
       if (this.lastError !== msg) console.log(`live ${this.series.label}: ${msg}`);
       this.lastError = msg;
       return;
