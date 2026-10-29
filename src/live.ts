@@ -52,12 +52,13 @@ export type LiveMode = "off" | "dry" | "live";
 /** "chaseSec": after an unfilled fill-or-kill, retry every second for this many seconds while the fresh ask is at or under
  *  the cap; with "restUntilLeft" also rest a limit buy at the cap until that many seconds are left in the window (replay says
  *  resting fills 10 more of 96 but loses $65 of the gain: the late fills are the ones that stopped leading), else no rest.
+ *  "cap": real order limit in dollars, overriding the paper rule's cap (0.45 on the 40c feed rules since 29 Oct 16:55 KST).
  *  29 Oct 2026 fill audit (enrique: "why are we missing the ones that would win, I want to fix that"): of 367 real feed-rule
  *  orders since the $2 test, the 264 fills won 23% on paper while the 96 "no orders found to match" misses won 59%; the ask is
  *  pulled the second Binance leads and comes back to the cap within 15 s in 71 of 96 cases (61% won, +$106 at $2). */
-export type LiveVariant = { variant: string; size: number; haltAfterLosses: number; ladder?: number[]; maxLossPerDay?: number; chaseSec?: number; restUntilLeft?: number };
+export type LiveVariant = { variant: string; size: number; haltAfterLosses: number; ladder?: number[]; maxLossPerDay?: number; chaseSec?: number; restUntilLeft?: number; cap?: number };
 export type LiveConfig = { mode: LiveMode; variant: string; size: number; maxLossPerDay: number; funder: string; variants: LiveVariant[]; statsSince: number; startBalance: number | null; deposits: number; claimEveryMin: number; minBalance: number; claimBelow: number };
-type VariantEntry = { variant?: string; size?: number; haltAfterLosses?: number; ladder?: number[]; maxLossPerDay?: number; chaseSec?: number; restUntilLeft?: number };
+type VariantEntry = { variant?: string; size?: number; haltAfterLosses?: number; ladder?: number[]; maxLossPerDay?: number; chaseSec?: number; restUntilLeft?: number; cap?: number };
 type MarketEntry = VariantEntry & { series?: string; maxLossPerDay?: number; mode?: string; variants?: VariantEntry[] };
 /** Streak of straight losses per variant and whether it tripped the halt. */
 export type Halt = { streak: number; halted: boolean; haltedAt: number | null; paused?: boolean };
@@ -201,7 +202,7 @@ const sizeOf = (raw: unknown) => {
   return Number.isFinite(size) && size > 0 ? Math.min(size, 50) : DEFAULT.size;
 };
 
-type RawVariant = { variant?: string; size?: number; haltAfterLosses?: number; ladder?: number[]; maxLossPerDay?: number; chaseSec?: number; restUntilLeft?: number };
+type RawVariant = { variant?: string; size?: number; haltAfterLosses?: number; ladder?: number[]; maxLossPerDay?: number; chaseSec?: number; restUntilLeft?: number; cap?: number };
 type RawMarket = { series?: string; mode?: string; maxLossPerDay?: number; variants?: RawVariant[] };
 type RawLive = RawMarket & { markets?: RawMarket[]; variant?: string; size?: number; haltAfterLosses?: number };
 
@@ -355,8 +356,9 @@ export function liveConfig(seriesKey = ""): LiveConfig {
     const ladder = Array.isArray(v.ladder) ? v.ladder.map((x) => sizeOf(Number(x))).filter((x) => Number.isFinite(x) && x > 0) : [];
     const own = Array.isArray(raw.variants) ? Number(v.maxLossPerDay) : NaN; // single-"variant" form: the number is the market's, not the rule's
     const chase = Number(v.chaseSec ?? 0);
+    const capOwn = Number(v.cap);
     const restLeft = Number(v.restUntilLeft);
-    if (name && !variants.some((x) => x.variant === name)) variants.push({ variant: name, size: ladder.length ? ladder[0] : sizeOf(v.size), haltAfterLosses: Number.isFinite(halt) && halt > 0 ? Math.floor(halt) : 0, ...(ladder.length > 1 ? { ladder } : {}), ...(Number.isFinite(own) && own > 0 ? { maxLossPerDay: own } : {}), ...(Number.isFinite(chase) && chase > 0 ? { chaseSec: Math.min(120, chase), ...(Number.isFinite(restLeft) && restLeft >= 0 ? { restUntilLeft: restLeft } : {}) } : {}) });
+    if (name && !variants.some((x) => x.variant === name)) variants.push({ variant: name, size: ladder.length ? ladder[0] : sizeOf(v.size), haltAfterLosses: Number.isFinite(halt) && halt > 0 ? Math.floor(halt) : 0, ...(ladder.length > 1 ? { ladder } : {}), ...(Number.isFinite(own) && own > 0 ? { maxLossPerDay: own } : {}), ...(Number.isFinite(capOwn) && capOwn > 0 && capOwn < 1 ? { cap: capOwn } : {}), ...(Number.isFinite(chase) && chase > 0 ? { chaseSec: Math.min(120, chase), ...(Number.isFinite(restLeft) && restLeft >= 0 ? { restUntilLeft: restLeft } : {}) } : {}) });
   }
   return {
     mode,
@@ -764,7 +766,8 @@ export class LiveTrader {
       freshAsk = null;
     }
     // The exchange takes prices on a 1c grid between 1c and 99c; a 99.5c cap (fav93) must be sent as 99c.
-    const limit = Math.min(0.99, Math.max(0.01, Math.round(cap * 100) / 100));
+    // "cap" on the live.json entry overrides the paper rule's cap for the real order (29 Oct: enrique chose 45c for the 40c feed rules).
+    const limit = Math.min(0.99, Math.max(0.01, Math.round((rule.cap ?? cap) * 100) / 100));
     const row: LiveTrade = {
       window: trade.window,
       t: Date.now(),
