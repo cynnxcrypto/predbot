@@ -41,6 +41,15 @@ function make(symbol: Symbol): FeedSet {
         const row = JSON.parse(text) as { e?: string; T?: number; p?: string };
         if (row.e === "aggTrade" && row.T && row.p) push(row.T, Number(row.p));
       },
+      // 29 Oct 2026: the stream never delivered on the Mac while the REST side did, so poll the price when the stream is silent.
+      poll: {
+        url: `https://fapi.binance.com/fapi/v1/ticker/price?symbol=${symbol.toUpperCase()}USDT`,
+        everyMs: 2000,
+        parse: (body) => {
+          const row = body as { price?: string; time?: number };
+          return row && row.price ? { t: Number(row.time) || Date.now(), price: Number(row.price) } : null;
+        },
+      },
     }),
     /** Coinbase <coin>-USD ticker: a second, independent spot print. */
     coinbase: new Feed({

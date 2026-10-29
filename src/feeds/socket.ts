@@ -10,6 +10,8 @@ export class Feed {
   lastAt = 0;
   connects = 0;
   errors = 0;
+  /** Ticks that came from the REST fallback rather than the stream. */
+  polled = 0;
   private socket: WebSocket | null = null;
   private backoff = 1000;
   private closed = false;
@@ -17,6 +19,9 @@ export class Feed {
   private readonly onOpen: (send: (text: string) => void) => void;
   private readonly onText: (text: string, push: (t: number, price: number) => void, send: (text: string) => void) => void;
   private readonly keepMs: number;
+  /** Optional REST fallback: polled while the websocket is silent (some hosts block the stream but not the REST endpoint). */
+  private readonly poll: { url: string; everyMs: number; parse: (body: unknown) => Tick | null } | null;
+  private pollTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(opts: {
     name: string;
@@ -24,17 +29,37 @@ export class Feed {
     onOpen?: (send: (text: string) => void) => void;
     onText: (text: string, push: (t: number, price: number) => void, send: (text: string) => void) => void;
     keepMs?: number;
+    poll?: { url: string; everyMs: number; parse: (body: unknown) => Tick | null };
   }) {
     this.name = opts.name;
     this.url = opts.url;
     this.onOpen = opts.onOpen ?? (() => undefined);
     this.onText = opts.onText;
     this.keepMs = opts.keepMs ?? 12 * 60 * 1000;
+    this.poll = opts.poll ?? null;
   }
 
   start() {
     this.closed = false;
     this.connect();
+    if (this.poll && !this.pollTimer) {
+      const poll = this.poll;
+      this.pollTimer = setInterval(() => {
+        if (this.closed || Date.now() - this.lastAt < 10000) return;
+        fetch(poll.url)
+          .then((res) => (res.ok ? res.json() : Promise.reject(new Error(String(res.status)))))
+          .then((body) => {
+            const tick = poll.parse(body);
+            if (tick) {
+              this.push(tick.t, tick.price);
+              this.polled += 1;
+            }
+          })
+          .catch(() => {
+            this.errors += 1;
+          });
+      }, poll.everyMs);
+    }
     return this;
   }
 
@@ -42,6 +67,8 @@ export class Feed {
     this.closed = true;
     this.socket?.close();
     this.socket = null;
+    if (this.pollTimer) clearInterval(this.pollTimer);
+    this.pollTimer = null;
   }
 
   /** The newest tick, or null if the feed has been silent for longer than staleMs. */
@@ -66,7 +93,7 @@ export class Feed {
   }
 
   healthy() {
-    return this.socket?.readyState === WebSocket.OPEN && Date.now() - this.lastAt < 20000;
+    return (this.socket?.readyState === WebSocket.OPEN || this.poll != null) && Date.now() - this.lastAt < 20000;
   }
 
   private push = (t: number, price: number) => {
