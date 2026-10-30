@@ -130,6 +130,10 @@ export type Variant = {
   maxWindowSec?: number;
   /** Ahead-side rule (round 59, 30 Oct 2026): BTC 5m's own Chainlink move from its open (bps, within the last 3 s) must point the same way by at least this much (market-wide move, not a coin-only wiggle). */
   btcAheadBp?: number;
+  /** Cross-coin ahead rule (round 72, 30 Oct 2026): at least `crossAheadCoins` (default 3) OTHER series of the same window length have their Chainlink price `crossAheadBp` bps or more from their open (within the last 3 s) in one direction, while this series' own move is at most `ownMaxBp` (default `aheadBp`); buy the side the others moved toward. Replaces the own-move test of `aheadBp`. */
+  crossAheadBp?: number;
+  crossAheadCoins?: number;
+  ownMaxBp?: number;
   trailOf?: string;
   trailMin?: number;
   /** For `first` rules: only trade when the mean Chainlink range (high minus low, bps) of the previous 6 windows is at least this. */
@@ -303,6 +307,7 @@ export const VARIANTS: Variant[] = [
   { name: "ahead10-mid65-15m-first3", left: 0, cap: 0.65, minAsk: 0.35, size: 5, aheadBp: 10, flatLeft: [720, 870], minWindowSec: 900, maxWindowSec: 900, added: "2026-10-30", idea: "15-minute markets, first three minutes (flatLeft 720-870 s): Binance already 10+ bps from the open and the side it favours still asks 35-65c. Round 69 (30 Oct 2026) measured early-move carry on the 14-day 15m history (6 coins, 8,903 windows, Binance 1-min closes): a 10-20 bps move by minute 2 resolves its own way 72.4% of the time (n=1,643), 20+ bps 82.4% (581), 6-10 bps 65.8%, 3-6 bps 60.9%, under 3 bps 54.2%; by minute 5 the same buckets carry 78-90%. The book prices this in only partly: buying the favoured side at its last print when it still asks 35-65c after a 10-20 bps move pays +$0.231 per $1 at minute 2 (68.6% won, n=746), +$0.190 at minute 3 (527), +$0.227 at minute 5 (368), and +$0.35-0.50 after 20+ bps (92-202), while the 65-90c favourite is fair or negative in every bucket (-$0.09..+$0.05). Same family as ahead15-mid70-15m (round 44) but earlier in the window and with a wider price floor; last-print caveat (round 45) applies, so the fillable column decides." },
   { name: "flat25-cheap50-4h", left: 0, cap: 0.5, minAsk: 0.35, size: 5, flatBp: 25, flatLeft: [12000, 13800], minWindowSec: 14400, added: "2026-10-30", idea: "4-hour markets, minutes 10-40: the underlying is still within 25 bps of the open, yet the book already leans (one side 50-65c); buy the cheaper side at 35-50c. Round 70 (30 Oct 2026) ran the round-69 early-move-carry test on the 14-day 4h history (6 coins, 540 windows, Binance 1-min closes): unlike 15m, small early moves do not carry on 4h. At minute 15 a move under 10 bps resolves its own way 49.5% (n=277) and 10-25 bps 48.1% (156), a coin flip, while the book's favoured side at 50-65c loses -$0.180 and -$0.215 per $1 at the last print (217 and 139); at minute 30 the same cells are 53-54% and -$0.04..-$0.06, at minute 60 51-54% and -$0.03..-$0.39. Only 25+ bps moves carry (70.7% at minute 15, 86% at minute 120) and the book prices those about fairly. So the early 4h lean is noise and its cheaper side is underpriced: a mirror of the 15m ahead family, not a port of it. Small samples (about 6 windows a day per coin); judged by the fillable column, with 4h asks persisting 96% (round 60)." },
   { name: "ahead5-cheap60-15m-first3", left: 0, cap: 0.6, minAsk: 0.35, size: 5, aheadBp: 5, flatLeft: [720, 870], minWindowSec: 900, maxWindowSec: 900, added: "2026-10-30", idea: "15-minute markets, minutes 0.5-3: the underlying is 5+ bps from the open and the side it favours still asks 35-60c; buy it. Round 71 (30 Oct 2026, $HOME/an/taker15b.py) asked whether Binance taker flow in the first two minutes adds anything to the round-69 early-move carry on the 14-day 15m history (7 coins, 9,700 windows, move side priced at the minute-2 print +3c, 7% fee): it does not. Conditioned on the ask, every flow bucket lands within $0.03 of the others: move side at 35-50c +$0.36 per $1 (n=286, 62% won), 50-60c +$0.12 (781, 63%), 60-70c +$0.01 (1,412), 70c+ -$0.02 (3,394, 79% won). The one flow effect is the crowd overpaying: when heavy taker flow agrees with the move the 60-70c cell is -$0.01 against +$0.05 with neutral flow, and 70c+ is the worst cell in every bucket. So the edge, if real, is a price edge (the book under-reacting to a small move) and the paper rule needs only the ask: the move side at 60c or less, which ahead10-mid65-15m-first3 covers only for 10+ bps moves and up to 65c. Caveats: the minute-2 print lags the live ask (round 45 artifact; +3c applied), and 15m asks persist 81% (round 60). Judged by the fillable column." },
+  { name: "cross5x3-flat-cheap50-15m", left: 0, cap: 0.5, minAsk: 0.3, size: 5, aheadBp: 5, crossAheadBp: 5, crossAheadCoins: 3, flatLeft: [720, 870], minWindowSec: 900, maxWindowSec: 900, added: "2026-10-30", idea: "15-minute markets, minutes 0.5-3: three or more OTHER coins are 5+ bps from their open in one direction while this coin is still within 5 bps of its own; buy the side the others moved toward, but only while it still asks 30-50c. Round 72 (30 Oct 2026, $HOME/an/cross15.py) asked whether a market-wide early move carries to a coin that has not moved yet, on the 14-day 15m history (7 coins, Binance 1-min closes at minute 2, alt priced at its minute-2 print +3c, 7% fee). Mostly no: with 3+ others down and the coin flat the down side wins 59.2% (n=601) for -$0.01 per $1; with 3+ others up and the coin flat the up side wins 52.2% (602) for -$0.10; BTC alone leading does no better (51-53%, -$0.06..-$0.10). The lead only looks good when the coin has already moved itself (74-75%), which is the own-move carry of rounds 69 and 71, not a cross-coin effect. The one cell left is the cheap side: lead side under 50c wins 59% / 46% for +$0.33 (109) and +$0.09 (133), because a flat coin whose book has already drifted the other way is priced like a loser and is not. 65c+ loses -$0.19..-$0.35 in every lead cell. A small-sample probe (about 240 cases in 14 days), measured by the fillable column; new crossAheadBp/crossAheadCoins/ownMaxBp options." },
   { name: "feed3-up40-tight", left: 0, cap: 0.4, minAsk: 0.2, size: 5, feedLeadBp: 3, jumpMinLeft: 120, onlySide: "UP", microGap: 0.02, added: "2026-10-30", idea: "feed3-up40-min20 only when the UP microprice sits within 2c of the best ask, i.e. the bid side carries enough size to hold the price (microprice = ask x bid shares + bid x ask shares over both). Round 56 on the 25-28 Oct 1-s books (6 coins 5m, $HOME/an/micro1.py, feed trigger: Binance 3+ bps over its usual gap, 120-200 s left, first hit per window): at 20-40c the within-2c cell wins 36.1% and makes +$1.64/trade (n=219) while the far-under cell (thin bid or wide spread) wins 23.2% and loses -$1.17 (n=69); at 40-60c the split goes the other way but both cells are positive (+$0.26 / +$0.60). The no-lead control is negative in every cell (-$0.34..-$1.01), so the microprice does not trade on its own; it filters the cheap feed tickets." },
   { name: "binmom3-mid65-late", left: 0, cap: 0.65, minAsk: 0.5, size: 5, binMoveBp: 3, binMoveSec: 60, jumpMinLeft: 60, added: "2026-10-30", idea: "the favourite at 50-65c when Binance moved 3+ bps its way over the last 60 s (any window length, 60+ s left, one trade per window). Round 57 on 14 days of 5m history (6 coins, ~16,000 favourite-zone marks at minutes 2 and 3, 1-min UP prints, Binance 1-min candles, $HOME/an/taker1.py): the favourite whose direction the just-closed Binance minute agrees with won 73.7% (+$0.231 per $1, n=6,568) against 37.7% (-$0.371) when the minute went against it and 57.0% base; taker-buy share agreeing 65.6% (+$0.095) vs 47.4% (-$0.206). Too good to be true: the 1-minute UP prints lag the candle (the round 45 stale-tape artifact), and round 35 found Binance flow fully priced by the 60 s mark on 1-s books. So this is the live check with real asks: if the 50-65c favourite plus a 60 s Binance move really wins 65%+ it is the high-win-rate rule enrique asked for on 30 Oct 09:07 KST; if it comes in near 57% the replay was the tape artifact. Sibling of ahead5-mid65-late (which keys on Chainlink vs the open)." },
   { name: "ahead5-mid65-late-awake", left: 0, cap: 0.65, minAsk: 0.5, size: 5, aheadBp: 5, flatLeft: [60, 240], hoursUtc: [18, 15], added: "2026-10-30", idea: "ahead5-mid65-late outside 00:00-03:00 KST. Round 58 on 14 days of 5m history (6 coins, $HOME/an/aheadhour.py; Binance 1-min close 5+ bps from the open as the ahead signal, favoured side at 50-65c from the 1-min prints, first hit of minutes 1-4): the cell wins 73.0% (+$0.215 per $1, n=593) but by 3-hour KST block 00-03 is the one dead block, 60.0% won -$0.010 (n=120), against 73.7-80.4% (+$0.22..+$0.35) in 03-06, 06-09, 09-12, 18-21 and 21-24; 12-18 KST has too few prints to say (n<40). By coin XRP 82.7% +$0.375 (98), BNB 76.6%, SOL 72.4%, DOGE 70.3%, HYPE 69.0%, ETH 68.3%. The level itself is inflated by the stale-print artifact (round 45), so read the block pattern, not the 73%. Live since 09:13 KST at $2 on 7 coins; this twin shows what skipping the midnight block costs or saves." },
@@ -427,15 +432,21 @@ function noteFeedOne(key: string, t: number, price: number | null, chainlink: nu
   const sorted = f.gaps.slice().sort((a, b) => a - b);
   f.median = sorted[sorted.length >> 1];
 }
-function noteFeed(prefix: string, row: BookRow) {
+function noteFeed(prefix: string, row: BookRow, windowSec = WINDOW_SEC) {
   noteFeedOne(prefix + "|binance", row.t, row.binance, row.chainlink);
   noteFeedOne(prefix + "|coinbase", row.t, row.coinbase, row.chainlink);
   noteFeedOne(prefix + "|xchg", row.t, row.binance, row.coinbase);
   if (/^[a-z]*5m-$|^$/.test(prefix)) {
     const lead = feedLead(prefix, row);
     if (lead != null) latestLead.set(prefix, { t: row.t, lead });
-    if (row.chainlink && row.open) latestAhead.set(prefix, { t: row.t, move: ((row.chainlink - row.open) / row.open) * 1e4 });
   }
+  if (row.chainlink && row.open) latestAhead.set(prefix, { t: row.t, move: ((row.chainlink - row.open) / row.open) * 1e4, windowSec });
+}
+/** How many OTHER series of the same window length moved `bp`+ bps from their open in the given direction within the last 3 s (crossAheadBp rule). */
+function crossAheads(prefix: string, t: number, windowSec: number, bp: number, up: boolean): number {
+  let n = 0;
+  for (const [k, v] of latestAhead) if (k !== prefix && v.windowSec === windowSec && t - v.t <= 3000 && (up ? v.move >= bp : -v.move >= bp)) n++;
+  return n;
 }
 /** Fine round price levels per coin for the roundBp rule (the grid the replay used). */
 const ROUND_GRID: Record<string, number> = { btc: 100, eth: 10, sol: 1, xrp: 0.01, doge: 0.001, bnb: 5, hype: 1 };
@@ -487,7 +498,7 @@ function binMove(prefix: string, t: number, sec: number): number | null {
 /** Each 5m series' latest Binance lead (bps over its usual gap), for the crossLeadBp rule. */
 const latestLead = new Map<string, { t: number; lead: number }>();
 /** Each 5m series' latest Chainlink move from the window open (bps), for the btcAheadBp rule. */
-const latestAhead = new Map<string, { t: number; move: number }>();
+const latestAhead = new Map<string, { t: number; move: number; windowSec: number }>();
 /** Closed paper trades per variant across every series, oldest window first, for the trailN gate (capped at 500). */
 const recentPnl = new Map<string, { window: number; pnl: number }[]>();
 function notePnl(name: string, window: number, pnl: number) {
@@ -748,7 +759,7 @@ export class PaperTrader {
     if (this.v.salvageAt != null || this.v.stopBid != null || this.v.tpBid != null) this.considerExit(row);
     const prev = this.prevAsk?.window === row.window ? this.prevAsk : null;
     noteClose(this.prefix, row, this.windowSec);
-    noteFeed(this.prefix, row);
+    noteFeed(this.prefix, row, this.windowSec);
     noteRange(this.prefix, row, this.windowSec);
     noteTail(this.prefix, row);
     notePeak(this.prefix, row);
@@ -1213,8 +1224,18 @@ export class PaperTrader {
     if (row.left > fl1 || row.left < fl0 || row.chainlink == null || !row.open) return;
     if (this.open.some((t) => t.window === row.window)) return;
     const move = ((row.chainlink - row.open) / row.open) * 1e4;
-    if (Math.abs(move) < (this.v.aheadBp ?? 3)) return;
-    const up = move > 0;
+    let up = move > 0;
+    let crossNote = "";
+    if (this.v.crossAheadBp != null) {
+      if (Math.abs(move) > (this.v.ownMaxBp ?? this.v.aheadBp ?? 3)) return;
+      const need = this.v.crossAheadCoins ?? 3;
+      const nUp = crossAheads(this.prefix, row.t, this.windowSec, this.v.crossAheadBp, true);
+      const nDn = crossAheads(this.prefix, row.t, this.windowSec, this.v.crossAheadBp, false);
+      if (nUp >= need && nDn === 0) up = true;
+      else if (nDn >= need && nUp === 0) up = false;
+      else return;
+      crossNote = `, ${up ? nUp : nDn} other coins ${up ? "+" : "-"}${this.v.crossAheadBp}+ bps from their open`;
+    } else if (Math.abs(move) < (this.v.aheadBp ?? 3)) return;
     if (this.v.onlySide === "UP" && !up) return;
     if (this.v.onlySide === "DOWN" && up) return;
     const ask = (up ? row.upAsks[0]?.[0] : row.downAsks[0]?.[0]) ?? null;
@@ -1224,7 +1245,7 @@ export class PaperTrader {
       if (!b || row.t - b.t > 3000 || (up ? b.move < this.v.btcAheadBp : -b.move < this.v.btcAheadBp)) return;
     }
     if (!this.leadOk(row, up)) return;
-    this.take(row, { up, ask }, CAP, SIZE, `price ${move >= 0 ? "+" : ""}${move.toFixed(1)} bps from the open with ${row.left}s left, ${up ? "UP" : "DOWN"} still ${(ask * 100).toFixed(0)}c`);
+    this.take(row, { up, ask }, CAP, SIZE, `price ${move >= 0 ? "+" : ""}${move.toFixed(1)} bps from the open with ${row.left}s left${crossNote}, ${up ? "UP" : "DOWN"} still ${(ask * 100).toFixed(0)}c`);
   }
 
   /** The `modelEdge` rule: buy the side the volatility model prices at least modelEdge over its best ask (or, with `rest`, rest a no-fee bid that far under the model price). One trade per window. */
