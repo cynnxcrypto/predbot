@@ -88,7 +88,8 @@ function doneStarts(file: string): Set<number> {
     if (!line) continue;
     try {
       const w = JSON.parse(line) as { start: number; tapeVersion?: number };
-      if ((w.tapeVersion ?? 1) < 2) { dropped += 1; continue; }
+      // Old tape format, or a second copy of a window (two pulls that overlapped both appended it).
+      if ((w.tapeVersion ?? 1) < 2 || out.has(w.start)) { dropped += 1; continue; }
       out.add(w.start);
       keep.push(line);
     } catch {
@@ -97,7 +98,7 @@ function doneStarts(file: string): Set<number> {
   }
   if (dropped) {
     writeFileSync(file, keep.length ? keep.join("\n") + "\n" : "");
-    log(`${file}: dropped ${dropped} window(s) with the old trade-tape format, pulling them again`);
+    log(`${file}: dropped ${dropped} duplicate or old-format window row(s)`);
   }
   return out;
 }

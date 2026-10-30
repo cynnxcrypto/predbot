@@ -116,11 +116,14 @@ for length, wsec in LENGTHS.items():
     for coin in COINS:
         f = os.path.join(H, f"{series_key(coin, length)}-windows.jsonl")
         if not os.path.exists(f): continue
+        seen = set()  # two overlapping history pulls can append the same window twice
         for line in open(f):
             try: w = json.loads(line)
             except Exception: continue
             if w.get("resolvedUp") is None: continue
             start, end, up = w["start"], w["start"] + wsec, w["resolvedUp"]
+            if start in seen: continue
+            seen.add(start)
             prices = sorted((int(a), float(b)) for a, b in w.get("prices", []))
             if not prices: continue
             nwin += 1
@@ -186,7 +189,7 @@ for length in LENGTHS:
             for coin in COINS: summarize([r for r in rows if r["coin"] == coin], coin)
 
 # ---------- C + D on recorded 1-s books ----------
-out("\n== C/D. recorded 1-second books (1h/4h/24h) ==")
+out("\n== C/D. recorded 1-second books (15m/1h/4h/24h) ==")
 def load_windows(prefix):
     res = {}
     d = os.path.join(DATA, f"{prefix}windows")
@@ -198,7 +201,7 @@ def load_windows(prefix):
             if w.get("resolvedUp") is not None: res[w["window"]] = w["resolvedUp"]
     return res
 
-for length in ["1h", "4h", "24h"]:
+for length in ["15m", "1h", "4h", "24h"]:
     wsec = LENGTHS[length]
     spreads, overs, ask_gap = [], [], []
     taker = defaultdict(list); maker = defaultdict(list)

@@ -144,6 +144,11 @@ export type Variant = {
   maxMoveBp?: number;
   /** Cross-coin check: BTC only trades when ETH's book favours the same side this window; every other coin checks BTC. */
   confirmCross?: boolean;
+  /** Volatility-model rule (30 Oct 2026): fair P(UP) = Phi(ln(Binance now / Binance at the open) / (sigma_1m * sqrt(minutes left))),
+   *  sigma_1m from the coin's last 6 h of Binance 1-minute closes. Buy the side whose model price beats its best ask by at least this much. */
+  modelEdge?: number;
+  /** For modelEdge: only act while the fraction of the window left is inside [lo, hi] (default [0.1, 1]). */
+  modelLeft?: [number, number];
   /** When the idea was added (shown as "new" for a week) and what it is trying, in plain words. */
   added?: string;
   idea?: string;
@@ -337,6 +342,10 @@ export const VARIANTS: Variant[] = [
   { name: "up15-first100-vol14", left: 0, cap: 0.17, size: 5, first: 100, onlySide: "UP", prevRangeBp: 14, added: "2026-10-27", idea: "up15-first100 only when the previous 6 windows ranged 14+ bps on average (cheap sides pay in a volatile tape): replay 25-27 Oct UP<=20c n=428, 24% won, +$417 (+$0.97/trade) vs -$1/trade in calm tape; 26 Oct carried it (+$555), 27 Oct -$96" },
   { name: "up15-first100-flat", left: 0, cap: 0.17, size: 5, first: 100, onlySide: "UP", maxMoveBp: 3, added: "2026-10-27", idea: "up15-first100 only when the price is within 3 bps of the open (the book overreacts to a tiny move): replay 23-27 Oct n=355, 21.1% won, +$462 (+$1.30/trade); drops of 3-15 bps were net -$126 over 1,281 trades" },
   { name: "up15-first100-crash", left: 0, cap: 0.17, size: 5, first: 100, onlySide: "UP", minMoveBp: 15, added: "2026-10-27", idea: "up15-first100 only after a drop of 15 bps or more (crash then rebound): replay n=98, 29.6% won, +$358 (small sample)" },
+  // 30 Oct 2026 fresh-ideas thread (enrique: "we need better ideas for trading"): Binance-volatility fair value on the slow markets, scripts/slowmodel.py.
+  { name: "model3-fav-1h", left: 0, cap: 0.95, minAsk: 0.5, size: 5, modelEdge: 0.03, modelLeft: [0.1, 1], minWindowSec: 3600, maxWindowSec: 3600, added: "2026-10-30", idea: "volatility model on the 1-hour markets: fair P(UP) = Phi(ln(Binance now / Binance at the open) / (6 h sigma of 1-min returns x sqrt(minutes left))); buy the FAVOURITE side when the model prices it 3c+ over the real best ask. 14-day history with last prints looks great everywhere (15m +$0.16/$1 on 10,148, 1h +$0.08 on 2,244) but that is stale prints: on the real 1-s books (29-30 Oct) the same rule loses -$0.15/$1 (99 trades, fillable -$0.19) because the underdog half bleeds; only the favourite half held up, 21 of 22 won, +$0.38/$1. Tiny sample, so a paper probe judged by its fillable column" },
+  { name: "model3-fav-15m", left: 0, cap: 0.95, minAsk: 0.5, size: 5, modelEdge: 0.03, modelLeft: [0.1, 1], minWindowSec: 900, maxWindowSec: 900, added: "2026-10-30", idea: "control for model3-fav-1h on the 15m books (history with last prints: favourite side 68% won +$0.20/$1, n=3,404, 0 red days of 17; never checked on real asks). Shows whether the stale-print edge survives a real ask" },
+  { name: "model-rest3-4h", left: 0, cap: 0.95, minAsk: 0.05, size: 5, modelEdge: 0, rest: 0.03, modelLeft: [0.1, 0.9], minWindowSec: 14400, maxWindowSec: 14400, added: "2026-10-30", idea: "maker, no fee: on the 4h markets rest a bid 3c under the volatility model's price for the side it favours; it fills only if someone sells down to it. Real 1-s books 29-30 Oct: 20 fills, 55% won, +$0.17/$1, 0 red days of 2 (1h same idea -$0.05, 24h 0 of 5). Taker on 4h books loses (-$0.47/$1). Small sample" },
   { name: "late10-any", left: 10, cap: 0.995, size: 5, added: "2026-10-24", idea: "every window: the projected side with 10s left at any price" },
   { name: "late5-98", left: 5, cap: 0.98, size: 5, added: "2026-10-24", idea: "projected side with 5s left, only if it costs 98c or less" },
 ];
@@ -567,6 +576,60 @@ function prevRange(prefix: string, window: number, windowSec: number): number | 
   return xs.length >= 4 ? mean(xs) : null;
 }
 
+/** Binance 1-minute closes per coin (the last ~6.5 h), for the modelEdge rule; saved so a restart does not lose the warm-up. */
+const volMinutes = new Map<string, [number, number][]>(Object.entries(loadJson<Record<string, [number, number][]>>("vol-minutes.json", {})));
+let volSaved = 0;
+/** "" is BTC 5m; every other prefix starts with the coin ("eth5m-", "sol1h-"). */
+const symbolOf = (prefix: string) => (prefix === "" ? "btc" : (/^([a-z]+)\d/.exec(prefix)?.[1] ?? prefix));
+function noteVol(prefix: string, row: BookRow) {
+  if (row.binance == null || !row.binance) return;
+  const sym = symbolOf(prefix);
+  let a = volMinutes.get(sym);
+  if (!a) volMinutes.set(sym, (a = []));
+  const m = Math.floor(row.t / 60000);
+  if (a.length && a[a.length - 1][0] === m) a[a.length - 1][1] = row.binance;
+  else if (!a.length || a[a.length - 1][0] < m) a.push([m, row.binance]);
+  if (a.length > 400) a.splice(0, a.length - 400);
+  if (Date.now() - volSaved > 60_000) {
+    volSaved = Date.now();
+    saveJson("vol-minutes.json", Object.fromEntries(volMinutes));
+  }
+}
+/** Standard deviation of the coin's Binance 1-minute log returns over the last 6 h (consecutive minutes only); null under 2 h of data. */
+function sigma1m(sym: string): number | null {
+  const a = volMinutes.get(sym);
+  if (!a) return null;
+  const rs: number[] = [];
+  for (let i = Math.max(1, a.length - 360); i < a.length; i++) if (a[i][0] === a[i - 1][0] + 1 && a[i - 1][1] > 0) rs.push(Math.log(a[i][1] / a[i - 1][1]));
+  if (rs.length < 120) return null;
+  const mu = rs.reduce((x, y) => x + y, 0) / rs.length;
+  return Math.sqrt(rs.reduce((x, y) => x + (y - mu) ** 2, 0) / rs.length);
+}
+/** Binance price at each window's open, per series (first row seen in the window's first 10 s). */
+const binOpen = new Map<string, number>();
+function noteBinOpen(prefix: string, row: BookRow, windowSec: number) {
+  const k = `${prefix}|${row.window}`;
+  if (binOpen.has(k) || row.binance == null || !row.binance || row.left < windowSec - 10) return;
+  binOpen.set(k, row.binance);
+  if (binOpen.size > 500) binOpen.delete(binOpen.keys().next().value!);
+}
+/** Normal CDF (Abramowitz-Stegun 7.1.26 erf, error under 2e-7). */
+function phi(z: number): number {
+  const x = Math.abs(z) / Math.SQRT2;
+  const t = 1 / (1 + 0.3275911 * x);
+  const erf = 1 - ((((1.061405429 * t - 1.453152027) * t + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t * Math.exp(-x * x);
+  return z >= 0 ? 0.5 * (1 + erf) : 0.5 * (1 - erf);
+}
+/** The model's P(UP) for this row, or null without enough data. Falls back to Chainlink vs the recorded open when the Binance open was not seen (restart mid-window). */
+function modelUp(prefix: string, row: BookRow, windowSec: number): number | null {
+  const sg = sigma1m(symbolOf(prefix));
+  if (sg == null || row.left <= 0) return null;
+  const b0 = binOpen.get(`${prefix}|${row.window}`);
+  const ratio = b0 && row.binance ? row.binance / b0 : row.chainlink && row.open ? row.chainlink / row.open : null;
+  if (ratio == null || !(ratio > 0)) return null;
+  return phi(Math.log(ratio) / (sg * Math.sqrt(Math.min(row.left, windowSec) / 60)));
+}
+
 /** Where a paper trader runs: file-name prefix for the series, its settlement feed and window length. */
 export type PaperHome = { prefix?: string; feed?: Feed; windowSec?: number };
 
@@ -682,6 +745,8 @@ export class PaperTrader {
     notePeak(this.prefix, row);
     noteBin(this.prefix, row);
     noteBasis(this.prefix, row);
+    noteVol(this.prefix, row);
+    noteBinOpen(this.prefix, row, this.windowSec);
     this.prevAsk = { window: row.window, up: row.upAsk, down: row.downAsk };
     if (row.upAsk != null && row.downAsk != null) latestLean.set(this.prefix, { window: row.window, up: row.upAsk > row.downAsk ? true : row.downAsk > row.upAsk ? false : null });
     if (this.resting && (this.resting.window !== row.window || row.left < 1)) this.resting = null;
@@ -703,6 +768,7 @@ export class PaperTrader {
     if (this.v.roundBp != null) return this.considerRound(row);
     if (this.v.flatBp != null) return this.considerFlat(row);
     if (this.v.aheadBp != null) return this.considerAhead(row);
+    if (this.v.modelEdge != null) return this.considerModel(row);
     if (this.v.imbFade != null) return this.considerImb(row);
     if (this.v.peakDrop != null) return this.considerPeak(row);
     if (this.v.preOpenBp != null) return this.considerPreOpen(row);
@@ -1150,6 +1216,33 @@ export class PaperTrader {
     }
     if (!this.leadOk(row, up)) return;
     this.take(row, { up, ask }, CAP, SIZE, `price ${move >= 0 ? "+" : ""}${move.toFixed(1)} bps from the open with ${row.left}s left, ${up ? "UP" : "DOWN"} still ${(ask * 100).toFixed(0)}c`);
+  }
+
+  /** The `modelEdge` rule: buy the side the volatility model prices at least modelEdge over its best ask (or, with `rest`, rest a no-fee bid that far under the model price). One trade per window. */
+  private considerModel(row: BookRow) {
+    const { cap: CAP, size: SIZE } = this.v;
+    const [lo, hi] = this.v.modelLeft ?? [0.1, 1];
+    const frac = row.left / this.windowSec;
+    if (frac < lo || frac > hi || row.left < 1) return;
+    if (this.open.some((t) => t.window === row.window) || this.favSeen === row.window) return;
+    const p = modelUp(this.prefix, row, this.windowSec);
+    const ua = row.upAsks[0]?.[0];
+    const da = row.downAsks[0]?.[0];
+    if (p == null || ua == null || da == null) return;
+    const up = p - ua >= 1 - p - da;
+    if (this.v.onlySide && (up ? "UP" : "DOWN") !== this.v.onlySide) return;
+    const fair = up ? p : 1 - p;
+    const ask = up ? ua : da;
+    if (this.v.rest != null) {
+      const price = Math.round((fair - this.v.rest) * 100) / 100;
+      if (price < (this.v.minAsk ?? 0.05) || price > CAP) return;
+      this.favSeen = row.window;
+      if (ask <= price + 1e-9) return this.take(row, { up, ask }, price, SIZE, `model ${(fair * 100).toFixed(0)}c, ask already at ${(ask * 100).toFixed(0)}c`);
+      this.resting = { window: row.window, up, price };
+      return;
+    }
+    if (fair - ask < this.v.modelEdge! - 1e-9 || ask < (this.v.minAsk ?? 0.05) || ask > CAP) return;
+    this.take(row, { up, ask }, CAP, SIZE, `model ${(fair * 100).toFixed(0)}c vs ask ${(ask * 100).toFixed(0)}c with ${Math.round(row.left / 60)} min left`);
   }
 
   /** The `imbFade` rule: resting depth as a crowd signal, faded (round 46 replay: following it loses, fading it is about fair). */
