@@ -227,6 +227,7 @@ export class Recorder {
           if (this.market) {
             watchedTokens.set(this.series.key, [this.market.upToken, this.market.downToken]);
             bookFeed.watch([...watchedTokens.values()].flat());
+            this.live?.prepare(this.market);
           }
         }
       }
