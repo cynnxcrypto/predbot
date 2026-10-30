@@ -357,6 +357,10 @@ export type PaperTrade = {
   soldAt?: number;
   /** Arb rows: shares held on the other side (both sides were bought); the winner pays out whichever side resolves. */
   otherShares?: number;
+  /** Fillable check (30 Oct 2026): 2-5 s after the signal, was the same side still asking within 1c of `ask` with 5+ shares (the Polymarket minimum)? null until checked. */
+  fillable?: boolean | null;
+  /** The ask seen at the fillable check. */
+  fillAsk?: number;
 };
 
 /** How each window closed (the book's favourite at its last snapshot with both asks), per series and window start, for the prevDir and afterPrev rules.
@@ -612,11 +616,29 @@ export class PaperTrader {
   private haltUntil = 0;
   private byDay = new Map<string, { day: string; trades: number; won: number; net: number; first: number }>();
 
+  /** Fillable check: 2-5 s after a paper entry, is the same side still asking within 1c with 5+ shares? Written once per trade. */
+  private checkFillable(row: BookRow) {
+    let dirty = false;
+    for (const t of this.open) {
+      if (t.fillable !== null || t.window !== row.window || t.otherShares != null) continue;
+      const age = row.t - t.t;
+      if (age < 2000) continue;
+      if (age > 5000) { t.fillable = false; dirty = true; continue; }
+      const best = (t.side === "UP" ? row.upAsks : row.downAsks)[0];
+      t.fillAsk = best?.[0];
+      t.fillable = !!best && best[0] <= t.ask + 0.01 + 1e-9 && best[1] >= 5;
+      dirty = true;
+    }
+    if (dirty) saveJson(this.openFile, this.open);
+  }
+
   private count(t: PaperTrade) {
     if (t.pnl == null) return;
     this.trades += 1;
     if (t.won) this.won += 1;
     this.net += t.pnl;
+    if (t.fillable === true) { this.fTrades += 1; if (t.won) this.fWon += 1; this.fNet += t.pnl; }
+    else if (t.fillable === false) this.fMiss += 1;
     notePnl(this.v.name, t.window, t.pnl);
     const day = kstDay(t.window * 1000);
     let d = this.byDay.get(day);
@@ -632,6 +654,11 @@ export class PaperTrader {
   private prevAsk: { window: number; up: number | null; down: number | null } | null = null;
   /** Recent best asks of the window (newest last), for the holdRows rule. */
   private history: { window: number; rows: { up: number | null; down: number | null }[] } = { window: 0, rows: [] };
+  /** Fillable-scored totals (trades whose ask was still there with 5+ shares 2-5 s later) and the misses. */
+  private fTrades = 0;
+  private fWon = 0;
+  private fNet = 0;
+  private fMiss = 0;
   /** Windows where the favourite rule already saw its first hit (taken or filtered out); it never fires twice. */
   private favSeen = 0;
   /** For leadHoldSec: when the lead first went past the threshold toward UP / DOWN in the current run (ms), or null. */
@@ -642,6 +669,7 @@ export class PaperTrader {
   consider(row: BookRow) {
     const { left: LEFT, cap: CAP, size: SIZE } = this.v;
     if (discarded().has(this.v.name)) return;
+    this.checkFillable(row);
     if (this.v.salvageAt != null || this.v.stopBid != null || this.v.tpBid != null) this.considerExit(row);
     const prev = this.prevAsk?.window === row.window ? this.prevAsk : null;
     noteClose(this.prefix, row, this.windowSec);
@@ -736,6 +764,7 @@ export class PaperTrader {
       resolvedUp: null,
       won: null,
       pnl: null,
+      fillable: null,
     };
     this.open.push(trade);
     saveJson(this.openFile, this.open);
@@ -1417,6 +1446,6 @@ export class PaperTrader {
 
   status() {
     const { left: LEFT, cap: CAP, size: SIZE } = this.v;
-    return { name: this.v.name, size: SIZE, added: this.v.added ?? null, idea: this.v.idea ?? null, discarded: discarded().has(this.v.name), rule: this.v.arbSum != null ? `both sides whenever the asks add up to ${Math.round(this.v.arbSum * 100)}c or less, $${SIZE} each` : this.v.prevDir != null ? `first ${this.v.first}s, ${this.v.prevDir === "same" ? "with" : "against"} the last close, ask <= ${Math.round(CAP * 100)}c, $${SIZE}` : this.v.favAt != null ? `favourite when its ask reaches ${Math.round(this.v.favAt * 100)}c, ${this.v.favFrom != null ? (this.v.favTo != null ? `${this.v.favFrom}-${this.v.favTo}s in` : `from ${this.v.favFrom}s in`) : "any time"}, $${SIZE}` : this.v.first != null ? `first ${this.v.first}s, either side <= ${Math.round(CAP * 100)}c, $${SIZE}${this.v.salvageAt != null ? `, sell at ${this.v.salvageAt}s left if bid <= ${Math.round((this.v.salvageBid ?? 0) * 100)}c` : ""}` : `<=${LEFT}s, ask ${this.v.floor ? Math.round(this.v.floor * 100) + "c to " : "<= "}${Math.round(CAP * 100)}c${this.v.noFall ? ", not falling" : ""}, $${SIZE}`, trades: this.trades, won: this.won, net: Math.round(this.net * 100) / 100, open: this.open.length, noAsk: this.noAsk, days: [...this.byDay.values()].sort((a, b) => (a.day < b.day ? 1 : -1)) };
+    return { name: this.v.name, size: SIZE, added: this.v.added ?? null, idea: this.v.idea ?? null, discarded: discarded().has(this.v.name), rule: this.v.arbSum != null ? `both sides whenever the asks add up to ${Math.round(this.v.arbSum * 100)}c or less, $${SIZE} each` : this.v.prevDir != null ? `first ${this.v.first}s, ${this.v.prevDir === "same" ? "with" : "against"} the last close, ask <= ${Math.round(CAP * 100)}c, $${SIZE}` : this.v.favAt != null ? `favourite when its ask reaches ${Math.round(this.v.favAt * 100)}c, ${this.v.favFrom != null ? (this.v.favTo != null ? `${this.v.favFrom}-${this.v.favTo}s in` : `from ${this.v.favFrom}s in`) : "any time"}, $${SIZE}` : this.v.first != null ? `first ${this.v.first}s, either side <= ${Math.round(CAP * 100)}c, $${SIZE}${this.v.salvageAt != null ? `, sell at ${this.v.salvageAt}s left if bid <= ${Math.round((this.v.salvageBid ?? 0) * 100)}c` : ""}` : `<=${LEFT}s, ask ${this.v.floor ? Math.round(this.v.floor * 100) + "c to " : "<= "}${Math.round(CAP * 100)}c${this.v.noFall ? ", not falling" : ""}, $${SIZE}`, trades: this.trades, won: this.won, net: Math.round(this.net * 100) / 100, fillable: { trades: this.fTrades, won: this.fWon, net: Math.round(this.fNet * 100) / 100, miss: this.fMiss }, open: this.open.length, noAsk: this.noAsk, days: [...this.byDay.values()].sort((a, b) => (a.day < b.day ? 1 : -1)) };
   }
 }
