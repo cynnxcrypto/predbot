@@ -23,12 +23,15 @@
  */
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { DATA, SERIES, prefixOf, type Series } from "./config.js";
+import { DATA, SERIES, eventSlug, noonEt, prefixOf, type Series } from "./config.js";
 
 const DIR = join(DATA, "history");
 const DAYS = Number(process.env.HISTORY_DAYS) > 0 ? Number(process.env.HISTORY_DAYS) : 14;
 const UA = "PredBotHistory/0.1";
 const PACE_MS = 250;
+/** HISTORY_SERIES=btc1h,eth1h,... pulls only those series (and their coins' Binance candles); HISTORY_TAPE=off skips the trade tape. */
+const ONLY = (process.env.HISTORY_SERIES ?? "").split(",").map((x) => x.trim()).filter(Boolean);
+const TAPE = process.env.HISTORY_TAPE !== "off";
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 type State = { startedAt: number; lastRunAt: number | null; done: Record<string, number>; missing: Record<string, number>; binance: Record<string, number>; error: string | null; running: boolean };
@@ -100,7 +103,7 @@ function doneStarts(file: string): Set<number> {
 }
 
 async function fetchWindow(series: Series, start: number): Promise<HistoryWindow | null | "unresolved"> {
-  const events = await getJson<GammaEvent[]>(`https://gamma-api.polymarket.com/events?slug=${series.slug}-${start}`);
+  const events = await getJson<GammaEvent[]>(`https://gamma-api.polymarket.com/events?slug=${eventSlug(series.slug, start, series.slugStyle)}`);
   const market = events?.[0]?.markets?.[0];
   if (!market?.clobTokenIds || !market.conditionId) return null;
   let tokens: string[] = [];
@@ -124,7 +127,7 @@ async function fetchWindow(series: Series, start: number): Promise<HistoryWindow
   const ph = await getJson<{ history?: { t: number; p: number }[] }>(`https://clob.polymarket.com/prices-history?market=${tokens[0]}&startTs=${start - 60}&endTs=${end + 60}&fidelity=1`);
   const prices: [number, number][] = (ph?.history ?? []).map((h) => [h.t, h.p]);
   const trades: [number, number, number, number][] = [];
-  for (let offset = 0; offset < 10000; offset += 1000) {
+  for (let offset = 0; TAPE && offset < 10000; offset += 1000) {
     const page = await getJson<{ side?: string; asset?: string; outcome?: string; size?: number | string; price?: number | string; timestamp?: number | string }[]>(`https://data-api.polymarket.com/trades?market=${market.conditionId}&limit=1000&offset=${offset}`);
     if (!page || !Array.isArray(page)) break;
     for (const t of page) {
@@ -147,10 +150,14 @@ async function pullWindows(series: Series) {
   const now = Math.floor(Date.now() / 1000);
   const first = Math.floor((now - DAYS * 86400) / series.windowSec) * series.windowSec;
   const last = Math.floor(now / series.windowSec) * series.windowSec - 2 * series.windowSec;
+  // Daily windows start at noon New York time (23 or 25 hours apart across a DST change), the others on unix multiples.
+  const starts: number[] = [];
+  if (series.slugStyle === "et-day") for (let k = 2; k <= DAYS; k++) starts.push(noonEt(now - k * 86400));
+  else for (let start = last; start >= first; start -= series.windowSec) starts.push(start);
   let added = 0;
   let missing = 0;
   let consecutiveMissing = 0;
-  for (let start = last; start >= first; start -= series.windowSec) {
+  for (const start of starts) {
     if (done.has(start)) continue;
     const w = await fetchWindow(series, start);
     if (w === "unresolved") continue;
@@ -239,7 +246,8 @@ async function main() {
   }
   saveState();
   log(`history: pulling the last ${DAYS} day(s)`);
-  const symbols = [...new Set(SERIES.map((s) => s.symbol))];
+  const chosen = SERIES.filter((s) => !ONLY.length || ONLY.includes(s.key || "btc5m"));
+  const symbols = [...new Set(chosen.map((s) => s.symbol))];
   for (const symbol of symbols) {
     try {
       await pullBinance(symbol);
@@ -247,8 +255,7 @@ async function main() {
       log(`binance ${symbol}: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
-  for (const series of SERIES) {
-    if (series.slugStyle === "et-day") continue; // daily windows start at noon New York time, not on a unix multiple
+  for (const series of chosen) {
     try {
       await pullWindows(series);
     } catch (error) {
