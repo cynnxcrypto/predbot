@@ -140,6 +140,8 @@ export type LiveTrade = {
   shares: number;
   /** Polymarket's taker fee on crypto markets, charged in pUSD on top of cost: 7% x shares x p x (1 - p). */
   fee?: number;
+  /** Milliseconds from signing the order to the exchange's answer (Mac + VPN round trips; logged since 30 Oct 2026). */
+  ms?: number;
   resolvedUp: boolean | null;
   won: boolean | null;
   pnl: number | null;
@@ -667,6 +669,16 @@ export class LiveTrader {
     return this.starting;
   }
 
+  /**
+   * Called when a new window's market is found. Without it the first order on a token waits for two extra sequential
+   * lookups (token -> condition, then market info) before it can be signed; through the Mac's VPN that is a big part
+   * of the delay that lets 20-40c asks vanish ("no orders found to match").
+   */
+  prepare(market: Market) {
+    if (!this.ready || !this.client || !market.conditionId) return;
+    void this.client.getClobMarketInfo(market.conditionId).catch(() => undefined);
+  }
+
   /** Re-read the collateral balance (called about once a minute by the recorder). */
   async refreshBalance() {
     this.config = liveConfig(this.series.key);
@@ -809,6 +821,7 @@ export class LiveTrader {
       append(`${this.prefix}live`, row, trade.window * 1000);
       return;
     }
+    const sentAt = Date.now();
     try {
       const order = await this.client.createMarketOrder(
         { tokenID: token, amount: size, side: Side.BUY, price: limit, orderType: OrderType.FAK },
@@ -829,10 +842,11 @@ export class LiveTrader {
         row.shares = Number(res?.takingAmount) || 0;
         row.fee = feeOf(row.cost, row.shares);
         this.lastOrderAt = Date.now();
+        row.ms = this.lastOrderAt - sentAt;
         if (row.ok && row.shares > 0) {
-          console.log(`live: bought ${row.shares.toFixed(2)} ${trade.side} for $${row.cost.toFixed(2)} (${Math.round((row.cost / row.shares) * 100)}c) with ${trade.left}s left`);
+          console.log(`live: bought ${row.shares.toFixed(2)} ${trade.side} for $${row.cost.toFixed(2)} (${Math.round((row.cost / row.shares) * 100)}c) with ${trade.left}s left, ${row.ms} ms`);
         } else {
-          console.log(`live: order not filled (${row.error ?? row.status ?? "no fill"})`);
+          console.log(`live: order not filled (${row.error ?? row.status ?? "no fill"}), ${row.ms} ms`);
         }
       }
     } catch (error) {
