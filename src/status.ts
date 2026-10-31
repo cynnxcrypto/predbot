@@ -1,4 +1,5 @@
 import { createServer } from "node:http";
+import { loadJson } from "./store.js";
 import { STATUS_PORT } from "./config.js";
 import type { Recorder } from "./recorder.js";
 import { LOGOS } from "./logos.js";
@@ -10,7 +11,26 @@ import { addLiveRule, liveConfig, MIN_SIZE, removeLiveRule, setLiveMaxLoss, setL
  * Resolves once the port is bound; rejects (with code EADDRINUSE) when another copy holds it.
  */
 export function serveStatus(recorder: Recorder, build: string, others: Recorder[] = []) {
+  // data/dashboard.json { "password": "..." } (the AWS server, 31 Oct 2026): the page is reached through a Cloudflare tunnel,
+  // so every request needs that password (browser login, any user name). Without the file the page stays open as on the Mac.
+  const password = String(loadJson<{ password?: string }>("dashboard.json", {}).password ?? "");
+  // On the server the rules come from git ("rules": "repo" in live.json), so the dashboard's rule edits would change nothing.
+  const rulesFromRepo = loadJson<{ rules?: string }>("live.json", {}).rules === "repo";
+  const RULE_EDITS = new Set(["/api/golive", "/api/topaper", "/api/size", "/api/halt", "/api/maxloss"]);
   const server = createServer((req, res) => {
+    if (password) {
+      const given = Buffer.from(String(req.headers.authorization ?? "").replace(/^Basic /, ""), "base64").toString().split(":").slice(1).join(":");
+      if (given !== password) {
+        res.writeHead(401, { "www-authenticate": 'Basic realm="Pred bot"', "content-type": "text/plain" });
+        res.end("password needed");
+        return;
+      }
+    }
+    if (rulesFromRepo && req.method === "POST" && RULE_EDITS.has(req.url ?? "")) {
+      res.writeHead(409, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "On the server, real rules are changed by Claude in git: ask in the chat. Pause still works here." }));
+      return;
+    }
     if (req.url === "/api/discard" && req.method === "POST") {
       let body = "";
       req.on("data", (chunk) => (body += chunk));
