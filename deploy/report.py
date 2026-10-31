@@ -25,7 +25,13 @@ def gh(method, path, body=None):
 
 
 def summary():
-    with urllib.request.urlopen("http://127.0.0.1:8790/api/status", timeout=20) as r:
+    req = urllib.request.Request("http://127.0.0.1:8790/api/status")
+    try:  # the dashboard has a password since 31 Oct 2026 23:15 KST (deploy/dashboard-setup.sh)
+        pw = json.load(open(os.path.join(DATA, "dashboard.json"))).get("password") or ""
+        req.add_header("Authorization", "Basic " + base64.b64encode(f"report:{pw}".encode()).decode())
+    except FileNotFoundError:
+        pass
+    with urllib.request.urlopen(req, timeout=20) as r:
         s = json.load(r)
     out = {"at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "build": s.get("build"), "series": []}
     for x in [s] + (s.get("series") or []):
