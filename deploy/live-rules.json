@@ -33,7 +33,7 @@
       "maxLossPerDay": 20,
       "variants": [
         {
-          "variant": "fav88-15m-late-wide",
+          "variant": "fav88-15m-late-asia",
           "size": 5,
           "haltAfterLosses": 2
         }
