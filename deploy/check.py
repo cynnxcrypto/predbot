@@ -11,7 +11,7 @@ days = sorted({d.strftime("%Y-%m-%d") for d in [since, datetime.now(timezone.utc
 
 try:
     lat = json.load(open("latency.json"))
-    print(f"latency: n={lat['n']} warm median {lat['warmMedian']} ms, cold median {lat['coldMedian']} ms")
+    print(f"latency: n={lat['n']} warm median {lat['warmMedian']} ms, cold median {lat['coldMedian']} ms, binance warm median {lat.get('binanceMedian')} ms")
 except Exception as e:
     print("latency: none", e)
 

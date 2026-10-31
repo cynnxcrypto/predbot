@@ -8,14 +8,17 @@ import { saveJson } from "./store.js";
  * first order after a quiet spell costs). Read-only, no orders. Results in data/latency.json.
  */
 const URL = "https://clob.polymarket.com/time";
+/** Binance (matching engine in Tokyo) feeds the lead signals; a server near London sees its ticks later. */
+const BINANCE = "https://api.binance.com/api/v3/time";
 const KEEP = 240;
 const warmAgent = new Agent({ keepAlive: true, maxSockets: 1 });
-const samples: { t: number; cold: number | null; warm: number | null }[] = [];
+const binanceAgent = new Agent({ keepAlive: true, maxSockets: 1 });
+const samples: { t: number; cold: number | null; warm: number | null; binance?: number | null }[] = [];
 
-function timed(agent: Agent | false): Promise<number | null> {
+function timed(agent: Agent | false, url = URL): Promise<number | null> {
   return new Promise((resolve) => {
     const start = performance.now();
-    const req = request(URL, { agent, timeout: 10_000 }, (res) => {
+    const req = request(url, { agent, timeout: 10_000 }, (res) => {
       res.resume();
       res.on("end", () => resolve(res.statusCode === 200 ? Math.round(performance.now() - start) : null));
     });
@@ -35,10 +38,12 @@ async function measure() {
   const cold = await timed(false);
   await timed(warmAgent);
   const warm = await timed(warmAgent);
-  samples.push({ t: Date.now(), cold, warm });
+  await timed(binanceAgent, BINANCE);
+  const binance = await timed(binanceAgent, BINANCE);
+  samples.push({ t: Date.now(), cold, warm, binance });
   if (samples.length > KEEP) samples.shift();
-  const pick = (k: "cold" | "warm") => samples.map((s) => s[k]).filter((v): v is number => v != null);
-  saveJson("latency.json", { at: Date.now(), url: URL, n: samples.length, coldMedian: median(pick("cold")), warmMedian: median(pick("warm")), samples });
+  const pick = (k: "cold" | "warm" | "binance") => samples.map((s) => s[k]).filter((v): v is number => v != null);
+  saveJson("latency.json", { at: Date.now(), url: URL, n: samples.length, coldMedian: median(pick("cold")), warmMedian: median(pick("warm")), binanceMedian: median(pick("binance")), samples });
 }
 
 export function startLatencyProbe() {
