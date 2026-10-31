@@ -1,7 +1,13 @@
 {
   "mode": "live",
-  "maxLossPerDay": 20,
-  "variants": [],
+  "maxLossPerDay": 15,
+  "variants": [
+    {
+      "variant": "feed3-up60-mid",
+      "size": 3,
+      "haltAfterLosses": 4
+    }
+  ],
   "markets": [
     {
       "series": "eth5m",
