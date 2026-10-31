@@ -5,6 +5,7 @@ import { ROOT, SERIES, STATUS_PORT } from "./config.js";
 import { Recorder } from "./recorder.js";
 import { serveStatus } from "./status.js";
 import { startLatencyProbe } from "./latency.js";
+import { startServerReport } from "./serverReport.js";
 
 function build() {
   try {
@@ -69,6 +70,7 @@ const recorder = recorders[0];
 const server = await serveStatus(recorder, build(), recorders.slice(1));
 for (const r of recorders) r.start();
 const latencyTimer = startLatencyProbe();
+const reportTimer = startServerReport();
 console.log(`Pred bot recorder ${build()}. Status: http://127.0.0.1:${STATUS_PORT}. Recording ${recorders.map((r) => r.series.label).join(", ")}.`);
 
 /**
@@ -94,6 +96,7 @@ function stop() {
   clearTimeout(historyTimer);
   clearInterval(historyEvery);
   clearInterval(latencyTimer);
+  if (reportTimer) clearInterval(reportTimer);
   history?.kill("SIGTERM");
   for (const r of recorders) r.stop();
   server.close();
