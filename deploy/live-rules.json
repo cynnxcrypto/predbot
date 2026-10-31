@@ -59,6 +59,17 @@
           "haltAfterLosses": 4
         }
       ]
+    },
+    {
+      "series": "xrp15m",
+      "maxLossPerDay": 20,
+      "variants": [
+        {
+          "variant": "feed3-both40-15m",
+          "size": 3,
+          "haltAfterLosses": 4
+        }
+      ]
     }
   ]
 }
