@@ -13,7 +13,7 @@ TOKEN = open(os.path.expanduser("~/.predbot-github-token")).read().strip()
 
 
 def gh(method, path, body=None):
-    req = urllib.request.Request(f"https://api.github.com/repos/{REPO}/{path}", method=method,
+    req = urllib.request.Request(f"https://api.github.com/repos/{REPO}/{path}".rstrip("/"), method=method,
                                  data=json.dumps(body).encode() if body is not None else None,
                                  headers={"Authorization": f"Bearer {TOKEN}", "Accept": "application/vnd.github+json",
                                           "User-Agent": "predbot-server"})
@@ -67,9 +67,14 @@ def put(path, obj):
 
 
 def main():
+    code, _ = gh("GET", "")
+    if code != 200:
+        sys.exit(f"GitHub said {code} reading the repo: the token is wrong or does not include predbot")
     if gh("GET", f"branches/{BRANCH}")[0] == 404:
         code, main_ref = gh("GET", "git/ref/heads/main")
-        gh("POST", "git/refs", {"ref": f"refs/heads/{BRANCH}", "sha": main_ref["object"]["sha"]})
+        code, _ = gh("POST", "git/refs", {"ref": f"refs/heads/{BRANCH}", "sha": main_ref["object"]["sha"]})
+        if code != 201:
+            sys.exit(f"GitHub said {code} creating the {BRANCH} branch: the token needs Contents: Read and write")
     code = put("server/status.json", summary())
     print("posted" if code in (200, 201) else f"GitHub said {code}")
     sys.exit(0 if code in (200, 201) else 1)
