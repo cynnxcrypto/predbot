@@ -39,3 +39,5 @@ for f in glob.glob("*-paper-*/*.jsonl"):
             p[1] += r.get("pnl") or 0
 print(f"paper since {since:%m-%d %H:%M}Z: {fires} trades, {settled} settled, {won} won, pnl ${pnl:.2f}, {len(per)} rule/market lines")
 
+worst = sorted(per.items(), key=lambda kv: kv[1][1])[:8]
+print("worst lines:", "; ".join(f"{k} {n} ${p:.0f}" for k, (n, p) in worst))
