@@ -33,13 +33,15 @@
  *
  * Trades go to data/live/<day>.jsonl and are settled with the window like paper trades.
  */
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { Interface } from "@ethersproject/abi";
 import { StaticJsonRpcProvider } from "@ethersproject/providers";
 import { Wallet } from "@ethersproject/wallet";
 import { RelayClient } from "@polymarket/builder-relayer-client";
 import { BuilderConfig } from "@polymarket/builder-signing-sdk";
 import { AssetType, Chain, ClobClient, OrderType, Side, type ApiKeyCreds } from "@polymarket/clob-client-v2";
-import { SERIES, prefixOf, type Series, kstDay } from "./config.js";
+import { ROOT, SERIES, prefixOf, type Series, kstDay } from "./config.js";
 import type { PaperTrade } from "./paperlive.js";
 import { book, marketFor, type Market } from "./polymarket.js";
 import { append, loadJson, readAll, saveJson } from "./store.js";
@@ -321,8 +323,26 @@ export function setLiveMaxLoss(seriesKey: string, maxLoss: number, variant = "")
   return { changed: true, maxLoss: next };
 }
 
+/**
+ * "rules": "repo" in data/live.json (the AWS server, 31 Oct 2026): the rules come from deploy/live-rules.json in git, which
+ * the supervisor pulls every few minutes, so a Claude session can change them with a push (nobody can reach the server's
+ * files). Only mode, maxLossPerDay, variants and markets come from git; funder and balances stay in the local file, and a
+ * local "mode": "off" still wins as the kill switch. A missing or broken repo file means no rules (off), never the old ones.
+ */
+function withRepoRules<T extends { mode?: string }>(local: T): T {
+  let repo: { mode?: string; maxLossPerDay?: number; variants?: unknown[]; markets?: unknown[] };
+  try {
+    repo = JSON.parse(readFileSync(join(ROOT, "deploy", "live-rules.json"), "utf8"));
+  } catch {
+    return { ...local, mode: "off" };
+  }
+  const mode = local.mode === "off" ? "off" : repo.mode;
+  return { ...local, mode, maxLossPerDay: repo.maxLossPerDay, variants: repo.variants ?? [], markets: repo.markets ?? [], variant: undefined };
+}
+
 export function liveConfig(seriesKey = ""): LiveConfig {
-  const file = loadJson<Partial<Omit<LiveConfig, "statsSince">> & MarketEntry & { markets?: MarketEntry[]; statsSince?: string | number }>("live.json", {});
+  const local = loadJson<Partial<Omit<LiveConfig, "statsSince">> & MarketEntry & { markets?: MarketEntry[]; statsSince?: string | number; rules?: string }>("live.json", {});
+  const file = local.rules === "repo" ? withRepoRules(local) : local;
   const since = typeof file.statsSince === "number" ? file.statsSince : Date.parse(String(file.statsSince ?? ""));
   // "startBalance": what the wallet held before the first real order; the dashboard compares wallet and ledger against it.
   const startBalance = Number.isFinite(Number(file.startBalance)) && Number(file.startBalance) > 0 ? Number(file.startBalance) : null;

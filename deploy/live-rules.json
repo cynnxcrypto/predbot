@@ -1,0 +1,15 @@
+{
+  "mode": "live",
+  "maxLossPerDay": 20,
+  "variants": [],
+  "markets": [
+    { "series": "eth5m", "maxLossPerDay": 20, "variants": [] },
+    { "series": "sol5m", "maxLossPerDay": 20, "variants": [] },
+    { "series": "xrp5m", "maxLossPerDay": 20, "variants": [] },
+    { "series": "doge5m", "maxLossPerDay": 20, "variants": [] },
+    { "series": "bnb5m", "maxLossPerDay": 20, "variants": [] },
+    { "series": "eth15m", "maxLossPerDay": 10, "variants": [] },
+    { "series": "btc15m", "maxLossPerDay": 25, "variants": [] },
+    { "series": "hype5m", "maxLossPerDay": 15, "variants": [] }
+  ]
+}

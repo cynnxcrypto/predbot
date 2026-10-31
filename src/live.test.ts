@@ -65,3 +65,14 @@ test("live.json: ladder sets the starting size and is kept on the rule", () => {
   writeFileSync(join(dir, "live.json"), JSON.stringify({ mode: "live", funder: "0xabc", variants: [{ variant: "feed3-up40", size: 2, haltAfterLosses: 12, ladder: [2, 4, 6] }] }));
   assert.deepEqual(liveConfig().variants, [{ variant: "feed3-up40", size: 2, haltAfterLosses: 12, ladder: [2, 4, 6] }]);
 });
+
+test("live.json: \"rules\": \"repo\" takes rules from deploy/live-rules.json, keeps funder, local off still wins", () => {
+  writeFileSync(join(dir, "live.json"), JSON.stringify({ rules: "repo", mode: "live", funder: "0xabc", minBalance: 400, variants: [{ variant: "local-only", size: 5 }] }));
+  const c = liveConfig();
+  assert.equal(c.funder, "0xabc");
+  assert.equal(c.minBalance, 400);
+  assert.ok(!c.variants.some((v) => v.variant === "local-only"));
+  writeFileSync(join(dir, "live.json"), JSON.stringify({ rules: "repo", mode: "off", funder: "0xabc" }));
+  assert.equal(liveConfig().mode, "off");
+  assert.equal(liveConfig("eth5m").mode, "off");
+});

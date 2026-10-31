@@ -6,7 +6,9 @@ cd "$(dirname "$0")/../data" || { echo "No data folder next to deploy/"; read -r
 cmd="mkdir -p ~/predbot/data && cd ~/predbot/data"
 for f in polygon-keys.json polygon-builder.json live.json; do
   [ -f "$f" ] || { echo "Missing data/$f"; read -r; exit 1; }
-  cmd="$cmd && echo $(base64 < "$f" | tr -d '\n') | base64 -d > $f"
+  # The server's live.json takes its rules from deploy/live-rules.json in git ("rules": "repo"), so Claude can change them.
+  if [ "$f" = live.json ]; then b=$(sed '1s/{/{ "rules": "repo",/' "$f" | base64 | tr -d '\n'); else b=$(base64 < "$f" | tr -d '\n'); fi
+  cmd="$cmd && echo $b | base64 -d > $f"
 done
 cmd="$cmd && chmod 600 polygon-keys.json polygon-builder.json live.json && echo KEYS-OK"
 printf '%s\n' "$cmd" | pbcopy
