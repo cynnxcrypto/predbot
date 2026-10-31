@@ -36,13 +36,24 @@
           "variant": "fav88-15m-late-asia",
           "size": 5,
           "haltAfterLosses": 2
+        },
+        {
+          "variant": "ahead5-cheap60-15m-first3",
+          "size": 3,
+          "haltAfterLosses": 4
         }
       ]
     },
     {
       "series": "btc15m",
-      "maxLossPerDay": 25,
-      "variants": []
+      "maxLossPerDay": 20,
+      "variants": [
+        {
+          "variant": "fav88-15m-late-asia",
+          "size": 5,
+          "haltAfterLosses": 2
+        }
+      ]
     },
     {
       "series": "hype5m",
@@ -66,6 +77,33 @@
       "variants": [
         {
           "variant": "feed3-both40-15m",
+          "size": 3,
+          "haltAfterLosses": 4
+        }
+      ]
+    },
+    {
+      "series": "sol15m",
+      "maxLossPerDay": 15,
+      "variants": [
+        {
+          "variant": "fav88-15m-late-asia",
+          "size": 3,
+          "haltAfterLosses": 2
+        }
+      ]
+    },
+    {
+      "series": "doge15m",
+      "maxLossPerDay": 15,
+      "variants": [
+        {
+          "variant": "fav88-15m-late-asia",
+          "size": 3,
+          "haltAfterLosses": 2
+        },
+        {
+          "variant": "ahead5-cheap60-15m-first3",
           "size": 3,
           "haltAfterLosses": 4
         }
