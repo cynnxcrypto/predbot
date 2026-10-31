@@ -30,8 +30,14 @@
     },
     {
       "series": "eth15m",
-      "maxLossPerDay": 10,
-      "variants": []
+      "maxLossPerDay": 20,
+      "variants": [
+        {
+          "variant": "fav88-15m-late-wide",
+          "size": 5,
+          "haltAfterLosses": 2
+        }
+      ]
     },
     {
       "series": "btc15m",
