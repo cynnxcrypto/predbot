@@ -6,6 +6,11 @@
       "variant": "feed3-up60-mid",
       "size": 3,
       "haltAfterLosses": 4
+    },
+    {
+      "variant": "fav95-hold",
+      "size": 5,
+      "haltAfterLosses": 2
     }
   ],
   "markets": [
@@ -27,7 +32,13 @@
     {
       "series": "doge5m",
       "maxLossPerDay": 20,
-      "variants": []
+      "variants": [
+        {
+          "variant": "fav93-hold",
+          "size": 3,
+          "haltAfterLosses": 2
+        }
+      ]
     },
     {
       "series": "bnb5m",
