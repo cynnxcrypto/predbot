@@ -8,7 +8,7 @@
       "haltAfterLosses": 4
     },
     {
-      "variant": "fav95-hold",
+      "variant": "fav95-hold-min60",
       "size": 5,
       "haltAfterLosses": 2
     }
@@ -32,13 +32,7 @@
     {
       "series": "doge5m",
       "maxLossPerDay": 20,
-      "variants": [
-        {
-          "variant": "fav93-hold",
-          "size": 3,
-          "haltAfterLosses": 2
-        }
-      ]
+      "variants": []
     },
     {
       "series": "bnb5m",
@@ -96,13 +90,7 @@
     {
       "series": "sol15m",
       "maxLossPerDay": 15,
-      "variants": [
-        {
-          "variant": "fav88-15m-late-asia",
-          "size": 3,
-          "haltAfterLosses": 2
-        }
-      ]
+      "variants": []
     },
     {
       "series": "doge15m",
@@ -112,11 +100,6 @@
           "variant": "fav88-15m-late-asia",
           "size": 3,
           "haltAfterLosses": 2
-        },
-        {
-          "variant": "ahead5-cheap60-15m-first3",
-          "size": 3,
-          "haltAfterLosses": 4
         }
       ]
     }
