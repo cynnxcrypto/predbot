@@ -1,11 +1,11 @@
 {
- "at": "2026-11-01T05:30:18Z",
+ "at": "2026-11-01T05:45:17Z",
  "build": "aa74bab\u00b72026-11-01\u00b705:12",
  "series": [
   {
    "key": "btc5m",
    "label": "BTC 5m",
-   "windowsDone": 3,
+   "windowsDone": 6,
    "lastError": null,
    "feeds": [
     {
@@ -4742,7 +4742,7 @@
   {
    "key": "eth5m",
    "label": "ETH 5m",
-   "windowsDone": 3,
+   "windowsDone": 6,
    "lastError": null,
    "feeds": [
     {
@@ -9213,7 +9213,7 @@
   {
    "key": "sol5m",
    "label": "SOL 5m",
-   "windowsDone": 3,
+   "windowsDone": 6,
    "lastError": null,
    "feeds": [
     {
@@ -13967,7 +13967,7 @@
   {
    "key": "xrp5m",
    "label": "XRP 5m",
-   "windowsDone": 3,
+   "windowsDone": 6,
    "lastError": null,
    "feeds": [
     {
@@ -18616,7 +18616,7 @@
   {
    "key": "doge5m",
    "label": "DOGE 5m",
-   "windowsDone": 3,
+   "windowsDone": 6,
    "lastError": null,
    "feeds": [
     {
@@ -18631,7 +18631,7 @@
     },
     {
      "name": "coinbase doge",
-     "healthy": false,
+     "healthy": true,
      "errors": 0
     },
     {
@@ -23104,7 +23104,7 @@
   {
    "key": "bnb5m",
    "label": "BNB 5m",
-   "windowsDone": 3,
+   "windowsDone": 6,
    "lastError": null,
    "feeds": [
     {
@@ -23119,7 +23119,7 @@
     },
     {
      "name": "coinbase bnb",
-     "healthy": true,
+     "healthy": false,
      "errors": 0
     },
     {
@@ -27574,7 +27574,7 @@
   {
    "key": "hype5m",
    "label": "HYPE 5m",
-   "windowsDone": 3,
+   "windowsDone": 6,
    "lastError": null,
    "feeds": [
     {
@@ -27589,7 +27589,7 @@
     },
     {
      "name": "coinbase hype",
-     "healthy": true,
+     "healthy": false,
      "errors": 0
     },
     {
@@ -32191,7 +32191,7 @@
   {
    "key": "btc15m",
    "label": "BTC 15m",
-   "windowsDone": 1,
+   "windowsDone": 2,
    "lastError": null,
    "feeds": [
     {
@@ -37151,7 +37151,7 @@
   {
    "key": "eth15m",
    "label": "ETH 15m",
-   "windowsDone": 1,
+   "windowsDone": 2,
    "lastError": null,
    "feeds": [
     {
@@ -42378,7 +42378,7 @@
   {
    "key": "sol15m",
    "label": "SOL 15m",
-   "windowsDone": 1,
+   "windowsDone": 2,
    "lastError": null,
    "feeds": [
     {
@@ -47522,7 +47522,7 @@
   {
    "key": "xrp15m",
    "label": "XRP 15m",
-   "windowsDone": 1,
+   "windowsDone": 2,
    "lastError": null,
    "feeds": [
     {
@@ -52630,7 +52630,7 @@
   {
    "key": "doge15m",
    "label": "DOGE 15m",
-   "windowsDone": 1,
+   "windowsDone": 2,
    "lastError": null,
    "feeds": [
     {
@@ -52645,7 +52645,7 @@
     },
     {
      "name": "coinbase doge",
-     "healthy": false,
+     "healthy": true,
      "errors": 0
     },
     {
@@ -57927,7 +57927,7 @@
   {
    "key": "bnb15m",
    "label": "BNB 15m",
-   "windowsDone": 1,
+   "windowsDone": 2,
    "lastError": null,
    "feeds": [
     {
@@ -57942,7 +57942,7 @@
     },
     {
      "name": "coinbase bnb",
-     "healthy": true,
+     "healthy": false,
      "errors": 0
     },
     {
@@ -63100,7 +63100,7 @@
   {
    "key": "hype15m",
    "label": "HYPE 15m",
-   "windowsDone": 1,
+   "windowsDone": 2,
    "lastError": null,
    "feeds": [
     {
@@ -63115,7 +63115,7 @@
     },
     {
      "name": "coinbase hype",
-     "healthy": true,
+     "healthy": false,
      "errors": 0
     },
     {
@@ -82091,7 +82091,7 @@
     },
     {
      "name": "coinbase doge",
-     "healthy": false,
+     "healthy": true,
      "errors": 0
     },
     {
@@ -85013,7 +85013,7 @@
     },
     {
      "name": "coinbase bnb",
-     "healthy": true,
+     "healthy": false,
      "errors": 0
     },
     {
@@ -88207,7 +88207,7 @@
     },
     {
      "name": "coinbase hype",
-     "healthy": true,
+     "healthy": false,
      "errors": 0
     },
     {
@@ -101001,7 +101001,7 @@
     },
     {
      "name": "coinbase doge",
-     "healthy": false,
+     "healthy": true,
      "errors": 0
     },
     {
@@ -103532,7 +103532,7 @@
     },
     {
      "name": "coinbase bnb",
-     "healthy": true,
+     "healthy": false,
      "errors": 0
     },
     {
@@ -106216,7 +106216,7 @@
     },
     {
      "name": "coinbase hype",
-     "healthy": true,
+     "healthy": false,
      "errors": 0
     },
     {
@@ -112694,7 +112694,7 @@
     },
     {
      "name": "coinbase doge",
-     "healthy": false,
+     "healthy": true,
      "errors": 0
     },
     {
@@ -114464,7 +114464,7 @@
     },
     {
      "name": "coinbase bnb",
-     "healthy": true,
+     "healthy": false,
      "errors": 0
     },
     {
@@ -115426,7 +115426,7 @@
     },
     {
      "name": "coinbase hype",
-     "healthy": true,
+     "healthy": false,
      "errors": 0
     },
     {
@@ -117241,9 +117241,9 @@
   }
  ],
  "latency": {
-  "n": 16,
+  "n": 31,
   "warmMedian": 44,
-  "coldMedian": 65,
+  "coldMedian": 63,
   "binanceMedian": 249
  },
  "realTrades": [
