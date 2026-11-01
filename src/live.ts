@@ -9,7 +9,8 @@
  *   config SERIES); a series without an entry never trades. "mode" is global: "off" stops every series.
  *   A series trades one variant ("variant" + "size") or several ("variants", each with its own size). A variant
  *   with "haltAfterLosses": N stops after N straight losses; the halt is kept in data/<prefix>live-halts.json
- *   (delete its entry, or set "halted": false, to let it trade again). "maxLossPerDay" on a market is the daily loss stop
+ *   (delete its entry, or set "halted": false, to let it trade again). A halt lifts by itself at the next Korean
+ *   midnight (enrique, 1 Nov 2026), unless the rule also halted the day before: two days in a row stays halted. "maxLossPerDay" on a market is the daily loss stop
  *   EACH rule in it gets (29 Oct 2026, enrique: "stop losses per rule, not per window", so a losing rule cannot switch a
  *   winning one off); a variant may carry its own "maxLossPerDay" to override the market's.
  *   "statsSince": "2026-10-23T02:43:00Z" (top level) makes the dashboard (totals, per-variant rows, day table,
@@ -63,7 +64,7 @@ export type LiveConfig = { mode: LiveMode; variant: string; size: number; maxLos
 type VariantEntry = { variant?: string; size?: number; haltAfterLosses?: number; ladder?: number[]; maxLossPerDay?: number; chaseSec?: number; restUntilLeft?: number; cap?: number };
 type MarketEntry = VariantEntry & { series?: string; maxLossPerDay?: number; mode?: string; variants?: VariantEntry[] };
 /** Streak of straight losses per variant and whether it tripped the halt. */
-export type Halt = { streak: number; halted: boolean; haltedAt: number | null; paused?: boolean };
+export type Halt = { streak: number; halted: boolean; haltedAt: number | null; paused?: boolean; haltDays?: string[] };
 
 /** Taker fee Polymarket charges on these markets (same formula the paper tests use); 0 when nothing filled. */
 export function feeOf(cost: number, shares: number): number {
@@ -618,7 +619,8 @@ export class LiveTrader {
     if (rule && rule.haltAfterLosses > 0 && h.streak >= rule.haltAfterLosses && !h.halted) {
       h.halted = true;
       h.haltedAt = Date.now();
-      console.log(`live ${this.series.label}: ${t.variant} HALTED after ${h.streak} straight losses (edit data/${this.prefix}live-halts.json to resume)`);
+      h.haltDays = [...(h.haltDays ?? []).slice(-6), kstDay()];
+      console.log(`live ${this.series.label}: ${t.variant} HALTED after ${h.streak} straight losses (lifts at the next Korean midnight unless it halted yesterday too; edit data/${this.prefix}live-halts.json to resume sooner)`);
     }
     this.halts[t.variant] = h;
     saveJson(`${this.prefix}live-halts.json`, this.halts);
@@ -769,6 +771,7 @@ export class LiveTrader {
     if (this.config.mode === "off" || !rule) return;
     // Halts are read from the file before every order, so editing data/<prefix>live-halts.json takes effect at once.
     this.halts = loadJson<Record<string, Halt>>(`${this.prefix}live-halts.json`, this.halts);
+    this.liftExpiredHalt(trade.variant);
     if (this.halts[trade.variant]?.halted || this.halts[trade.variant]?.paused) return;
     if (this.open.some((t) => t.window === trade.window && t.variant === trade.variant)) return;
     // Settlement lags the close by minutes: a loss our own feed can already see counts toward the halt now.
@@ -1330,6 +1333,22 @@ export class LiveTrader {
       console.log(`live: ${found} window(s) were claimed by hand on polymarket.com; taken off the claim queue`);
       await this.refreshBalance();
     }
+  }
+
+  /** A loss halt is for the Korean day it tripped on: on the next day it lifts and the streak starts again, unless the
+   *  rule also halted the day before (two halted days in a row stays halted until someone resumes it by hand). */
+  private liftExpiredHalt(variant: string) {
+    const h = this.halts[variant];
+    if (!h?.halted || h.haltedAt == null || kstDay(h.haltedAt) >= kstDay()) return;
+    const days = h.haltDays ?? [];
+    const twoInARow = days.length >= 2 && days[days.length - 2] === kstDay(h.haltedAt - 86400000);
+    if (twoInARow) return;
+    h.halted = false;
+    h.haltedAt = null;
+    h.streak = 0;
+    this.halts[variant] = h;
+    saveJson(`${this.prefix}live-halts.json`, this.halts);
+    console.log(`live ${this.series.label}: ${variant} halt lifted for the new Korean day (halted ${days[days.length - 1] ?? "earlier"})`);
   }
 
   /** Pause or resume one real rule by hand (dashboard button); kept in the halts file, read before every order. */
