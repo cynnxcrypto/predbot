@@ -1,11 +1,11 @@
 {
- "at": "2026-11-01T05:16:18Z",
+ "at": "2026-11-01T05:30:18Z",
  "build": "aa74bab\u00b72026-11-01\u00b705:12",
  "series": [
   {
    "key": "btc5m",
    "label": "BTC 5m",
-   "windowsDone": 0,
+   "windowsDone": 3,
    "lastError": null,
    "feeds": [
     {
@@ -4742,7 +4742,7 @@
   {
    "key": "eth5m",
    "label": "ETH 5m",
-   "windowsDone": 0,
+   "windowsDone": 3,
    "lastError": null,
    "feeds": [
     {
@@ -9213,7 +9213,7 @@
   {
    "key": "sol5m",
    "label": "SOL 5m",
-   "windowsDone": 0,
+   "windowsDone": 3,
    "lastError": null,
    "feeds": [
     {
@@ -13967,7 +13967,7 @@
   {
    "key": "xrp5m",
    "label": "XRP 5m",
-   "windowsDone": 0,
+   "windowsDone": 3,
    "lastError": null,
    "feeds": [
     {
@@ -18616,7 +18616,7 @@
   {
    "key": "doge5m",
    "label": "DOGE 5m",
-   "windowsDone": 0,
+   "windowsDone": 3,
    "lastError": null,
    "feeds": [
     {
@@ -23104,7 +23104,7 @@
   {
    "key": "bnb5m",
    "label": "BNB 5m",
-   "windowsDone": 0,
+   "windowsDone": 3,
    "lastError": null,
    "feeds": [
     {
@@ -27574,7 +27574,7 @@
   {
    "key": "hype5m",
    "label": "HYPE 5m",
-   "windowsDone": 0,
+   "windowsDone": 3,
    "lastError": null,
    "feeds": [
     {
@@ -32191,7 +32191,7 @@
   {
    "key": "btc15m",
    "label": "BTC 15m",
-   "windowsDone": 0,
+   "windowsDone": 1,
    "lastError": null,
    "feeds": [
     {
@@ -37151,7 +37151,7 @@
   {
    "key": "eth15m",
    "label": "ETH 15m",
-   "windowsDone": 0,
+   "windowsDone": 1,
    "lastError": null,
    "feeds": [
     {
@@ -42378,7 +42378,7 @@
   {
    "key": "sol15m",
    "label": "SOL 15m",
-   "windowsDone": 0,
+   "windowsDone": 1,
    "lastError": null,
    "feeds": [
     {
@@ -47522,7 +47522,7 @@
   {
    "key": "xrp15m",
    "label": "XRP 15m",
-   "windowsDone": 0,
+   "windowsDone": 1,
    "lastError": null,
    "feeds": [
     {
@@ -52630,7 +52630,7 @@
   {
    "key": "doge15m",
    "label": "DOGE 15m",
-   "windowsDone": 0,
+   "windowsDone": 1,
    "lastError": null,
    "feeds": [
     {
@@ -57927,7 +57927,7 @@
   {
    "key": "bnb15m",
    "label": "BNB 15m",
-   "windowsDone": 0,
+   "windowsDone": 1,
    "lastError": null,
    "feeds": [
     {
@@ -63100,7 +63100,7 @@
   {
    "key": "hype15m",
    "label": "HYPE 15m",
-   "windowsDone": 0,
+   "windowsDone": 1,
    "lastError": null,
    "feeds": [
     {
@@ -117241,10 +117241,10 @@
   }
  ],
  "latency": {
-  "n": 2,
+  "n": 16,
   "warmMedian": 44,
-  "coldMedian": 257,
-  "binanceMedian": 252
+  "coldMedian": 65,
+  "binanceMedian": 249
  },
  "realTrades": [
   {
