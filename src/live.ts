@@ -9,8 +9,9 @@
  *   config SERIES); a series without an entry never trades. "mode" is global: "off" stops every series.
  *   A series trades one variant ("variant" + "size") or several ("variants", each with its own size). A variant
  *   with "haltAfterLosses": N stops after N straight losses; the halt is kept in data/<prefix>live-halts.json
- *   (delete its entry, or set "halted": false, to let it trade again). A halt lifts by itself at the next Korean
- *   midnight (enrique, 1 Nov 2026), unless the rule also halted the day before: two days in a row stays halted. "maxLossPerDay" on a market is the daily loss stop
+ *   (delete its entry, or set "halted": false, to let it trade again). A halted rule is back on paper only
+ *   (enrique, 1 Nov 2026: "if a rule gets halted it's kinda bad so we should send it back to paper"); it returns to
+ *   real only when a review re-promotes it by giving the variant a "resumeFrom": "<ISO time>" later than the halt. "maxLossPerDay" on a market is the daily loss stop
  *   EACH rule in it gets (29 Oct 2026, enrique: "stop losses per rule, not per window", so a losing rule cannot switch a
  *   winning one off); a variant may carry its own "maxLossPerDay" to override the market's.
  *   "statsSince": "2026-10-23T02:43:00Z" (top level) makes the dashboard (totals, per-variant rows, day table,
@@ -59,12 +60,12 @@ export type LiveMode = "off" | "dry" | "live";
  *  29 Oct 2026 fill audit (enrique: "why are we missing the ones that would win, I want to fix that"): of 367 real feed-rule
  *  orders since the $2 test, the 264 fills won 23% on paper while the 96 "no orders found to match" misses won 59%; the ask is
  *  pulled the second Binance leads and comes back to the cap within 15 s in 71 of 96 cases (61% won, +$106 at $2). */
-export type LiveVariant = { variant: string; size: number; haltAfterLosses: number; ladder?: number[]; maxLossPerDay?: number; chaseSec?: number; restUntilLeft?: number; cap?: number };
+export type LiveVariant = { variant: string; size: number; haltAfterLosses: number; ladder?: number[]; maxLossPerDay?: number; chaseSec?: number; restUntilLeft?: number; cap?: number; resumeFrom?: string };
 export type LiveConfig = { mode: LiveMode; variant: string; size: number; maxLossPerDay: number; funder: string; variants: LiveVariant[]; statsSince: number; startBalance: number | null; deposits: number; claimEveryMin: number; minBalance: number; claimBelow: number };
-type VariantEntry = { variant?: string; size?: number; haltAfterLosses?: number; ladder?: number[]; maxLossPerDay?: number; chaseSec?: number; restUntilLeft?: number; cap?: number };
+type VariantEntry = { variant?: string; size?: number; haltAfterLosses?: number; ladder?: number[]; maxLossPerDay?: number; chaseSec?: number; restUntilLeft?: number; cap?: number; resumeFrom?: string };
 type MarketEntry = VariantEntry & { series?: string; maxLossPerDay?: number; mode?: string; variants?: VariantEntry[] };
 /** Streak of straight losses per variant and whether it tripped the halt. */
-export type Halt = { streak: number; halted: boolean; haltedAt: number | null; paused?: boolean; haltDays?: string[] };
+export type Halt = { streak: number; halted: boolean; haltedAt: number | null; paused?: boolean };
 
 /** Taker fee Polymarket charges on these markets (same formula the paper tests use); 0 when nothing filled. */
 export function feeOf(cost: number, shares: number): number {
@@ -207,7 +208,7 @@ const sizeOf = (raw: unknown) => {
   return Number.isFinite(size) && size > 0 ? Math.min(size, 50) : DEFAULT.size;
 };
 
-type RawVariant = { variant?: string; size?: number; haltAfterLosses?: number; ladder?: number[]; maxLossPerDay?: number; chaseSec?: number; restUntilLeft?: number; cap?: number };
+type RawVariant = { variant?: string; size?: number; haltAfterLosses?: number; ladder?: number[]; maxLossPerDay?: number; chaseSec?: number; restUntilLeft?: number; cap?: number; resumeFrom?: string };
 type RawMarket = { series?: string; mode?: string; maxLossPerDay?: number; variants?: RawVariant[] };
 type RawLive = RawMarket & { markets?: RawMarket[]; variant?: string; size?: number; haltAfterLosses?: number };
 
@@ -381,7 +382,8 @@ export function liveConfig(seriesKey = ""): LiveConfig {
     const chase = Number(v.chaseSec ?? 0);
     const capOwn = Number(v.cap);
     const restLeft = Number(v.restUntilLeft);
-    if (name && !variants.some((x) => x.variant === name)) variants.push({ variant: name, size: ladder.length ? ladder[0] : sizeOf(v.size), haltAfterLosses: Number.isFinite(halt) && halt > 0 ? Math.floor(halt) : 0, ...(ladder.length > 1 ? { ladder } : {}), ...(Number.isFinite(own) && own > 0 ? { maxLossPerDay: own } : {}), ...(Number.isFinite(capOwn) && capOwn > 0 && capOwn < 1 ? { cap: capOwn } : {}), ...(Number.isFinite(chase) && chase > 0 ? { chaseSec: Math.min(120, chase), ...(Number.isFinite(restLeft) && restLeft >= 0 ? { restUntilLeft: restLeft } : {}) } : {}) });
+    const resumeFrom = typeof v.resumeFrom === "string" && Number.isFinite(Date.parse(v.resumeFrom)) ? v.resumeFrom : undefined;
+    if (name && !variants.some((x) => x.variant === name)) variants.push({ variant: name, ...(resumeFrom ? { resumeFrom } : {}), size: ladder.length ? ladder[0] : sizeOf(v.size), haltAfterLosses: Number.isFinite(halt) && halt > 0 ? Math.floor(halt) : 0, ...(ladder.length > 1 ? { ladder } : {}), ...(Number.isFinite(own) && own > 0 ? { maxLossPerDay: own } : {}), ...(Number.isFinite(capOwn) && capOwn > 0 && capOwn < 1 ? { cap: capOwn } : {}), ...(Number.isFinite(chase) && chase > 0 ? { chaseSec: Math.min(120, chase), ...(Number.isFinite(restLeft) && restLeft >= 0 ? { restUntilLeft: restLeft } : {}) } : {}) });
   }
   return {
     mode,
@@ -619,8 +621,7 @@ export class LiveTrader {
     if (rule && rule.haltAfterLosses > 0 && h.streak >= rule.haltAfterLosses && !h.halted) {
       h.halted = true;
       h.haltedAt = Date.now();
-      h.haltDays = [...(h.haltDays ?? []).slice(-6), kstDay()];
-      console.log(`live ${this.series.label}: ${t.variant} HALTED after ${h.streak} straight losses (lifts at the next Korean midnight unless it halted yesterday too; edit data/${this.prefix}live-halts.json to resume sooner)`);
+      console.log(`live ${this.series.label}: ${t.variant} HALTED after ${h.streak} straight losses: back on paper until a review sets "resumeFrom" on it in deploy/live-rules.json (or edit data/${this.prefix}live-halts.json)`);
     }
     this.halts[t.variant] = h;
     saveJson(`${this.prefix}live-halts.json`, this.halts);
@@ -771,7 +772,7 @@ export class LiveTrader {
     if (this.config.mode === "off" || !rule) return;
     // Halts are read from the file before every order, so editing data/<prefix>live-halts.json takes effect at once.
     this.halts = loadJson<Record<string, Halt>>(`${this.prefix}live-halts.json`, this.halts);
-    this.liftExpiredHalt(trade.variant);
+    this.liftResumedHalt(trade.variant, rule);
     if (this.halts[trade.variant]?.halted || this.halts[trade.variant]?.paused) return;
     if (this.open.some((t) => t.window === trade.window && t.variant === trade.variant)) return;
     // Settlement lags the close by minutes: a loss our own feed can already see counts toward the halt now.
@@ -1335,20 +1336,19 @@ export class LiveTrader {
     }
   }
 
-  /** A loss halt is for the Korean day it tripped on: on the next day it lifts and the streak starts again, unless the
-   *  rule also halted the day before (two halted days in a row stays halted until someone resumes it by hand). */
-  private liftExpiredHalt(variant: string) {
+  /** A halted rule stays on paper until a review re-promotes it: the variant gets "resumeFrom" in deploy/live-rules.json
+   *  and a halt that tripped before that time is lifted (streak reset). A halt tripped after it stays. */
+  private liftResumedHalt(variant: string, rule: LiveVariant) {
     const h = this.halts[variant];
-    if (!h?.halted || h.haltedAt == null || kstDay(h.haltedAt) >= kstDay()) return;
-    const days = h.haltDays ?? [];
-    const twoInARow = days.length >= 2 && days[days.length - 2] === kstDay(h.haltedAt - 86400000);
-    if (twoInARow) return;
+    if (!h?.halted || !rule.resumeFrom) return;
+    const from = Date.parse(rule.resumeFrom);
+    if (!Number.isFinite(from) || (h.haltedAt ?? 0) >= from) return;
     h.halted = false;
     h.haltedAt = null;
     h.streak = 0;
     this.halts[variant] = h;
     saveJson(`${this.prefix}live-halts.json`, this.halts);
-    console.log(`live ${this.series.label}: ${variant} halt lifted for the new Korean day (halted ${days[days.length - 1] ?? "earlier"})`);
+    console.log(`live ${this.series.label}: ${variant} re-promoted to real (resumeFrom ${rule.resumeFrom})`);
   }
 
   /** Pause or resume one real rule by hand (dashboard button); kept in the halts file, read before every order. */
