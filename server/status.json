@@ -1,11 +1,11 @@
 {
- "at": "2026-11-01T06:45:14Z",
+ "at": "2026-11-01T07:00:14Z",
  "build": "b082ffc\u00b72026-11-01\u00b706:11",
  "series": [
   {
    "key": "btc5m",
    "label": "BTC 5m",
-   "windowsDone": 6,
+   "windowsDone": 9,
    "lastError": null,
    "feeds": [
     {
@@ -1782,7 +1782,7 @@
       "net": -174.87,
       "miss": 9
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -1851,7 +1851,7 @@
       "net": -30,
       "miss": 12
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -1882,7 +1882,7 @@
       "net": -96.22,
       "miss": 5
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -1913,7 +1913,7 @@
       "net": -9.58,
       "miss": 3
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -2161,7 +2161,7 @@
       "net": -122.63,
       "miss": 51
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -4576,7 +4576,7 @@
       "net": -99.05,
       "miss": 7
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -4742,7 +4742,7 @@
   {
    "key": "eth5m",
    "label": "ETH 5m",
-   "windowsDone": 6,
+   "windowsDone": 9,
    "lastError": null,
    "feeds": [
     {
@@ -5058,7 +5058,7 @@
       "net": 10.5,
       "miss": 7
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -5096,7 +5096,7 @@
       "net": -3.96,
       "miss": 108
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -5172,7 +5172,7 @@
       "net": -44.58,
       "miss": 5
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -5248,7 +5248,7 @@
       "net": 17.9,
       "miss": 34
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -5324,7 +5324,7 @@
       "net": 35.41,
       "miss": 7
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -5683,7 +5683,7 @@
       "net": -42.77,
       "miss": 108
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -5959,7 +5959,7 @@
       "net": -31.51,
       "miss": 59
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -5997,7 +5997,7 @@
       "net": 3.83,
       "miss": 45
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -6066,7 +6066,7 @@
       "net": -5.96,
       "miss": 108
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -6104,7 +6104,7 @@
       "net": 2.99,
       "miss": 86
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -6435,7 +6435,7 @@
       "net": -130.85,
       "miss": 21
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -6504,7 +6504,7 @@
       "net": 4.78,
       "miss": 12
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -6535,7 +6535,7 @@
       "net": -27.81,
       "miss": 8
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -6566,7 +6566,7 @@
       "net": -21.87,
       "miss": 2
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -6597,7 +6597,7 @@
       "net": -48.69,
       "miss": 5
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -6628,7 +6628,7 @@
       "net": -67.63,
       "miss": 9
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -6776,7 +6776,7 @@
       "net": -406.87,
       "miss": 47
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -6814,7 +6814,7 @@
       "net": -198.3,
       "miss": 61
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -8883,7 +8883,7 @@
       "net": -31.24,
       "miss": 119
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -9090,7 +9090,7 @@
       "net": -67.09,
       "miss": 16
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -9213,7 +9213,7 @@
   {
    "key": "sol5m",
    "label": "SOL 5m",
-   "windowsDone": 6,
+   "windowsDone": 9,
    "lastError": null,
    "feeds": [
     {
@@ -10990,7 +10990,7 @@
       "net": -67.14,
       "miss": 15
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -11059,7 +11059,7 @@
       "net": -17.2,
       "miss": 13
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -11090,7 +11090,7 @@
       "net": -78.67,
       "miss": 7
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -11121,7 +11121,7 @@
       "net": -33.6,
       "miss": 3
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -11152,7 +11152,7 @@
       "net": -63.43,
       "miss": 5
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -11338,7 +11338,7 @@
       "net": -190.78,
       "miss": 44
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -11376,7 +11376,7 @@
       "net": -291.16,
       "miss": 70
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -11866,7 +11866,7 @@
       "net": -88.67,
       "miss": 28
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -13967,7 +13967,7 @@
   {
    "key": "xrp5m",
    "label": "XRP 5m",
-   "windowsDone": 6,
+   "windowsDone": 9,
    "lastError": null,
    "feeds": [
     {
@@ -15736,7 +15736,7 @@
       "net": -38.79,
       "miss": 23
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -16046,7 +16046,7 @@
       "net": -244.87,
       "miss": 73
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -18616,7 +18616,7 @@
   {
    "key": "doge5m",
    "label": "DOGE 5m",
-   "windowsDone": 6,
+   "windowsDone": 9,
    "lastError": null,
    "feeds": [
     {
@@ -20371,7 +20371,7 @@
       "net": -37.75,
       "miss": 15
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -20681,7 +20681,7 @@
       "net": -183.27,
       "miss": 82
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -21129,7 +21129,7 @@
       "net": -129.63,
       "miss": 29
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -23104,7 +23104,7 @@
   {
    "key": "bnb5m",
    "label": "BNB 5m",
-   "windowsDone": 6,
+   "windowsDone": 9,
    "lastError": null,
    "feeds": [
     {
@@ -23119,7 +23119,7 @@
     },
     {
      "name": "coinbase bnb",
-     "healthy": false,
+     "healthy": true,
      "errors": 0
     },
     {
@@ -25214,7 +25214,7 @@
       "net": -331.87,
       "miss": 93
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -27574,7 +27574,7 @@
   {
    "key": "hype5m",
    "label": "HYPE 5m",
-   "windowsDone": 6,
+   "windowsDone": 9,
    "lastError": null,
    "feeds": [
     {
@@ -31771,7 +31771,7 @@
       "net": -334.64,
       "miss": 66
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -32191,7 +32191,7 @@
   {
    "key": "btc15m",
    "label": "BTC 15m",
-   "windowsDone": 2,
+   "windowsDone": 3,
    "lastError": null,
    "feeds": [
     {
@@ -34493,7 +34493,7 @@
       "net": -3.35,
       "miss": 9
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -37151,7 +37151,7 @@
   {
    "key": "eth15m",
    "label": "ETH 15m",
-   "windowsDone": 2,
+   "windowsDone": 3,
    "lastError": null,
    "feeds": [
     {
@@ -38733,7 +38733,7 @@
       "net": 33.45,
       "miss": 1
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -38946,7 +38946,7 @@
       "net": -91.19,
       "miss": 10
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -42378,7 +42378,7 @@
   {
    "key": "sol15m",
    "label": "SOL 15m",
-   "windowsDone": 2,
+   "windowsDone": 3,
    "lastError": null,
    "feeds": [
     {
@@ -44086,7 +44086,7 @@
       "net": 14.81,
       "miss": 6
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -47522,7 +47522,7 @@
   {
    "key": "xrp15m",
    "label": "XRP 15m",
-   "windowsDone": 2,
+   "windowsDone": 3,
    "lastError": null,
    "feeds": [
     {
@@ -52630,7 +52630,7 @@
   {
    "key": "doge15m",
    "label": "DOGE 15m",
-   "windowsDone": 2,
+   "windowsDone": 3,
    "lastError": null,
    "feeds": [
     {
@@ -57927,7 +57927,7 @@
   {
    "key": "bnb15m",
    "label": "BNB 15m",
-   "windowsDone": 2,
+   "windowsDone": 3,
    "lastError": null,
    "feeds": [
     {
@@ -57942,7 +57942,7 @@
     },
     {
      "name": "coinbase bnb",
-     "healthy": false,
+     "healthy": true,
      "errors": 0
     },
     {
@@ -63100,7 +63100,7 @@
   {
    "key": "hype15m",
    "label": "HYPE 15m",
-   "windowsDone": 2,
+   "windowsDone": 3,
    "lastError": null,
    "feeds": [
     {
@@ -68364,7 +68364,7 @@
   {
    "key": "btc1h",
    "label": "BTC 1h",
-   "windowsDone": 0,
+   "windowsDone": 1,
    "lastError": null,
    "feeds": [
     {
@@ -71929,7 +71929,7 @@
   {
    "key": "eth1h",
    "label": "ETH 1h",
-   "windowsDone": 0,
+   "windowsDone": 1,
    "lastError": null,
    "feeds": [
     {
@@ -75317,7 +75317,7 @@
   {
    "key": "sol1h",
    "label": "SOL 1h",
-   "windowsDone": 0,
+   "windowsDone": 1,
    "lastError": null,
    "feeds": [
     {
@@ -78589,7 +78589,7 @@
   {
    "key": "xrp1h",
    "label": "XRP 1h",
-   "windowsDone": 0,
+   "windowsDone": 1,
    "lastError": null,
    "feeds": [
     {
@@ -82076,7 +82076,7 @@
   {
    "key": "doge1h",
    "label": "DOGE 1h",
-   "windowsDone": 0,
+   "windowsDone": 1,
    "lastError": null,
    "feeds": [
     {
@@ -84654,7 +84654,7 @@
       "net": 6.2,
       "miss": 3
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -84998,7 +84998,7 @@
   {
    "key": "bnb1h",
    "label": "BNB 1h",
-   "windowsDone": 0,
+   "windowsDone": 1,
    "lastError": null,
    "feeds": [
     {
@@ -85013,7 +85013,7 @@
     },
     {
      "name": "coinbase bnb",
-     "healthy": false,
+     "healthy": true,
      "errors": 0
     },
     {
@@ -88192,7 +88192,7 @@
   {
    "key": "hype1h",
    "label": "HYPE 1h",
-   "windowsDone": 0,
+   "windowsDone": 1,
    "lastError": null,
    "feeds": [
     {
@@ -103532,7 +103532,7 @@
     },
     {
      "name": "coinbase bnb",
-     "healthy": false,
+     "healthy": true,
      "errors": 0
     },
     {
@@ -114464,7 +114464,7 @@
     },
     {
      "name": "coinbase bnb",
-     "healthy": false,
+     "healthy": true,
      "errors": 0
     },
     {
@@ -117241,9 +117241,9 @@
   }
  ],
  "latency": {
-  "n": 30,
+  "n": 46,
   "warmMedian": 44,
-  "coldMedian": 73,
+  "coldMedian": 64,
   "binanceMedian": 249
  },
  "realTrades": [
