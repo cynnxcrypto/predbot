@@ -6,11 +6,6 @@
       "variant": "feed3-up60-mid",
       "size": 3,
       "haltAfterLosses": 4
-    },
-    {
-      "variant": "fav95-hold-min60",
-      "size": 5,
-      "haltAfterLosses": 2
     }
   ],
   "markets": [
