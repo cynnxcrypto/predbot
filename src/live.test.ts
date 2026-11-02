@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -70,7 +70,9 @@ test("live.json: \"rules\": \"repo\" takes rules from deploy/live-rules.json, ke
   writeFileSync(join(dir, "live.json"), JSON.stringify({ rules: "repo", mode: "live", funder: "0xabc", minBalance: 400, variants: [{ variant: "local-only", size: 5 }] }));
   const c = liveConfig();
   assert.equal(c.funder, "0xabc");
-  assert.equal(c.minBalance, 400);
+  // since 2 Nov 2026 the repo file may carry its own "minBalance", which replaces the local floor; without one the local 400 stays
+  const repoFloor = JSON.parse(readFileSync(join(process.cwd(), "deploy", "live-rules.json"), "utf8")).minBalance;
+  assert.equal(c.minBalance, typeof repoFloor === "number" ? repoFloor : 400);
   assert.ok(!c.variants.some((v) => v.variant === "local-only"));
   writeFileSync(join(dir, "live.json"), JSON.stringify({ rules: "repo", mode: "off", funder: "0xabc" }));
   assert.equal(liveConfig().mode, "off");
