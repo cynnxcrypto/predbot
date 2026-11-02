@@ -328,18 +328,21 @@ export function setLiveMaxLoss(seriesKey: string, maxLoss: number, variant = "")
 /**
  * "rules": "repo" in data/live.json (the AWS server, 31 Oct 2026): the rules come from deploy/live-rules.json in git, which
  * the supervisor pulls every few minutes, so a Claude session can change them with a push (nobody can reach the server's
- * files). Only mode, maxLossPerDay, variants and markets come from git; funder and balances stay in the local file, and a
+ * files). Only mode, maxLossPerDay, variants, markets and (since 2 Nov 2026, when the $407 floor paused the server and enrique
+ * said "we should be trading still") minBalance come from git; funder and balances stay in the local file, and a
  * local "mode": "off" still wins as the kill switch. A missing or broken repo file means no rules (off), never the old ones.
+ * A repo "minBalance" replaces the local one when present; leave it out of the repo file to keep the local floor.
  */
 function withRepoRules<T extends { mode?: string }>(local: T): T {
-  let repo: { mode?: string; maxLossPerDay?: number; variants?: unknown[]; markets?: unknown[] };
+  let repo: { mode?: string; maxLossPerDay?: number; variants?: unknown[]; markets?: unknown[]; minBalance?: number };
   try {
     repo = JSON.parse(readFileSync(join(ROOT, "deploy", "live-rules.json"), "utf8"));
   } catch {
     return { ...local, mode: "off" };
   }
   const mode = local.mode === "off" ? "off" : repo.mode;
-  return { ...local, mode, maxLossPerDay: repo.maxLossPerDay, variants: repo.variants ?? [], markets: repo.markets ?? [], variant: undefined };
+  const minBalance = Number.isFinite(Number(repo.minBalance)) && Number(repo.minBalance) >= 0 ? Number(repo.minBalance) : (local as { minBalance?: number }).minBalance;
+  return { ...local, mode, maxLossPerDay: repo.maxLossPerDay, variants: repo.variants ?? [], markets: repo.markets ?? [], minBalance, variant: undefined };
 }
 
 export function liveConfig(seriesKey = ""): LiveConfig {
