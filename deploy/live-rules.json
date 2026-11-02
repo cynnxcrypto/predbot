@@ -45,9 +45,9 @@
           "haltAfterLosses": 2
         },
         {
-          "variant": "ahead5-cheap60-15m-first3",
+          "variant": "ahead5-cheap60-15m-first60",
           "size": 3,
-          "haltAfterLosses": 4
+          "haltAfterLosses": 3
         }
       ]
     },
