@@ -43,6 +43,7 @@
         {
           "variant": "fav91-15m-late-pm",
           "size": 5,
+          "cap": 0.92,
           "haltAfterLosses": 2
         },
         {
@@ -60,6 +61,7 @@
         {
           "variant": "fav91-15m-late-pm",
           "size": 5,
+          "cap": 0.92,
           "haltAfterLosses": 2
         }
       ]
@@ -97,6 +99,7 @@
         {
           "variant": "fav91-15m-late-pm",
           "size": 3,
+          "cap": 0.92,
           "haltAfterLosses": 2
         }
       ]
