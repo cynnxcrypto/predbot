@@ -40,7 +40,7 @@
       "maxLossPerDay": 20,
       "variants": [
         {
-          "variant": "fav88-15m-late-pm",
+          "variant": "fav91-15m-late-pm",
           "size": 5,
           "haltAfterLosses": 2
         },
@@ -56,7 +56,7 @@
       "maxLossPerDay": 20,
       "variants": [
         {
-          "variant": "fav88-15m-late-pm",
+          "variant": "fav91-15m-late-pm",
           "size": 5,
           "haltAfterLosses": 2
         }
@@ -93,7 +93,7 @@
       "maxLossPerDay": 15,
       "variants": [
         {
-          "variant": "fav88-15m-late-pm",
+          "variant": "fav91-15m-late-pm",
           "size": 3,
           "haltAfterLosses": 2
         }
