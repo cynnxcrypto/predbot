@@ -164,6 +164,8 @@ export type Variant = {
   selfHaltMin?: number;
   /** Family day-halt (round 147, 3 Nov 2026): after this many straight losses of THIS VARIANT across every series (one shared record per variant name, so a market-wide bad run on any coins counts), skip trades on all series until the next KST midnight. Round 140 found the early move's bad days are market-wide, so a per-series stop never sees them. */
   familyHaltLosses?: number;
+  /** Round 170 (4 Nov 2026): at most this many entries per window across ALL coins of this window length for this variant (first come, first served). */
+  familyMaxPerWindow?: number;
   /** Round 151 (3 Nov 2026): take at most this many trades per KST day on this series, then sit out until KST midnight (in memory, so a restart resets the count). Tests the quiet-day finding: the feed rule's coin-days with few signals are the ones that win. */
   maxPerDay?: number;
   /** Only run on series whose window is at least this long in seconds (900 = the 15-minute markets only). */
@@ -505,6 +507,8 @@ export const VARIANTS: Variant[] = [
   { name: "feed3-up60-mid-dayhalt3", left: 0, cap: 0.6, minAsk: 0.4, size: 5, feedLeadBp: 3, jumpMinLeft: 120, onlySide: "UP", familyHaltLosses: 3, added: "2026-11-04", idea: "feed3-up60-mid (the live BTC 5m rule) with the family day-halt: after 3 straight losses across all coins and window lengths it sits out until KST midnight. Round 167 (4 Nov 2026 01:10 KST): the feed family's paper record is made by a few blow-up hours. Between 23:00 and 01:00 KST the fillable record of feed3-up56-mid went from 65/126 +$16.8 to 94/209 -$130.2 (about -$147 in two hours, red on 12 of 14 5m/15m markets in the first hour of 4 Nov), feed3-up53-mid to 19/61 -$106.8, feed3-up60-mid-q0 from +$20.0 to -$26.4 and pulled3 from +$71.2 to +$40.4; the real BTC feed lost only 2/6 -$6.44 in the same span because the 56c cap killed six of its orders. The one rule that has held up across days on the server is the early move's day-halt twin: ahead5-cheap60-15m-dayhalt3 98/165 +$20.5 fillable against its base ahead5-cheap60-15m-first3 392/730 -$335.5 (dayhalt5 105/185 -$18.0), i.e. stopping for the day after three straight family losses removes exactly these market-wide bad stretches (round 140: bad days are market-wide). This applies the same brake to the feed. Judge against feed3-up60-mid on the fillable column; the live lever would be a family-wide halt in live.ts." },
   { name: "feed3-up60-mid-pulled3-dayhalt3", left: 0, cap: 0.6, minAsk: 0.4, size: 5, feedLeadBp: 3, jumpMinLeft: 120, onlySide: "UP", confirmSec: 5, confirmCap: 0.63, confirmDipC: 0.03, pulledChaseC: 3, familyHaltLosses: 3, added: "2026-11-04", idea: "feed3-up60-mid-pulled3 (the lab's best feed rule, 100/182 +$40.4 fillable, down from +$71.2 two hours earlier) with the 3-loss family day-halt. Round 167: see feed3-up60-mid-dayhalt3." },
   { name: "ahead5-cheap60-15m-first60-dayhalt3", left: 0, cap: 0.6, minAsk: 0.35, size: 5, aheadBp: 5, flatLeft: [840, 870], minWindowSec: 900, maxWindowSec: 900, familyHaltLosses: 3, added: "2026-11-04", idea: "ahead5-cheap60-15m-first60 (the live ETH rule) with the 3-loss family day-halt (sit out until KST midnight after three straight losses across all coins). Round 168 (4 Nov 2026 02:10 KST): the halt works by shrinking the bad day, not by picking winners. ahead5-cheap60-15m-dayhalt3 against its base ahead5-cheap60-15m-first3, all trades by KST day: 3 Nov 119/205 +$2 vs 180/333 -$118; 4 Nov so far 14/19 +$29 vs 22/32 +$38. So it keeps three quarters of a green day and turns the red day flat; fillable 103/170 +$40.9 against the base's deep red (392/730 -$335 at 01:00). The same brake on the feed (round 167) started 1/7 -$25.1, and pulled3, the 1-day lab leader, fell from +$71.2 to +$8.2 in three hours, so day-level robustness, not hourly peaks, is what to judge by. The live first60 rule is 73/138 -$63 (3 Nov) and 13/21 +$15 (4 Nov) on paper; this twin shows what the halt would have done to it." },
+  { name: "feed3-up60-mid-pulled3-one", left: 0, cap: 0.6, minAsk: 0.4, size: 5, feedLeadBp: 3, jumpMinLeft: 120, onlySide: "UP", confirmSec: 5, confirmCap: 0.63, confirmDipC: 0.03, pulledChaseC: 3, familyMaxPerWindow: 1, familyHaltLosses: 3, added: "2026-11-04", idea: "feed3-up60-mid-pulled3-dayhalt3 that buys only ONE coin per window across the family (the first to signal), so a 3-loss day-halt counts three separate windows. Round 170 (4 Nov 2026 04:10 KST): the family day-halt fails on the feed because the feed fires on many coins in the same 5-minute window and they all settle together, so the halt only trips after the whole bad window is already bought. 4 Nov (KST) all paper trades: feed3-up60-mid-dayhalt3 4/30 -$107.1 against its base feed3-up60-mid 75/178 -$181.5, pulled3-dayhalt3 7/23 -$46.1 against pulled3 39/83 -$47.0 (no saving at all), while the early move's halt, whose 15m signals spread across the window, kept 33/44 +$60.4 against first3 41/57 +$69.3. pulled3 fillable went +$29.1 to -$0.3 in the hour to 04:00 KST, red on the 5m alts together. One window is one market-wide bet, so one ticket per window is the honest size. Twin feed3-up60-mid-one without the pull confirm. New familyMaxPerWindow option." },
+  { name: "feed3-up60-mid-one", left: 0, cap: 0.6, minAsk: 0.4, size: 5, feedLeadBp: 3, jumpMinLeft: 120, onlySide: "UP", familyMaxPerWindow: 1, familyHaltLosses: 3, added: "2026-11-04", idea: "feed3-up60-mid with one coin per window across the family plus the 3-loss family day-halt. Round 170: see feed3-up60-mid-pulled3-one." },
   { name: "fav91-15m-late-up", left: 0, cap: 0.92, size: 5, favAt: 0.91, favFrom: 240, favTo: 280, minOverround: 1.015, minWindowSec: 900, maxWindowSec: 900, onlySide: "UP", added: "2026-11-04", idea: "fav91-15m-late-wide (any hour, 91-92c) on the UP side only. Round 169 (4 Nov 2026 03:10 KST): the server's 44 settled real 15m favourite fills since 2 Nov split by side: UP 18/20 90% -$1.16, DOWN 19/24 79% -$15.75; DOWN lost on both days (2 Nov 12/16 -$13.62, 3 Nov 7/8 -$2.13) and ETH DOWN is the worst cell (8/11 -$11.45 vs ETH UP 5/5 +$2.32). A falling coin's favourite reverts more often than a rising one's. Small sample: judge against fav91-15m-late-wide on the fillable column over several days before any live change." },
   { name: "fav91-15m-late-alone", left: 0, cap: 0.93, size: 5, favAt: 0.91, favFrom: 240, favTo: 280, minOverround: 1.015, minWindowSec: 900, maxWindowSec: 900, favBreadthMax: 0, added: "2026-11-03", idea: "fav91-15m-late-wide (any hour, 91-93c) only when NO other coin's 15m window shows a 91c+ favourite on the same side at the 3-minute mark, i.e. the favourite is alone. Round 158 (3 Nov 2026): the server's real 15m favourite fills grouped by window: a favourite that fired alone won 6/6 +$2.52, one that fired with another coin's favourite on the same side won 14/18 78% -$10.43 (split-side windows 10/12 -$6.22); 5m alike, alone 18/20 -$4.11 vs crowd 9/12 -$9.21; the first live 91c session (15:42 KST) bought BTC and DOGE UP together and DOGE lost. The server lab says the same on 178 fillable fav88-15m-late-asia trades: with company (fav88-15m-late-asia-company, favBreadthMin 1) 77/91 85% -$34.2, without it 78/87 90% -$5.8. This reverses round 118's 20-30 Oct replay (alone 90.6%, company 96.3%): live, a crowd of favourites is one market-wide bet, and the alt that reached 91c only because the whole market moved is the one that reverts. New favBreadthMax option. Judge against fav91-15m-late-wide on the fillable column; if it holds, the live fav91 rule is the candidate for this gate." },
   { name: "fav88-15m-late-alone", left: 0, cap: 0.93, size: 5, favAt: 0.88, favFrom: 240, favTo: 280, minOverround: 1.015, minWindowSec: 900, maxWindowSec: 900, favBreadthMax: 0, added: "2026-11-03", idea: "The 88c+ 15m late favourite (any hour) only when no other coin's 15m favourite is 88c+ on the same side at the 3-minute mark: the bigger-sample twin of fav91-15m-late-alone (round 158), so the solo-vs-crowd split reaches 100 fillable trades sooner. See fav91-15m-late-alone for the numbers." },
@@ -761,6 +765,8 @@ const latestAhead = new Map<string, { t: number; move: number; windowSec: number
 const aheadLog: { key: string; end: number; won: boolean }[] = [];
 /** familyHaltLosses: loss streak of a variant across every series and the time its family day-halt lifts (next KST midnight). */
 const familyStreak = new Map<string, { streak: number; haltUntil: number }>();
+/** familyMaxPerWindow: entries taken by a variant in the current window, per window length. */
+const familyWindowTaken = new Map<string, { window: number; n: number }>();
 function nextKstMidnight(t: number): number {
   const d = new Date(t + 9 * 3600 * 1000);
   d.setUTCHours(24, 0, 0, 0);
@@ -2015,6 +2021,11 @@ export class PaperTrader {
       }
       if (prev != null && row.t - prev < this.v.coolMin * 60000) return;
     }
+    const famKey = `${this.v.name}|${this.windowSec}`;
+    if (this.v.familyMaxPerWindow != null) {
+      const f = familyWindowTaken.get(famKey);
+      if (f && f.window === row.window && f.n >= this.v.familyMaxPerWindow) return;
+    }
     const levels = pick.up ? row.upAsks : row.downAsks;
     let budget = SIZE;
     let shares = 0;
@@ -2045,6 +2056,10 @@ export class PaperTrader {
       won: null,
       pnl: null,
     };
+    if (this.v.familyMaxPerWindow != null) {
+      const f = familyWindowTaken.get(famKey);
+      familyWindowTaken.set(famKey, f && f.window === row.window ? { window: row.window, n: f.n + 1 } : { window: row.window, n: 1 });
+    }
     this.open.push(trade);
     saveJson(this.openFile, this.open);
     if (this.v.maxPerDay != null) {
