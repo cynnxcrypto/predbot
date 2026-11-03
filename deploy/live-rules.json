@@ -1,6 +1,6 @@
 {
   "mode": "live",
-  "minBalance": 380,
+  "minBalance": 330,
   "maxLossPerDay": 15,
   "variants": [
     {
