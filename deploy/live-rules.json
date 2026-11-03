@@ -6,6 +6,7 @@
     {
       "variant": "feed3-up60-mid",
       "size": 3,
+      "cap": 0.56,
       "haltAfterLosses": 4
     }
   ],
@@ -47,6 +48,7 @@
         {
           "variant": "ahead5-cheap60-15m-first60",
           "size": 3,
+          "cap": 0.56,
           "haltAfterLosses": 3
         }
       ]
