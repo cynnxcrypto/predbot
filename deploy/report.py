@@ -3,7 +3,7 @@
 can read the server's results (no Claude session can reach the server itself). Run by cron every 15 min, see
 deploy/report-setup.sh. Needs a GitHub token with Contents read/write on this repo in ~/.predbot-github-token.
 The repo is public: wallet, funder, balances, order ids and tokens are left out on purpose."""
-import base64, glob, json, os, sys, time, urllib.request
+import base64, glob, gzip, json, os, sys, time, urllib.request
 
 REPO = "cynnxcrypto/predbot"
 BRANCH = "server-data"
@@ -72,6 +72,36 @@ def put(path, obj):
     return code
 
 
+def upload_books():
+    """Once per UTC day, post yesterday's 15m book rows for the early-move zone (first 3 minutes of each window, top 3
+    levels per side) gzipped to server/books/<series>/<day>.jsonl.gz, so maker and fill studies can use the server's own
+    books (4 Nov 2026). About 3 MB a day for 7 coins. Failures never stop the status post."""
+    day = time.strftime("%Y-%m-%d", time.gmtime(time.time() - 86400))
+    for d in sorted(glob.glob(os.path.join(DATA, "*15m-book"))):
+        series = os.path.basename(d).removesuffix("-book")
+        src = os.path.join(d, f"{day}.jsonl")
+        path = f"server/books/{series}/{day}.jsonl.gz"
+        if not os.path.exists(src) or gh("GET", f"contents/{path}?ref={BRANCH}")[0] == 200:
+            continue
+        out = []
+        with open(src) as f:
+            for line in f:
+                try:
+                    r = json.loads(line)
+                except ValueError:
+                    continue
+                if (r.get("left") or 0) < 720:
+                    continue
+                for k in ("upAsks", "upBids", "downAsks", "downBids"):
+                    if isinstance(r.get(k), list):
+                        r[k] = r[k][:3]
+                out.append(json.dumps(r, separators=(",", ":")))
+        blob = gzip.compress(("\n".join(out) + "\n").encode())
+        code, _ = gh("PUT", f"contents/{path}", {"message": f"server books {series} {day}", "branch": BRANCH,
+                                                  "content": base64.b64encode(blob).decode()})
+        print(f"books {series} {day}: {len(out)} rows, {len(blob) // 1024} KB, GitHub {code}")
+
+
 def main():
     code, _ = gh("GET", "")
     if code != 200:
@@ -82,6 +112,10 @@ def main():
         if code != 201:
             sys.exit(f"GitHub said {code} creating the {BRANCH} branch: the token needs Contents: Read and write")
     code = put("server/status.json", summary())
+    try:
+        upload_books()
+    except Exception as e:  # noqa: BLE001 - never let the book upload break the status report
+        print(f"book upload failed: {e}")
     print("posted" if code in (200, 201) else f"GitHub said {code}")
     sys.exit(0 if code in (200, 201) else 1)
 
