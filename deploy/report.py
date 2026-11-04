@@ -102,6 +102,91 @@ def upload_books():
         print(f"books {series} {day}: {len(out)} rows, {len(blob) // 1024} KB, GitHub {code}")
 
 
+HIST_FROM = "2026-10-31"  # first full day on the server (moved to Stockholm 31 Oct 2026)
+HIST_COLS = ["t", "window", "left", "upAsk", "upBid", "downAsk", "downBid", "upAsk1", "upBid1", "downAsk1", "downBid1",
+             "upAsk3", "upBid3", "downAsk3", "downBid3", "upAskDepth", "downAskDepth", "chainlink", "binance", "coinbase",
+             "futures", "open"]
+
+
+def _sz(levels, n):
+    try:
+        return round(sum(float(x[1]) for x in (levels or [])[:n]), 1)
+    except (TypeError, ValueError, IndexError):
+        return None
+
+
+def upload_history(budget_s=600):
+    """Backfill for the systematic strategy search (4 Nov 2026): every past day's FULL 5m and 15m books, one row per
+    second (the last snapshot of each second) as compact arrays (columns in HIST_COLS, sizes of the best level and the
+    top 3 levels per side), plus each window's resolution, gzipped to server/hist/<series>/<day>.jsonl.gz and
+    <day>-windows.jsonl.gz. Skips files already on GitHub, stops after `budget_s` seconds, runs at the lowest CPU
+    priority under a lock so the trader and the next cron run are never slowed or doubled up."""
+    import fcntl
+    lock = open(os.path.join(DATA, ".hist-upload.lock"), "w")
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        return
+    try:
+        os.nice(19)
+    except OSError:
+        pass
+    start = time.time()
+    today = time.strftime("%Y-%m-%d", time.gmtime())
+    dirs = sorted(glob.glob(os.path.join(DATA, "*book")))
+    for d in dirs:
+        prefix = os.path.basename(d).removesuffix("book")  # "" for the first series (btc5m), else "eth15m-"
+        series = prefix.rstrip("-") or "btc5m"
+        if not (series.endswith("5m") or series.endswith("15m")) or series.endswith("-"):
+            continue
+        for src in sorted(glob.glob(os.path.join(d, "*.jsonl"))):
+            day = os.path.basename(src)[:-6]
+            if day < HIST_FROM or day >= today:
+                continue
+            if time.time() - start > budget_s:
+                return
+            path = f"server/hist/{series}/{day}.jsonl.gz"
+            if gh("GET", f"contents/{path}?ref={BRANCH}")[0] == 200:
+                continue
+            out, last, key = [], None, None
+            with open(src) as f:
+                for line in f:
+                    try:
+                        r = json.loads(line)
+                    except ValueError:
+                        continue
+                    k = (r.get("window"), r.get("left"))
+                    if k != key and last is not None:
+                        out.append(json.dumps(last, separators=(",", ":")))
+                    key = k
+                    last = [int((r.get("t") or 0) // 1000), r.get("window"), r.get("left"), r.get("upAsk"), r.get("upBid"),
+                            r.get("downAsk"), r.get("downBid"), _sz(r.get("upAsks"), 1), _sz(r.get("upBids"), 1),
+                            _sz(r.get("downAsks"), 1), _sz(r.get("downBids"), 1), _sz(r.get("upAsks"), 3),
+                            _sz(r.get("upBids"), 3), _sz(r.get("downAsks"), 3), _sz(r.get("downBids"), 3),
+                            r.get("upAskDepth"), r.get("downAskDepth"), r.get("chainlink"), r.get("binance"),
+                            r.get("coinbase"), r.get("futures"), r.get("open")]
+            if last is not None:
+                out.append(json.dumps(last, separators=(",", ":")))
+            wins = {}
+            wsrc = os.path.join(DATA, f"{prefix}windows", f"{day}.jsonl")
+            if os.path.exists(wsrc):
+                for line in open(wsrc):
+                    try:
+                        w = json.loads(line)
+                    except ValueError:
+                        continue
+                    wins[w.get("window")] = {k: w.get(k) for k in ("window", "open", "close", "resolvedUp", "status",
+                                                                   "chainlinkTwap60", "chainlinkTwap60AtOpen",
+                                                                   "chainlinkAtOpen", "chainlinkAtClose")}
+            wblob = gzip.compress(("\n".join(json.dumps(w, separators=(",", ":")) for w in wins.values()) + "\n").encode())
+            gh("PUT", f"contents/server/hist/{series}/{day}-windows.jsonl.gz",
+               {"message": f"server hist windows {series} {day}", "branch": BRANCH, "content": base64.b64encode(wblob).decode()})
+            blob = gzip.compress(("\n".join([json.dumps(HIST_COLS)] + out) + "\n").encode())
+            code, _ = gh("PUT", f"contents/{path}", {"message": f"server hist {series} {day}", "branch": BRANCH,
+                                                      "content": base64.b64encode(blob).decode()})
+            print(f"hist {series} {day}: {len(out)} rows, {len(blob) // 1024} KB, GitHub {code}")
+
+
 def main():
     code, _ = gh("GET", "")
     if code != 200:
@@ -117,6 +202,12 @@ def main():
     except Exception as e:  # noqa: BLE001 - never let the book upload break the status report
         print(f"book upload failed: {e}")
     print("posted" if code in (200, 201) else f"GitHub said {code}")
+    if code in (200, 201) and os.fork() == 0:  # backfill runs detached so cron's status post finishes at once
+        try:
+            upload_history()
+        except Exception as e:  # noqa: BLE001
+            print(f"history upload failed: {e}")
+        os._exit(0)
     sys.exit(0 if code in (200, 201) else 1)
 
 
