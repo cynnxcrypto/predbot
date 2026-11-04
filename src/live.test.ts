@@ -7,7 +7,7 @@ import { test } from "node:test";
 // liveConfig reads data/live.json through DATA, so point DATA at a scratch folder before importing it.
 const dir = mkdtempSync(join(tmpdir(), "predbot-live-"));
 process.env.DATA_DIR = dir;
-const { liveConfig, ladderLevel } = await import("./live.js");
+const { liveConfig, ladderLevel, familyTrack, familyHalted } = await import("./live.js");
 
 test("live.json: one variant per series stays as before", () => {
   writeFileSync(join(dir, "live.json"), JSON.stringify({ mode: "live", variant: "band80-30-j70", size: 5, maxLossPerDay: 25, funder: "0xabc" }));
@@ -77,4 +77,19 @@ test("live.json: \"rules\": \"repo\" takes rules from deploy/live-rules.json, ke
   writeFileSync(join(dir, "live.json"), JSON.stringify({ rules: "repo", mode: "off", funder: "0xabc" }));
   assert.equal(liveConfig().mode, "off");
   assert.equal(liveConfig("eth5m").mode, "off");
+});
+
+test("family day-halt: N straight losses across markets stop the rule until KST midnight", () => {
+  const t0 = Date.parse("2026-11-04T01:00:00Z"); // 10:00 KST
+  assert.equal(familyHalted("fam-x", t0), false);
+  familyTrack("fam-x", false, 3, t0);
+  familyTrack("fam-x", true, 3, t0); // a win resets the streak
+  familyTrack("fam-x", false, 3, t0);
+  familyTrack("fam-x", false, 3, t0);
+  assert.equal(familyHalted("fam-x", t0), false);
+  const f = familyTrack("fam-x", false, 3, t0);
+  assert.equal(f.haltDay, "2026-11-04");
+  assert.equal(familyHalted("fam-x", t0 + 3600_000), true);
+  assert.equal(familyHalted("fam-x", Date.parse("2026-11-04T15:00:01Z")), false); // next KST day
+  assert.equal(familyHalted("other", t0), false);
 });

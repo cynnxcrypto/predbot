@@ -60,11 +60,35 @@ export type LiveMode = "off" | "dry" | "live";
  *  29 Oct 2026 fill audit (enrique: "why are we missing the ones that would win, I want to fix that"): of 367 real feed-rule
  *  orders since the $2 test, the 264 fills won 23% on paper while the 96 "no orders found to match" misses won 59%; the ask is
  *  pulled the second Binance leads and comes back to the cap within 15 s in 71 of 96 cases (61% won, +$106 at $2). */
-export type LiveVariant = { variant: string; size: number; haltAfterLosses: number; ladder?: number[]; maxLossPerDay?: number; chaseSec?: number; restUntilLeft?: number; cap?: number; resumeFrom?: string };
+export type LiveVariant = { variant: string; size: number; haltAfterLosses: number; ladder?: number[]; maxLossPerDay?: number; chaseSec?: number; restUntilLeft?: number; cap?: number; resumeFrom?: string; familyHaltLosses?: number };
 export type LiveConfig = { mode: LiveMode; variant: string; size: number; maxLossPerDay: number; funder: string; variants: LiveVariant[]; statsSince: number; startBalance: number | null; deposits: number; claimEveryMin: number; minBalance: number; claimBelow: number };
-type VariantEntry = { variant?: string; size?: number; haltAfterLosses?: number; ladder?: number[]; maxLossPerDay?: number; chaseSec?: number; restUntilLeft?: number; cap?: number; resumeFrom?: string };
+type VariantEntry = { variant?: string; size?: number; haltAfterLosses?: number; ladder?: number[]; maxLossPerDay?: number; chaseSec?: number; restUntilLeft?: number; cap?: number; resumeFrom?: string; familyHaltLosses?: number };
 type MarketEntry = VariantEntry & { series?: string; maxLossPerDay?: number; mode?: string; variants?: VariantEntry[] };
 /** Streak of straight losses per variant and whether it tripped the halt. */
+/** Cross-coin day-halt (round 147/168, live from 4 Nov 2026): a rule with "familyHaltLosses": N counts its settled
+ *  real trades across EVERY market together; after N straight losses it stops on all markets until the next KST
+ *  midnight. Kept in data/live-family-halts.json so all series (and restarts) share it. Unlike haltAfterLosses it
+ *  does not send the rule back to paper: the next KST day it trades again. */
+export type FamilyHalt = { streak: number; haltDay: string | null };
+const FAMILY_FILE = "live-family-halts.json";
+export function familyHalted(variant: string, now: number = Date.now()): boolean {
+  const f = loadJson<Record<string, FamilyHalt>>(FAMILY_FILE, {})[variant];
+  return Boolean(f && f.haltDay === kstDay(now));
+}
+export function familyTrack(variant: string, won: boolean, limit: number, now: number = Date.now()): FamilyHalt {
+  const all = loadJson<Record<string, FamilyHalt>>(FAMILY_FILE, {});
+  const f = all[variant] ?? { streak: 0, haltDay: null };
+  if (f.haltDay && f.haltDay !== kstDay(now)) f.haltDay = null;
+  f.streak = won ? 0 : f.streak + 1;
+  if (limit > 0 && f.streak >= limit && !f.haltDay) {
+    f.haltDay = kstDay(now);
+    f.streak = 0;
+  }
+  all[variant] = f;
+  saveJson(FAMILY_FILE, all);
+  return f;
+}
+
 export type Halt = { streak: number; halted: boolean; haltedAt: number | null; paused?: boolean };
 
 /** Taker fee Polymarket charges on these markets (same formula the paper tests use); 0 when nothing filled. */
@@ -208,7 +232,7 @@ const sizeOf = (raw: unknown) => {
   return Number.isFinite(size) && size > 0 ? Math.min(size, 50) : DEFAULT.size;
 };
 
-type RawVariant = { variant?: string; size?: number; haltAfterLosses?: number; ladder?: number[]; maxLossPerDay?: number; chaseSec?: number; restUntilLeft?: number; cap?: number; resumeFrom?: string };
+type RawVariant = { variant?: string; size?: number; haltAfterLosses?: number; ladder?: number[]; maxLossPerDay?: number; chaseSec?: number; restUntilLeft?: number; cap?: number; resumeFrom?: string; familyHaltLosses?: number };
 type RawMarket = { series?: string; mode?: string; maxLossPerDay?: number; variants?: RawVariant[] };
 type RawLive = RawMarket & { markets?: RawMarket[]; variant?: string; size?: number; haltAfterLosses?: number };
 
@@ -386,7 +410,8 @@ export function liveConfig(seriesKey = ""): LiveConfig {
     const capOwn = Number(v.cap);
     const restLeft = Number(v.restUntilLeft);
     const resumeFrom = typeof v.resumeFrom === "string" && Number.isFinite(Date.parse(v.resumeFrom)) ? v.resumeFrom : undefined;
-    if (name && !variants.some((x) => x.variant === name)) variants.push({ variant: name, ...(resumeFrom ? { resumeFrom } : {}), size: ladder.length ? ladder[0] : sizeOf(v.size), haltAfterLosses: Number.isFinite(halt) && halt > 0 ? Math.floor(halt) : 0, ...(ladder.length > 1 ? { ladder } : {}), ...(Number.isFinite(own) && own > 0 ? { maxLossPerDay: own } : {}), ...(Number.isFinite(capOwn) && capOwn > 0 && capOwn < 1 ? { cap: capOwn } : {}), ...(Number.isFinite(chase) && chase > 0 ? { chaseSec: Math.min(120, chase), ...(Number.isFinite(restLeft) && restLeft >= 0 ? { restUntilLeft: restLeft } : {}) } : {}) });
+    const famHalt = Number(v.familyHaltLosses ?? 0);
+    if (name && !variants.some((x) => x.variant === name)) variants.push({ variant: name, ...(resumeFrom ? { resumeFrom } : {}), ...(Number.isFinite(famHalt) && famHalt > 0 ? { familyHaltLosses: Math.floor(famHalt) } : {}), size: ladder.length ? ladder[0] : sizeOf(v.size), haltAfterLosses: Number.isFinite(halt) && halt > 0 ? Math.floor(halt) : 0, ...(ladder.length > 1 ? { ladder } : {}), ...(Number.isFinite(own) && own > 0 ? { maxLossPerDay: own } : {}), ...(Number.isFinite(capOwn) && capOwn > 0 && capOwn < 1 ? { cap: capOwn } : {}), ...(Number.isFinite(chase) && chase > 0 ? { chaseSec: Math.min(120, chase), ...(Number.isFinite(restLeft) && restLeft >= 0 ? { restUntilLeft: restLeft } : {}) } : {}) });
   }
   return {
     mode,
@@ -628,6 +653,10 @@ export class LiveTrader {
     }
     this.halts[t.variant] = h;
     saveJson(`${this.prefix}live-halts.json`, this.halts);
+    if (rule?.familyHaltLosses) {
+      const f = familyTrack(t.variant, Boolean(t.won), rule.familyHaltLosses);
+      if (f.haltDay) console.log(`live ${this.series.label}: ${t.variant} family day-halt: ${rule.familyHaltLosses} straight losses across all markets, no more orders from it on any market until KST midnight`);
+    }
   }
 
   /** Net result of the trades settled on today's windows (Korean day). */
@@ -777,6 +806,7 @@ export class LiveTrader {
     this.halts = loadJson<Record<string, Halt>>(`${this.prefix}live-halts.json`, this.halts);
     this.liftResumedHalt(trade.variant, rule);
     if (this.halts[trade.variant]?.halted || this.halts[trade.variant]?.paused) return;
+    if (rule.familyHaltLosses && familyHalted(trade.variant)) return;
     if (this.open.some((t) => t.window === trade.window && t.variant === trade.variant)) return;
     // Settlement lags the close by minutes: a loss our own feed can already see counts toward the halt now.
     if (rule.haltAfterLosses > 0) {

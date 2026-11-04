@@ -2,14 +2,7 @@
   "mode": "live",
   "minBalance": 330,
   "maxLossPerDay": 15,
-  "variants": [
-    {
-      "variant": "feed3-up60-mid",
-      "size": 3,
-      "cap": 0.56,
-      "haltAfterLosses": 4
-    }
-  ],
+  "variants": [],
   "markets": [
     {
       "series": "eth5m",
@@ -41,16 +34,12 @@
       "maxLossPerDay": 20,
       "variants": [
         {
-          "variant": "fav91-15m-late-pm",
-          "size": 5,
-          "cap": 0.92,
-          "haltAfterLosses": 2
-        },
-        {
-          "variant": "ahead5-cheap60-15m-first60",
+          "variant": "ahead5-cheap60-15m-dayhalt3",
           "size": 3,
           "cap": 0.56,
-          "haltAfterLosses": 3
+          "haltAfterLosses": 4,
+          "familyHaltLosses": 3,
+          "maxLossPerDay": 9
         }
       ]
     },
@@ -59,10 +48,12 @@
       "maxLossPerDay": 20,
       "variants": [
         {
-          "variant": "fav91-15m-late-pm",
-          "size": 5,
-          "cap": 0.92,
-          "haltAfterLosses": 2
+          "variant": "ahead5-cheap60-15m-dayhalt3",
+          "size": 3,
+          "cap": 0.56,
+          "haltAfterLosses": 4,
+          "familyHaltLosses": 3,
+          "maxLossPerDay": 9
         }
       ]
     },
@@ -74,13 +65,7 @@
     {
       "series": "bnb15m",
       "maxLossPerDay": 20,
-      "variants": [
-        {
-          "variant": "ahead5-cheap60-15m-first3",
-          "size": 3,
-          "haltAfterLosses": 4
-        }
-      ]
+      "variants": []
     },
     {
       "series": "xrp15m",
@@ -95,14 +80,7 @@
     {
       "series": "doge15m",
       "maxLossPerDay": 15,
-      "variants": [
-        {
-          "variant": "fav91-15m-late-pm",
-          "size": 3,
-          "cap": 0.92,
-          "haltAfterLosses": 2
-        }
-      ]
+      "variants": []
     }
   ]
 }
