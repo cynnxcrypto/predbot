@@ -32,30 +32,12 @@
     {
       "series": "eth15m",
       "maxLossPerDay": 20,
-      "variants": [
-        {
-          "variant": "ahead5-cheap60-15m-dayhalt3",
-          "size": 3,
-          "cap": 0.56,
-          "haltAfterLosses": 4,
-          "familyHaltLosses": 3,
-          "maxLossPerDay": 9
-        }
-      ]
+      "variants": []
     },
     {
       "series": "btc15m",
       "maxLossPerDay": 20,
-      "variants": [
-        {
-          "variant": "ahead5-cheap60-15m-dayhalt3",
-          "size": 3,
-          "cap": 0.56,
-          "haltAfterLosses": 4,
-          "familyHaltLosses": 3,
-          "maxLossPerDay": 9
-        }
-      ]
+      "variants": []
     },
     {
       "series": "hype5m",

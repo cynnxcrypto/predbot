@@ -75,6 +75,18 @@ export function familyHalted(variant: string, now: number = Date.now()): boolean
   const f = loadJson<Record<string, FamilyHalt>>(FAMILY_FILE, {})[variant];
   return Boolean(f && f.haltDay === kstDay(now));
 }
+/** Unsettled real fills of a family rule across every market. Settlement lags the close, so on 4 Nov a BTC order
+ *  went in at 12:15 KST before earlier losses had landed; each open fill now counts as a possible loss. */
+export function familyOpen(variant: string): number {
+  let n = 0;
+  for (const s of SERIES)
+    for (const t of loadJson<{ variant?: string; dry?: boolean; ok?: boolean; pnl?: number | null }[]>(`${prefixOf(s)}live-open.json`, []))
+      if (t.variant === variant && !t.dry && t.ok !== false && t.pnl == null) n++;
+  return n;
+}
+export function familyStreak(variant: string): number {
+  return loadJson<Record<string, FamilyHalt>>(FAMILY_FILE, {})[variant]?.streak ?? 0;
+}
 export function familyTrack(variant: string, won: boolean, limit: number, now: number = Date.now()): FamilyHalt {
   const all = loadJson<Record<string, FamilyHalt>>(FAMILY_FILE, {});
   const f = all[variant] ?? { streak: 0, haltDay: null };
@@ -807,6 +819,13 @@ export class LiveTrader {
     this.liftResumedHalt(trade.variant, rule);
     if (this.halts[trade.variant]?.halted || this.halts[trade.variant]?.paused) return;
     if (rule.familyHaltLosses && familyHalted(trade.variant)) return;
+    if (rule.familyHaltLosses) {
+      const open = familyOpen(trade.variant);
+      if (open && familyStreak(trade.variant) + open >= rule.familyHaltLosses) {
+        console.log(`live ${this.series.label}: ${trade.variant} skipped window ${trade.window}, ${open} unsettled fill(s) across markets could trip the day-halt`);
+        return;
+      }
+    }
     if (this.open.some((t) => t.window === trade.window && t.variant === trade.variant)) return;
     // Settlement lags the close by minutes: a loss our own feed can already see counts toward the halt now.
     if (rule.haltAfterLosses > 0) {
