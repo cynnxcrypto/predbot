@@ -60,9 +60,13 @@ export type LiveMode = "off" | "dry" | "live";
  *  29 Oct 2026 fill audit (enrique: "why are we missing the ones that would win, I want to fix that"): of 367 real feed-rule
  *  orders since the $2 test, the 264 fills won 23% on paper while the 96 "no orders found to match" misses won 59%; the ask is
  *  pulled the second Binance leads and comes back to the cap within 15 s in 71 of 96 cases (61% won, +$106 at $2). */
-export type LiveVariant = { variant: string; size: number; haltAfterLosses: number; ladder?: number[]; maxLossPerDay?: number; chaseSec?: number; restUntilLeft?: number; cap?: number; resumeFrom?: string; familyHaltLosses?: number };
+/** "bidUnderC" + "bidSec" (Review 19, 5 Nov 2026): maker mode. Instead of taking the ask, rest a limit buy this many cents
+ *  under the signal's ask (never above "cap") for bidSec seconds, then cancel what is left. Point it at the TAKER paper
+ *  rule (which fires at the signal), not at a paper maker twin (which fires only once its own bid has filled). Server books
+ *  31 Oct-5 Nov: ETH/SOL/BTC early move bid 2c under for 30 s, 148 fills 59% won +10.9%; taking the ask lost. Makers pay no fee. */
+export type LiveVariant = { variant: string; size: number; haltAfterLosses: number; ladder?: number[]; maxLossPerDay?: number; chaseSec?: number; restUntilLeft?: number; cap?: number; resumeFrom?: string; familyHaltLosses?: number; bidUnderC?: number; bidSec?: number };
 export type LiveConfig = { mode: LiveMode; variant: string; size: number; maxLossPerDay: number; funder: string; variants: LiveVariant[]; statsSince: number; startBalance: number | null; deposits: number; claimEveryMin: number; minBalance: number; claimBelow: number };
-type VariantEntry = { variant?: string; size?: number; haltAfterLosses?: number; ladder?: number[]; maxLossPerDay?: number; chaseSec?: number; restUntilLeft?: number; cap?: number; resumeFrom?: string; familyHaltLosses?: number };
+type VariantEntry = { variant?: string; size?: number; haltAfterLosses?: number; ladder?: number[]; maxLossPerDay?: number; chaseSec?: number; restUntilLeft?: number; cap?: number; resumeFrom?: string; familyHaltLosses?: number; bidUnderC?: number; bidSec?: number };
 type MarketEntry = VariantEntry & { series?: string; maxLossPerDay?: number; mode?: string; variants?: VariantEntry[] };
 /** Streak of straight losses per variant and whether it tripped the halt. */
 /** Cross-coin day-halt (round 147/168, live from 4 Nov 2026): a rule with "familyHaltLosses": N counts its settled
@@ -244,7 +248,7 @@ const sizeOf = (raw: unknown) => {
   return Number.isFinite(size) && size > 0 ? Math.min(size, 50) : DEFAULT.size;
 };
 
-type RawVariant = { variant?: string; size?: number; haltAfterLosses?: number; ladder?: number[]; maxLossPerDay?: number; chaseSec?: number; restUntilLeft?: number; cap?: number; resumeFrom?: string; familyHaltLosses?: number };
+type RawVariant = { variant?: string; size?: number; haltAfterLosses?: number; ladder?: number[]; maxLossPerDay?: number; chaseSec?: number; restUntilLeft?: number; cap?: number; resumeFrom?: string; familyHaltLosses?: number; bidUnderC?: number; bidSec?: number };
 type RawMarket = { series?: string; mode?: string; maxLossPerDay?: number; variants?: RawVariant[] };
 type RawLive = RawMarket & { markets?: RawMarket[]; variant?: string; size?: number; haltAfterLosses?: number };
 
@@ -423,7 +427,9 @@ export function liveConfig(seriesKey = ""): LiveConfig {
     const restLeft = Number(v.restUntilLeft);
     const resumeFrom = typeof v.resumeFrom === "string" && Number.isFinite(Date.parse(v.resumeFrom)) ? v.resumeFrom : undefined;
     const famHalt = Number(v.familyHaltLosses ?? 0);
-    if (name && !variants.some((x) => x.variant === name)) variants.push({ variant: name, ...(resumeFrom ? { resumeFrom } : {}), ...(Number.isFinite(famHalt) && famHalt > 0 ? { familyHaltLosses: Math.floor(famHalt) } : {}), size: ladder.length ? ladder[0] : sizeOf(v.size), haltAfterLosses: Number.isFinite(halt) && halt > 0 ? Math.floor(halt) : 0, ...(ladder.length > 1 ? { ladder } : {}), ...(Number.isFinite(own) && own > 0 ? { maxLossPerDay: own } : {}), ...(Number.isFinite(capOwn) && capOwn > 0 && capOwn < 1 ? { cap: capOwn } : {}), ...(Number.isFinite(chase) && chase > 0 ? { chaseSec: Math.min(120, chase), ...(Number.isFinite(restLeft) && restLeft >= 0 ? { restUntilLeft: restLeft } : {}) } : {}) });
+    const bidUnder = Number(v.bidUnderC);
+    const bidSec = Number(v.bidSec ?? 30);
+    if (name && !variants.some((x) => x.variant === name)) variants.push({ variant: name, ...(resumeFrom ? { resumeFrom } : {}), ...(Number.isFinite(famHalt) && famHalt > 0 ? { familyHaltLosses: Math.floor(famHalt) } : {}), ...(v.bidUnderC != null && Number.isFinite(bidUnder) && bidUnder >= 0 && bidUnder <= 10 ? { bidUnderC: bidUnder, bidSec: Number.isFinite(bidSec) && bidSec >= 5 ? Math.min(120, bidSec) : 30 } : {}), size: ladder.length ? ladder[0] : sizeOf(v.size), haltAfterLosses: Number.isFinite(halt) && halt > 0 ? Math.floor(halt) : 0, ...(ladder.length > 1 ? { ladder } : {}), ...(Number.isFinite(own) && own > 0 ? { maxLossPerDay: own } : {}), ...(Number.isFinite(capOwn) && capOwn > 0 && capOwn < 1 ? { cap: capOwn } : {}), ...(Number.isFinite(chase) && chase > 0 ? { chaseSec: Math.min(120, chase), ...(Number.isFinite(restLeft) && restLeft >= 0 ? { restUntilLeft: restLeft } : {}) } : {}) });
   }
   return {
     mode,
@@ -888,7 +894,18 @@ export class LiveTrader {
       won: null,
       pnl: null,
     };
-    if (skipOnFall && freshAsk != null && freshAsk <= trade.ask - 0.01 + 1e-9) {
+    if (rule.bidUnderC != null) {
+      // Maker mode: rest a bid under the signal ask; no fill-or-kill, no ask-fell skip (a falling ask is what fills a bid).
+      const bid = Math.min(limit, Math.max(0.01, Math.round(trade.ask * 100 - rule.bidUnderC) / 100));
+      row.limit = bid;
+      if (row.dry) {
+        row.ok = true;
+        row.status = "dry";
+        console.log(`live DRY: would bid ${trade.side} at ${Math.round(bid * 100)}c for ${rule.bidSec}s, $${size}`);
+      } else {
+        await this.chase(row, trade, token, bid, size, Date.now() + (rule.bidSec ?? 30) * 1000, 0);
+      }
+    } else if (skipOnFall && freshAsk != null && freshAsk <= trade.ask - 0.01 + 1e-9) {
       row.status = "skipped";
       row.error = `ask fell to ${Math.round(freshAsk * 100)}c`;
       console.log(`live: skipped ${trade.side}, ask fell from ${Math.round(trade.ask * 100)}c to ${Math.round(freshAsk * 100)}c`);
@@ -898,7 +915,7 @@ export class LiveTrader {
       return;
     }
     const sentAt = Date.now();
-    try {
+    if (rule.bidUnderC == null) try {
       const order = await this.client.createMarketOrder(
         { tokenID: token, amount: size, side: Side.BUY, price: limit, orderType: OrderType.FAK },
         { tickSize: "0.01", negRisk: false },
@@ -933,7 +950,9 @@ export class LiveTrader {
     // Cheap early rules: at 17c there is often nothing resting the second paper fires (4 of the first 8 real orders on
     // 26 Oct 2026 died with "no orders found to match"), while on the books the ask is still at the cap within 10 s in
     // 88% of windows. enrique, 27 Oct 00:16 KST: "okay do retry and rest".
-    if (first != null && !row.dry && !(row.ok && row.shares > 0)) await this.chase(row, trade, token, limit, size, (trade.window + first) * 1000, 10_000);
+    if (rule.bidUnderC != null) {
+      // maker mode handled above
+    } else if (first != null && !row.dry && !(row.ok && row.shares > 0)) await this.chase(row, trade, token, limit, size, (trade.window + first) * 1000, 10_000);
     else if (rule.chaseSec && !row.dry && !(row.ok && row.shares > 0) && !row.status?.toString().startsWith("skipped")) await this.chase(row, trade, token, limit, size, rule.restUntilLeft != null ? (trade.window + this.series.windowSec - rule.restUntilLeft) * 1000 : Date.now() + rule.chaseSec * 1000, rule.chaseSec * 1000);
     this.remember(row);
     saveJson(`${this.prefix}live-state.json`, { at: Date.now(), ...this.status(), lastTrade: row });

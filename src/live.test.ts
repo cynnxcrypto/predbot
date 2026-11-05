@@ -93,3 +93,14 @@ test("family day-halt: N straight losses across markets stop the rule until KST 
   assert.equal(familyHalted("fam-x", Date.parse("2026-11-04T15:00:01Z")), false); // next KST day
   assert.equal(familyHalted("other", t0), false);
 });
+
+test("live.json: bidUnderC turns a rule into a resting bid under the ask (maker mode)", () => {
+  writeFileSync(join(dir, "live.json"), JSON.stringify({
+    mode: "live", funder: "0xabc",
+    markets: [{ series: "eth15m", variants: [{ variant: "ahead5-cheap60-15m-dayhalt3", size: 3, haltAfterLosses: 4, cap: 0.6, bidUnderC: 2 }, { variant: "x", size: 3, bidUnderC: 50 }, { variant: "y", size: 3, bidUnderC: 3, bidSec: 500 }] }],
+  }));
+  const v = liveConfig("eth15m").variants;
+  assert.deepEqual(v[0], { variant: "ahead5-cheap60-15m-dayhalt3", size: 3, haltAfterLosses: 4, cap: 0.6, bidUnderC: 2, bidSec: 30 });
+  assert.equal(v[1].bidUnderC, undefined);
+  assert.equal(v[2].bidSec, 120);
+});
