@@ -148,6 +148,14 @@ def upload_history(budget_s=600):
                 return
             path = f"server/hist/{series}/{day}.jsonl.gz"
             if gh("GET", f"contents/{path}?ref={BRANCH}")[0] == 200:
+                # 6 Nov 2026: the raw books filled the server disk (ENOSPC 19:39 KST, bot dead for hours). A day that is
+                # safely on GitHub is dropped locally once it is 3+ days old.
+                if day <= time.strftime("%Y-%m-%d", time.gmtime(time.time() - 3 * 86400)):
+                    try:
+                        os.remove(src)
+                        print(f"pruned {src} (on GitHub)")
+                    except OSError:
+                        pass
                 continue
             out, last, key = [], None, None
             with open(src) as f:
