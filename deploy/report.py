@@ -50,7 +50,8 @@ def summary():
     except Exception:
         out["latency"] = None
     rows = []
-    for f in sorted(glob.glob(os.path.join(DATA, "*live", "*.jsonl")))[-30:]:
+    # Newest days first across every series (sorting by the full path kept only the alphabetically last series).
+    for f in sorted(glob.glob(os.path.join(DATA, "*live", "*.jsonl")), key=os.path.basename)[-60:]:
         series = os.path.basename(os.path.dirname(f)).removesuffix("-live") or "btc5m"
         for line in open(f):
             try:
