@@ -3,7 +3,7 @@
 can read the server's results (no Claude session can reach the server itself). Run by cron every 15 min, see
 deploy/report-setup.sh. Needs a GitHub token with Contents read/write on this repo in ~/.predbot-github-token.
 The repo is public: wallet, funder, balances, order ids and tokens are left out on purpose."""
-import base64, glob, gzip, json, os, sys, time, urllib.request
+import base64, glob, gzip, json, os, re, shutil, subprocess, sys, time, urllib.request
 
 REPO = "cynnxcrypto/predbot"
 BRANCH = "server-data"
@@ -188,6 +188,24 @@ def upload_history(budget_s=600):
             print(f"hist {series} {day}: {len(out)} rows, {len(blob) // 1024} KB, GitHub {code}")
 
 
+def down_report(err):
+    """What we can still see when the bot's status page is down: code version, disk, and the bot's last log lines
+    (wallet-like hex strings removed, the repo is public)."""
+    def run(cmd):
+        try:
+            return subprocess.run(cmd, capture_output=True, text=True, timeout=20).stdout.strip()
+        except Exception as e:  # noqa: BLE001
+            return f"failed: {e}"
+    du = shutil.disk_usage(ROOT)
+    log = run(["journalctl", "-u", "predbot", "-n", "60", "--no-pager", "-o", "short-iso"])
+    log = re.sub(r"0x[0-9a-fA-F]{16,}", "0x…", log)
+    return {"at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "error": str(err),
+            "git": run(["git", "-C", ROOT, "log", "-1", "--format=%h %ci"]),
+            "gitStatus": run(["git", "-C", ROOT, "status", "--short", "--untracked-files=no"]),
+            "diskFreeGB": round(du.free / 1e9, 2), "diskTotalGB": round(du.total / 1e9, 2),
+            "service": run(["systemctl", "is-active", "predbot"]), "journal": log.splitlines()[-60:]}
+
+
 def main():
     code, _ = gh("GET", "")
     if code != 200:
@@ -197,7 +215,12 @@ def main():
         code, _ = gh("POST", "git/refs", {"ref": f"refs/heads/{BRANCH}", "sha": main_ref["object"]["sha"]})
         if code != 201:
             sys.exit(f"GitHub said {code} creating the {BRANCH} branch: the token needs Contents: Read and write")
-    code = put("server/status.json", summary())
+    try:
+        status = summary()
+    except Exception as e:  # noqa: BLE001 - 6 Nov 2026: the bot's status page went dark for hours and we were blind
+        put("server/down.json", down_report(e))
+        sys.exit(f"bot status page not answering ({e}); posted server/down.json")
+    code = put("server/status.json", status)
     try:
         upload_books()
     except Exception as e:  # noqa: BLE001 - never let the book upload break the status report
