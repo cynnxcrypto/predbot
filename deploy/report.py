@@ -18,7 +18,7 @@ def gh(method, path, body=None):
                                  headers={"Authorization": f"Bearer {TOKEN}", "Accept": "application/vnd.github+json",
                                           "User-Agent": "predbot-server"})
     try:
-        with urllib.request.urlopen(req, timeout=30) as r:
+        with urllib.request.urlopen(req, timeout=120) as r:
             return r.status, json.load(r)
     except urllib.error.HTTPError as e:
         return e.code, None
@@ -31,7 +31,7 @@ def summary():
         req.add_header("Authorization", "Basic " + base64.b64encode(f"report:{pw}".encode()).decode())
     except FileNotFoundError:
         pass
-    with urllib.request.urlopen(req, timeout=20) as r:
+    with urllib.request.urlopen(req, timeout=90) as r:  # 6 Nov 2026: 5 MB status, 20 s may not be enough
         s = json.load(r)
     out = {"at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "build": s.get("build"), "series": []}
     for x in [s] + (s.get("series") or []):
