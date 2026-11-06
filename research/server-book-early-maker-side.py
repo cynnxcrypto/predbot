@@ -5,7 +5,7 @@
 import json, gzip, subprocess, collections, datetime
 R = "/home/claude/predbot"
 coins = ['btc', 'eth', 'sol', 'xrp', 'doge', 'bnb', 'hype']
-days = ['2026-10-31', '2026-11-01', '2026-11-02', '2026-11-03', '2026-11-04']
+days = ['2026-10-31', '2026-11-01', '2026-11-02', '2026-11-03', '2026-11-04', '2026-11-05']
 OFFS = [0.04]
 RESTS = [30]
 FILL = ['touch']
