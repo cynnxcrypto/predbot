@@ -33,7 +33,9 @@ def summary():
         pass
     with urllib.request.urlopen(req, timeout=90) as r:  # 6 Nov 2026: 5 MB status, 20 s may not be enough
         s = json.load(r)
-    out = {"at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "build": s.get("build"), "series": []}
+    du = shutil.disk_usage(ROOT)  # 6 Nov 2026: a full disk killed the bot for hours; watch it in every report
+    out = {"at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "build": s.get("build"),
+           "diskFreeGB": round(du.free / 1e9, 2), "diskTotalGB": round(du.total / 1e9, 2), "series": []}
     for x in [s] + (s.get("series") or []):
         live = x.get("live") or {}
         out["series"].append({
