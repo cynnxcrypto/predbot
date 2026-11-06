@@ -1,6 +1,6 @@
 {
   "mode": "live",
-  "minBalance": 330,
+  "minBalance": 320,
   "maxLossPerDay": 15,
   "variants": [],
   "markets": [
@@ -32,12 +32,32 @@
     {
       "series": "eth15m",
       "maxLossPerDay": 20,
-      "variants": []
+      "variants": [
+        {
+          "variant": "ahead5-cheap60-15m-dayhalt3-big3-down-one",
+          "size": 3,
+          "haltAfterLosses": 4,
+          "familyHaltLosses": 3,
+          "maxLossPerDay": 9,
+          "cap": 0.6
+        }
+      ],
+      "mode": "dry"
     },
     {
       "series": "btc15m",
       "maxLossPerDay": 20,
-      "variants": []
+      "variants": [
+        {
+          "variant": "ahead5-cheap60-15m-dayhalt3-big3-down-one",
+          "size": 3,
+          "haltAfterLosses": 4,
+          "familyHaltLosses": 3,
+          "maxLossPerDay": 9,
+          "cap": 0.6
+        }
+      ],
+      "mode": "dry"
     },
     {
       "series": "hype5m",
@@ -57,7 +77,17 @@
     {
       "series": "sol15m",
       "maxLossPerDay": 15,
-      "variants": []
+      "variants": [
+        {
+          "variant": "ahead5-cheap60-15m-dayhalt3-big3-down-one",
+          "size": 3,
+          "haltAfterLosses": 4,
+          "familyHaltLosses": 3,
+          "maxLossPerDay": 9,
+          "cap": 0.6
+        }
+      ],
+      "mode": "dry"
     },
     {
       "series": "doge15m",
