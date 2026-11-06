@@ -39,7 +39,8 @@
           "haltAfterLosses": 4,
           "familyHaltLosses": 3,
           "maxLossPerDay": 9,
-          "cap": 0.6
+          "cap": 0.6,
+          "skipOnFall": false
         }
       ],
       "mode": "dry"
@@ -54,7 +55,8 @@
           "haltAfterLosses": 4,
           "familyHaltLosses": 3,
           "maxLossPerDay": 9,
-          "cap": 0.6
+          "cap": 0.6,
+          "skipOnFall": false
         }
       ],
       "mode": "dry"
@@ -84,7 +86,8 @@
           "haltAfterLosses": 4,
           "familyHaltLosses": 3,
           "maxLossPerDay": 9,
-          "cap": 0.6
+          "cap": 0.6,
+          "skipOnFall": false
         }
       ],
       "mode": "dry"

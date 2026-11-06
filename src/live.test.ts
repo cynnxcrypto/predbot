@@ -104,3 +104,15 @@ test("live.json: bidUnderC turns a rule into a resting bid under the ask (maker 
   assert.equal(v[1].bidUnderC, undefined);
   assert.equal(v[2].bidSec, 120);
 });
+
+test("live.json: skipOnFall false is kept on the rule, anything else leaves the default skip", () => {
+  writeFileSync(join(dir, "live.json"), JSON.stringify({
+    mode: "live", funder: "0xabc",
+    markets: [{ series: "eth15m", mode: "dry", variants: [{ variant: "a", size: 3, haltAfterLosses: 4, familyHaltLosses: 3, maxLossPerDay: 9, cap: 0.6, skipOnFall: false }, { variant: "b", size: 3, skipOnFall: true }, { variant: "c", size: 3 }] }],
+  }));
+  const c = liveConfig("eth15m");
+  assert.equal(c.mode, "dry");
+  assert.deepEqual(c.variants[0], { variant: "a", familyHaltLosses: 3, skipOnFall: false, size: 3, haltAfterLosses: 4, maxLossPerDay: 9, cap: 0.6 });
+  assert.equal(c.variants[1].skipOnFall, undefined);
+  assert.equal(c.variants[2].skipOnFall, undefined);
+});
