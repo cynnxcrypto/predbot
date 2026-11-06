@@ -44,3 +44,22 @@ for one in (True, False):
         streak = 0 if win else streak + 1
         if streak >= 3: stopped.add(kd); streak = 0
     print('one per window' if one else 'every coin', f'{won}/{n}', f'${net:+.2f}', ' '.join(f'{k}:{v[1]}/{v[0]} {v[2]:+.1f}' for k, v in sorted(day.items())), 'worst day', f'{min(v[2] for v in day.values()):+.2f}')
+
+# Round 231 (6 Nov 2026): risk of the $3 test against enrique's $50 cap. Per-day results of the one-per-window
+# dayhalt3 shape, max drawdown on the trade path, and a bootstrap of 5 / 10 trading days from the observed days.
+import random
+one = []; used = set(); streak = 0; stopped = set(); per = collections.defaultdict(float)
+for t, w, c, ask, win in sigs:
+    kd = datetime.datetime.fromtimestamp(w + 9 * 3600, datetime.UTC).strftime('%m-%d')
+    if kd in stopped or w in used: continue
+    used.add(w); pnl = 3 * ((1 / ask if win else 0) - 1 - 0.07 * (1 - ask)); one.append(pnl); per[kd] += pnl
+    streak = 0 if win else streak + 1
+    if streak >= 3: stopped.add(kd); streak = 0
+peak = cum = dd = 0.0
+for p in one:
+    cum += p; peak = max(peak, cum); dd = min(dd, cum - peak)
+print('max drawdown on the trade path', f'${dd:.2f}')
+days_v = list(per.values()); random.seed(1)
+for n in (5, 10):
+    sims = sorted(sum(random.choice(days_v) for _ in range(n)) for _ in range(20000))
+    print(f'{n} days: P(total <= -$50) {sum(x <= -50 for x in sims)/len(sims):.4f}, P(<0) {sum(x < 0 for x in sims)/len(sims):.3f}, 5th pct ${sims[len(sims)//20]:+.1f}, median ${sims[len(sims)//2]:+.1f}')
