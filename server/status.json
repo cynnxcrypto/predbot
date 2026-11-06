@@ -1,5 +1,5 @@
 {
- "at": "2026-11-06T15:10:18Z",
+ "at": "2026-11-06T15:10:39Z",
  "build": "2b4126f\u00b72026-11-06\u00b715:06",
  "diskFreeGB": 16.18,
  "diskTotalGB": 30.01,
@@ -13278,7 +13278,7 @@
       "net": -34.13,
       "miss": 96
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -63176,7 +63176,7 @@
       "net": -79.85,
       "miss": 122
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -75102,7 +75102,7 @@
       "net": 0.18,
       "miss": 20
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -83799,7 +83799,7 @@
       "net": -21.13,
       "miss": 23
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -90628,7 +90628,7 @@
       "net": -3.3,
       "miss": 25
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -246884,7 +246884,7 @@
       "net": 39.51,
       "miss": 0
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -274289,7 +274289,7 @@
   }
  ],
  "latency": {
-  "n": 1,
+  "n": 2,
   "warmMedian": 62,
   "coldMedian": 333,
   "binanceMedian": 818
