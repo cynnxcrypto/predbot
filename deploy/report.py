@@ -25,6 +25,26 @@ def gh(method, path, body=None):
 
 
 def dashboard_url():
+    """Current tunnel address; if it no longer answers, restart the tunnel once (EC2 ubuntu has passwordless sudo)."""
+    url = _tunnel_url()
+    if url and not _answers(url):
+        subprocess.run(["sudo", "-n", "systemctl", "restart", "predbot-dashboard"], capture_output=True, timeout=30)
+        time.sleep(20)
+        url = _tunnel_url()
+    return url
+
+
+def _answers(url):
+    try:
+        urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": "predbot-server"}), timeout=15)
+        return True
+    except urllib.error.HTTPError as e:
+        return e.code < 500  # 401 login prompt = the tunnel works; Cloudflare 530/502 = tunnel dead
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _tunnel_url():
     """The Cloudflare quick-tunnel address changes whenever the tunnel restarts (7 Nov 2026: enrique lost the link and
     must never need AWS to find it). The dashboard itself is password protected."""
     for cmd in (["journalctl", "-u", "predbot-dashboard", "--no-pager", "-o", "cat", "-n", "400"],
