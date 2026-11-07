@@ -692,6 +692,35 @@ def football():
         big = [x for x in mv if x[2] >= .03]
         if big: say(f"  sides that rose ≥3c in that window: won {100*sum(1 for x in big if x[3])/len(big):.0f}% (n={len(big)})")
 
+
+def favhist():
+    say("## Long history: buy favourites at the bookmakers' fair closing price (football-data.co.uk)")
+    for code in ("SP1", "SP2", "E0", "D1", "I1", "F1"):
+        res = {}
+        for y in range(15, 26):
+            season = f"{y:02d}{y+1:02d}"
+            b = get(f"https://www.football-data.co.uk/mmz4281/{season}/{code}.csv", tries=2)
+            if not isinstance(b, str) or "HomeTeam" not in b[:400]: continue
+            for r in csv.DictReader(io.StringIO(b.lstrip("\ufeff"))):
+                fair = odds3(r, "PSC") or odds3(r, "PS") or odds3(r, "AvgC") or odds3(r, "Avg") or odds3(r, "BbAv")
+                if not fair or r.get("FTR") not in ("H", "D", "A"): continue
+                for i, k in enumerate("HDA"):
+                    p = fair[i]
+                    if k == "D": continue
+                    for band, lo, hi in (("55-65", .55, .65), ("65-80", .65, .80), ("80+", .80, 1)):
+                        if lo <= p < hi:
+                            res.setdefault((season, k, band), []).append((1 if r["FTR"] == k else 0) - p)
+        say(f"### {code}")
+        for k in "HA":
+            for band in ("55-65", "65-80", "80+"):
+                allv, per = [], []
+                for season in sorted({s_ for s_, k_, b_ in res}):
+                    v = res.get((season, k, band), [])
+                    if v: allv += v; per.append(f"{season[:2]}:{100*st.mean(v):+.0f}")
+                if allv:
+                    se = 100 * math.sqrt(0.2 / len(allv))
+                    say(f"  {k} fav {band}%: n={len(allv)} {100*st.mean(allv):+.2f}c/share vs fair (±{2*se:.1f}) | " + " ".join(per))
+
 if __name__ == "__main__":
     steps = sys.argv[1:] or ["feeds", "landscape", "sports", "kalshi", "calib"]
     evs = None
@@ -704,6 +733,7 @@ if __name__ == "__main__":
             elif s == "kalshi": kalshi()
             elif s == "feeds": feeds()
             elif s == "football": football()
+            elif s == "favhist": favhist()
         except Exception as e:
             import traceback; traceback.print_exc(); say(f"STEP {s} FAILED: {e!r}")
         say(f"({s} took {time.time()-t0:.0f}s)")
