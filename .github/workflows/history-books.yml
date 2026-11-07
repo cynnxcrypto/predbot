@@ -1,19 +1,21 @@
 name: market-books
-# Order-book snapshots every ~10 min: daily index/commodity series in US hours, and games starting within 95 min.
+# Order-book snapshots every 10 min: games starting within 95 min (all sports + esports, esports also in play) and the
+# daily index/commodity series in US hours. One job loops for ~5.8 h, then re-dispatches itself (GitHub's */10 cron is unreliable).
 # Research data only; does not touch the trading bot.
 on:
   schedule:
-    - cron: "*/10 * * * *"
+    - cron: "41 */6 * * *"
   workflow_dispatch:
 permissions:
   contents: write
+  actions: write
 concurrency:
   group: market-books
   cancel-in-progress: false
 jobs:
   snap:
     runs-on: ubuntu-latest
-    timeout-minutes: 8
+    timeout-minutes: 355
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -24,5 +26,14 @@ jobs:
         run: |
           git clone -q --depth 1 --filter=blob:none --sparse --branch server-data "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" sd
           git -C sd sparse-checkout set data/history/books
-          OUT=sd/data/history python3 history/books.py
-          bash history/push.sh "$PWD/sd"
+          end=$(( $(date +%s) + 345*60 ))
+          while [ $(date +%s) -lt $end ]; do
+            t0=$(date +%s)
+            OUT=sd/data/history timeout 300 python3 history/books.py || true
+            bash history/push.sh "$PWD/sd" || true
+            sleep $(( 600 - ($(date +%s) - t0) > 0 ? 600 - ($(date +%s) - t0) : 1 ))
+          done
+      - if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh workflow run market-books --ref main -R "$GITHUB_REPOSITORY" || true
