@@ -1,0 +1,58 @@
+## News/data feeds from a GitHub runner (US)
+- Google News top: HTTP 200 in 66 ms, 123 KB, items 38, newest 61 min old
+- Google News search (any keyword): HTTP 200 in 438 ms, 133 KB, items 100, newest 24 min old
+- AP via Google News: HTTP 200 in 410 ms, 38 KB, items 31, newest 101 min old
+- Reuters via Google News: HTTP 200 in 386 ms, 128 KB, items 100, newest 140 min old
+- Bing News search: HTTP 200 in 267 ms, 3 KB, items 4, newest 978108 min old
+- BBC world: HTTP 200 in 151 ms, 21 KB, items 28, newest 28 min old
+- Guardian world: HTTP 200 in 94 ms, 148 KB, items 46, newest 4 min old
+- Al Jazeera: HTTP 200 in 175 ms, 16 KB, items 25, newest 37 min old
+- NPR news: HTTP 200 in 304 ms, 14 KB, items 10, newest 665 min old
+- CNBC top: HTTP 200 in 244 ms, 20 KB, items 31, newest 534 min old
+- Yahoo News: HTTP 200 in 389 ms, 119 KB, items 10, newest 258 min old
+- GDELT doc API: HTTP 429
+- NYT politics: HTTP 200 in 170 ms, 47 KB, items 22, newest 277 min old
+- Politico: HTTP 200 in 98 ms, 184 KB, items 30, newest 528 min old
+- The Hill: HTTP 200 in 128 ms, 123 KB, items 100, newest 215 min old
+- Axios: HTTP 200 in 85 ms, 1043 KB, items 100, newest 397 min old
+- White House news: HTTP 200 in 164 ms, 642 KB, items 30, newest 591 min old
+- Federal Register API: HTTP 200 in 42 ms, 9 KB
+- Congress.gov bills (needs key): HTTP 403
+- FiveThirtyEight-style polls (RCP): HTTP 403
+- Wikipedia recent changes API: HTTP 200 in 73 ms, 0 KB
+- Fed press releases: HTTP 200 in 58 ms, 14 KB
+- BLS releases: HTTP 200 in 74 ms, 5 KB, items 1, newest 1096 min old
+- SEC EDGAR latest filings: HTTP 200 in 246 ms, 28 KB, items 41, newest -0 min old
+- NOAA weather alerts: HTTP 400
+- USGS earthquakes: HTTP 200 in 110 ms, 8 KB
+- BBC sport: HTTP 200 in 187 ms, 54 KB, items 69, newest 20 min old
+- BBC football: HTTP 200 in 211 ms, 62 KB, items 82, newest 20 min old
+- CBS Sports: HTTP 200 in 78 ms, 36 KB, items 36, newest 145 min old
+- Yahoo Sports: HTTP 200 in 247 ms, 236 KB, items 51, newest 2 min old
+- ESPN RSS: HTTP 202 in 55 ms, 0 KB
+- ESPN scoreboard API: HTTP 403
+- RotoWire NBA news: HTTP 200 in 59 ms, 3 KB
+- RotoWire NFL news: HTTP 200 in 69 ms, 3 KB
+- NHL official API: HTTP 200 in 118 ms, 91 KB
+- MLB StatsAPI: HTTP 200 in 119 ms, 0 KB
+- NBA official scoreboard: FAIL TimeoutError
+- NBA injury report page: HTTP 200 in 516 ms, 36 KB
+- Sleeper NFL players API: HTTP 200 in 181 ms, 0 KB
+- football-data.org (needs key): HTTP 200 in 1679 ms, 0 KB
+- OpenLigaDB Bundesliga: HTTP 200 in 397 ms, 8 KB
+- Sofascore live: HTTP 403
+- Reddit r/nba new: HTTP 200 in 289 ms, 77 KB, items 26, newest -1 min old
+- Reddit r/sportsbook: HTTP 429
+- Bluesky public search: HTTP 403
+- Bluesky firehose (Jetstream): HTTP 200 in 231 ms, 5 KB
+- Mastodon public timeline: HTTP 422
+- Telegram public channel preview: HTTP 200 in 638 ms, 125 KB
+- Truth Social (Trump) RSS mirror: HTTP 200 in 217 ms, 237 KB, items 101, newest 275 min old
+- Nitter (X mirror): HTTP 410
+- Kalshi API: HTTP 200 in 54 ms, 4 KB
+- Manifold API: HTTP 200 in 239 ms, 3 KB
+- PredictIt API: HTTP 200 in 129 ms, 343 KB
+- Betfair (needs account): HTTP 403
+- The Odds API (needs key): HTTP 401
+- Polymarket Gamma: HTTP 200 in 145 ms, 5 KB
+(feeds took 42s)
