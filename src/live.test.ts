@@ -7,7 +7,7 @@ import { test } from "node:test";
 // liveConfig reads data/live.json through DATA, so point DATA at a scratch folder before importing it.
 const dir = mkdtempSync(join(tmpdir(), "predbot-live-"));
 process.env.DATA_DIR = dir;
-const { liveConfig, ladderLevel, familyTrack, familyHalted } = await import("./live.js");
+const { liveConfig, ladderLevel, familyTrack, familyHalted, capBlocks, capReserve } = await import("./live.js");
 
 test("live.json: one variant per series stays as before", () => {
   writeFileSync(join(dir, "live.json"), JSON.stringify({ mode: "live", variant: "band80-30-j70", size: 5, maxLossPerDay: 25, funder: "0xabc" }));
@@ -115,4 +115,23 @@ test("live.json: skipOnFall false is kept on the rule, anything else leaves the 
   assert.deepEqual(c.variants[0], { variant: "a", familyHaltLosses: 3, skipOnFall: false, size: 3, haltAfterLosses: 4, maxLossPerDay: 9, cap: 0.6 });
   assert.equal(c.variants[1].skipOnFall, undefined);
   assert.equal(c.variants[2].skipOnFall, undefined);
+});
+
+test("lossCap: settled real losses + open fills + reserved orders + the new order must stay within maxLoss", () => {
+  const since = Date.parse("2026-11-07T03:00:00Z");
+  writeFileSync(join(dir, "live.json"), JSON.stringify({ mode: "live", funder: "0xabc", lossCap: { since: "2026-11-07T03:00:00Z", maxLoss: 50 }, markets: [{ series: "eth15m", variants: [{ variant: "a", size: 3 }] }] }));
+  assert.deepEqual(liveConfig("eth15m").lossCap, { since, maxLoss: 50 });
+  const cap = { since, maxLoss: 50 };
+  writeFileSync(join(dir, "eth15m-live-totals.json"), JSON.stringify([
+    { t: since - 1000, pnl: -100 }, // before the cap started: ignored
+    { t: since + 1000, pnl: -30 },
+    { t: since + 2000, pnl: -20, dry: true }, // dry: ignored
+  ]));
+  writeFileSync(join(dir, "btc15m-live-open.json"), JSON.stringify([{ t: since + 3000, shares: 5, cost: 3, pnl: null }]));
+  assert.equal(capBlocks(cap, 3), null); // 30 + 3 + 3 = 36
+  writeFileSync(join(dir, "sol15m-live-totals.json"), JSON.stringify([{ t: since + 4000, pnl: -12 }]));
+  assert.equal(capBlocks(cap, 3), null); // 42 + 3 + 3 = 48
+  capReserve(3, 50);
+  assert.match(String(capBlocks(cap, 3)), /loss cap/); // 48 + 3 reserved = 51
+  assert.equal(capBlocks(undefined, 3), null);
 });

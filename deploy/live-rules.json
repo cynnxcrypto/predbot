@@ -1,6 +1,6 @@
 {
   "mode": "live",
-  "minBalance": 320,
+  "minBalance": 300,
   "maxLossPerDay": 15,
   "variants": [],
   "markets": [
@@ -40,10 +40,21 @@
           "familyHaltLosses": 3,
           "maxLossPerDay": 9,
           "cap": 0.6,
-          "skipOnFall": false
+          "skipOnFall": false,
+          "resumeFrom": "2026-11-07T02:50:00Z"
+        },
+        {
+          "variant": "ahead5-cheap60-15m-dayhalt3",
+          "size": 3,
+          "haltAfterLosses": 4,
+          "familyHaltLosses": 3,
+          "maxLossPerDay": 9,
+          "cap": 0.6,
+          "bidUnderC": 1,
+          "bidSec": 60,
+          "resumeFrom": "2026-11-07T02:50:00Z"
         }
-      ],
-      "mode": "dry"
+      ]
     },
     {
       "series": "btc15m",
@@ -56,10 +67,21 @@
           "familyHaltLosses": 3,
           "maxLossPerDay": 9,
           "cap": 0.6,
-          "skipOnFall": false
+          "skipOnFall": false,
+          "resumeFrom": "2026-11-07T02:50:00Z"
+        },
+        {
+          "variant": "ahead5-cheap60-15m-dayhalt3",
+          "size": 3,
+          "haltAfterLosses": 4,
+          "familyHaltLosses": 3,
+          "maxLossPerDay": 9,
+          "cap": 0.6,
+          "bidUnderC": 1,
+          "bidSec": 60,
+          "resumeFrom": "2026-11-07T02:50:00Z"
         }
-      ],
-      "mode": "dry"
+      ]
     },
     {
       "series": "hype5m",
@@ -69,12 +91,36 @@
     {
       "series": "bnb15m",
       "maxLossPerDay": 20,
-      "variants": []
+      "variants": [
+        {
+          "variant": "ahead5-cheap60-15m-dayhalt3",
+          "size": 3,
+          "haltAfterLosses": 4,
+          "familyHaltLosses": 3,
+          "maxLossPerDay": 9,
+          "cap": 0.6,
+          "bidUnderC": 1,
+          "bidSec": 60,
+          "resumeFrom": "2026-11-07T02:50:00Z"
+        }
+      ]
     },
     {
       "series": "xrp15m",
       "maxLossPerDay": 20,
-      "variants": []
+      "variants": [
+        {
+          "variant": "ahead5-cheap60-15m-dayhalt3",
+          "size": 3,
+          "haltAfterLosses": 4,
+          "familyHaltLosses": 3,
+          "maxLossPerDay": 9,
+          "cap": 0.6,
+          "bidUnderC": 1,
+          "bidSec": 60,
+          "resumeFrom": "2026-11-07T02:50:00Z"
+        }
+      ]
     },
     {
       "series": "sol15m",
@@ -87,15 +133,60 @@
           "familyHaltLosses": 3,
           "maxLossPerDay": 9,
           "cap": 0.6,
-          "skipOnFall": false
+          "skipOnFall": false,
+          "resumeFrom": "2026-11-07T02:50:00Z"
+        },
+        {
+          "variant": "ahead5-cheap60-15m-dayhalt3",
+          "size": 3,
+          "haltAfterLosses": 4,
+          "familyHaltLosses": 3,
+          "maxLossPerDay": 9,
+          "cap": 0.6,
+          "bidUnderC": 1,
+          "bidSec": 60,
+          "resumeFrom": "2026-11-07T02:50:00Z"
         }
-      ],
-      "mode": "dry"
+      ]
     },
     {
       "series": "doge15m",
       "maxLossPerDay": 15,
-      "variants": []
+      "variants": [
+        {
+          "variant": "ahead5-cheap60-15m-dayhalt3",
+          "size": 3,
+          "haltAfterLosses": 4,
+          "familyHaltLosses": 3,
+          "maxLossPerDay": 9,
+          "cap": 0.6,
+          "bidUnderC": 1,
+          "bidSec": 60,
+          "resumeFrom": "2026-11-07T02:50:00Z"
+        }
+      ]
+    },
+    {
+      "series": "hype15m",
+      "maxLossPerDay": 15,
+      "variants": [
+        {
+          "variant": "ahead5-cheap60-15m-dayhalt3",
+          "size": 3,
+          "haltAfterLosses": 4,
+          "familyHaltLosses": 3,
+          "maxLossPerDay": 9,
+          "cap": 0.6,
+          "bidUnderC": 1,
+          "bidSec": 60,
+          "resumeFrom": "2026-11-07T02:50:00Z"
+        }
+      ]
     }
-  ]
+  ],
+  "lossCap": {
+    "since": "2026-11-07T02:44:00Z",
+    "maxLoss": 50,
+    "note": "enrique 7 Nov 11:46 KST: go live with the BIG3 DOWN taker and the maker (1c-under bid), lose no more than $50 combined from 11:44 KST"
+  }
 }

@@ -68,7 +68,7 @@ export type LiveMode = "off" | "dry" | "live";
  *  fresh book look. Server books, ETH/SOL/BTC DOWN early move: signals whose ask fell 1c+ within 1 s won 29/36 (+$50.9 at $3)
  *  vs 80/122 (+$56.4) when it held, so the default skip would throw away the best tickets on that rule. */
 export type LiveVariant = { variant: string; size: number; haltAfterLosses: number; ladder?: number[]; maxLossPerDay?: number; chaseSec?: number; restUntilLeft?: number; cap?: number; resumeFrom?: string; familyHaltLosses?: number; bidUnderC?: number; bidSec?: number; skipOnFall?: boolean };
-export type LiveConfig = { mode: LiveMode; variant: string; size: number; maxLossPerDay: number; funder: string; variants: LiveVariant[]; statsSince: number; startBalance: number | null; deposits: number; claimEveryMin: number; minBalance: number; claimBelow: number };
+export type LiveConfig = { mode: LiveMode; variant: string; size: number; maxLossPerDay: number; funder: string; variants: LiveVariant[]; statsSince: number; startBalance: number | null; deposits: number; claimEveryMin: number; minBalance: number; claimBelow: number; lossCap?: LossCap };
 type VariantEntry = { variant?: string; size?: number; haltAfterLosses?: number; ladder?: number[]; maxLossPerDay?: number; chaseSec?: number; restUntilLeft?: number; cap?: number; resumeFrom?: string; familyHaltLosses?: number; bidUnderC?: number; bidSec?: number; skipOnFall?: boolean };
 type MarketEntry = VariantEntry & { series?: string; maxLossPerDay?: number; mode?: string; variants?: VariantEntry[] };
 /** Streak of straight losses per variant and whether it tripped the halt. */
@@ -77,6 +77,33 @@ type MarketEntry = VariantEntry & { series?: string; maxLossPerDay?: number; mod
  *  midnight. Kept in data/live-family-halts.json so all series (and restarts) share it. Unlike haltAfterLosses it
  *  does not send the rule back to paper: the next KST day it trades again. */
 export type FamilyHalt = { streak: number; haltDay: string | null };
+/** Hard money cap (7 Nov 2026, enrique: "lose no more than $50"): "lossCap": { "since": ISO, "maxLoss": 50 } in
+ *  deploy/live-rules.json. Real settled losses since that time across EVERY market, plus the cost of every unsettled
+ *  real fill (counted as lost), plus the new order's size must stay within maxLoss, or no real order goes out. */
+export type LossCap = { since: number; maxLoss: number };
+export function capUsed(since: number): { settled: number; open: number } {
+  let settled = 0;
+  let open = 0;
+  for (const s of SERIES) {
+    for (const t of loadJson<{ t: number; dry?: boolean; pnl?: number | null }[]>(`${prefixOf(s)}live-totals.json`, []))
+      if (!t.dry && t.pnl != null && t.t >= since) settled += t.pnl;
+    for (const t of loadJson<{ t: number; dry?: boolean; ok?: boolean; shares?: number; cost?: number; pnl?: number | null }[]>(`${prefixOf(s)}live-open.json`, []))
+      if (!t.dry && t.t >= since && t.pnl == null && (t.shares ?? 0) > 0) open += t.cost ?? 0;
+  }
+  return { settled, open };
+}
+/** Orders sent in the last 90 s, held against the cap until their fill lands in live-open.json (series fire together). */
+let capReserved = 0;
+export function capReserve(size: number, ms = 90_000) {
+  capReserved += size;
+  setTimeout(() => (capReserved -= size), ms).unref?.();
+}
+export function capBlocks(cap: LossCap | undefined, size: number): string | null {
+  if (!cap) return null;
+  const u = capUsed(cap.since);
+  const worst = -u.settled + u.open + capReserved + size;
+  return worst > cap.maxLoss + 1e-9 ? `loss cap: $${(-u.settled).toFixed(2)} lost + $${u.open.toFixed(2)} open + $${size} would pass the $${cap.maxLoss} cap` : null;
+}
 const FAMILY_FILE = "live-family-halts.json";
 export function familyHalted(variant: string, now: number = Date.now()): boolean {
   const f = loadJson<Record<string, FamilyHalt>>(FAMILY_FILE, {})[variant];
@@ -377,7 +404,7 @@ export function setLiveMaxLoss(seriesKey: string, maxLoss: number, variant = "")
  * A repo "minBalance" replaces the local one when present; leave it out of the repo file to keep the local floor.
  */
 function withRepoRules<T extends { mode?: string }>(local: T): T {
-  let repo: { mode?: string; maxLossPerDay?: number; variants?: unknown[]; markets?: unknown[]; minBalance?: number };
+  let repo: { mode?: string; maxLossPerDay?: number; variants?: unknown[]; markets?: unknown[]; minBalance?: number; lossCap?: unknown };
   try {
     repo = JSON.parse(readFileSync(join(ROOT, "deploy", "live-rules.json"), "utf8"));
   } catch {
@@ -385,7 +412,7 @@ function withRepoRules<T extends { mode?: string }>(local: T): T {
   }
   const mode = local.mode === "off" ? "off" : repo.mode;
   const minBalance = Number.isFinite(Number(repo.minBalance)) && Number(repo.minBalance) >= 0 ? Number(repo.minBalance) : (local as { minBalance?: number }).minBalance;
-  return { ...local, mode, maxLossPerDay: repo.maxLossPerDay, variants: repo.variants ?? [], markets: repo.markets ?? [], minBalance, variant: undefined };
+  return { ...local, mode, maxLossPerDay: repo.maxLossPerDay, variants: repo.variants ?? [], markets: repo.markets ?? [], minBalance, lossCap: repo.lossCap, variant: undefined };
 }
 
 export function liveConfig(seriesKey = ""): LiveConfig {
@@ -403,13 +430,17 @@ export function liveConfig(seriesKey = ""): LiveConfig {
   const claimBelow = Number.isFinite(Number(file.claimBelow)) && Number(file.claimBelow) >= 0 ? Number(file.claimBelow) : DEFAULT.claimBelow;
   // "minBalance": no new real orders while the wallet's pUSD is under this (0 = no floor). Re-read before every order.
   const minBalance = Number.isFinite(Number(file.minBalance)) && Number(file.minBalance) > 0 ? Number(file.minBalance) : 0;
+  const lc = (file as { lossCap?: { since?: unknown; maxLoss?: unknown } }).lossCap;
+  const lcSince = Date.parse(String(lc?.since ?? ""));
+  const lcMax = Number(lc?.maxLoss);
+  const lossCap: LossCap | undefined = lc && Number.isFinite(lcSince) && Number.isFinite(lcMax) && lcMax >= 0 ? { since: lcSince, maxLoss: lcMax } : undefined;
   const globalMode: LiveMode = file.mode === "live" || file.mode === "dry" ? file.mode : "off";
   let raw: MarketEntry = file;
   let mode = globalMode;
   if (seriesKey) {
     const entry = (file.markets ?? []).find((m) => m.series === seriesKey);
     // A market with no entry has no rules, but manual bets from the dashboard still follow the global mode (27 Oct 2026: enrique wanted the UP/DOWN buttons on every market).
-    if (!entry) return { ...DEFAULT, mode: globalMode, variants: [], variant: "", funder: String(file.funder ?? "").trim(), statsSince: Number.isFinite(since) ? since : 0, startBalance, deposits, claimEveryMin, minBalance, claimBelow };
+    if (!entry) return { ...DEFAULT, mode: globalMode, variants: [], variant: "", funder: String(file.funder ?? "").trim(), statsSince: Number.isFinite(since) ? since : 0, startBalance, deposits, claimEveryMin, minBalance, claimBelow, lossCap };
     raw = entry;
     // A market may be quieter than the global mode (off or dry), never louder.
     if (entry.mode === "off" || (entry.mode === "dry" && globalMode === "live")) mode = entry.mode;
@@ -448,6 +479,7 @@ export function liveConfig(seriesKey = ""): LiveConfig {
     claimEveryMin,
     claimBelow,
     minBalance,
+    lossCap,
   };
 }
 
@@ -862,6 +894,13 @@ export class LiveTrader {
       return;
     }
     if (this.lastError && this.lastError.startsWith("paused: balance")) this.lastError = null;
+    const capMsg = this.config.mode === "live" ? capBlocks(this.config.lossCap, size) : null;
+    if (capMsg) {
+      if (this.lastError !== capMsg) console.log(`live ${this.series.label}: ${capMsg}, no order`);
+      this.lastError = capMsg;
+      return;
+    }
+    if (this.config.mode === "live" && this.config.lossCap) capReserve(size);
     if (!this.ready) await this.start();
     if (!this.ready || !this.client) return;
     const token = trade.side === "UP" ? market.upToken : market.downToken;
