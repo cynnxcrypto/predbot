@@ -174,6 +174,41 @@ def sources():
         time.sleep(1.2)
     dump("sources", res)
 
+
+GOLDSKY = "https://api.goldsky.com/api/public/project_cl6mb8i9h0003e201j6li0diw/subgraphs/orderbook-subgraph/0.0.1/gn"
+EXCH = {"0x4bfb41d5b3570defd03c39a9a4d8de6bd8b8982e", "0xc5d563a36ae78145c45a50134d48a1215220f80a"}
+def gpost(q, tries=3):
+    for i in range(tries):
+        try:
+            req = urllib.request.Request(GOLDSKY, data=json.dumps({"query": q}).encode(), headers={**UA, "Content-Type": "application/json"})
+            with urllib.request.urlopen(req, timeout=30) as r: return json.loads(r.read())
+        except Exception as e:
+            if i == tries - 1: print("GS FAIL", e, file=sys.stderr); return None
+            time.sleep(2 * (i + 1))
+def fills():
+    import gzip
+    C = json.load(gzip.open(os.path.join(os.path.dirname(OUT), "cands.json.gz")))
+    def one(c):
+        out = []
+        for side, tok in ((0, c["tok"]), (1, c["tok2"])):
+            for fld in ("makerAssetId", "takerAssetId"):
+                q = ('{ orderFilledEvents(first: 1000, orderBy: timestamp, where: {%s: "%s", timestamp_gte: "%d", timestamp_lte: "%d"}) '
+                     '{ timestamp taker makerAmountFilled takerAmountFilled } }') % (fld, tok, c["t"] - 300, c["t"] + 1200)
+                r = gpost(q)
+                for f in ((r or {}).get("data") or {}).get("orderFilledEvents") or []:
+                    if (f.get("taker") or "").lower() in EXCH: continue
+                    ma, ta = int(f["makerAmountFilled"]), int(f["takerAmountFilled"])
+                    sh, usd = (ma, ta) if fld == "makerAssetId" else (ta, ma)
+                    if sh <= 0: continue
+                    p = usd / sh
+                    # express as price of the map1 WINNER token; side 1 fills converted 1-p
+                    out.append((int(f["timestamp"]) - c["t"], round(p if side == 0 else 1 - p, 4), round(sh / 1e6, 2), side, "ms" if fld == "makerAssetId" else "mb"))
+        c["fills"] = sorted(out)
+        return c
+    with ThreadPoolExecutor(8) as ex: res = list(ex.map(one, C))
+    with gzip.open(f"{OUT}/fills.json.gz", "wt") as f: json.dump(res, f)
+    print("fills done", sum(1 for c in res if c["fills"]), file=sys.stderr)
+
 if __name__ == "__main__":
     for step in sys.argv[1:]:
         globals()[step]()
