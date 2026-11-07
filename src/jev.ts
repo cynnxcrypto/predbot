@@ -21,8 +21,11 @@ export const JEV_CONTEXT =
   "You are the risk manager for a small bettor. A rule wants to place this bet. Using everything here (news, injuries, form, motivation, market vs other prices, the rule's record), decide how much to stake. Size down or skip when the news or situation undermines the bet; size up only when you are confident the outcome is underpriced.";
 
 let cachedKey: string | null | undefined;
+let checkedAt = 0;
+/** The key, re-read every 5 minutes while missing (so dropping data/jev-key.txt on the server needs no restart). */
 export function jevKey(): string | null {
-  if (cachedKey !== undefined) return cachedKey;
+  if (cachedKey || (cachedKey === null && Date.now() - checkedAt < 300_000)) return cachedKey;
+  checkedAt = Date.now();
   let k = (process.env.TYPESAFE_AI_API_KEY || process.env.TYPESAFE_API_KEY || "").trim();
   if (!k) {
     try {
