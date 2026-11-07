@@ -1,0 +1,28 @@
+name: market-history
+# Collects resolved non-crypto Polymarket markets + price history + independent results into server-data:data/history.
+# Research data only; does not touch the trading bot or deploy/live-rules.json.
+on:
+  schedule:
+    - cron: "23 */6 * * *"
+  push:
+    branches: ["claude/project-thread-0qs39w"]
+    paths: ["history/run.txt", "history/collect.py", ".github/workflows/history.yml"]
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: market-history
+  cancel-in-progress: false
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 330
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: pip install -q pyarrow
+      - name: collect
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: bash history/run.sh $(cat history/run.txt 2>/dev/null) 2>&1 | tail -c 200000

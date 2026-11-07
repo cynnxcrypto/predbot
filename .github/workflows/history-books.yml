@@ -1,0 +1,28 @@
+name: market-books
+# Order-book snapshots every ~10 min: daily index/commodity series in US hours, and games starting within 95 min.
+# Research data only; does not touch the trading bot.
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: market-books
+  cancel-in-progress: false
+jobs:
+  snap:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: pip install -q pyarrow
+      - env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git clone -q --depth 1 --filter=blob:none --sparse --branch server-data "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" sd
+          git -C sd sparse-checkout set data/history/books
+          OUT=sd/data/history python3 history/books.py
+          bash history/push.sh "$PWD/sd"
