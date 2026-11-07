@@ -1,7 +1,7 @@
 import pickle, collections, math, datetime as dt, bisect
 from zoneinfo import ZoneInfo
 rows = pickle.load(open("/tmp/wx_rows.pkl", "rb"))
-FEE = 0.05; SLIP = 0.01
+FEE = 0.05; SLIP = 0.02
 def cost(p, slip=SLIP): return p + slip + FEE * p * (1 - p)
 def price_at(h, ts):
     if not h: return None
