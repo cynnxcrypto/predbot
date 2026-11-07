@@ -1,0 +1,23 @@
+{
+ "tag_slug=weather&closed=false&order=endDate&ascending=false": 100,
+ "tag_slug=weather&closed=true&order=endDate&ascending=false": 100,
+ "tag_slug=temperature&closed=false&order=endDate&ascending=false": 2,
+ "tag_slug=temperature&closed=true&order=endDate&ascending=false": 100,
+ "tag_slug=climate&closed=false&order=endDate&ascending=false": 38,
+ "tag_slug=climate&closed=true&order=endDate&ascending=false": 100,
+ "tag_slug=daily-temperature&closed=false&order=endDate&ascending=false": 100,
+ "tag_slug=daily-temperature&closed=true&order=endDate&ascending=false": 100,
+ "tag_slug=highest-temperature&closed=false&order=endDate&ascending=false": 100,
+ "tag_slug=highest-temperature&closed=true&order=endDate&ascending=false": 100,
+ "tag_slug=precipitation&closed=false&order=endDate&ascending=false": 8,
+ "tag_slug=precipitation&closed=true&order=endDate&ascending=false": 56,
+ "tag_slug=snow&closed=false&order=endDate&ascending=false": 1,
+ "tag_slug=snow&closed=true&order=endDate&ascending=false": 6,
+ "tag_slug=hurricanes&closed=false&order=endDate&ascending=false": 5,
+ "tag_slug=hurricanes&closed=true&order=endDate&ascending=false": 46,
+ "tag_slug=climate-weather&closed=false&order=endDate&ascending=false": 0,
+ "tag_slug=climate-weather&closed=true&order=endDate&ascending=false": 12,
+ "tags_type": "<class 'list'>",
+ "tags_sample": [],
+ "search": "{'events': [{'id': '1318229', 'ticker': 'highest-temperature-in-tokyo-on-november-7-2026', 'slug': 'highest-temperature-in-tokyo-on-november-7-2026', 'title': 'Highest temperature in Tokyo on November 7?', 'description': \"This market will resolve to the temperature range that contains the highest temperature reported at Tokyo Haneda Airport (RJTT) on 7 Nov '26.\\n\\nThe qualifying value is the highest temperature reported in the hourly temperature remark of any routine (METAR) observation for Tokyo Haneda Airport (RJTT) on that date, in tenths of a degree Celsius as reported. A report whose line begins with SPECI is a special observation and does not count. Every other report is routine, including one issued off the nominal hour and one that carries no METAR or SPECI label.\\n\\nFor How to Read the METAR Report, see: https://polymarket-upload.s3.us-east-2.amazonaws.com/market_products/Weather/How+to+Read+the+METAR+Report.pdf\\n\\nThe hourly temperature remark is the group beginning with the letter T followed by exactly eight digits. After the T, one digit for sign (0 positive, 1 negative) and three for tenths of a degree Celsius give the temperature; the following four are the dew point and are not used. T01390133 is 13.9\u00b0C; T10171022 is \u22121.7\u00b0C.\\n\\nIf a routine observation does not carry the hourly temperature remark, the temperature group in the body of that observation governs for that observation, in whole degrees Celsius as reported. It appears as temperature and dew point separated by a slash, with M marking a negative value: 18/12 is 18\u00b0C; M11/M17 is \u221211\u00b0C. An observation that reports no temperature in either place is disregarded.\\n\\nEach market in this event states its range in whole degrees Celsius. The qualifying value is rounded to the nearest whole degree, with a value ending in exactly half rounded up to the next higher whole degree, and that whole Celsius value determines which range contains it. For example, 13.9\u00b0C counts as 14\u00b0C; 17.4\u00b0C counts as 17\u00b0C; 16.5\u00b0C counts as 17\u00b0C; \u22121.7\u00b0C counts as \u22122\u00b0C; \u22128.5\u00b0C counts as \u22128\u00b0C.\\n\\nAn observation counts if its time stamp, converted to the station's local time (including any daylight-saving shift in effect), falls on the observation date.\\n\\nThis market will resolve at the issuance of the first METAR observation for the station on the day following the observation date or by 11:59 PM ET on the day following the observation date, whichever comes first. Resolution is determined from the observations the resolution source shows for the observation date.\\n\\nIn the event that the Aviation Weather Center has published no routine observation reporting a temperature for the observation date by 11:59 PM ET on the day following the observation date, the Weather Underground Daily Observations table will be used as the resolution source. In the event that neither source has published data sufficient to determine a temperature for the observation date by 11:59 PM ET on the day following the observation date, t"
+}
