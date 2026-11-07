@@ -1,14 +1,14 @@
 {
- "at": "2026-11-07T10:05:20Z",
- "build": "460e31e\u00b72026-11-07\u00b709:17",
- "diskFreeGB": 15.65,
+ "at": "2026-11-07T10:11:20Z",
+ "build": "a3d281e\u00b72026-11-07\u00b710:09",
+ "diskFreeGB": 15.63,
  "diskTotalGB": 30.01,
  "dashboardUrl": "https://economy-intended-government-recommended.trycloudflare.com",
  "series": [
   {
    "key": "btc5m",
    "label": "BTC 5m",
-   "windowsDone": 9,
+   "windowsDone": 0,
    "lastError": null,
    "feeds": [
     {
@@ -696,13 +696,13 @@
     {
      "name": "fav93",
      "size": 5,
-     "trades": 2168,
-     "won": 2029,
-     "net": -26.25,
+     "trades": 2169,
+     "won": 2030,
+     "net": -25.9,
      "fillable": {
-      "trades": 1615,
-      "won": 1496,
-      "net": -100.75,
+      "trades": 1616,
+      "won": 1497,
+      "net": -100.4,
       "miss": 553
      },
      "open": 1,
@@ -710,9 +710,9 @@
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 226,
-       "won": 207,
-       "net": -27.96,
+       "trades": 227,
+       "won": 208,
+       "net": -27.61,
        "first": 1793977500
       },
       {
@@ -771,7 +771,7 @@
       "net": -32.66,
       "miss": 176
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -894,13 +894,13 @@
     {
      "name": "fav93-lead",
      "size": 5,
-     "trades": 726,
-     "won": 672,
-     "net": -51.68,
+     "trades": 727,
+     "won": 673,
+     "net": -51.33,
      "fillable": {
-      "trades": 537,
-      "won": 490,
-      "net": -75.55,
+      "trades": 538,
+      "won": 491,
+      "net": -75.2,
       "miss": 189
      },
      "open": 1,
@@ -908,9 +908,9 @@
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 122,
-       "won": 107,
-       "net": -40.48,
+       "trades": 123,
+       "won": 108,
+       "net": -40.13,
        "first": 1793979900
       },
       {
@@ -1026,13 +1026,13 @@
     {
      "name": "fav95",
      "size": 5,
-     "trades": 2166,
-     "won": 2069,
-     "net": -2.16,
+     "trades": 2167,
+     "won": 2070,
+     "net": -1.91,
      "fillable": {
-      "trades": 1675,
-      "won": 1589,
-      "net": -58.47,
+      "trades": 1676,
+      "won": 1590,
+      "net": -58.22,
       "miss": 490
      },
      "open": 1,
@@ -1040,9 +1040,9 @@
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 226,
-       "won": 212,
-       "net": -20.78,
+       "trades": 227,
+       "won": 213,
+       "net": -20.53,
        "first": 1793977500
       },
       {
@@ -1158,13 +1158,13 @@
     {
      "name": "fav95-lead",
      "size": 5,
-     "trades": 701,
-     "won": 667,
-     "net": -15.81,
+     "trades": 702,
+     "won": 668,
+     "net": -15.56,
      "fillable": {
-      "trades": 513,
-      "won": 484,
-      "net": -33.3,
+      "trades": 514,
+      "won": 485,
+      "net": -33.05,
       "miss": 187
      },
      "open": 1,
@@ -1172,9 +1172,9 @@
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 120,
-       "won": 109,
-       "net": -29.81,
+       "trades": 121,
+       "won": 110,
+       "net": -29.56,
        "first": 1793979900
       },
       {
@@ -1224,13 +1224,13 @@
     {
      "name": "fav95-hold",
      "size": 5,
-     "trades": 1525,
-     "won": 1453,
-     "net": -15.4,
+     "trades": 1526,
+     "won": 1454,
+     "net": -15.16,
      "fillable": {
-      "trades": 1236,
-      "won": 1171,
-      "net": -47.98,
+      "trades": 1237,
+      "won": 1172,
+      "net": -47.74,
       "miss": 289
      },
      "open": 1,
@@ -1238,9 +1238,9 @@
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 153,
-       "won": 141,
-       "net": -26.25,
+       "trades": 154,
+       "won": 142,
+       "net": -26,
        "first": 1793977800
       },
       {
@@ -1356,23 +1356,23 @@
     {
      "name": "fav97",
      "size": 5,
-     "trades": 2162,
-     "won": 2103,
-     "net": -4.04,
+     "trades": 2163,
+     "won": 2104,
+     "net": -3.9,
      "fillable": {
       "trades": 1826,
       "won": 1771,
       "net": -30.04,
-      "miss": 335
+      "miss": 336
      },
      "open": 1,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 226,
-       "won": 217,
-       "net": -16.09,
+       "trades": 227,
+       "won": 218,
+       "net": -15.95,
        "first": 1793977500
       },
       {
@@ -1422,13 +1422,13 @@
     {
      "name": "fav93-late",
      "size": 5,
-     "trades": 2001,
-     "won": 1898,
-     "net": -26.49,
+     "trades": 2002,
+     "won": 1899,
+     "net": -26.13,
      "fillable": {
-      "trades": 1465,
-      "won": 1379,
-      "net": -92.95,
+      "trades": 1466,
+      "won": 1380,
+      "net": -92.59,
       "miss": 536
      },
      "open": 1,
@@ -1436,9 +1436,9 @@
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 211,
-       "won": 195,
-       "net": -28.5,
+       "trades": 212,
+       "won": 196,
+       "net": -28.15,
        "first": 1793977500
       },
       {
@@ -1488,23 +1488,23 @@
     {
      "name": "fav93-last3",
      "size": 5,
-     "trades": 728,
-     "won": 675,
-     "net": -62.52,
+     "trades": 729,
+     "won": 676,
+     "net": -62.17,
      "fillable": {
-      "trades": 391,
-      "won": 348,
-      "net": -112.33,
+      "trades": 392,
+      "won": 349,
+      "net": -111.98,
       "miss": 337
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 90,
-       "won": 84,
-       "net": -5.46,
+       "trades": 91,
+       "won": 85,
+       "net": -5.11,
        "first": 1793977500
       },
       {
@@ -1554,23 +1554,23 @@
     {
      "name": "fav95-last3",
      "size": 5,
-     "trades": 791,
-     "won": 754,
-     "net": -20.83,
+     "trades": 792,
+     "won": 755,
+     "net": -20.59,
      "fillable": {
-      "trades": 446,
-      "won": 417,
-      "net": -54.28,
+      "trades": 447,
+      "won": 418,
+      "net": -54.03,
       "miss": 344
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 93,
-       "won": 90,
-       "net": 4.77,
+       "trades": 94,
+       "won": 91,
+       "net": 5.02,
        "first": 1793977500
       },
       {
@@ -1620,23 +1620,23 @@
     {
      "name": "fav97-last3",
      "size": 5,
-     "trades": 1126,
-     "won": 1097,
-     "net": -21.74,
+     "trades": 1127,
+     "won": 1098,
+     "net": -21.6,
      "fillable": {
       "trades": 717,
       "won": 692,
       "net": -46.76,
-      "miss": 408
+      "miss": 409
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 138,
-       "won": 134,
-       "net": -5.16,
+       "trades": 139,
+       "won": 135,
+       "net": -5.02,
        "first": 1793977500
       },
       {
@@ -1686,23 +1686,23 @@
     {
      "name": "fav95-hold-last3",
      "size": 5,
-     "trades": 204,
-     "won": 187,
-     "net": -40.83,
+     "trades": 205,
+     "won": 188,
+     "net": -40.58,
      "fillable": {
-      "trades": 118,
-      "won": 104,
-      "net": -45.7,
+      "trades": 119,
+      "won": 105,
+      "net": -45.46,
       "miss": 86
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 27,
-       "won": 25,
-       "net": -3.85,
+       "trades": 28,
+       "won": 26,
+       "net": -3.6,
        "first": 1793979300
       },
       {
@@ -1752,13 +1752,13 @@
     {
      "name": "fav93-stop",
      "size": 5,
-     "trades": 2168,
-     "won": 1767,
-     "net": -116.91,
+     "trades": 2169,
+     "won": 1768,
+     "net": -116.56,
      "fillable": {
-      "trades": 1613,
-      "won": 1276,
-      "net": -165.36,
+      "trades": 1614,
+      "won": 1277,
+      "net": -165.01,
       "miss": 553
      },
      "open": 1,
@@ -1766,9 +1766,9 @@
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 226,
-       "won": 184,
-       "net": -27.17,
+       "trades": 227,
+       "won": 185,
+       "net": -26.82,
        "first": 1793977500
       },
       {
@@ -1950,13 +1950,13 @@
     {
      "name": "prev-momentum",
      "size": 5,
-     "trades": 1993,
-     "won": 952,
-     "net": -574.68,
+     "trades": 1994,
+     "won": 953,
+     "net": -570.05,
      "fillable": {
-      "trades": 1425,
-      "won": 634,
-      "net": -862.13,
+      "trades": 1426,
+      "won": 635,
+      "net": -857.5,
       "miss": 568
      },
      "open": 1,
@@ -1964,9 +1964,9 @@
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 206,
-       "won": 89,
-       "net": -140.18,
+       "trades": 207,
+       "won": 90,
+       "net": -135.55,
        "first": 1793978100
       },
       {
@@ -2016,23 +2016,23 @@
     {
      "name": "prev-reverse",
      "size": 5,
-     "trades": 1982,
+     "trades": 1983,
      "won": 937,
-     "net": -593.91,
+     "net": -599.09,
      "fillable": {
       "trades": 1467,
       "won": 656,
       "net": -798.77,
-      "miss": 515
+      "miss": 516
      },
-     "open": 2,
+     "open": 1,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 203,
+       "trades": 204,
        "won": 103,
-       "net": -4.72,
+       "net": -9.89,
        "first": 1793977800
       },
       {
@@ -2304,23 +2304,23 @@
     {
      "name": "fav93-rest",
      "size": 5,
-     "trades": 1476,
-     "won": 1337,
-     "net": -142.98,
+     "trades": 1477,
+     "won": 1338,
+     "net": -142.55,
      "fillable": {
       "trades": 1221,
       "won": 1088,
       "net": -214.94,
-      "miss": 255
+      "miss": 256
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 142,
-       "won": 123,
-       "net": -45.39,
+       "trades": 143,
+       "won": 124,
+       "net": -44.96,
        "first": 1793977800
       },
       {
@@ -2502,13 +2502,13 @@
     {
      "name": "fav93-calm",
      "size": 5,
-     "trades": 2144,
-     "won": 2008,
-     "net": -19.81,
+     "trades": 2145,
+     "won": 2009,
+     "net": -19.46,
      "fillable": {
-      "trades": 1590,
-      "won": 1474,
-      "net": -94.44,
+      "trades": 1591,
+      "won": 1475,
+      "net": -94.09,
       "miss": 554
      },
      "open": 1,
@@ -2516,9 +2516,9 @@
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 225,
-       "won": 206,
-       "net": -28.31,
+       "trades": 226,
+       "won": 207,
+       "net": -27.96,
        "first": 1793977800
       },
       {
@@ -2568,13 +2568,13 @@
     {
      "name": "fav93-cross",
      "size": 5,
-     "trades": 1942,
-     "won": 1820,
-     "net": -7.32,
+     "trades": 1943,
+     "won": 1821,
+     "net": -6.97,
      "fillable": {
-      "trades": 1463,
-      "won": 1360,
-      "net": -63.79,
+      "trades": 1464,
+      "won": 1361,
+      "net": -63.44,
       "miss": 479
      },
      "open": 1,
@@ -2582,9 +2582,9 @@
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 195,
-       "won": 179,
-       "net": -21.51,
+       "trades": 196,
+       "won": 180,
+       "net": -21.16,
        "first": 1793977800
       },
       {
@@ -2700,23 +2700,23 @@
     {
      "name": "fav-last30",
      "size": 5,
-     "trades": 368,
-     "won": 325,
-     "net": 0.68,
+     "trades": 369,
+     "won": 326,
+     "net": 0.73,
      "fillable": {
-      "trades": 165,
-      "won": 140,
-      "net": -42.49,
+      "trades": 166,
+      "won": 141,
+      "net": -42.44,
       "miss": 203
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 35,
-       "won": 29,
-       "net": -9.69,
+       "trades": 36,
+       "won": 30,
+       "net": -9.64,
        "first": 1793977500
       },
       {
@@ -2898,23 +2898,23 @@
     {
      "name": "fav90-last60",
      "size": 5,
-     "trades": 678,
-     "won": 617,
-     "net": -38.89,
+     "trades": 679,
+     "won": 618,
+     "net": -38.37,
      "fillable": {
-      "trades": 316,
-      "won": 272,
-      "net": -102.4,
+      "trades": 317,
+      "won": 273,
+      "net": -101.88,
       "miss": 362
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 80,
-       "won": 73,
-       "net": -4.98,
+       "trades": 81,
+       "won": 74,
+       "net": -4.46,
        "first": 1793977500
       },
       {
@@ -2964,23 +2964,23 @@
     {
      "name": "fav-half",
      "size": 5,
-     "trades": 1358,
+     "trades": 1359,
      "won": 981,
-     "net": -179.08,
+     "net": -184.21,
      "fillable": {
-      "trades": 963,
+      "trades": 964,
       "won": 693,
-      "net": -178.31,
+      "net": -183.45,
       "miss": 395
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 141,
+       "trades": 142,
        "won": 101,
-       "net": -14.81,
+       "net": -19.95,
        "first": 1793978100
       },
       {
@@ -3030,23 +3030,23 @@
     {
      "name": "fav97-hold-last3",
      "size": 5,
-     "trades": 403,
-     "won": 388,
-     "net": -23.98,
+     "trades": 404,
+     "won": 389,
+     "net": -23.83,
      "fillable": {
       "trades": 289,
       "won": 276,
       "net": -29.36,
-      "miss": 114
+      "miss": 115
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 53,
-       "won": 50,
-       "net": -8.54,
+       "trades": 54,
+       "won": 51,
+       "net": -8.4,
        "first": 1793979300
       },
       {
@@ -3303,7 +3303,7 @@
       "net": -555.8,
       "miss": 58
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -5333,23 +5333,23 @@
     {
      "name": "basis10-both60-2m",
      "size": 5,
-     "trades": 1791,
+     "trades": 1792,
      "won": 757,
-     "net": -1106.92,
+     "net": -1112.08,
      "fillable": {
-      "trades": 1407,
+      "trades": 1408,
       "won": 571,
-      "net": -1125.59,
+      "net": -1130.74,
       "miss": 384
      },
-     "open": 2,
+     "open": 1,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 153,
+       "trades": 154,
        "won": 62,
-       "net": -140.92,
+       "net": -146.07,
        "first": 1793978100
       },
       {
@@ -5465,23 +5465,23 @@
     {
      "name": "imbfade65-mid",
      "size": 5,
-     "trades": 939,
+     "trades": 940,
      "won": 486,
-     "net": -422.86,
+     "net": -428.03,
      "fillable": {
-      "trades": 830,
+      "trades": 831,
       "won": 419,
-      "net": -462.49,
+      "net": -467.67,
       "miss": 109
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 109,
+       "trades": 110,
        "won": 58,
-       "net": -9.26,
+       "net": -14.43,
        "first": 1793977800
       },
       {
@@ -5870,7 +5870,7 @@
       "net": -33.9,
       "miss": 169
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -5927,13 +5927,13 @@
     {
      "name": "fav95-hold-offhour",
      "size": 5,
-     "trades": 1043,
-     "won": 993,
-     "net": -14.34,
+     "trades": 1044,
+     "won": 994,
+     "net": -14.09,
      "fillable": {
-      "trades": 850,
-      "won": 801,
-      "net": -55.62,
+      "trades": 851,
+      "won": 802,
+      "net": -55.38,
       "miss": 193
      },
      "open": 1,
@@ -5941,9 +5941,9 @@
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 141,
-       "won": 130,
-       "net": -23.92,
+       "trades": 142,
+       "won": 131,
+       "net": -23.67,
        "first": 1793977800
       },
       {
@@ -9283,23 +9283,23 @@
     {
      "name": "flat1-cheap40",
      "size": 5,
-     "trades": 371,
+     "trades": 372,
      "won": 98,
-     "net": -374.67,
+     "net": -379.89,
      "fillable": {
       "trades": 264,
       "won": 61,
       "net": -389.81,
-      "miss": 107
+      "miss": 108
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 48,
+       "trades": 49,
        "won": 14,
-       "net": -7.28,
+       "net": -12.5,
        "first": 1793979300
       },
       {
@@ -9547,13 +9547,13 @@
     {
      "name": "slide90-80-70",
      "size": 5,
-     "trades": 2170,
-     "won": 1878,
-     "net": -23.36,
+     "trades": 2171,
+     "won": 1879,
+     "net": -22.4,
      "fillable": {
-      "trades": 1521,
-      "won": 1292,
-      "net": -195.07,
+      "trades": 1522,
+      "won": 1293,
+      "net": -194.11,
       "miss": 649
      },
      "open": 1,
@@ -9561,9 +9561,9 @@
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 227,
-       "won": 184,
-       "net": -66.67,
+       "trades": 228,
+       "won": 185,
+       "net": -65.71,
        "first": 1793977500
       },
       {
@@ -9613,13 +9613,13 @@
     {
      "name": "slide95-85-75",
      "size": 5,
-     "trades": 2170,
-     "won": 1943,
-     "net": -2.08,
+     "trades": 2171,
+     "won": 1944,
+     "net": -1.25,
      "fillable": {
-      "trades": 1575,
-      "won": 1409,
-      "net": -76.9,
+      "trades": 1576,
+      "won": 1410,
+      "net": -76.07,
       "miss": 595
      },
      "open": 1,
@@ -9627,9 +9627,9 @@
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 227,
-       "won": 193,
-       "net": -53.47,
+       "trades": 228,
+       "won": 194,
+       "net": -52.64,
        "first": 1793977500
       },
       {
@@ -9679,23 +9679,23 @@
     {
      "name": "fav99-last30",
      "size": 5,
-     "trades": 336,
-     "won": 326,
-     "net": -34.78,
+     "trades": 337,
+     "won": 327,
+     "net": -34.73,
      "fillable": {
-      "trades": 181,
-      "won": 175,
-      "net": -21.83,
+      "trades": 182,
+      "won": 176,
+      "net": -21.79,
       "miss": 154
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 32,
-       "won": 30,
-       "net": -8.5,
+       "trades": 33,
+       "won": 31,
+       "net": -8.45,
        "first": 1793977500
       },
       {
@@ -10263,7 +10263,7 @@
   {
    "key": "eth5m",
    "label": "ETH 5m",
-   "windowsDone": 9,
+   "windowsDone": 0,
    "lastError": null,
    "feeds": [
     {
@@ -10357,23 +10357,23 @@
     {
      "name": "early45",
      "size": 5,
-     "trades": 409,
-     "won": 310,
-     "net": -6.37,
+     "trades": 410,
+     "won": 311,
+     "net": -5.73,
      "fillable": {
-      "trades": 191,
-      "won": 123,
-      "net": -137.9,
+      "trades": 192,
+      "won": 124,
+      "net": -137.26,
       "miss": 218
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 46,
-       "won": 35,
-       "net": -1.5,
+       "trades": 47,
+       "won": 36,
+       "net": -0.86,
        "first": 1793978700
       },
       {
@@ -10621,23 +10621,23 @@
     {
      "name": "band80",
      "size": 5,
-     "trades": 394,
-     "won": 333,
-     "net": -23.12,
+     "trades": 395,
+     "won": 334,
+     "net": -22.48,
      "fillable": {
-      "trades": 185,
-      "won": 140,
-      "net": -106.64,
+      "trades": 186,
+      "won": 141,
+      "net": -106,
       "miss": 209
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 46,
-       "won": 38,
-       "net": -7.67,
+       "trades": 47,
+       "won": 39,
+       "net": -7.03,
        "first": 1793978700
       },
       {
@@ -10894,7 +10894,7 @@
       "net": 84.76,
       "miss": 66
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -10951,23 +10951,23 @@
     {
      "name": "fav93",
      "size": 5,
-     "trades": 2166,
-     "won": 2019,
-     "net": -81.98,
+     "trades": 2168,
+     "won": 2021,
+     "net": -81.39,
      "fillable": {
-      "trades": 1683,
-      "won": 1556,
-      "net": -130.42,
-      "miss": 483
+      "trades": 1684,
+      "won": 1557,
+      "net": -130.07,
+      "miss": 484
      },
-     "open": 2,
+     "open": 1,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 225,
-       "won": 216,
-       "net": 23.5,
+       "trades": 227,
+       "won": 218,
+       "net": 24.1,
        "first": 1793977800
       },
       {
@@ -11026,7 +11026,7 @@
       "net": -54.99,
       "miss": 151
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -11149,23 +11149,23 @@
     {
      "name": "fav93-lead",
      "size": 5,
-     "trades": 542,
-     "won": 501,
-     "net": -50.71,
+     "trades": 544,
+     "won": 503,
+     "net": -50.11,
      "fillable": {
-      "trades": 396,
-      "won": 362,
-      "net": -58.27,
-      "miss": 146
+      "trades": 397,
+      "won": 363,
+      "net": -57.92,
+      "miss": 147
      },
-     "open": 2,
+     "open": 1,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 87,
-       "won": 85,
-       "net": 15.76,
+       "trades": 89,
+       "won": 87,
+       "net": 16.36,
        "first": 1793978400
       },
       {
@@ -11215,13 +11215,13 @@
     {
      "name": "fav93-hold",
      "size": 5,
-     "trades": 813,
-     "won": 767,
-     "net": 22.69,
+     "trades": 814,
+     "won": 768,
+     "net": 23.04,
      "fillable": {
-      "trades": 676,
-      "won": 636,
-      "net": 10.12,
+      "trades": 677,
+      "won": 637,
+      "net": 10.47,
       "miss": 137
      },
      "open": 1,
@@ -11229,9 +11229,9 @@
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 78,
-       "won": 75,
-       "net": 9.95,
+       "trades": 79,
+       "won": 76,
+       "net": 10.3,
        "first": 1793979000
       },
       {
@@ -11281,23 +11281,23 @@
     {
      "name": "fav95",
      "size": 5,
-     "trades": 2165,
-     "won": 2056,
-     "net": -73.12,
+     "trades": 2167,
+     "won": 2058,
+     "net": -72.83,
      "fillable": {
-      "trades": 1701,
-      "won": 1603,
-      "net": -122.55,
-      "miss": 464
+      "trades": 1702,
+      "won": 1604,
+      "net": -122.5,
+      "miss": 465
      },
-     "open": 2,
+     "open": 1,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 225,
-       "won": 216,
-       "net": 3.24,
+       "trades": 227,
+       "won": 218,
+       "net": 3.54,
        "first": 1793977800
       },
       {
@@ -11356,7 +11356,7 @@
       "net": 174.38,
       "miss": 66
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -11413,23 +11413,23 @@
     {
      "name": "fav95-lead",
      "size": 5,
-     "trades": 513,
-     "won": 483,
-     "net": -43.1,
+     "trades": 515,
+     "won": 485,
+     "net": -42.81,
      "fillable": {
-      "trades": 364,
-      "won": 338,
-      "net": -55.88,
-      "miss": 149
+      "trades": 365,
+      "won": 339,
+      "net": -55.83,
+      "miss": 150
      },
-     "open": 2,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 82,
-       "won": 81,
-       "net": 12.54,
+       "trades": 84,
+       "won": 83,
+       "net": 12.84,
        "first": 1793980800
       },
       {
@@ -11479,13 +11479,13 @@
     {
      "name": "fav95-hold",
      "size": 5,
-     "trades": 1433,
-     "won": 1361,
-     "net": -40.74,
+     "trades": 1434,
+     "won": 1362,
+     "net": -40.69,
      "fillable": {
-      "trades": 1182,
-      "won": 1113,
-      "net": -84.35,
+      "trades": 1183,
+      "won": 1114,
+      "net": -84.31,
       "miss": 251
      },
      "open": 1,
@@ -11493,9 +11493,9 @@
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 156,
-       "won": 150,
-       "net": 4.7,
+       "trades": 157,
+       "won": 151,
+       "net": 4.75,
        "first": 1793977800
       },
       {
@@ -11545,23 +11545,23 @@
     {
      "name": "fav93-lead-hold",
      "size": 5,
-     "trades": 143,
-     "won": 133,
-     "net": -7.7,
+     "trades": 144,
+     "won": 134,
+     "net": -7.35,
      "fillable": {
-      "trades": 111,
-      "won": 103,
-      "net": -7.24,
+      "trades": 112,
+      "won": 104,
+      "net": -6.89,
       "miss": 32
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 23,
-       "won": 23,
-       "net": 7.27,
+       "trades": 24,
+       "won": 24,
+       "net": 7.62,
        "first": 1794006000
       },
       {
@@ -11611,23 +11611,23 @@
     {
      "name": "fav97",
      "size": 5,
-     "trades": 2160,
-     "won": 2095,
-     "net": -47.38,
+     "trades": 2162,
+     "won": 2097,
+     "net": -47.19,
      "fillable": {
-      "trades": 1878,
-      "won": 1816,
-      "net": -68.49,
+      "trades": 1880,
+      "won": 1818,
+      "net": -68.3,
       "miss": 282
      },
-     "open": 2,
+     "open": 1,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 224,
-       "won": 218,
-       "net": -2.26,
+       "trades": 226,
+       "won": 220,
+       "net": -2.07,
        "first": 1793977800
       },
       {
@@ -11677,23 +11677,23 @@
     {
      "name": "fav93-late",
      "size": 5,
-     "trades": 1917,
-     "won": 1807,
-     "net": -70.23,
+     "trades": 1919,
+     "won": 1809,
+     "net": -69.63,
      "fillable": {
-      "trades": 1424,
-      "won": 1327,
-      "net": -147.12,
-      "miss": 493
+      "trades": 1425,
+      "won": 1328,
+      "net": -146.77,
+      "miss": 494
      },
-     "open": 2,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 211,
-       "won": 204,
-       "net": 18.65,
+       "trades": 213,
+       "won": 206,
+       "net": 19.25,
        "first": 1793977800
       },
       {
@@ -11743,23 +11743,23 @@
     {
      "name": "fav93-last3",
      "size": 5,
-     "trades": 739,
-     "won": 697,
-     "net": -1.12,
+     "trades": 740,
+     "won": 698,
+     "net": -0.77,
      "fillable": {
-      "trades": 403,
-      "won": 373,
-      "net": -36.98,
+      "trades": 404,
+      "won": 374,
+      "net": -36.63,
       "miss": 336
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 86,
-       "won": 84,
-       "net": 15.56,
+       "trades": 87,
+       "won": 85,
+       "net": 15.91,
        "first": 1793978100
       },
       {
@@ -11875,23 +11875,23 @@
     {
      "name": "fav97-last3",
      "size": 5,
-     "trades": 1144,
-     "won": 1118,
-     "net": -12.19,
+     "trades": 1146,
+     "won": 1120,
+     "net": -12.09,
      "fillable": {
-      "trades": 754,
-      "won": 733,
-      "net": -25.71,
-      "miss": 390
+      "trades": 755,
+      "won": 734,
+      "net": -25.66,
+      "miss": 391
      },
-     "open": 2,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 143,
-       "won": 141,
-       "net": 4.43,
+       "trades": 145,
+       "won": 143,
+       "net": 4.53,
        "first": 1793978100
       },
       {
@@ -12007,23 +12007,23 @@
     {
      "name": "fav93-stop",
      "size": 5,
-     "trades": 2166,
-     "won": 1726,
-     "net": -220.27,
+     "trades": 2168,
+     "won": 1728,
+     "net": -219.68,
      "fillable": {
-      "trades": 1674,
-      "won": 1305,
-      "net": -225.49,
-      "miss": 483
+      "trades": 1675,
+      "won": 1306,
+      "net": -225.14,
+      "miss": 484
      },
-     "open": 2,
+     "open": 1,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 225,
-       "won": 182,
-       "net": -16.15,
+       "trades": 227,
+       "won": 184,
+       "net": -15.55,
        "first": 1793977800
       },
       {
@@ -12205,23 +12205,23 @@
     {
      "name": "prev-momentum",
      "size": 5,
-     "trades": 1979,
-     "won": 923,
-     "net": -718.87,
+     "trades": 1981,
+     "won": 924,
+     "net": -719.41,
      "fillable": {
-      "trades": 1393,
-      "won": 619,
-      "net": -873.06,
-      "miss": 586
+      "trades": 1394,
+      "won": 620,
+      "net": -868.42,
+      "miss": 587
      },
-     "open": 2,
+     "open": 1,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 205,
-       "won": 100,
-       "net": -29.29,
+       "trades": 207,
+       "won": 101,
+       "net": -29.83,
        "first": 1793978100
       },
       {
@@ -12271,23 +12271,23 @@
     {
      "name": "prev-reverse",
      "size": 5,
-     "trades": 1986,
-     "won": 969,
-     "net": -291.72,
+     "trades": 1987,
+     "won": 970,
+     "net": -287.28,
      "fillable": {
-      "trades": 1451,
-      "won": 687,
-      "net": -472.12,
+      "trades": 1452,
+      "won": 688,
+      "net": -467.67,
       "miss": 535
      },
-     "open": 2,
+     "open": 1,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 204,
-       "won": 92,
-       "net": -97.35,
+       "trades": 205,
+       "won": 93,
+       "net": -92.9,
        "first": 1793978100
       },
       {
@@ -12403,23 +12403,23 @@
     {
      "name": "band90-30",
      "size": 5,
-     "trades": 239,
-     "won": 221,
-     "net": -6.76,
+     "trades": 240,
+     "won": 222,
+     "net": -6.41,
      "fillable": {
       "trades": 93,
       "won": 81,
       "net": -27.14,
-      "miss": 146
+      "miss": 147
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 22,
-       "won": 21,
-       "net": 2.99,
+       "trades": 23,
+       "won": 22,
+       "net": 3.34,
        "first": 1793978700
       },
       {
@@ -12535,23 +12535,23 @@
     {
      "name": "fav93-rest",
      "size": 5,
-     "trades": 1650,
-     "won": 1503,
-     "net": -120.61,
+     "trades": 1651,
+     "won": 1504,
+     "net": -120.17,
      "fillable": {
       "trades": 1309,
       "won": 1176,
       "net": -183.64,
-      "miss": 341
+      "miss": 342
      },
      "open": 1,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 166,
-       "won": 157,
-       "net": 17.38,
+       "trades": 167,
+       "won": 158,
+       "net": 17.81,
        "first": 1793977800
       },
       {
@@ -12733,23 +12733,23 @@
     {
      "name": "fav93-calm",
      "size": 5,
-     "trades": 2125,
-     "won": 1978,
-     "net": -97.83,
+     "trades": 2127,
+     "won": 1980,
+     "net": -97.24,
      "fillable": {
-      "trades": 1645,
-      "won": 1518,
-      "net": -144.7,
-      "miss": 480
+      "trades": 1646,
+      "won": 1519,
+      "net": -144.35,
+      "miss": 481
      },
-     "open": 2,
+     "open": 1,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 222,
-       "won": 212,
-       "net": 16.78,
+       "trades": 224,
+       "won": 214,
+       "net": 17.38,
        "first": 1793977800
       },
       {
@@ -12799,23 +12799,23 @@
     {
      "name": "fav93-cross",
      "size": 5,
-     "trades": 1927,
-     "won": 1794,
-     "net": -82.26,
+     "trades": 1929,
+     "won": 1796,
+     "net": -81.66,
      "fillable": {
-      "trades": 1527,
-      "won": 1412,
-      "net": -115.41,
-      "miss": 400
+      "trades": 1528,
+      "won": 1413,
+      "net": -115.06,
+      "miss": 401
      },
-     "open": 2,
+     "open": 1,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 192,
-       "won": 184,
-       "net": 18.76,
+       "trades": 194,
+       "won": 186,
+       "net": 19.36,
        "first": 1793977800
       },
       {
@@ -12931,23 +12931,23 @@
     {
      "name": "fav-last30",
      "size": 5,
-     "trades": 365,
-     "won": 319,
-     "net": -23.91,
+     "trades": 366,
+     "won": 320,
+     "net": -23.56,
      "fillable": {
       "trades": 152,
       "won": 127,
       "net": -63.03,
-      "miss": 213
+      "miss": 214
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 41,
-       "won": 36,
-       "net": -12.47,
+       "trades": 42,
+       "won": 37,
+       "net": -12.12,
        "first": 1793978700
       },
       {
@@ -13129,23 +13129,23 @@
     {
      "name": "fav90-last60",
      "size": 5,
-     "trades": 708,
-     "won": 650,
-     "net": -16.12,
+     "trades": 709,
+     "won": 651,
+     "net": -15.6,
      "fillable": {
-      "trades": 377,
-      "won": 339,
-      "net": -47.81,
+      "trades": 378,
+      "won": 340,
+      "net": -47.29,
       "miss": 331
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 84,
-       "won": 81,
-       "net": 19.45,
+       "trades": 85,
+       "won": 82,
+       "net": 19.97,
        "first": 1793978100
       },
       {
@@ -13195,23 +13195,23 @@
     {
      "name": "fav-half",
      "size": 5,
-     "trades": 1393,
+     "trades": 1395,
      "won": 1007,
-     "net": -190.47,
+     "net": -200.68,
      "fillable": {
-      "trades": 943,
+      "trades": 945,
       "won": 664,
-      "net": -270.4,
+      "net": -280.62,
       "miss": 450
      },
-     "open": 2,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 148,
+       "trades": 150,
        "won": 112,
-       "net": 8.97,
+       "net": -1.25,
        "first": 1793977800
       },
       {
@@ -13261,23 +13261,23 @@
     {
      "name": "fav97-hold-last3",
      "size": 5,
-     "trades": 367,
-     "won": 362,
-     "net": 19.63,
+     "trades": 368,
+     "won": 363,
+     "net": 19.68,
      "fillable": {
-      "trades": 266,
-      "won": 262,
-      "net": 12.11,
+      "trades": 267,
+      "won": 263,
+      "net": 12.15,
       "miss": 101
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 51,
-       "won": 51,
-       "net": 6,
+       "trades": 52,
+       "won": 52,
+       "net": 6.05,
        "first": 1793978100
       },
       {
@@ -14244,23 +14244,23 @@
     {
      "name": "up25-first300",
      "size": 5,
-     "trades": 1381,
-     "won": 294,
-     "net": -1050.39,
+     "trades": 1382,
+     "won": 295,
+     "net": -1034.86,
      "fillable": {
-      "trades": 1026,
-      "won": 200,
-      "net": -1206.85,
+      "trades": 1027,
+      "won": 201,
+      "net": -1191.32,
       "miss": 355
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 140,
-       "won": 33,
-       "net": -56.72,
+       "trades": 141,
+       "won": 34,
+       "net": -41.19,
        "first": 1793977500
       },
       {
@@ -15498,23 +15498,23 @@
     {
      "name": "basis10-both60-2m",
      "size": 5,
-     "trades": 1954,
-     "won": 847,
-     "net": -865.65,
+     "trades": 1956,
+     "won": 848,
+     "net": -862.94,
      "fillable": {
-      "trades": 1392,
-      "won": 590,
-      "net": -822.81,
-      "miss": 562
+      "trades": 1393,
+      "won": 591,
+      "net": -814.87,
+      "miss": 563
      },
-     "open": 2,
+     "open": 1,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 188,
-       "won": 79,
-       "net": -123.51,
+       "trades": 190,
+       "won": 80,
+       "net": -120.8,
        "first": 1793978100
       },
       {
@@ -15630,23 +15630,23 @@
     {
      "name": "imbfade65-mid",
      "size": 5,
-     "trades": 647,
-     "won": 344,
-     "net": -111.4,
+     "trades": 648,
+     "won": 345,
+     "net": -105.23,
      "fillable": {
-      "trades": 498,
-      "won": 249,
-      "net": -215.45,
+      "trades": 499,
+      "won": 250,
+      "net": -209.28,
       "miss": 149
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 60,
-       "won": 34,
-       "net": 2.4,
+       "trades": 61,
+       "won": 35,
+       "net": 8.57,
        "first": 1793980500
       },
       {
@@ -15793,23 +15793,23 @@
     {
      "name": "basis15-both60",
      "size": 5,
-     "trades": 1832,
-     "won": 808,
-     "net": -553.38,
+     "trades": 1834,
+     "won": 809,
+     "net": -548.63,
      "fillable": {
-      "trades": 1309,
-      "won": 561,
-      "net": -614.9,
-      "miss": 523
+      "trades": 1310,
+      "won": 562,
+      "net": -604.98,
+      "miss": 524
      },
-     "open": 2,
+     "open": 1,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 164,
-       "won": 64,
-       "net": -132.79,
+       "trades": 166,
+       "won": 65,
+       "net": -128.04,
        "first": 1793978100
       },
       {
@@ -16000,7 +16000,7 @@
       "net": -63.02,
       "miss": 146
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -16057,13 +16057,13 @@
     {
      "name": "fav95-hold-offhour",
      "size": 5,
-     "trades": 991,
-     "won": 948,
-     "net": 7.14,
+     "trades": 992,
+     "won": 949,
+     "net": 7.19,
      "fillable": {
-      "trades": 827,
-      "won": 784,
-      "net": -31.63,
+      "trades": 828,
+      "won": 785,
+      "net": -31.58,
       "miss": 164
      },
      "open": 1,
@@ -16071,9 +16071,9 @@
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 145,
-       "won": 139,
-       "net": 2.28,
+       "trades": 146,
+       "won": 140,
+       "net": 2.33,
        "first": 1793977800
       },
       {
@@ -19475,23 +19475,23 @@
     {
      "name": "flat1-cheap40",
      "size": 5,
-     "trades": 335,
-     "won": 127,
-     "net": 242.29,
+     "trades": 337,
+     "won": 128,
+     "net": 248.49,
      "fillable": {
-      "trades": 233,
-      "won": 73,
-      "net": -62.38,
+      "trades": 235,
+      "won": 74,
+      "net": -56.18,
       "miss": 102
      },
-     "open": 2,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 40,
-       "won": 13,
-       "net": -18.14,
+       "trades": 42,
+       "won": 14,
+       "net": -11.94,
        "first": 1793978700
       },
       {
@@ -19607,23 +19607,23 @@
     {
      "name": "up60-first60",
      "size": 5,
-     "trades": 1354,
-     "won": 813,
-     "net": -260.65,
+     "trades": 1355,
+     "won": 814,
+     "net": -257.59,
      "fillable": {
-      "trades": 1001,
-      "won": 580,
-      "net": -372.44,
+      "trades": 1002,
+      "won": 581,
+      "net": -369.38,
       "miss": 353
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 139,
-       "won": 84,
-       "net": -25.3,
+       "trades": 140,
+       "won": 85,
+       "net": -22.24,
        "first": 1793977800
       },
       {
@@ -19673,23 +19673,23 @@
     {
      "name": "fav84-at180",
      "size": 5,
-     "trades": 599,
-     "won": 511,
-     "net": -44.23,
+     "trades": 600,
+     "won": 512,
+     "net": -43.33,
      "fillable": {
-      "trades": 418,
-      "won": 353,
-      "net": -55.2,
+      "trades": 419,
+      "won": 354,
+      "net": -54.3,
       "miss": 181
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 58,
-       "won": 51,
-       "net": 4.84,
+       "trades": 59,
+       "won": 52,
+       "net": 5.74,
        "first": 1793977800
       },
       {
@@ -19739,23 +19739,23 @@
     {
      "name": "slide90-80-70",
      "size": 5,
-     "trades": 2169,
-     "won": 1855,
-     "net": -190.94,
+     "trades": 2171,
+     "won": 1856,
+     "net": -194.9,
      "fillable": {
-      "trades": 1615,
-      "won": 1366,
-      "net": -283.1,
+      "trades": 1617,
+      "won": 1367,
+      "net": -287.06,
       "miss": 554
      },
-     "open": 2,
+     "open": 1,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 225,
-       "won": 191,
-       "net": -23.46,
+       "trades": 227,
+       "won": 192,
+       "net": -27.42,
        "first": 1793977800
       },
       {
@@ -19805,23 +19805,23 @@
     {
      "name": "slide95-85-75",
      "size": 5,
-     "trades": 2169,
-     "won": 1915,
-     "net": -170.13,
+     "trades": 2171,
+     "won": 1916,
+     "net": -174.42,
      "fillable": {
-      "trades": 1646,
+      "trades": 1647,
       "won": 1453,
-      "net": -196.32,
-      "miss": 523
+      "net": -201.37,
+      "miss": 524
      },
-     "open": 2,
+     "open": 1,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 225,
-       "won": 195,
-       "net": -30.07,
+       "trades": 227,
+       "won": 196,
+       "net": -34.36,
        "first": 1793977800
       },
       {
@@ -19871,23 +19871,23 @@
     {
      "name": "fav99-last30",
      "size": 5,
-     "trades": 346,
-     "won": 343,
-     "net": 1.11,
+     "trades": 347,
+     "won": 344,
+     "net": 1.15,
      "fillable": {
-      "trades": 211,
-      "won": 208,
-      "net": -5.24,
+      "trades": 212,
+      "won": 209,
+      "net": -5.19,
       "miss": 135
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 40,
-       "won": 39,
-       "net": -3.05,
+       "trades": 41,
+       "won": 40,
+       "net": -3,
        "first": 1793978700
       },
       {
@@ -20414,7 +20414,7 @@
   {
    "key": "sol5m",
    "label": "SOL 5m",
-   "windowsDone": 9,
+   "windowsDone": 0,
    "lastError": null,
    "feeds": [
     {
@@ -21102,23 +21102,23 @@
     {
      "name": "fav93",
      "size": 5,
-     "trades": 2167,
-     "won": 2000,
-     "net": -199.08,
+     "trades": 2169,
+     "won": 2002,
+     "net": -198.43,
      "fillable": {
-      "trades": 1727,
-      "won": 1583,
-      "net": -215.88,
+      "trades": 1729,
+      "won": 1585,
+      "net": -215.23,
       "miss": 440
      },
-     "open": 2,
+     "open": 1,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 225,
-       "won": 208,
-       "net": -18.92,
+       "trades": 227,
+       "won": 210,
+       "net": -18.27,
        "first": 1793977800
       },
       {
@@ -21177,7 +21177,7 @@
       "net": -57.9,
       "miss": 166
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -21300,13 +21300,13 @@
     {
      "name": "fav93-lead",
      "size": 5,
-     "trades": 337,
-     "won": 313,
-     "net": -27.37,
+     "trades": 338,
+     "won": 314,
+     "net": -27.02,
      "fillable": {
-      "trades": 243,
-      "won": 223,
-      "net": -34.51,
+      "trades": 244,
+      "won": 224,
+      "net": -34.16,
       "miss": 94
      },
      "open": 1,
@@ -21314,9 +21314,9 @@
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 45,
-       "won": 43,
-       "net": 3.22,
+       "trades": 46,
+       "won": 44,
+       "net": 3.57,
        "first": 1793987400
       },
       {
@@ -21366,23 +21366,23 @@
     {
      "name": "fav93-hold",
      "size": 5,
-     "trades": 792,
-     "won": 736,
-     "net": -36.87,
+     "trades": 794,
+     "won": 738,
+     "net": -36.22,
      "fillable": {
-      "trades": 652,
-      "won": 604,
-      "net": -40.5,
+      "trades": 654,
+      "won": 606,
+      "net": -39.85,
       "miss": 140
      },
-     "open": 2,
+     "open": 1,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 89,
-       "won": 83,
-       "net": -2.51,
+       "trades": 91,
+       "won": 85,
+       "net": -1.86,
        "first": 1793979000
       },
       {
@@ -21432,23 +21432,23 @@
     {
      "name": "fav95",
      "size": 5,
-     "trades": 2166,
-     "won": 2049,
-     "net": -131.51,
+     "trades": 2168,
+     "won": 2051,
+     "net": -131.17,
      "fillable": {
-      "trades": 1826,
-      "won": 1720,
-      "net": -149.12,
+      "trades": 1828,
+      "won": 1722,
+      "net": -148.78,
       "miss": 339
      },
-     "open": 2,
+     "open": 1,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 225,
-       "won": 210,
-       "net": -28.42,
+       "trades": 227,
+       "won": 212,
+       "net": -28.07,
        "first": 1793977800
       },
       {
@@ -21564,13 +21564,13 @@
     {
      "name": "fav95-lead",
      "size": 5,
-     "trades": 337,
-     "won": 321,
-     "net": -15.4,
+     "trades": 338,
+     "won": 322,
+     "net": -15.15,
      "fillable": {
-      "trades": 259,
-      "won": 244,
-      "net": -26.61,
+      "trades": 260,
+      "won": 245,
+      "net": -26.36,
       "miss": 77
      },
      "open": 1,
@@ -21578,9 +21578,9 @@
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 48,
-       "won": 45,
-       "net": -5.59,
+       "trades": 49,
+       "won": 46,
+       "net": -5.34,
        "first": 1793980200
       },
       {
@@ -21630,23 +21630,23 @@
     {
      "name": "fav95-hold",
      "size": 5,
-     "trades": 1398,
-     "won": 1329,
-     "net": -41.13,
+     "trades": 1400,
+     "won": 1331,
+     "net": -40.79,
      "fillable": {
-      "trades": 1219,
-      "won": 1157,
-      "net": -45.06,
+      "trades": 1221,
+      "won": 1159,
+      "net": -44.72,
       "miss": 179
      },
-     "open": 2,
+     "open": 1,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 147,
-       "won": 139,
-       "net": -7.75,
+       "trades": 149,
+       "won": 141,
+       "net": -7.4,
        "first": 1793978400
       },
       {
@@ -21696,13 +21696,13 @@
     {
      "name": "fav93-lead-hold",
      "size": 5,
-     "trades": 78,
-     "won": 74,
-     "net": 3.85,
+     "trades": 79,
+     "won": 75,
+     "net": 4.2,
      "fillable": {
-      "trades": 57,
-      "won": 53,
-      "net": -2.84,
+      "trades": 58,
+      "won": 54,
+      "net": -2.49,
       "miss": 21
      },
      "open": 1,
@@ -21710,9 +21710,9 @@
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 11,
-       "won": 11,
-       "net": 3.8,
+       "trades": 12,
+       "won": 12,
+       "net": 4.15,
        "first": 1794004500
       },
       {
@@ -21762,23 +21762,23 @@
     {
      "name": "fav97",
      "size": 5,
-     "trades": 2163,
-     "won": 2085,
-     "net": -118.66,
+     "trades": 2165,
+     "won": 2087,
+     "net": -118.52,
      "fillable": {
-      "trades": 1967,
-      "won": 1892,
-      "net": -128.05,
-      "miss": 195
+      "trades": 1968,
+      "won": 1893,
+      "net": -127.95,
+      "miss": 196
      },
-     "open": 2,
+     "open": 1,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 224,
-       "won": 214,
-       "net": -22.51,
+       "trades": 226,
+       "won": 216,
+       "net": -22.36,
        "first": 1793977800
       },
       {
@@ -21828,23 +21828,23 @@
     {
      "name": "fav93-late",
      "size": 5,
-     "trades": 2004,
-     "won": 1880,
-     "net": -169.09,
+     "trades": 2006,
+     "won": 1882,
+     "net": -168.44,
      "fillable": {
-      "trades": 1553,
-      "won": 1444,
-      "net": -211.91,
+      "trades": 1555,
+      "won": 1446,
+      "net": -211.26,
       "miss": 451
      },
-     "open": 2,
+     "open": 1,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 212,
-       "won": 197,
-       "net": -23.98,
+       "trades": 214,
+       "won": 199,
+       "net": -23.33,
        "first": 1793977800
       },
       {
@@ -21894,23 +21894,23 @@
     {
      "name": "fav93-last3",
      "size": 5,
-     "trades": 597,
-     "won": 543,
-     "net": -111.42,
+     "trades": 598,
+     "won": 544,
+     "net": -111.06,
      "fillable": {
-      "trades": 317,
-      "won": 279,
-      "net": -108.5,
+      "trades": 318,
+      "won": 280,
+      "net": -108.14,
       "miss": 280
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 61,
-       "won": 53,
-       "net": -23.67,
+       "trades": 62,
+       "won": 54,
+       "net": -23.32,
        "first": 1793978100
       },
       {
@@ -21960,23 +21960,23 @@
     {
      "name": "fav95-last3",
      "size": 5,
-     "trades": 622,
-     "won": 579,
-     "net": -96.34,
+     "trades": 623,
+     "won": 580,
+     "net": -96.1,
      "fillable": {
-      "trades": 365,
-      "won": 332,
-      "net": -98.13,
+      "trades": 366,
+      "won": 333,
+      "net": -97.88,
       "miss": 257
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 63,
-       "won": 55,
-       "net": -28.82,
+       "trades": 64,
+       "won": 56,
+       "net": -28.57,
        "first": 1793978100
       },
       {
@@ -22026,23 +22026,23 @@
     {
      "name": "fav97-last3",
      "size": 5,
-     "trades": 1158,
-     "won": 1117,
-     "net": -99.67,
+     "trades": 1159,
+     "won": 1118,
+     "net": -99.62,
      "fillable": {
       "trades": 771,
       "won": 733,
       "net": -116.69,
-      "miss": 386
+      "miss": 387
      },
      "open": 1,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 130,
-       "won": 124,
-       "net": -18.39,
+       "trades": 131,
+       "won": 125,
+       "net": -18.34,
        "first": 1793978100
       },
       {
@@ -22092,23 +22092,23 @@
     {
      "name": "fav95-hold-last3",
      "size": 5,
-     "trades": 103,
-     "won": 94,
-     "net": -24.82,
+     "trades": 104,
+     "won": 95,
+     "net": -24.57,
      "fillable": {
-      "trades": 67,
-      "won": 59,
-      "net": -27.56,
+      "trades": 68,
+      "won": 60,
+      "net": -27.32,
       "miss": 36
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 14,
-       "won": 13,
-       "net": -2.17,
+       "trades": 15,
+       "won": 14,
+       "net": -1.92,
        "first": 1793991300
       },
       {
@@ -22158,23 +22158,23 @@
     {
      "name": "fav93-stop",
      "size": 5,
-     "trades": 2167,
-     "won": 1702,
-     "net": -245.54,
+     "trades": 2169,
+     "won": 1704,
+     "net": -244.89,
      "fillable": {
-      "trades": 1713,
-      "won": 1322,
-      "net": -232.85,
+      "trades": 1715,
+      "won": 1324,
+      "net": -232.2,
       "miss": 439
      },
-     "open": 2,
+     "open": 1,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 225,
-       "won": 180,
-       "net": -16.98,
+       "trades": 227,
+       "won": 182,
+       "net": -16.33,
        "first": 1793977800
       },
       {
@@ -22356,23 +22356,23 @@
     {
      "name": "prev-momentum",
      "size": 5,
-     "trades": 1938,
-     "won": 914,
-     "net": -1172.17,
+     "trades": 1940,
+     "won": 915,
+     "net": -1172.12,
      "fillable": {
-      "trades": 1481,
-      "won": 663,
-      "net": -1238.68,
+      "trades": 1483,
+      "won": 664,
+      "net": -1238.62,
       "miss": 457
      },
-     "open": 3,
+     "open": 2,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 194,
-       "won": 92,
-       "net": -105.37,
+       "trades": 196,
+       "won": 93,
+       "net": -105.31,
        "first": 1793978100
       },
       {
@@ -22422,23 +22422,23 @@
     {
      "name": "prev-reverse",
      "size": 5,
-     "trades": 1981,
-     "won": 934,
-     "net": -847.68,
+     "trades": 1982,
+     "won": 935,
+     "net": -843.66,
      "fillable": {
       "trades": 1557,
       "won": 708,
       "net": -909.21,
-      "miss": 424
+      "miss": 425
      },
      "open": 2,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 201,
-       "won": 87,
-       "net": -183.39,
+       "trades": 202,
+       "won": 88,
+       "net": -179.37,
        "first": 1793978100
       },
       {
@@ -22717,13 +22717,13 @@
     {
      "name": "fav93-rest",
      "size": 5,
-     "trades": 1674,
-     "won": 1507,
-     "net": -227.16,
+     "trades": 1675,
+     "won": 1508,
+     "net": -226.72,
      "fillable": {
-      "trades": 1351,
-      "won": 1203,
-      "net": -254.14,
+      "trades": 1352,
+      "won": 1204,
+      "net": -253.71,
       "miss": 323
      },
      "open": 1,
@@ -22731,9 +22731,9 @@
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 154,
-       "won": 137,
-       "net": -29.58,
+       "trades": 155,
+       "won": 138,
+       "net": -29.15,
        "first": 1793977800
       },
       {
@@ -22915,23 +22915,23 @@
     {
      "name": "fav93-calm",
      "size": 5,
-     "trades": 2102,
-     "won": 1939,
-     "net": -203.57,
+     "trades": 2104,
+     "won": 1941,
+     "net": -202.92,
      "fillable": {
-      "trades": 1674,
-      "won": 1534,
-      "net": -214.85,
+      "trades": 1676,
+      "won": 1536,
+      "net": -214.2,
       "miss": 428
      },
-     "open": 2,
+     "open": 1,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 223,
-       "won": 206,
-       "net": -19.52,
+       "trades": 225,
+       "won": 208,
+       "net": -18.87,
        "first": 1793977800
       },
       {
@@ -22981,13 +22981,13 @@
     {
      "name": "fav93-cross",
      "size": 5,
-     "trades": 1846,
-     "won": 1711,
-     "net": -123.84,
+     "trades": 1847,
+     "won": 1712,
+     "net": -123.48,
      "fillable": {
-      "trades": 1498,
-      "won": 1382,
-      "net": -133.92,
+      "trades": 1499,
+      "won": 1383,
+      "net": -133.57,
       "miss": 348
      },
      "open": 1,
@@ -22995,9 +22995,9 @@
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 180,
-       "won": 170,
-       "net": 4.48,
+       "trades": 181,
+       "won": 171,
+       "net": 4.83,
        "first": 1793977800
       },
       {
@@ -23311,23 +23311,23 @@
     {
      "name": "fav90-last60",
      "size": 5,
-     "trades": 597,
-     "won": 526,
-     "net": -141.2,
+     "trades": 598,
+     "won": 527,
+     "net": -140.85,
      "fillable": {
-      "trades": 323,
-      "won": 276,
-      "net": -122.66,
+      "trades": 324,
+      "won": 277,
+      "net": -122.31,
       "miss": 274
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 64,
-       "won": 52,
-       "net": -39.32,
+       "trades": 65,
+       "won": 53,
+       "net": -38.97,
        "first": 1793978100
       },
       {
@@ -23377,23 +23377,23 @@
     {
      "name": "fav-half",
      "size": 5,
-     "trades": 1328,
-     "won": 921,
-     "net": -483.02,
+     "trades": 1330,
+     "won": 922,
+     "net": -485.09,
      "fillable": {
-      "trades": 908,
+      "trades": 909,
       "won": 616,
-      "net": -434.53,
-      "miss": 420
+      "net": -439.66,
+      "miss": 421
      },
-     "open": 2,
+     "open": 1,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 139,
-       "won": 103,
-       "net": -0.65,
+       "trades": 141,
+       "won": 104,
+       "net": -2.72,
        "first": 1793977800
       },
       {
@@ -23443,23 +23443,23 @@
     {
      "name": "fav97-hold-last3",
      "size": 5,
-     "trades": 239,
-     "won": 230,
-     "net": -18.48,
+     "trades": 240,
+     "won": 231,
+     "net": -18.43,
      "fillable": {
       "trades": 182,
       "won": 173,
       "net": -25.4,
-      "miss": 57
+      "miss": 58
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 25,
-       "won": 23,
-       "net": -7.07,
+       "trades": 26,
+       "won": 24,
+       "net": -7.02,
        "first": 1793983200
       },
       {
@@ -23773,23 +23773,23 @@
     {
      "name": "up20-first60",
      "size": 5,
-     "trades": 374,
-     "won": 64,
-     "net": -306.33,
+     "trades": 375,
+     "won": 65,
+     "net": -285.3,
      "fillable": {
-      "trades": 307,
-      "won": 54,
-      "net": -221.58,
+      "trades": 308,
+      "won": 55,
+      "net": -200.55,
       "miss": 67
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 37,
-       "won": 1,
-       "net": -154.35,
+       "trades": 38,
+       "won": 2,
+       "net": -133.32,
        "first": 1793979000
       },
       {
@@ -24103,23 +24103,23 @@
     {
      "name": "up20-first60-afterup",
      "size": 5,
-     "trades": 164,
-     "won": 27,
-     "net": -172.87,
+     "trades": 165,
+     "won": 28,
+     "net": -151.84,
      "fillable": {
-      "trades": 133,
-      "won": 23,
-      "net": -105.1,
+      "trades": 134,
+      "won": 24,
+      "net": -84.07,
       "miss": 31
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 15,
-       "won": 0,
-       "net": -56.88,
+       "trades": 16,
+       "won": 1,
+       "net": -35.85,
        "first": 1793980800
       },
       {
@@ -24426,23 +24426,23 @@
     {
      "name": "up25-first300",
      "size": 5,
-     "trades": 1425,
-     "won": 320,
-     "net": -651.18,
+     "trades": 1426,
+     "won": 321,
+     "net": -635.61,
      "fillable": {
-      "trades": 1061,
-      "won": 220,
-      "net": -786.09,
+      "trades": 1062,
+      "won": 221,
+      "net": -770.52,
       "miss": 364
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 145,
-       "won": 29,
-       "net": -147,
+       "trades": 146,
+       "won": 30,
+       "net": -131.43,
        "first": 1793977500
       },
       {
@@ -25350,23 +25350,23 @@
     {
      "name": "cldrop3-up20",
      "size": 5,
-     "trades": 804,
-     "won": 129,
-     "net": -452.36,
+     "trades": 805,
+     "won": 130,
+     "net": -431.33,
      "fillable": {
-      "trades": 648,
-      "won": 98,
-      "net": -574.51,
+      "trades": 649,
+      "won": 99,
+      "net": -553.48,
       "miss": 156
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 58,
-       "won": 8,
-       "net": -42.93,
+       "trades": 59,
+       "won": 9,
+       "net": -21.9,
        "first": 1793977800
       },
       {
@@ -25680,23 +25680,23 @@
     {
      "name": "basis10-both60-2m",
      "size": 5,
-     "trades": 2085,
-     "won": 906,
-     "net": -1413.07,
+     "trades": 2087,
+     "won": 907,
+     "net": -1413.02,
      "fillable": {
-      "trades": 1626,
-      "won": 692,
-      "net": -1238.05,
+      "trades": 1628,
+      "won": 693,
+      "net": -1237.99,
       "miss": 459
      },
-     "open": 3,
+     "open": 2,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 212,
-       "won": 81,
-       "net": -266.65,
+       "trades": 214,
+       "won": 82,
+       "net": -266.59,
        "first": 1793978100
       },
       {
@@ -25755,7 +25755,7 @@
       "net": -349.48,
       "miss": 269
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -25812,23 +25812,23 @@
     {
      "name": "imbfade65-mid",
      "size": 5,
-     "trades": 680,
-     "won": 357,
-     "net": -262.92,
+     "trades": 682,
+     "won": 358,
+     "net": -262.24,
      "fillable": {
-      "trades": 486,
+      "trades": 487,
       "won": 244,
-      "net": -257.05,
-      "miss": 194
+      "net": -262.3,
+      "miss": 195
      },
-     "open": 2,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 61,
-       "won": 28,
-       "net": -59.56,
+       "trades": 63,
+       "won": 29,
+       "net": -58.88,
        "first": 1793979600
       },
       {
@@ -25989,23 +25989,23 @@
     {
      "name": "basis15-both60",
      "size": 5,
-     "trades": 2020,
-     "won": 879,
-     "net": -1224.85,
+     "trades": 2022,
+     "won": 880,
+     "net": -1224.79,
      "fillable": {
-      "trades": 1537,
-      "won": 651,
-      "net": -1096.12,
+      "trades": 1539,
+      "won": 652,
+      "net": -1096.06,
       "miss": 483
      },
-     "open": 3,
+     "open": 2,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 198,
-       "won": 85,
-       "net": -145.24,
+       "trades": 200,
+       "won": 86,
+       "net": -145.18,
        "first": 1793978100
       },
       {
@@ -26130,7 +26130,7 @@
       "net": -568.6,
       "miss": 152
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -26187,23 +26187,23 @@
     {
      "name": "fav95-hold-min60",
      "size": 5,
-     "trades": 1008,
-     "won": 957,
-     "net": -34.01,
+     "trades": 1010,
+     "won": 959,
+     "net": -33.67,
      "fillable": {
-      "trades": 897,
-      "won": 851,
-      "net": -33.31,
+      "trades": 899,
+      "won": 853,
+      "net": -32.97,
       "miss": 111
      },
-     "open": 2,
+     "open": 1,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 136,
-       "won": 129,
-       "net": -4.94,
+       "trades": 138,
+       "won": 131,
+       "net": -4.59,
        "first": 1793978400
       },
       {
@@ -26253,13 +26253,13 @@
     {
      "name": "fav95-hold-offhour",
      "size": 5,
-     "trades": 968,
-     "won": 920,
-     "net": -29.72,
+     "trades": 969,
+     "won": 921,
+     "net": -29.47,
      "fillable": {
-      "trades": 846,
-      "won": 803,
-      "net": -31.11,
+      "trades": 847,
+      "won": 804,
+      "net": -30.86,
       "miss": 122
      },
      "open": 1,
@@ -26267,9 +26267,9 @@
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 132,
-       "won": 124,
-       "net": -11.38,
+       "trades": 133,
+       "won": 125,
+       "net": -11.13,
        "first": 1793978400
       },
       {
@@ -29845,23 +29845,23 @@
     {
      "name": "up60-first60",
      "size": 5,
-     "trades": 1388,
-     "won": 814,
-     "net": -470.92,
+     "trades": 1390,
+     "won": 816,
+     "net": -464.67,
      "fillable": {
-      "trades": 1043,
-      "won": 576,
-      "net": -649.9,
+      "trades": 1045,
+      "won": 578,
+      "net": -643.65,
       "miss": 345
      },
-     "open": 3,
+     "open": 2,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 144,
-       "won": 87,
-       "net": -32.29,
+       "trades": 146,
+       "won": 89,
+       "net": -26.04,
        "first": 1793977800
       },
       {
@@ -29911,23 +29911,23 @@
     {
      "name": "fav84-at180",
      "size": 5,
-     "trades": 583,
-     "won": 498,
-     "net": -42,
+     "trades": 585,
+     "won": 500,
+     "net": -40.41,
      "fillable": {
-      "trades": 414,
-      "won": 351,
-      "net": -47.97,
+      "trades": 416,
+      "won": 353,
+      "net": -46.38,
       "miss": 169
      },
-     "open": 2,
+     "open": 1,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 58,
-       "won": 52,
-       "net": 8.17,
+       "trades": 60,
+       "won": 54,
+       "net": 9.76,
        "first": 1793977800
       },
       {
@@ -29977,23 +29977,23 @@
     {
      "name": "slide90-80-70",
      "size": 5,
-     "trades": 2169,
-     "won": 1858,
-     "net": -204.3,
+     "trades": 2171,
+     "won": 1860,
+     "net": -202.51,
      "fillable": {
-      "trades": 1607,
-      "won": 1360,
-      "net": -286.88,
-      "miss": 562
+      "trades": 1608,
+      "won": 1361,
+      "net": -286.05,
+      "miss": 563
      },
-     "open": 2,
+     "open": 1,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 225,
-       "won": 193,
-       "net": -12.55,
+       "trades": 227,
+       "won": 195,
+       "net": -10.76,
        "first": 1793977800
       },
       {
@@ -30043,23 +30043,23 @@
     {
      "name": "slide95-85-75",
      "size": 5,
-     "trades": 2169,
-     "won": 1913,
-     "net": -244.36,
+     "trades": 2171,
+     "won": 1915,
+     "net": -242.76,
      "fillable": {
-      "trades": 1660,
-      "won": 1455,
-      "net": -299.57,
+      "trades": 1662,
+      "won": 1457,
+      "net": -297.97,
       "miss": 509
      },
-     "open": 2,
+     "open": 1,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 225,
-       "won": 195,
-       "net": -43.97,
+       "trades": 227,
+       "won": 197,
+       "net": -42.38,
        "first": 1793977800
       },
       {
@@ -30652,7 +30652,7 @@
   {
    "key": "xrp5m",
    "label": "XRP 5m",
-   "windowsDone": 9,
+   "windowsDone": 0,
    "lastError": null,
    "feeds": [
     {
@@ -30746,23 +30746,23 @@
     {
      "name": "early45",
      "size": 5,
-     "trades": 372,
-     "won": 272,
-     "net": -68.6,
+     "trades": 373,
+     "won": 273,
+     "net": -65.64,
      "fillable": {
       "trades": 194,
       "won": 128,
       "net": -137.58,
-      "miss": 178
+      "miss": 179
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 38,
-       "won": 27,
-       "net": -28.8,
+       "trades": 39,
+       "won": 28,
+       "net": -25.84,
        "first": 1793978100
       },
       {
@@ -31010,23 +31010,23 @@
     {
      "name": "band80",
      "size": 5,
-     "trades": 358,
-     "won": 274,
-     "net": -203.88,
+     "trades": 359,
+     "won": 275,
+     "net": -203.3,
      "fillable": {
       "trades": 193,
       "won": 133,
       "net": -194.61,
-      "miss": 165
+      "miss": 166
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 36,
-       "won": 25,
-       "net": -37.3,
+       "trades": 37,
+       "won": 26,
+       "net": -36.72,
        "first": 1793978100
       },
       {
@@ -31340,23 +31340,23 @@
     {
      "name": "fav93",
      "size": 5,
-     "trades": 2168,
-     "won": 1975,
-     "net": -364.17,
+     "trades": 2170,
+     "won": 1977,
+     "net": -363.52,
      "fillable": {
-      "trades": 1791,
-      "won": 1621,
-      "net": -357.65,
-      "miss": 377
+      "trades": 1792,
+      "won": 1622,
+      "net": -357.3,
+      "miss": 378
      },
-     "open": 2,
+     "open": 1,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 225,
-       "won": 204,
-       "net": -43.52,
+       "trades": 227,
+       "won": 206,
+       "net": -42.87,
        "first": 1793977800
       },
       {
@@ -31538,23 +31538,23 @@
     {
      "name": "fav93-lead",
      "size": 5,
-     "trades": 425,
-     "won": 391,
-     "net": -54.19,
+     "trades": 426,
+     "won": 392,
+     "net": -53.89,
      "fillable": {
       "trades": 338,
       "won": 307,
       "net": -63.53,
-      "miss": 87
+      "miss": 88
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 41,
-       "won": 38,
-       "net": -3.26,
+       "trades": 42,
+       "won": 39,
+       "net": -2.96,
        "first": 1793988600
       },
       {
@@ -31670,23 +31670,23 @@
     {
      "name": "fav95",
      "size": 5,
-     "trades": 2168,
-     "won": 2014,
-     "net": -335.58,
+     "trades": 2170,
+     "won": 2016,
+     "net": -335.19,
      "fillable": {
-      "trades": 1868,
-      "won": 1723,
-      "net": -353.02,
-      "miss": 300
+      "trades": 1869,
+      "won": 1724,
+      "net": -352.78,
+      "miss": 301
      },
-     "open": 2,
+     "open": 1,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 225,
-       "won": 210,
-       "net": -29.08,
+       "trades": 227,
+       "won": 212,
+       "net": -28.69,
        "first": 1793977800
       },
       {
@@ -31802,23 +31802,23 @@
     {
      "name": "fav95-lead",
      "size": 5,
-     "trades": 399,
-     "won": 372,
-     "net": -59.59,
+     "trades": 400,
+     "won": 373,
+     "net": -59.45,
      "fillable": {
       "trades": 314,
       "won": 287,
       "net": -76.85,
-      "miss": 85
+      "miss": 86
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 36,
-       "won": 35,
-       "net": 2.34,
+       "trades": 37,
+       "won": 36,
+       "net": 2.48,
        "first": 1793988600
       },
       {
@@ -31868,23 +31868,23 @@
     {
      "name": "fav95-hold",
      "size": 5,
-     "trades": 1243,
-     "won": 1172,
-     "net": -93.54,
+     "trades": 1244,
+     "won": 1173,
+     "net": -93.3,
      "fillable": {
-      "trades": 1099,
-      "won": 1032,
-      "net": -104.83,
+      "trades": 1100,
+      "won": 1033,
+      "net": -104.58,
       "miss": 144
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 113,
-       "won": 109,
-       "net": 4.92,
+       "trades": 114,
+       "won": 110,
+       "net": 5.17,
        "first": 1793978700
       },
       {
@@ -32000,23 +32000,23 @@
     {
      "name": "fav97",
      "size": 5,
-     "trades": 2161,
-     "won": 2068,
-     "net": -203.5,
+     "trades": 2163,
+     "won": 2070,
+     "net": -203.21,
      "fillable": {
-      "trades": 1984,
-      "won": 1897,
-      "net": -193.37,
-      "miss": 177
+      "trades": 1985,
+      "won": 1898,
+      "net": -193.23,
+      "miss": 178
      },
-     "open": 2,
+     "open": 1,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 224,
-       "won": 212,
-       "net": -33.52,
+       "trades": 226,
+       "won": 214,
+       "net": -33.24,
        "first": 1793977800
       },
       {
@@ -32066,23 +32066,23 @@
     {
      "name": "fav93-late",
      "size": 5,
-     "trades": 2017,
-     "won": 1881,
-     "net": -245.47,
+     "trades": 2019,
+     "won": 1883,
+     "net": -244.82,
      "fillable": {
-      "trades": 1570,
-      "won": 1452,
-      "net": -261.83,
-      "miss": 447
+      "trades": 1571,
+      "won": 1453,
+      "net": -261.47,
+      "miss": 448
      },
-     "open": 2,
+     "open": 1,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 207,
-       "won": 193,
-       "net": -24.49,
+       "trades": 209,
+       "won": 195,
+       "net": -23.84,
        "first": 1793977800
       },
       {
@@ -32132,13 +32132,13 @@
     {
      "name": "fav93-last3",
      "size": 5,
-     "trades": 596,
-     "won": 537,
-     "net": -140.35,
+     "trades": 597,
+     "won": 538,
+     "net": -140,
      "fillable": {
-      "trades": 357,
-      "won": 307,
-      "net": -161.74,
+      "trades": 358,
+      "won": 308,
+      "net": -161.39,
       "miss": 239
      },
      "open": 1,
@@ -32146,9 +32146,9 @@
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 62,
-       "won": 56,
-       "net": -13.88,
+       "trades": 63,
+       "won": 57,
+       "net": -13.53,
        "first": 1793978100
       },
       {
@@ -32198,13 +32198,13 @@
     {
      "name": "fav95-last3",
      "size": 5,
-     "trades": 641,
-     "won": 589,
-     "net": -140.31,
+     "trades": 642,
+     "won": 590,
+     "net": -140.06,
      "fillable": {
-      "trades": 416,
-      "won": 369,
-      "net": -161.75,
+      "trades": 417,
+      "won": 370,
+      "net": -161.51,
       "miss": 225
      },
      "open": 1,
@@ -32212,9 +32212,9 @@
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 69,
-       "won": 64,
-       "net": -11.67,
+       "trades": 70,
+       "won": 65,
+       "net": -11.42,
        "first": 1793978700
       },
       {
@@ -32264,23 +32264,23 @@
     {
      "name": "fav97-last3",
      "size": 5,
-     "trades": 1197,
-     "won": 1153,
-     "net": -109.48,
+     "trades": 1199,
+     "won": 1155,
+     "net": -109.25,
      "fillable": {
-      "trades": 891,
-      "won": 851,
-      "net": -113.91,
-      "miss": 306
+      "trades": 892,
+      "won": 852,
+      "net": -113.76,
+      "miss": 307
      },
-     "open": 2,
+     "open": 1,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 123,
-       "won": 116,
-       "net": -23.06,
+       "trades": 125,
+       "won": 118,
+       "net": -22.84,
        "first": 1793978100
       },
       {
@@ -32330,23 +32330,23 @@
     {
      "name": "fav95-hold-last3",
      "size": 5,
-     "trades": 93,
-     "won": 86,
-     "net": -16.38,
+     "trades": 94,
+     "won": 87,
+     "net": -16.14,
      "fillable": {
-      "trades": 61,
-      "won": 55,
-      "net": -18.24,
+      "trades": 62,
+      "won": 56,
+      "net": -17.99,
       "miss": 32
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 12,
-       "won": 11,
-       "net": -2.33,
+       "trades": 13,
+       "won": 12,
+       "net": -2.08,
        "first": 1793996700
       },
       {
@@ -32396,23 +32396,23 @@
     {
      "name": "fav93-stop",
      "size": 5,
-     "trades": 2169,
-     "won": 1579,
-     "net": -598.09,
+     "trades": 2170,
+     "won": 1580,
+     "net": -597.79,
      "fillable": {
       "trades": 1759,
       "won": 1262,
       "net": -501.94,
-      "miss": 372
+      "miss": 373
      },
      "open": 1,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 226,
-       "won": 165,
-       "net": -67.53,
+       "trades": 227,
+       "won": 166,
+       "net": -67.23,
        "first": 1793977800
       },
       {
@@ -32537,7 +32537,7 @@
       "net": 0,
       "miss": 0
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -32594,23 +32594,23 @@
     {
      "name": "prev-momentum",
      "size": 5,
-     "trades": 1896,
-     "won": 885,
-     "net": -1123.62,
+     "trades": 1898,
+     "won": 887,
+     "net": -1108.93,
      "fillable": {
-      "trades": 1463,
-      "won": 641,
-      "net": -1249.8,
+      "trades": 1465,
+      "won": 643,
+      "net": -1235.1,
       "miss": 433
      },
-     "open": 3,
+     "open": 2,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 191,
-       "won": 95,
-       "net": -34.98,
+       "trades": 193,
+       "won": 97,
+       "net": -20.29,
        "first": 1793978400
       },
       {
@@ -32660,13 +32660,13 @@
     {
      "name": "prev-reverse",
      "size": 5,
-     "trades": 1959,
+     "trades": 1960,
      "won": 928,
-     "net": -789.14,
+     "net": -794.29,
      "fillable": {
-      "trades": 1531,
+      "trades": 1532,
       "won": 703,
-      "net": -842.2,
+      "net": -847.34,
       "miss": 428
      },
      "open": 2,
@@ -32674,9 +32674,9 @@
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 202,
+       "trades": 203,
        "won": 85,
-       "net": -185.27,
+       "net": -190.42,
        "first": 1793978100
       },
       {
@@ -32735,7 +32735,7 @@
       "net": -51.86,
       "miss": 31
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -32792,23 +32792,23 @@
     {
      "name": "band90-30",
      "size": 5,
-     "trades": 202,
-     "won": 178,
-     "net": -51.01,
+     "trades": 203,
+     "won": 179,
+     "net": -50.71,
      "fillable": {
       "trades": 90,
       "won": 73,
       "net": -56.32,
-      "miss": 112
+      "miss": 113
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 18,
-       "won": 15,
-       "net": -9.04,
+       "trades": 19,
+       "won": 16,
+       "net": -8.74,
        "first": 1793978100
       },
       {
@@ -32955,13 +32955,13 @@
     {
      "name": "fav93-rest",
      "size": 5,
-     "trades": 1783,
-     "won": 1590,
-     "net": -349.32,
+     "trades": 1784,
+     "won": 1591,
+     "net": -348.89,
      "fillable": {
-      "trades": 1473,
-      "won": 1298,
-      "net": -373.67,
+      "trades": 1474,
+      "won": 1299,
+      "net": -373.23,
       "miss": 310
      },
      "open": 1,
@@ -32969,9 +32969,9 @@
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 192,
-       "won": 171,
-       "net": -39.73,
+       "trades": 193,
+       "won": 172,
+       "net": -39.3,
        "first": 1793977800
       },
       {
@@ -33153,23 +33153,23 @@
     {
      "name": "fav93-calm",
      "size": 5,
-     "trades": 2119,
-     "won": 1928,
-     "net": -371.23,
+     "trades": 2121,
+     "won": 1930,
+     "net": -370.58,
      "fillable": {
-      "trades": 1752,
-      "won": 1586,
-      "net": -350.41,
-      "miss": 367
+      "trades": 1753,
+      "won": 1587,
+      "net": -350.06,
+      "miss": 368
      },
-     "open": 2,
+     "open": 1,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 221,
-       "won": 200,
-       "net": -45.01,
+       "trades": 223,
+       "won": 202,
+       "net": -44.36,
        "first": 1793978100
       },
       {
@@ -33219,23 +33219,23 @@
     {
      "name": "fav93-cross",
      "size": 5,
-     "trades": 1735,
-     "won": 1590,
-     "net": -238.13,
+     "trades": 1737,
+     "won": 1592,
+     "net": -237.48,
      "fillable": {
-      "trades": 1452,
-      "won": 1325,
-      "net": -229.82,
-      "miss": 283
+      "trades": 1453,
+      "won": 1326,
+      "net": -229.46,
+      "miss": 284
      },
-     "open": 2,
+     "open": 1,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 162,
-       "won": 147,
-       "net": -30.11,
+       "trades": 164,
+       "won": 149,
+       "net": -29.46,
        "first": 1793977800
       },
       {
@@ -33351,23 +33351,23 @@
     {
      "name": "fav-last30",
      "size": 5,
-     "trades": 360,
-     "won": 307,
-     "net": -120.89,
+     "trades": 361,
+     "won": 308,
+     "net": -120.6,
      "fillable": {
       "trades": 172,
       "won": 132,
       "net": -155.24,
-      "miss": 188
+      "miss": 189
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 38,
-       "won": 31,
-       "net": -21.46,
+       "trades": 39,
+       "won": 32,
+       "net": -21.16,
        "first": 1793978100
       },
       {
@@ -33549,13 +33549,13 @@
     {
      "name": "fav90-last60",
      "size": 5,
-     "trades": 585,
-     "won": 518,
-     "net": -127.5,
+     "trades": 586,
+     "won": 519,
+     "net": -126.97,
      "fillable": {
-      "trades": 347,
-      "won": 292,
-      "net": -157.79,
+      "trades": 348,
+      "won": 293,
+      "net": -157.27,
       "miss": 238
      },
      "open": 1,
@@ -33563,9 +33563,9 @@
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 60,
-       "won": 52,
-       "net": -19.2,
+       "trades": 61,
+       "won": 53,
+       "net": -18.68,
        "first": 1793978100
       },
       {
@@ -33615,23 +33615,23 @@
     {
      "name": "fav-half",
      "size": 5,
-     "trades": 1339,
+     "trades": 1341,
      "won": 958,
-     "net": -284.24,
+     "net": -294.46,
      "fillable": {
-      "trades": 909,
+      "trades": 911,
       "won": 635,
-      "net": -312.05,
+      "net": -322.28,
       "miss": 430
      },
-     "open": 2,
+     "open": 1,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 142,
+       "trades": 144,
        "won": 111,
-       "net": 41.29,
+       "net": 31.06,
        "first": 1793977800
       },
       {
@@ -33681,13 +33681,13 @@
     {
      "name": "fav97-hold-last3",
      "size": 5,
-     "trades": 253,
-     "won": 245,
-     "net": -12.02,
+     "trades": 254,
+     "won": 246,
+     "net": -11.87,
      "fillable": {
-      "trades": 206,
-      "won": 198,
-      "net": -17.13,
+      "trades": 207,
+      "won": 199,
+      "net": -16.99,
       "miss": 47
      },
      "open": 1,
@@ -33695,9 +33695,9 @@
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 23,
-       "won": 21,
-       "net": -7.39,
+       "trades": 24,
+       "won": 22,
+       "net": -7.25,
        "first": 1793978700
       },
       {
@@ -33747,23 +33747,23 @@
     {
      "name": "fav-lead-last30",
      "size": 5,
-     "trades": 85,
-     "won": 74,
-     "net": -26.13,
+     "trades": 86,
+     "won": 75,
+     "net": -25.83,
      "fillable": {
       "trades": 45,
       "won": 38,
       "net": -18.89,
-      "miss": 40
+      "miss": 41
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 5,
-       "won": 5,
-       "net": 0.52,
+       "trades": 6,
+       "won": 6,
+       "net": 0.82,
        "first": 1793986800
       },
       {
@@ -33813,23 +33813,23 @@
     {
      "name": "fav95-lead-last30",
      "size": 5,
-     "trades": 79,
-     "won": 74,
-     "net": -15.12,
+     "trades": 80,
+     "won": 75,
+     "net": -14.87,
      "fillable": {
-      "trades": 44,
-      "won": 39,
-      "net": -20.44,
+      "trades": 45,
+      "won": 40,
+      "net": -20.2,
       "miss": 35
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 6,
-       "won": 6,
-       "net": 0.66,
+       "trades": 7,
+       "won": 7,
+       "net": 0.91,
        "first": 1793980200
       },
       {
@@ -33945,23 +33945,23 @@
     {
      "name": "down15-first100",
      "size": 5,
-     "trades": 532,
+     "trades": 533,
      "won": 94,
-     "net": 62.44,
+     "net": 60.64,
      "fillable": {
-      "trades": 394,
+      "trades": 395,
       "won": 68,
-      "net": 14.23,
+      "net": 12.44,
       "miss": 138
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 56,
+       "trades": 57,
        "won": 9,
-       "net": 26.64,
+       "net": 24.84,
        "first": 1793978700
       },
       {
@@ -34011,23 +34011,23 @@
     {
      "name": "up20-first60",
      "size": 5,
-     "trades": 377,
-     "won": 67,
-     "net": -122.41,
+     "trades": 378,
+     "won": 68,
+     "net": -105.68,
      "fillable": {
-      "trades": 271,
-      "won": 47,
-      "net": -129.98,
+      "trades": 272,
+      "won": 48,
+      "net": -113.25,
       "miss": 106
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 37,
-       "won": 4,
-       "net": -101.03,
+       "trades": 38,
+       "won": 5,
+       "net": -84.3,
        "first": 1793979000
       },
       {
@@ -34341,23 +34341,23 @@
     {
      "name": "up20-first60-afterup",
      "size": 5,
-     "trades": 162,
-     "won": 30,
-     "net": -15.71,
+     "trades": 163,
+     "won": 31,
+     "net": 1.03,
      "fillable": {
-      "trades": 113,
-      "won": 24,
-      "net": 36.13,
+      "trades": 114,
+      "won": 25,
+      "net": 52.86,
       "miss": 49
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 14,
-       "won": 2,
-       "net": -25.71,
+       "trades": 15,
+       "won": 3,
+       "net": -8.98,
        "first": 1793979000
       },
       {
@@ -34598,23 +34598,23 @@
     {
      "name": "up13-first450",
      "size": 5,
-     "trades": 1253,
-     "won": 147,
-     "net": -387.82,
+     "trades": 1254,
+     "won": 148,
+     "net": -376.61,
      "fillable": {
-      "trades": 951,
-      "won": 98,
-      "net": -625.18,
+      "trades": 952,
+      "won": 99,
+      "net": -613.97,
       "miss": 302
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 131,
-       "won": 15,
-       "net": -72.49,
+       "trades": 132,
+       "won": 16,
+       "net": -61.28,
        "first": 1793978400
       },
       {
@@ -34664,23 +34664,23 @@
     {
      "name": "up25-first300",
      "size": 5,
-     "trades": 1426,
-     "won": 320,
-     "net": -495.65,
+     "trades": 1428,
+     "won": 322,
+     "net": -459.9,
      "fillable": {
-      "trades": 998,
-      "won": 199,
-      "net": -894.5,
-      "miss": 428
+      "trades": 999,
+      "won": 200,
+      "net": -876.52,
+      "miss": 429
      },
-     "open": 2,
+     "open": 1,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 149,
-       "won": 33,
-       "net": -27.98,
+       "trades": 151,
+       "won": 35,
+       "net": 7.78,
        "first": 1793978100
       },
       {
@@ -35588,23 +35588,23 @@
     {
      "name": "cldrop3-up20",
      "size": 5,
-     "trades": 739,
-     "won": 100,
-     "net": -941.08,
+     "trades": 740,
+     "won": 101,
+     "net": -924.35,
      "fillable": {
-      "trades": 599,
-      "won": 71,
-      "net": -1032.74,
+      "trades": 600,
+      "won": 72,
+      "net": -1016.01,
       "miss": 140
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 80,
-       "won": 7,
-       "net": -194.14,
+       "trades": 81,
+       "won": 8,
+       "net": -177.41,
        "first": 1793978400
       },
       {
@@ -35720,23 +35720,23 @@
     {
      "name": "feed3-up40-calm",
      "size": 5,
-     "trades": 63,
-     "won": 20,
-     "net": 68.29,
+     "trades": 64,
+     "won": 21,
+     "net": 74.12,
      "fillable": {
       "trades": 34,
       "won": 7,
       "net": -23.12,
-      "miss": 29
+      "miss": 30
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 9,
-       "won": 2,
-       "net": 21.06,
+       "trades": 10,
+       "won": 3,
+       "net": 26.89,
        "first": 1793994300
       },
       {
@@ -35786,23 +35786,23 @@
     {
      "name": "feed3-up40",
      "size": 5,
-     "trades": 455,
-     "won": 128,
-     "net": -7.92,
+     "trades": 456,
+     "won": 129,
+     "net": -2.09,
      "fillable": {
       "trades": 269,
       "won": 67,
       "net": -208.79,
-      "miss": 186
+      "miss": 187
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 57,
-       "won": 14,
-       "net": -55.44,
+       "trades": 58,
+       "won": 15,
+       "net": -49.61,
        "first": 1793977800
       },
       {
@@ -35852,23 +35852,23 @@
     {
      "name": "round3-up60",
      "size": 5,
-     "trades": 93,
-     "won": 40,
-     "net": -96.3,
+     "trades": 94,
+     "won": 41,
+     "net": -90.97,
      "fillable": {
-      "trades": 62,
-      "won": 25,
-      "net": -77.85,
+      "trades": 63,
+      "won": 26,
+      "net": -72.53,
       "miss": 31
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 3,
-       "won": 1,
-       "net": -7.13,
+       "trades": 4,
+       "won": 2,
+       "net": -1.8,
        "first": 1793988300
       },
       {
@@ -35918,23 +35918,23 @@
     {
      "name": "basis10-both60-2m",
      "size": 5,
-     "trades": 2029,
-     "won": 892,
-     "net": -1100.26,
+     "trades": 2031,
+     "won": 894,
+     "net": -1085.59,
      "fillable": {
-      "trades": 1582,
-      "won": 666,
-      "net": -1239.43,
+      "trades": 1584,
+      "won": 668,
+      "net": -1224.77,
       "miss": 447
      },
-     "open": 3,
+     "open": 2,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 211,
-       "won": 91,
-       "net": -139.12,
+       "trades": 213,
+       "won": 93,
+       "net": -124.45,
        "first": 1793978100
       },
       {
@@ -35984,13 +35984,13 @@
     {
      "name": "ahead3-cheap50-late",
      "size": 5,
-     "trades": 700,
-     "won": 327,
-     "net": -105.97,
+     "trades": 701,
+     "won": 328,
+     "net": -99.86,
      "fillable": {
-      "trades": 464,
-      "won": 200,
-      "net": -217.35,
+      "trades": 465,
+      "won": 201,
+      "net": -211.24,
       "miss": 236
      },
      "open": 1,
@@ -35998,9 +35998,9 @@
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 91,
-       "won": 44,
-       "net": -9.77,
+       "trades": 92,
+       "won": 45,
+       "net": -3.66,
        "first": 1793977800
       },
       {
@@ -36050,23 +36050,23 @@
     {
      "name": "imbfade65-mid",
      "size": 5,
-     "trades": 670,
-     "won": 345,
-     "net": -261.9,
+     "trades": 672,
+     "won": 346,
+     "net": -261.99,
      "fillable": {
-      "trades": 460,
-      "won": 218,
-      "net": -358.17,
-      "miss": 210
+      "trades": 461,
+      "won": 219,
+      "net": -353.03,
+      "miss": 211
      },
-     "open": 2,
+     "open": 1,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 66,
-       "won": 31,
-       "net": -47.34,
+       "trades": 68,
+       "won": 32,
+       "net": -47.43,
        "first": 1793977800
       },
       {
@@ -36116,23 +36116,23 @@
     {
      "name": "ahead5-mid65-late",
      "size": 5,
-     "trades": 695,
-     "won": 404,
-     "net": -228.27,
+     "trades": 696,
+     "won": 405,
+     "net": -226.55,
      "fillable": {
-      "trades": 459,
-      "won": 247,
-      "net": -314.1,
+      "trades": 460,
+      "won": 248,
+      "net": -312.38,
       "miss": 236
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 90,
-       "won": 51,
-       "net": -41.13,
+       "trades": 91,
+       "won": 52,
+       "net": -39.41,
        "first": 1793977800
       },
       {
@@ -36206,23 +36206,23 @@
     {
      "name": "basis15-both60",
      "size": 5,
-     "trades": 2030,
-     "won": 878,
-     "net": -1219.78,
+     "trades": 2032,
+     "won": 879,
+     "net": -1215.56,
      "fillable": {
-      "trades": 1608,
-      "won": 672,
-      "net": -1269.23,
+      "trades": 1610,
+      "won": 673,
+      "net": -1265.01,
       "miss": 422
      },
-     "open": 3,
+     "open": 2,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 217,
-       "won": 95,
-       "net": -120.42,
+       "trades": 219,
+       "won": 96,
+       "net": -116.21,
        "first": 1793978100
       },
       {
@@ -36338,23 +36338,23 @@
     {
      "name": "stress90-cheap40",
      "size": 5,
-     "trades": 662,
-     "won": 150,
-     "net": -434.59,
+     "trades": 663,
+     "won": 151,
+     "net": -417.98,
      "fillable": {
-      "trades": 497,
-      "won": 94,
-      "net": -708.89,
+      "trades": 498,
+      "won": 95,
+      "net": -692.29,
       "miss": 165
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 68,
-       "won": 14,
-       "net": -54.21,
+       "trades": 69,
+       "won": 15,
+       "net": -37.6,
        "first": 1793978100
       },
       {
@@ -36404,23 +36404,23 @@
     {
      "name": "fav95-hold-min60",
      "size": 5,
-     "trades": 891,
-     "won": 839,
-     "net": -72.42,
+     "trades": 892,
+     "won": 840,
+     "net": -72.18,
      "fillable": {
-      "trades": 791,
-      "won": 742,
-      "net": -79.65,
+      "trades": 792,
+      "won": 743,
+      "net": -79.41,
       "miss": 100
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 107,
-       "won": 104,
-       "net": 8.69,
+       "trades": 108,
+       "won": 105,
+       "net": 8.94,
        "first": 1793978700
       },
       {
@@ -36470,23 +36470,23 @@
     {
      "name": "fav95-hold-offhour",
      "size": 5,
-     "trades": 856,
-     "won": 805,
-     "net": -75.88,
+     "trades": 857,
+     "won": 806,
+     "net": -75.64,
      "fillable": {
-      "trades": 746,
-      "won": 699,
-      "net": -80.12,
+      "trades": 747,
+      "won": 700,
+      "net": -79.87,
       "miss": 110
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 107,
-       "won": 103,
-       "net": 3.55,
+       "trades": 108,
+       "won": 104,
+       "net": 3.8,
        "first": 1793978700
       },
       {
@@ -36588,23 +36588,23 @@
     {
      "name": "feed3-up60-mid-pulled3",
      "size": 5,
-     "trades": 175,
-     "won": 85,
-     "net": -79.74,
+     "trades": 176,
+     "won": 86,
+     "net": -76.92,
      "fillable": {
       "trades": 119,
       "won": 58,
       "net": -59.99,
-      "miss": 56
+      "miss": 57
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 26,
-       "won": 12,
-       "net": -7.58,
+       "trades": 27,
+       "won": 13,
+       "net": -4.77,
        "first": 1793979900
       },
       {
@@ -36640,23 +36640,23 @@
     {
      "name": "feed3-up60-mid-hold1",
      "size": 5,
-     "trades": 259,
-     "won": 130,
-     "net": -54.93,
+     "trades": 260,
+     "won": 131,
+     "net": -48.69,
      "fillable": {
       "trades": 171,
       "won": 82,
       "net": -66.57,
-      "miss": 88
+      "miss": 89
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 41,
-       "won": 18,
-       "net": -27.36,
+       "trades": 42,
+       "won": 19,
+       "net": -21.11,
        "first": 1793978400
       },
       {
@@ -36692,23 +36692,23 @@
     {
      "name": "feed3-up60-mid-quota16",
      "size": 5,
-     "trades": 414,
-     "won": 199,
-     "net": -159.33,
+     "trades": 415,
+     "won": 200,
+     "net": -152.16,
      "fillable": {
       "trades": 256,
       "won": 117,
       "net": -172.82,
-      "miss": 158
+      "miss": 159
      },
      "open": 1,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 61,
-       "won": 28,
-       "net": -34.33,
+       "trades": 62,
+       "won": 29,
+       "net": -27.16,
        "first": 1793977800
       },
       {
@@ -36744,23 +36744,23 @@
     {
      "name": "feedp95-up60-mid",
      "size": 5,
-     "trades": 380,
-     "won": 184,
-     "net": -123.88,
+     "trades": 381,
+     "won": 185,
+     "net": -116.71,
      "fillable": {
       "trades": 229,
       "won": 100,
       "net": -196.25,
-      "miss": 151
+      "miss": 152
      },
      "open": 1,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 66,
-       "won": 29,
-       "net": -46.8,
+       "trades": 67,
+       "won": 30,
+       "net": -39.63,
        "first": 1793978100
       },
       {
@@ -36848,23 +36848,23 @@
     {
      "name": "feed3-up60-mid-pulled5",
      "size": 5,
-     "trades": 225,
-     "won": 108,
-     "net": -123.76,
+     "trades": 226,
+     "won": 109,
+     "net": -117.52,
      "fillable": {
       "trades": 157,
       "won": 75,
       "net": -96.29,
-      "miss": 68
+      "miss": 69
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 36,
-       "won": 14,
-       "net": -45.57,
+       "trades": 37,
+       "won": 15,
+       "net": -39.32,
        "first": 1793978100
       },
       {
@@ -36900,23 +36900,23 @@
     {
      "name": "feed3-up60-mid-pulled3-w10",
      "size": 5,
-     "trades": 177,
-     "won": 85,
-     "net": -87.31,
+     "trades": 178,
+     "won": 86,
+     "net": -84.5,
      "fillable": {
       "trades": 121,
       "won": 60,
       "net": -50.45,
-      "miss": 56
+      "miss": 57
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 26,
-       "won": 12,
-       "net": -7.58,
+       "trades": 27,
+       "won": 13,
+       "net": -4.77,
        "first": 1793979900
       },
       {
@@ -37004,23 +37004,23 @@
     {
      "name": "feed3-up60-mid-pulled3-5m-alts",
      "size": 5,
-     "trades": 171,
-     "won": 82,
-     "net": -86.05,
+     "trades": 172,
+     "won": 83,
+     "net": -83.24,
      "fillable": {
       "trades": 118,
       "won": 58,
       "net": -54.86,
-      "miss": 53
+      "miss": 54
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 26,
-       "won": 12,
-       "net": -7.58,
+       "trades": 27,
+       "won": 13,
+       "net": -4.77,
        "first": 1793979900
       },
       {
@@ -37056,23 +37056,23 @@
     {
      "name": "feed3-up60-mid-q0",
      "size": 5,
-     "trades": 118,
-     "won": 52,
-     "net": -95.23,
+     "trades": 119,
+     "won": 53,
+     "net": -88.06,
      "fillable": {
       "trades": 74,
       "won": 33,
       "net": -61.23,
-      "miss": 44
+      "miss": 45
      },
      "open": 1,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 20,
-       "won": 7,
-       "net": -32.67,
+       "trades": 21,
+       "won": 8,
+       "net": -25.5,
        "first": 1793977800
       },
       {
@@ -37108,23 +37108,23 @@
     {
      "name": "feed3-up60-mid-noasiapm",
      "size": 5,
-     "trades": 318,
-     "won": 149,
-     "net": -162.88,
+     "trades": 319,
+     "won": 150,
+     "net": -155.7,
      "fillable": {
       "trades": 199,
       "won": 88,
       "net": -162.32,
-      "miss": 119
+      "miss": 120
      },
      "open": 1,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 53,
-       "won": 23,
-       "net": -42.45,
+       "trades": 54,
+       "won": 24,
+       "net": -35.28,
        "first": 1793977800
       },
       {
@@ -37160,23 +37160,23 @@
     {
      "name": "feed3-up53-mid",
      "size": 5,
-     "trades": 307,
-     "won": 137,
-     "net": -114.6,
+     "trades": 308,
+     "won": 138,
+     "net": -107.43,
      "fillable": {
       "trades": 183,
       "won": 77,
       "net": -123.56,
-      "miss": 124
+      "miss": 125
      },
      "open": 1,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 56,
-       "won": 25,
-       "net": -18.12,
+       "trades": 57,
+       "won": 26,
+       "net": -10.95,
        "first": 1793977800
       },
       {
@@ -37477,7 +37477,7 @@
       "net": -112.94,
       "miss": 0
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -37513,13 +37513,13 @@
     {
      "name": "feed3-up60-mid-maker1",
      "size": 5,
-     "trades": 315,
-     "won": 147,
-     "net": -85.81,
+     "trades": 316,
+     "won": 148,
+     "net": -77.99,
      "fillable": {
-      "trades": 224,
-      "won": 103,
-      "net": -75.35,
+      "trades": 225,
+      "won": 104,
+      "net": -67.53,
       "miss": 91
      },
      "open": 1,
@@ -37527,9 +37527,9 @@
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 64,
-       "won": 25,
-       "net": -65.66,
+       "trades": 65,
+       "won": 26,
+       "net": -57.84,
        "first": 1793977800
       },
       {
@@ -37641,23 +37641,23 @@
     {
      "name": "feed3-up56-mid",
      "size": 5,
-     "trades": 366,
-     "won": 172,
-     "net": -111.78,
+     "trades": 367,
+     "won": 173,
+     "net": -104.61,
      "fillable": {
       "trades": 219,
       "won": 93,
       "net": -179.98,
-      "miss": 147
+      "miss": 148
      },
      "open": 1,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 66,
-       "won": 30,
-       "net": -25.84,
+       "trades": 67,
+       "won": 31,
+       "net": -18.67,
        "first": 1793977800
       },
       {
@@ -37693,23 +37693,23 @@
     {
      "name": "feed3-up40-tight",
      "size": 5,
-     "trades": 354,
-     "won": 112,
-     "net": -94.36,
+     "trades": 355,
+     "won": 113,
+     "net": -88.53,
      "fillable": {
       "trades": 196,
       "won": 57,
       "net": -122.07,
-      "miss": 158
+      "miss": 159
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 48,
-       "won": 13,
-       "net": -63.49,
+       "trades": 49,
+       "won": 14,
+       "net": -57.66,
        "first": 1793977800
       },
       {
@@ -37759,23 +37759,23 @@
     {
      "name": "ahead5-mid65-late-awake",
      "size": 5,
-     "trades": 564,
-     "won": 323,
-     "net": -233.21,
+     "trades": 565,
+     "won": 324,
+     "net": -231.49,
      "fillable": {
-      "trades": 374,
-      "won": 199,
-      "net": -279.59,
+      "trades": 375,
+      "won": 200,
+      "net": -277.87,
       "miss": 190
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 68,
-       "won": 37,
-       "net": -40.5,
+       "trades": 69,
+       "won": 38,
+       "net": -38.78,
        "first": 1793989200
       },
       {
@@ -38023,23 +38023,23 @@
     {
      "name": "feed3-up40-halt6",
      "size": 5,
-     "trades": 447,
-     "won": 127,
-     "net": 25.92,
+     "trades": 448,
+     "won": 128,
+     "net": 31.75,
      "fillable": {
       "trades": 265,
       "won": 66,
       "net": -196.05,
-      "miss": 182
+      "miss": 183
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 57,
-       "won": 14,
-       "net": -55.44,
+       "trades": 58,
+       "won": 15,
+       "net": -49.61,
        "first": 1793977800
       },
       {
@@ -38155,23 +38155,23 @@
     {
      "name": "feed3-up40-near",
      "size": 5,
-     "trades": 74,
-     "won": 25,
-     "net": -44.3,
+     "trades": 75,
+     "won": 26,
+     "net": -38.46,
      "fillable": {
       "trades": 44,
       "won": 12,
       "net": -70.05,
-      "miss": 30
+      "miss": 31
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 9,
-       "won": 3,
-       "net": -7.27,
+       "trades": 10,
+       "won": 4,
+       "net": -1.44,
        "first": 1793981400
       },
       {
@@ -38353,23 +38353,23 @@
     {
      "name": "feed3-up60-mid",
      "size": 5,
-     "trades": 562,
-     "won": 269,
-     "net": -233.05,
+     "trades": 563,
+     "won": 270,
+     "net": -225.88,
      "fillable": {
       "trades": 346,
       "won": 157,
       "net": -250.48,
-      "miss": 216
+      "miss": 217
      },
      "open": 1,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 74,
-       "won": 34,
-       "net": -40.17,
+       "trades": 75,
+       "won": 35,
+       "net": -33,
        "first": 1793977800
       },
       {
@@ -38419,23 +38419,23 @@
     {
      "name": "feed3-up60-min20",
      "size": 5,
-     "trades": 663,
-     "won": 288,
-     "net": -184.26,
+     "trades": 664,
+     "won": 289,
+     "net": -177.09,
      "fillable": {
       "trades": 397,
       "won": 165,
       "net": -220.75,
-      "miss": 266
+      "miss": 267
      },
      "open": 1,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 89,
-       "won": 36,
-       "net": -66.82,
+       "trades": 90,
+       "won": 37,
+       "net": -59.65,
        "first": 1793977800
       },
       {
@@ -38485,23 +38485,23 @@
     {
      "name": "feed3-up40-min20",
      "size": 5,
-     "trades": 370,
-     "won": 119,
-     "net": -61.74,
+     "trades": 371,
+     "won": 120,
+     "net": -55.9,
      "fillable": {
       "trades": 207,
       "won": 61,
       "net": -127.27,
-      "miss": 163
+      "miss": 164
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 50,
-       "won": 14,
-       "net": -52.37,
+       "trades": 51,
+       "won": 15,
+       "net": -46.54,
        "first": 1793977800
       },
       {
@@ -38551,23 +38551,23 @@
     {
      "name": "feed3-up40-eu",
      "size": 5,
-     "trades": 58,
-     "won": 20,
-     "net": 41.19,
+     "trades": 59,
+     "won": 21,
+     "net": 47.02,
      "fillable": {
       "trades": 33,
       "won": 9,
       "net": -2.24,
-      "miss": 25
+      "miss": 26
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 7,
-       "won": 2,
-       "net": -5.44,
+       "trades": 8,
+       "won": 3,
+       "net": 0.39,
        "first": 1794032400
       },
       {
@@ -39145,23 +39145,23 @@
     {
      "name": "feed3-up40-awake",
      "size": 5,
-     "trades": 370,
-     "won": 104,
-     "net": 16.76,
+     "trades": 371,
+     "won": 105,
+     "net": 22.6,
      "fillable": {
       "trades": 218,
       "won": 54,
       "net": -193.34,
-      "miss": 152
+      "miss": 153
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 42,
-       "won": 9,
-       "net": -49.5,
+       "trades": 43,
+       "won": 10,
+       "net": -43.67,
        "first": 1793977800
       },
       {
@@ -39880,7 +39880,7 @@
       "net": -150.46,
       "miss": 85
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -40003,23 +40003,23 @@
     {
      "name": "up60-first60",
      "size": 5,
-     "trades": 1402,
-     "won": 785,
-     "net": -801.23,
+     "trades": 1403,
+     "won": 786,
+     "net": -798.08,
      "fillable": {
       "trades": 1087,
       "won": 599,
       "net": -701.26,
-      "miss": 315
+      "miss": 316
      },
      "open": 2,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 141,
-       "won": 79,
-       "net": -81.85,
+       "trades": 142,
+       "won": 80,
+       "net": -78.7,
        "first": 1793977800
       },
       {
@@ -40135,23 +40135,23 @@
     {
      "name": "slide90-80-70",
      "size": 5,
-     "trades": 2169,
+     "trades": 2171,
      "won": 1841,
-     "net": -387.37,
+     "net": -397.5,
      "fillable": {
-      "trades": 1702,
+      "trades": 1703,
       "won": 1424,
-      "net": -459.46,
-      "miss": 467
+      "net": -464.52,
+      "miss": 468
      },
-     "open": 2,
+     "open": 1,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 225,
+       "trades": 227,
        "won": 193,
-       "net": -30.12,
+       "net": -40.24,
        "first": 1793977800
       },
       {
@@ -40201,23 +40201,23 @@
     {
      "name": "slide95-85-75",
      "size": 5,
-     "trades": 2169,
-     "won": 1912,
-     "net": -289.74,
+     "trades": 2171,
+     "won": 1913,
+     "net": -294.15,
      "fillable": {
-      "trades": 1717,
+      "trades": 1718,
       "won": 1503,
-      "net": -341.86,
-      "miss": 452
+      "net": -346.9,
+      "miss": 453
      },
-     "open": 2,
+     "open": 1,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 225,
-       "won": 201,
-       "net": -10.97,
+       "trades": 227,
+       "won": 202,
+       "net": -15.38,
        "first": 1793977800
       },
       {
@@ -40267,23 +40267,23 @@
     {
      "name": "fav99-last30",
      "size": 5,
-     "trades": 336,
-     "won": 324,
-     "net": -44.82,
+     "trades": 337,
+     "won": 325,
+     "net": -44.77,
      "fillable": {
       "trades": 195,
       "won": 185,
       "net": -41.38,
-      "miss": 141
+      "miss": 142
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 35,
-       "won": 34,
-       "net": -3.33,
+       "trades": 36,
+       "won": 35,
+       "net": -3.28,
        "first": 1793978100
       },
       {
@@ -40333,23 +40333,23 @@
     {
      "name": "preopen3-down60",
      "size": 5,
-     "trades": 494,
+     "trades": 495,
      "won": 275,
-     "net": -72.67,
+     "net": -77.82,
      "fillable": {
-      "trades": 351,
+      "trades": 352,
       "won": 192,
-      "net": -64.51,
+      "net": -69.65,
       "miss": 143
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 48,
+       "trades": 49,
        "won": 29,
-       "net": 11.88,
+       "net": 6.73,
        "first": 1793983500
       },
       {
@@ -40810,7 +40810,7 @@
   {
    "key": "doge5m",
    "label": "DOGE 5m",
-   "windowsDone": 9,
+   "windowsDone": 0,
    "lastError": null,
    "feeds": [
     {
@@ -40825,7 +40825,7 @@
     },
     {
      "name": "coinbase doge",
-     "healthy": false,
+     "healthy": true,
      "errors": 0
     },
     {
@@ -41507,7 +41507,7 @@
       "net": -443.37,
       "miss": 329
      },
-     "open": 1,
+     "open": 2,
      "discarded": false,
      "days": [
       {
@@ -41837,7 +41837,7 @@
       "net": -347.15,
       "miss": 311
      },
-     "open": 1,
+     "open": 2,
      "discarded": false,
      "days": [
       {
@@ -42035,7 +42035,7 @@
       "net": -87.83,
       "miss": 178
      },
-     "open": 1,
+     "open": 2,
      "discarded": false,
      "days": [
       {
@@ -42167,7 +42167,7 @@
       "net": -302.68,
       "miss": 210
      },
-     "open": 1,
+     "open": 2,
      "discarded": false,
      "days": [
       {
@@ -42233,7 +42233,7 @@
       "net": -367.38,
       "miss": 384
      },
-     "open": 1,
+     "open": 2,
      "discarded": false,
      "days": [
       {
@@ -42299,7 +42299,7 @@
       "net": -237.76,
       "miss": 174
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -42365,7 +42365,7 @@
       "net": -160.04,
       "miss": 173
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -42431,7 +42431,7 @@
       "net": -210.17,
       "miss": 269
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -42563,7 +42563,7 @@
       "net": -656.37,
       "miss": 325
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -42695,7 +42695,7 @@
       "net": 0,
       "miss": 0
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -42761,7 +42761,7 @@
       "net": -1638.23,
       "miss": 414
      },
-     "open": 2,
+     "open": 3,
      "discarded": false,
      "days": [
       {
@@ -42827,7 +42827,7 @@
       "net": -1425.16,
       "miss": 376
      },
-     "open": 2,
+     "open": 3,
      "discarded": false,
      "days": [
       {
@@ -42893,7 +42893,7 @@
       "net": -95.3,
       "miss": 44
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -43327,7 +43327,7 @@
       "net": -444.92,
       "miss": 319
      },
-     "open": 1,
+     "open": 2,
      "discarded": false,
      "days": [
       {
@@ -43393,7 +43393,7 @@
       "net": -297.86,
       "miss": 271
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -43723,7 +43723,7 @@
       "net": -218.52,
       "miss": 196
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -43789,7 +43789,7 @@
       "net": -439.05,
       "miss": 353
      },
-     "open": 1,
+     "open": 2,
      "discarded": false,
      "days": [
       {
@@ -43855,7 +43855,7 @@
       "net": -15.74,
       "miss": 43
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -46092,7 +46092,7 @@
       "net": -1721.38,
       "miss": 400
      },
-     "open": 2,
+     "open": 3,
      "discarded": false,
      "days": [
       {
@@ -46158,7 +46158,7 @@
       "net": -188.92,
       "miss": 255
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -46224,7 +46224,7 @@
       "net": -227.2,
       "miss": 207
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -46519,7 +46519,7 @@
       "net": -368.74,
       "miss": 71
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -46585,7 +46585,7 @@
       "net": -96.74,
       "miss": 120
      },
-     "open": 1,
+     "open": 2,
      "discarded": false,
      "days": [
       {
@@ -46651,7 +46651,7 @@
       "net": -77.23,
       "miss": 122
      },
-     "open": 1,
+     "open": 2,
      "discarded": false,
      "days": [
       {
@@ -50052,7 +50052,7 @@
       "net": -208.06,
       "miss": 93
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -50184,7 +50184,7 @@
       "net": -1174.3,
       "miss": 296
      },
-     "open": 2,
+     "open": 3,
      "discarded": false,
      "days": [
       {
@@ -50250,7 +50250,7 @@
       "net": -89.23,
       "miss": 133
      },
-     "open": 1,
+     "open": 2,
      "discarded": false,
      "days": [
       {
@@ -50316,7 +50316,7 @@
       "net": -535.58,
       "miss": 411
      },
-     "open": 1,
+     "open": 2,
      "discarded": false,
      "days": [
       {
@@ -50382,7 +50382,7 @@
       "net": -472.39,
       "miss": 383
      },
-     "open": 1,
+     "open": 2,
      "discarded": false,
      "days": [
       {
@@ -50993,7 +50993,7 @@
   {
    "key": "bnb5m",
    "label": "BNB 5m",
-   "windowsDone": 9,
+   "windowsDone": 0,
    "lastError": null,
    "feeds": [
     {
@@ -51008,7 +51008,7 @@
     },
     {
      "name": "coinbase bnb",
-     "healthy": false,
+     "healthy": true,
      "errors": 0
     },
     {
@@ -51681,13 +51681,13 @@
     {
      "name": "fav93",
      "size": 5,
-     "trades": 2166,
-     "won": 1882,
-     "net": -886.41,
+     "trades": 2167,
+     "won": 1883,
+     "net": -886.06,
      "fillable": {
-      "trades": 1889,
-      "won": 1625,
-      "net": -861.9,
+      "trades": 1890,
+      "won": 1626,
+      "net": -861.55,
       "miss": 277
      },
      "open": 2,
@@ -51695,9 +51695,9 @@
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 226,
-       "won": 199,
-       "net": -80.88,
+       "trades": 227,
+       "won": 200,
+       "net": -80.53,
        "first": 1793977500
       },
       {
@@ -51756,7 +51756,7 @@
       "net": -193.39,
       "miss": 154
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -51879,13 +51879,13 @@
     {
      "name": "fav93-lead",
      "size": 5,
-     "trades": 675,
-     "won": 586,
-     "net": -285.75,
+     "trades": 676,
+     "won": 587,
+     "net": -285.4,
      "fillable": {
-      "trades": 570,
-      "won": 489,
-      "net": -273.91,
+      "trades": 571,
+      "won": 490,
+      "net": -273.56,
       "miss": 105
      },
      "open": 2,
@@ -51893,9 +51893,9 @@
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 120,
-       "won": 109,
-       "net": -25.35,
+       "trades": 121,
+       "won": 110,
+       "net": -25,
        "first": 1793982000
       },
       {
@@ -52011,13 +52011,13 @@
     {
      "name": "fav95",
      "size": 5,
-     "trades": 2166,
-     "won": 1942,
-     "net": -728.58,
+     "trades": 2167,
+     "won": 1943,
+     "net": -728.34,
      "fillable": {
-      "trades": 1921,
-      "won": 1709,
-      "net": -716.14,
+      "trades": 1922,
+      "won": 1710,
+      "net": -715.9,
       "miss": 245
      },
      "open": 2,
@@ -52025,9 +52025,9 @@
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 226,
-       "won": 205,
-       "net": -64.65,
+       "trades": 227,
+       "won": 206,
+       "net": -64.41,
        "first": 1793977500
       },
       {
@@ -52143,13 +52143,13 @@
     {
      "name": "fav95-lead",
      "size": 5,
-     "trades": 634,
-     "won": 567,
-     "net": -226.76,
+     "trades": 635,
+     "won": 568,
+     "net": -226.52,
      "fillable": {
-      "trades": 541,
-      "won": 478,
-      "net": -225.88,
+      "trades": 542,
+      "won": 479,
+      "net": -225.64,
       "miss": 93
      },
      "open": 2,
@@ -52157,9 +52157,9 @@
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 114,
-       "won": 105,
-       "net": -24.55,
+       "trades": 115,
+       "won": 106,
+       "net": -24.31,
        "first": 1793978700
       },
       {
@@ -52209,23 +52209,23 @@
     {
      "name": "fav95-hold",
      "size": 5,
-     "trades": 983,
-     "won": 929,
-     "net": -72.6,
+     "trades": 984,
+     "won": 930,
+     "net": -72.35,
      "fillable": {
-      "trades": 872,
-      "won": 820,
-      "net": -85.71,
+      "trades": 873,
+      "won": 821,
+      "net": -85.47,
       "miss": 111
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 94,
-       "won": 91,
-       "net": 4.68,
+       "trades": 95,
+       "won": 92,
+       "net": 4.92,
        "first": 1793978100
       },
       {
@@ -52341,13 +52341,13 @@
     {
      "name": "fav97",
      "size": 5,
-     "trades": 2162,
-     "won": 1993,
-     "net": -615.67,
+     "trades": 2163,
+     "won": 1994,
+     "net": -615.53,
      "fillable": {
-      "trades": 1985,
-      "won": 1818,
-      "net": -627.53,
+      "trades": 1986,
+      "won": 1819,
+      "net": -627.39,
       "miss": 175
      },
      "open": 2,
@@ -52355,9 +52355,9 @@
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 225,
-       "won": 208,
-       "net": -61.12,
+       "trades": 226,
+       "won": 209,
+       "net": -60.98,
        "first": 1793977800
       },
       {
@@ -52407,13 +52407,13 @@
     {
      "name": "fav93-late",
      "size": 5,
-     "trades": 1946,
-     "won": 1769,
-     "net": -504.5,
+     "trades": 1947,
+     "won": 1770,
+     "net": -504.14,
      "fillable": {
-      "trades": 1612,
-      "won": 1454,
-      "net": -483.88,
+      "trades": 1613,
+      "won": 1455,
+      "net": -483.53,
       "miss": 334
      },
      "open": 2,
@@ -52421,9 +52421,9 @@
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 208,
-       "won": 193,
-       "net": -31.87,
+       "trades": 209,
+       "won": 194,
+       "net": -31.52,
        "first": 1793977500
       },
       {
@@ -52614,7 +52614,7 @@
       "net": -220.48,
       "miss": 198
      },
-     "open": 1,
+     "open": 2,
      "discarded": false,
      "days": [
       {
@@ -52737,23 +52737,23 @@
     {
      "name": "fav93-stop",
      "size": 5,
-     "trades": 2171,
-     "won": 1232,
-     "net": -1702.3,
+     "trades": 2173,
+     "won": 1233,
+     "net": -1703.32,
      "fillable": {
-      "trades": 1627,
-      "won": 1029,
-      "net": -933.63,
+      "trades": 1628,
+      "won": 1030,
+      "net": -933.28,
       "miss": 257
      },
-     "open": 2,
+     "open": 1,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 226,
-       "won": 120,
-       "net": -220.68,
+       "trades": 228,
+       "won": 121,
+       "net": -221.71,
        "first": 1793977500
       },
       {
@@ -52935,13 +52935,13 @@
     {
      "name": "prev-momentum",
      "size": 5,
-     "trades": 1898,
+     "trades": 1899,
      "won": 893,
-     "net": -1607.48,
+     "net": -1612.62,
      "fillable": {
-      "trades": 1556,
+      "trades": 1557,
       "won": 712,
-      "net": -1516.09,
+      "net": -1521.23,
       "miss": 342
      },
      "open": 2,
@@ -52949,9 +52949,9 @@
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 201,
+       "trades": 202,
        "won": 95,
-       "net": -185.13,
+       "net": -190.27,
        "first": 1793978100
       },
       {
@@ -53001,13 +53001,13 @@
     {
      "name": "prev-reverse",
      "size": 5,
-     "trades": 1943,
-     "won": 905,
-     "net": -1623.56,
+     "trades": 1944,
+     "won": 906,
+     "net": -1620,
      "fillable": {
-      "trades": 1576,
-      "won": 700,
-      "net": -1648.52,
+      "trades": 1577,
+      "won": 701,
+      "net": -1644.96,
       "miss": 367
      },
      "open": 3,
@@ -53015,9 +53015,9 @@
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 203,
-       "won": 90,
-       "net": -240.38,
+       "trades": 204,
+       "won": 91,
+       "net": -236.82,
        "first": 1793977800
       },
       {
@@ -53076,7 +53076,7 @@
       "net": -284.92,
       "miss": 31
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -53305,7 +53305,7 @@
       "net": -853.23,
       "miss": 227
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -53494,13 +53494,13 @@
     {
      "name": "fav93-calm",
      "size": 5,
-     "trades": 2159,
-     "won": 1876,
-     "net": -884.13,
+     "trades": 2160,
+     "won": 1877,
+     "net": -883.78,
      "fillable": {
-      "trades": 1884,
-      "won": 1621,
-      "net": -858.89,
+      "trades": 1885,
+      "won": 1622,
+      "net": -858.54,
       "miss": 275
      },
      "open": 2,
@@ -53508,9 +53508,9 @@
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 225,
-       "won": 198,
-       "net": -81.07,
+       "trades": 226,
+       "won": 199,
+       "net": -80.72,
        "first": 1793977800
       },
       {
@@ -53569,7 +53569,7 @@
       "net": -440.5,
       "miss": 215
      },
-     "open": 1,
+     "open": 2,
      "discarded": false,
      "days": [
       {
@@ -53956,23 +53956,23 @@
     {
      "name": "fav-half",
      "size": 5,
-     "trades": 1328,
-     "won": 945,
-     "net": -315.45,
+     "trades": 1329,
+     "won": 946,
+     "net": -312.76,
      "fillable": {
-      "trades": 910,
-      "won": 625,
-      "net": -384.64,
+      "trades": 911,
+      "won": 626,
+      "net": -381.95,
       "miss": 418
      },
-     "open": 2,
+     "open": 1,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 153,
-       "won": 118,
-       "net": 35.99,
+       "trades": 154,
+       "won": 119,
+       "net": 38.68,
        "first": 1793977800
       },
       {
@@ -54295,7 +54295,7 @@
       "net": -253.9,
       "miss": 191
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -56245,13 +56245,13 @@
     {
      "name": "basis10-both60-2m",
      "size": 5,
-     "trades": 1958,
+     "trades": 1959,
      "won": 858,
-     "net": -1528.79,
+     "net": -1533.93,
      "fillable": {
-      "trades": 1609,
+      "trades": 1610,
       "won": 668,
-      "net": -1663.19,
+      "net": -1668.33,
       "miss": 349
      },
      "open": 3,
@@ -56259,9 +56259,9 @@
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 169,
+       "trades": 170,
        "won": 74,
-       "net": -141.48,
+       "net": -146.62,
        "first": 1793978100
       },
       {
@@ -56377,23 +56377,23 @@
     {
      "name": "imbfade65-mid",
      "size": 5,
-     "trades": 1035,
+     "trades": 1036,
      "won": 461,
-     "net": -529.66,
+     "net": -534.87,
      "fillable": {
-      "trades": 754,
+      "trades": 755,
       "won": 318,
-      "net": -528.05,
+      "net": -533.26,
       "miss": 281
      },
-     "open": 2,
+     "open": 1,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 117,
+       "trades": 118,
        "won": 58,
-       "net": -52.89,
+       "net": -58.1,
        "first": 1793977800
       },
       {
@@ -56518,7 +56518,7 @@
       "net": -1249.09,
       "miss": 368
      },
-     "open": 2,
+     "open": 3,
      "discarded": false,
      "days": [
       {
@@ -56707,23 +56707,23 @@
     {
      "name": "fav95-hold-min60",
      "size": 5,
-     "trades": 704,
-     "won": 669,
-     "net": -32.37,
+     "trades": 705,
+     "won": 670,
+     "net": -32.13,
      "fillable": {
-      "trades": 628,
-      "won": 593,
-      "net": -48.39,
+      "trades": 629,
+      "won": 594,
+      "net": -48.14,
       "miss": 76
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 81,
-       "won": 78,
-       "net": 1.82,
+       "trades": 82,
+       "won": 79,
+       "net": 2.06,
        "first": 1793978100
       },
       {
@@ -60115,23 +60115,23 @@
     {
      "name": "flat1-cheap40",
      "size": 5,
-     "trades": 359,
+     "trades": 360,
      "won": 115,
-     "net": -178.57,
+     "net": -183.8,
      "fillable": {
-      "trades": 227,
+      "trades": 228,
       "won": 65,
-      "net": -213.09,
+      "net": -218.32,
       "miss": 132
      },
-     "open": 2,
+     "open": 1,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 60,
+       "trades": 61,
        "won": 12,
-       "net": -127.92,
+       "net": -133.15,
        "first": 1793979300
       },
       {
@@ -60247,23 +60247,23 @@
     {
      "name": "up60-first60",
      "size": 5,
-     "trades": 1731,
-     "won": 898,
-     "net": -1656.68,
+     "trades": 1732,
+     "won": 899,
+     "net": -1653.21,
      "fillable": {
       "trades": 1471,
       "won": 739,
       "net": -1591.04,
-      "miss": 260
+      "miss": 261
      },
-     "open": 1,
+     "open": 2,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 191,
-       "won": 95,
-       "net": -228.07,
+       "trades": 192,
+       "won": 96,
+       "net": -224.6,
        "first": 1793978100
       },
       {
@@ -60313,23 +60313,23 @@
     {
      "name": "fav84-at180",
      "size": 5,
-     "trades": 596,
-     "won": 472,
-     "net": -272.57,
+     "trades": 597,
+     "won": 473,
+     "net": -271.74,
      "fillable": {
-      "trades": 473,
-      "won": 366,
-      "net": -267.79,
+      "trades": 474,
+      "won": 367,
+      "net": -266.96,
       "miss": 123
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 61,
-       "won": 49,
-       "net": -22.54,
+       "trades": 62,
+       "won": 50,
+       "net": -21.71,
        "first": 1793977800
       },
       {
@@ -60379,13 +60379,13 @@
     {
      "name": "slide90-80-70",
      "size": 5,
-     "trades": 2169,
-     "won": 1771,
-     "net": -929.04,
+     "trades": 2170,
+     "won": 1772,
+     "net": -928.01,
      "fillable": {
-      "trades": 1839,
-      "won": 1477,
-      "net": -966.6,
+      "trades": 1840,
+      "won": 1478,
+      "net": -965.56,
       "miss": 330
      },
      "open": 2,
@@ -60393,9 +60393,9 @@
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 226,
-       "won": 185,
-       "net": -88.17,
+       "trades": 227,
+       "won": 186,
+       "net": -87.14,
        "first": 1793977500
       },
       {
@@ -60445,13 +60445,13 @@
     {
      "name": "slide95-85-75",
      "size": 5,
-     "trades": 2169,
-     "won": 1833,
-     "net": -862.3,
+     "trades": 2170,
+     "won": 1834,
+     "net": -861.47,
      "fillable": {
-      "trades": 1884,
-      "won": 1576,
-      "net": -867.15,
+      "trades": 1885,
+      "won": 1577,
+      "net": -866.32,
       "miss": 285
      },
      "open": 2,
@@ -60459,9 +60459,9 @@
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 226,
-       "won": 195,
-       "net": -61.54,
+       "trades": 227,
+       "won": 196,
+       "net": -60.71,
        "first": 1793977500
       },
       {
@@ -61054,7 +61054,7 @@
   {
    "key": "hype5m",
    "label": "HYPE 5m",
-   "windowsDone": 9,
+   "windowsDone": 0,
    "lastError": null,
    "feeds": [
     {
@@ -61751,7 +61751,7 @@
       "net": -1099.72,
       "miss": 253
      },
-     "open": 1,
+     "open": 2,
      "discarded": false,
      "days": [
       {
@@ -61817,7 +61817,7 @@
       "net": -421.76,
       "miss": 222
      },
-     "open": 1,
+     "open": 2,
      "discarded": false,
      "days": [
       {
@@ -62081,7 +62081,7 @@
       "net": -1036.23,
       "miss": 244
      },
-     "open": 1,
+     "open": 2,
      "discarded": false,
      "days": [
       {
@@ -62213,7 +62213,7 @@
       "net": -151.76,
       "miss": 32
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -62411,7 +62411,7 @@
       "net": -876.7,
       "miss": 230
      },
-     "open": 1,
+     "open": 2,
      "discarded": false,
      "days": [
       {
@@ -62807,7 +62807,7 @@
       "net": -908.81,
       "miss": 212
      },
-     "open": 1,
+     "open": 2,
      "discarded": false,
      "days": [
       {
@@ -63005,7 +63005,7 @@
       "net": -1169.14,
       "miss": 509
      },
-     "open": 2,
+     "open": 3,
      "discarded": false,
      "days": [
       {
@@ -63071,7 +63071,7 @@
       "net": -1495.67,
       "miss": 567
      },
-     "open": 1,
+     "open": 2,
      "discarded": false,
      "days": [
       {
@@ -63137,7 +63137,7 @@
       "net": -179.02,
       "miss": 20
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -63380,7 +63380,7 @@
       "net": -1051.71,
       "miss": 190
      },
-     "open": 1,
+     "open": 2,
      "discarded": false,
      "days": [
       {
@@ -63578,7 +63578,7 @@
       "net": -1099.34,
       "miss": 247
      },
-     "open": 1,
+     "open": 2,
      "discarded": false,
      "days": [
       {
@@ -63644,7 +63644,7 @@
       "net": -751.19,
       "miss": 175
      },
-     "open": 1,
+     "open": 2,
      "discarded": false,
      "days": [
       {
@@ -66329,7 +66329,7 @@
       "net": -1906.4,
       "miss": 531
      },
-     "open": 2,
+     "open": 3,
      "discarded": false,
      "days": [
       {
@@ -66395,7 +66395,7 @@
       "net": -357.76,
       "miss": 297
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -66461,7 +66461,7 @@
       "net": -947.43,
       "miss": 259
      },
-     "open": 1,
+     "open": 2,
      "discarded": false,
      "days": [
       {
@@ -66593,7 +66593,7 @@
       "net": -1669.49,
       "miss": 523
      },
-     "open": 2,
+     "open": 3,
      "discarded": false,
      "days": [
       {
@@ -68299,7 +68299,7 @@
       "net": -618.62,
       "miss": 360
      },
-     "open": 1,
+     "open": 2,
      "discarded": false,
      "days": [
       {
@@ -70411,7 +70411,7 @@
       "net": -1872.65,
       "miss": 352
      },
-     "open": 1,
+     "open": 2,
      "discarded": false,
      "days": [
       {
@@ -70543,7 +70543,7 @@
       "net": -1221.27,
       "miss": 302
      },
-     "open": 1,
+     "open": 2,
      "discarded": false,
      "days": [
       {
@@ -70609,7 +70609,7 @@
       "net": -991.99,
       "miss": 299
      },
-     "open": 1,
+     "open": 2,
      "discarded": false,
      "days": [
       {
@@ -71209,7 +71209,7 @@
   {
    "key": "btc15m",
    "label": "BTC 15m",
-   "windowsDone": 3,
+   "windowsDone": 0,
    "lastError": null,
    "feeds": [
     {
@@ -87616,7 +87616,7 @@
       "net": -7.89,
       "miss": 231
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -87877,7 +87877,7 @@
   {
    "key": "eth15m",
    "label": "ETH 15m",
-   "windowsDone": 3,
+   "windowsDone": 0,
    "lastError": null,
    "feeds": [
     {
@@ -104839,7 +104839,7 @@
   {
    "key": "sol15m",
    "label": "SOL 15m",
-   "windowsDone": 3,
+   "windowsDone": 0,
    "lastError": null,
    "feeds": [
     {
@@ -105471,23 +105471,23 @@
     {
      "name": "fav93",
      "size": 5,
-     "trades": 591,
+     "trades": 592,
      "won": 561,
-     "net": -33.42,
+     "net": -38.44,
      "fillable": {
-      "trades": 478,
+      "trades": 479,
       "won": 456,
-      "net": -17.8,
+      "net": -22.82,
       "miss": 113
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 64,
+       "trades": 65,
        "won": 62,
-       "net": 3.2,
+       "net": -1.82,
        "first": 1793977200
       },
       {
@@ -105648,23 +105648,23 @@
     {
      "name": "fav93-hold",
      "size": 5,
-     "trades": 361,
+     "trades": 362,
      "won": 349,
-     "net": 5.94,
+     "net": 0.92,
      "fillable": {
-      "trades": 320,
+      "trades": 321,
       "won": 311,
-      "net": 11.27,
+      "net": 6.25,
       "miss": 41
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 41,
+       "trades": 42,
        "won": 40,
-       "net": 2.95,
+       "net": -2.07,
        "first": 1793977200
       },
       {
@@ -105714,23 +105714,23 @@
     {
      "name": "fav95",
      "size": 5,
-     "trades": 591,
+     "trades": 592,
      "won": 566,
-     "net": -35.57,
+     "net": -40.59,
      "fillable": {
-      "trades": 496,
+      "trades": 497,
       "won": 472,
-      "net": -46.14,
+      "net": -51.15,
       "miss": 94
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 64,
+       "trades": 65,
        "won": 63,
-       "net": 5.46,
+       "net": 0.45,
        "first": 1793977200
       },
       {
@@ -105891,23 +105891,23 @@
     {
      "name": "fav95-hold",
      "size": 5,
-     "trades": 427,
+     "trades": 428,
      "won": 410,
-     "net": -19.03,
+     "net": -24.04,
      "fillable": {
-      "trades": 388,
+      "trades": 389,
       "won": 371,
-      "net": -26.65,
+      "net": -31.67,
       "miss": 39
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 46,
+       "trades": 47,
        "won": 45,
-       "net": 2.41,
+       "net": -2.6,
        "first": 1793977200
       },
       {
@@ -106009,23 +106009,23 @@
     {
      "name": "fav97",
      "size": 5,
-     "trades": 585,
+     "trades": 586,
      "won": 566,
-     "net": -36.55,
+     "net": -41.56,
      "fillable": {
-      "trades": 515,
+      "trades": 516,
       "won": 496,
-      "net": -42.98,
+      "net": -47.99,
       "miss": 69
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 63,
+       "trades": 64,
        "won": 62,
-       "net": 1.06,
+       "net": -3.95,
        "first": 1793977200
       },
       {
@@ -106075,23 +106075,23 @@
     {
      "name": "fav93-late",
      "size": 5,
-     "trades": 591,
+     "trades": 592,
      "won": 561,
-     "net": -33.42,
+     "net": -38.44,
      "fillable": {
-      "trades": 478,
+      "trades": 479,
       "won": 456,
-      "net": -17.8,
+      "net": -22.82,
       "miss": 113
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 64,
+       "trades": 65,
        "won": 62,
-       "net": 3.2,
+       "net": -1.82,
        "first": 1793977200
       },
       {
@@ -106141,23 +106141,23 @@
     {
      "name": "fav93-last3",
      "size": 5,
-     "trades": 357,
+     "trades": 358,
      "won": 331,
-     "net": -30.19,
+     "net": -35.21,
      "fillable": {
-      "trades": 272,
+      "trades": 273,
       "won": 254,
-      "net": -12.48,
+      "net": -17.51,
       "miss": 85
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 41,
+       "trades": 42,
        "won": 40,
-       "net": 6.66,
+       "net": 1.64,
        "first": 1793978100
       },
       {
@@ -106207,23 +106207,23 @@
     {
      "name": "fav95-last3",
      "size": 5,
-     "trades": 381,
+     "trades": 382,
      "won": 360,
-     "net": -27.6,
+     "net": -32.62,
      "fillable": {
-      "trades": 316,
+      "trades": 317,
       "won": 296,
-      "net": -36.4,
+      "net": -41.41,
       "miss": 65
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 39,
+       "trades": 40,
        "won": 39,
-       "net": 8.81,
+       "net": 3.8,
        "first": 1793978100
       },
       {
@@ -106273,23 +106273,23 @@
     {
      "name": "fav97-last3",
      "size": 5,
-     "trades": 585,
+     "trades": 586,
      "won": 566,
-     "net": -36.55,
+     "net": -41.56,
      "fillable": {
-      "trades": 515,
+      "trades": 516,
       "won": 496,
-      "net": -42.98,
+      "net": -47.99,
       "miss": 69
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 63,
+       "trades": 64,
        "won": 62,
-       "net": 1.06,
+       "net": -3.95,
        "first": 1793977200
       },
       {
@@ -106339,23 +106339,23 @@
     {
      "name": "fav95-hold-last3",
      "size": 5,
-     "trades": 192,
+     "trades": 193,
      "won": 179,
-     "net": -23.87,
+     "net": -28.88,
      "fillable": {
-      "trades": 167,
+      "trades": 168,
       "won": 154,
-      "net": -29.65,
+      "net": -34.66,
       "miss": 25
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 19,
+       "trades": 20,
        "won": 19,
-       "net": 4.33,
+       "net": -0.68,
        "first": 1793978100
       },
       {
@@ -106603,23 +106603,23 @@
     {
      "name": "prev-momentum",
      "size": 5,
-     "trades": 707,
+     "trades": 708,
      "won": 334,
-     "net": -437.69,
+     "net": -442.89,
      "fillable": {
-      "trades": 588,
+      "trades": 589,
       "won": 272,
-      "net": -416.65,
+      "net": -421.85,
       "miss": 119
      },
-     "open": 2,
+     "open": 1,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 74,
+       "trades": 75,
        "won": 33,
-       "net": -66.52,
+       "net": -71.71,
        "first": 1793978100
       },
       {
@@ -106669,23 +106669,23 @@
     {
      "name": "prev-reverse",
      "size": 5,
-     "trades": 701,
-     "won": 365,
-     "net": -159.74,
+     "trades": 702,
+     "won": 366,
+     "net": -157.82,
      "fillable": {
-      "trades": 589,
-      "won": 304,
-      "net": -156.33,
+      "trades": 590,
+      "won": 305,
+      "net": -154.41,
       "miss": 112
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 73,
-       "won": 40,
-       "net": 4.14,
+       "trades": 74,
+       "won": 41,
+       "net": 6.06,
        "first": 1793978100
       },
       {
@@ -106912,23 +106912,23 @@
     {
      "name": "fav93-rest",
      "size": 5,
-     "trades": 344,
+     "trades": 345,
      "won": 314,
-     "net": -49.54,
+     "net": -54.54,
      "fillable": {
-      "trades": 289,
+      "trades": 290,
       "won": 263,
-      "net": -48.31,
+      "net": -53.31,
       "miss": 55
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 34,
+       "trades": 35,
        "won": 32,
-       "net": 0.46,
+       "net": -4.54,
        "first": 1793977200
       },
       {
@@ -107110,23 +107110,23 @@
     {
      "name": "fav93-calm",
      "size": 5,
-     "trades": 519,
+     "trades": 520,
      "won": 491,
-     "net": -28.98,
+     "net": -34.01,
      "fillable": {
-      "trades": 418,
+      "trades": 419,
       "won": 399,
-      "net": -7.01,
+      "net": -12.03,
       "miss": 101
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 60,
+       "trades": 61,
        "won": 59,
-       "net": 8.04,
+       "net": 3.02,
        "first": 1793979900
       },
       {
@@ -107176,23 +107176,23 @@
     {
      "name": "fav-last30",
      "size": 5,
-     "trades": 354,
+     "trades": 355,
      "won": 308,
-     "net": -19.92,
+     "net": -24.99,
      "fillable": {
-      "trades": 271,
+      "trades": 272,
       "won": 239,
-      "net": -17.49,
+      "net": -22.57,
       "miss": 83
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 35,
+       "trades": 36,
        "won": 32,
-       "net": 17.86,
+       "net": 12.79,
        "first": 1793977200
       },
       {
@@ -107374,23 +107374,23 @@
     {
      "name": "fav90-last60",
      "size": 5,
-     "trades": 342,
+     "trades": 343,
      "won": 307,
-     "net": -43.68,
+     "net": -48.71,
      "fillable": {
-      "trades": 245,
+      "trades": 246,
       "won": 221,
-      "net": -25.44,
+      "net": -30.48,
       "miss": 97
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 43,
+       "trades": 44,
        "won": 42,
-       "net": 12.2,
+       "net": 7.16,
        "first": 1793978100
       },
       {
@@ -107440,23 +107440,23 @@
     {
      "name": "fav97-hold-last3",
      "size": 5,
-     "trades": 296,
+     "trades": 297,
      "won": 285,
-     "net": -19.4,
+     "net": -24.41,
      "fillable": {
-      "trades": 275,
+      "trades": 276,
       "won": 264,
-      "net": -22.07,
+      "net": -27.09,
       "miss": 21
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 30,
+       "trades": 31,
        "won": 30,
-       "net": 3.52,
+       "net": -1.49,
        "first": 1793978100
       },
       {
@@ -107506,23 +107506,23 @@
     {
      "name": "fav-lead-last30",
      "size": 5,
-     "trades": 251,
+     "trades": 252,
      "won": 234,
-     "net": -1.19,
+     "net": -6.27,
      "fillable": {
-      "trades": 199,
+      "trades": 200,
       "won": 187,
-      "net": -0.54,
+      "net": -5.61,
       "miss": 52
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 17,
+       "trades": 18,
        "won": 17,
-       "net": 6.66,
+       "net": 1.59,
        "first": 1793978100
       },
       {
@@ -109613,23 +109613,23 @@
     {
      "name": "basis10-both60-2m",
      "size": 5,
-     "trades": 720,
-     "won": 358,
-     "net": -214.8,
+     "trades": 721,
+     "won": 359,
+     "net": -212.88,
      "fillable": {
-      "trades": 615,
-      "won": 306,
-      "net": -177.94,
+      "trades": 616,
+      "won": 307,
+      "net": -176.02,
       "miss": 105
      },
-     "open": 2,
+     "open": 1,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 74,
-       "won": 34,
-       "net": -49.51,
+       "trades": 75,
+       "won": 35,
+       "net": -47.59,
        "first": 1793978100
       },
       {
@@ -109679,23 +109679,23 @@
     {
      "name": "ahead3-cheap50-15m",
      "size": 5,
-     "trades": 281,
+     "trades": 282,
      "won": 133,
-     "net": -81.77,
+     "net": -86.96,
      "fillable": {
       "trades": 198,
       "won": 91,
       "net": -90.44,
-      "miss": 83
+      "miss": 84
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 26,
+       "trades": 27,
        "won": 13,
-       "net": -9.13,
+       "net": -14.32,
        "first": 1793978100
       },
       {
@@ -110120,23 +110120,23 @@
     {
      "name": "basis15-both60",
      "size": 5,
-     "trades": 715,
+     "trades": 716,
      "won": 352,
-     "net": -151.06,
+     "net": -156.26,
      "fillable": {
-      "trades": 606,
+      "trades": 607,
       "won": 300,
-      "net": -108.76,
+      "net": -113.95,
       "miss": 109
      },
-     "open": 2,
+     "open": 1,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 72,
+       "trades": 73,
        "won": 33,
-       "net": -41.31,
+       "net": -46.5,
        "first": 1793978100
       },
       {
@@ -110327,7 +110327,7 @@
       "net": 82.02,
       "miss": 199
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -111044,23 +111044,23 @@
     {
      "name": "fav88-15m-late-wide",
      "size": 5,
-     "trades": 319,
+     "trades": 320,
      "won": 279,
-     "net": -58.77,
+     "net": -63.81,
      "fillable": {
-      "trades": 232,
+      "trades": 233,
       "won": 200,
-      "net": -61.33,
+      "net": -66.36,
       "miss": 87
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 39,
+       "trades": 40,
        "won": 36,
-       "net": 3.95,
+       "net": -1.09,
        "first": 1793977200
       },
       {
@@ -111374,23 +111374,23 @@
     {
      "name": "ahead5-cheap60-15m-tp85",
      "size": 5,
-     "trades": 357,
-     "won": 236,
-     "net": -81.28,
+     "trades": 358,
+     "won": 237,
+     "net": -79.44,
      "fillable": {
-      "trades": 277,
-      "won": 180,
-      "net": -76.41,
+      "trades": 278,
+      "won": 181,
+      "net": -74.57,
       "miss": 80
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 28,
-       "won": 19,
-       "net": 0.37,
+       "trades": 29,
+       "won": 20,
+       "net": 2.21,
        "first": 1793978100
       },
       {
@@ -111704,23 +111704,23 @@
     {
      "name": "ahead3-mid60-15m-min3",
      "size": 5,
-     "trades": 226,
+     "trades": 227,
      "won": 133,
-     "net": -10.32,
+     "net": -15.48,
      "fillable": {
-      "trades": 174,
+      "trades": 175,
       "won": 95,
-      "net": -64.57,
+      "net": -69.73,
       "miss": 52
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 18,
+       "trades": 19,
        "won": 12,
-       "net": 11.87,
+       "net": 6.71,
        "first": 1793978100
       },
       {
@@ -111779,7 +111779,7 @@
       "net": 21.67,
       "miss": 168
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -111954,23 +111954,23 @@
     {
      "name": "fav88-15m-late-asia",
      "size": 5,
-     "trades": 97,
+     "trades": 98,
      "won": 84,
-     "net": -21.56,
+     "net": -26.59,
      "fillable": {
-      "trades": 69,
+      "trades": 70,
       "won": 59,
-      "net": -20.27,
+      "net": -25.31,
       "miss": 28
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 13,
+       "trades": 14,
        "won": 12,
-       "net": 1.87,
+       "net": -3.17,
        "first": 1794020400
       },
       {
@@ -112020,23 +112020,23 @@
     {
      "name": "fav88-15m-late-deep",
      "size": 5,
-     "trades": 273,
+     "trades": 274,
      "won": 238,
-     "net": -54.38,
+     "net": -59.42,
      "fillable": {
-      "trades": 198,
+      "trades": 199,
       "won": 169,
-      "net": -61.92,
+      "net": -66.96,
       "miss": 75
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 39,
+       "trades": 40,
        "won": 36,
-       "net": 3.95,
+       "net": -1.09,
        "first": 1793977200
       },
       {
@@ -112218,23 +112218,23 @@
     {
      "name": "fav88-15m-late-asia-btc5",
      "size": 5,
-     "trades": 37,
+     "trades": 38,
      "won": 32,
-     "net": -9.49,
+     "net": -14.53,
      "fillable": {
-      "trades": 25,
+      "trades": 26,
       "won": 22,
-      "net": -4.35,
+      "net": -9.39,
       "miss": 12
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 3,
+       "trades": 4,
        "won": 3,
-       "net": 1.63,
+       "net": -3.41,
        "first": 1794020400
       },
       {
@@ -112284,23 +112284,23 @@
     {
      "name": "fav88-15m-late-asia-either",
      "size": 5,
-     "trades": 62,
+     "trades": 63,
      "won": 54,
-     "net": -11.62,
+     "net": -16.66,
      "fillable": {
-      "trades": 40,
+      "trades": 41,
       "won": 35,
-      "net": -6.9,
+      "net": -11.94,
       "miss": 22
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 8,
+       "trades": 9,
        "won": 8,
-       "net": 4.59,
+       "net": -0.45,
        "first": 1794020400
       },
       {
@@ -113135,23 +113135,23 @@
     {
      "name": "fav88-15m-late-asia-company",
      "size": 5,
-     "trades": 64,
+     "trades": 65,
      "won": 55,
-     "net": -17.54,
+     "net": -22.58,
      "fillable": {
-      "trades": 44,
+      "trades": 45,
       "won": 38,
-      "net": -11.5,
+      "net": -16.53,
       "miss": 20
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 8,
+       "trades": 9,
        "won": 8,
-       "net": 4.47,
+       "net": -0.57,
        "first": 1794020400
       },
       {
@@ -113253,23 +113253,23 @@
     {
      "name": "fav75-15m-late-asia",
      "size": 5,
-     "trades": 77,
+     "trades": 78,
      "won": 53,
-     "net": -59.22,
+     "net": -64.28,
      "fillable": {
-      "trades": 58,
+      "trades": 59,
       "won": 40,
-      "net": -45.16,
+      "net": -50.23,
       "miss": 19
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 11,
+       "trades": 12,
        "won": 9,
-       "net": 1.16,
+       "net": -3.91,
        "first": 1794024900
       },
       {
@@ -114020,23 +114020,23 @@
     {
      "name": "fav88-15m-late-asia-uncrowded",
      "size": 5,
-     "trades": 79,
+     "trades": 80,
      "won": 68,
-     "net": -19.38,
+     "net": -24.42,
      "fillable": {
-      "trades": 54,
+      "trades": 55,
       "won": 46,
-      "net": -16.35,
+      "net": -21.39,
       "miss": 25
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 13,
+       "trades": 14,
        "won": 12,
-       "net": 1.87,
+       "net": -3.17,
        "first": 1794020400
       },
       {
@@ -114138,23 +114138,23 @@
     {
      "name": "fav88-15m-late-up-eve",
      "size": 5,
-     "trades": 64,
-     "won": 53,
-     "net": -28.53,
+     "trades": 65,
+     "won": 54,
+     "net": -28.12,
      "fillable": {
-      "trades": 39,
-      "won": 30,
-      "net": -31.06,
+      "trades": 40,
+      "won": 31,
+      "net": -30.66,
       "miss": 25
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 8,
-       "won": 8,
-       "net": 4.13,
+       "trades": 9,
+       "won": 9,
+       "net": 4.54,
        "first": 1793979900
       },
       {
@@ -114197,23 +114197,23 @@
     {
      "name": "fav88-15m-late-pm",
      "size": 5,
-     "trades": 49,
+     "trades": 50,
      "won": 42,
-     "net": -13.53,
+     "net": -18.56,
      "fillable": {
-      "trades": 33,
+      "trades": 34,
       "won": 28,
-      "net": -11.01,
+      "net": -16.05,
       "miss": 16
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 7,
+       "trades": 8,
        "won": 6,
-       "net": -1.5,
+       "net": -6.54,
        "first": 1794034800
       },
       {
@@ -114315,23 +114315,23 @@
     {
      "name": "fav88-15m-late-asia-nodissent",
      "size": 5,
-     "trades": 36,
+     "trades": 37,
      "won": 30,
-     "net": -15.5,
+     "net": -20.54,
      "fillable": {
-      "trades": 28,
+      "trades": 29,
       "won": 23,
-      "net": -14.17,
+      "net": -19.21,
       "miss": 8
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 3,
+       "trades": 4,
        "won": 3,
-       "net": 1.8,
+       "net": -3.24,
        "first": 1794025800
       },
       {
@@ -114842,23 +114842,23 @@
     {
      "name": "feed3-down60-mid",
      "size": 5,
-     "trades": 293,
+     "trades": 294,
      "won": 155,
-     "net": 2.71,
+     "net": -2.44,
      "fillable": {
-      "trades": 187,
+      "trades": 188,
       "won": 94,
-      "net": -39.57,
+      "net": -44.72,
       "miss": 106
      },
-     "open": 2,
+     "open": 1,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 31,
+       "trades": 32,
        "won": 18,
-       "net": 10.38,
+       "net": 5.23,
        "first": 1793978100
       },
       {
@@ -115154,23 +115154,23 @@
     {
      "name": "fav91-15m-late-wide",
      "size": 5,
-     "trades": 172,
+     "trades": 173,
      "won": 152,
-     "net": -37.85,
+     "net": -42.89,
      "fillable": {
-      "trades": 137,
+      "trades": 138,
       "won": 119,
-      "net": -41.59,
+      "net": -46.62,
       "miss": 35
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 35,
+       "trades": 36,
        "won": 33,
-       "net": 3.59,
+       "net": -1.44,
        "first": 1793977200
       },
       {
@@ -115206,23 +115206,23 @@
     {
      "name": "fav91-15m-late-pm",
      "size": 5,
-     "trades": 41,
+     "trades": 42,
      "won": 35,
-     "net": -15.35,
+     "net": -20.38,
      "fillable": {
-      "trades": 32,
+      "trades": 33,
       "won": 27,
-      "net": -13.59,
+      "net": -18.62,
       "miss": 9
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 6,
+       "trades": 7,
        "won": 6,
-       "net": 2.66,
+       "net": -2.37,
        "first": 1794034800
       },
       {
@@ -115414,23 +115414,23 @@
     {
      "name": "fav91-15m-late-pm-firm",
      "size": 5,
-     "trades": 22,
+     "trades": 23,
      "won": 21,
-     "net": 3.91,
+     "net": -1.12,
      "fillable": {
-      "trades": 17,
+      "trades": 18,
       "won": 16,
-      "net": 1.77,
+      "net": -3.26,
       "miss": 5
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 4,
+       "trades": 5,
        "won": 4,
-       "net": 1.84,
+       "net": -3.19,
        "first": 1794037500
       },
       {
@@ -115667,23 +115667,23 @@
     {
      "name": "fav91-92-15m-late-pm",
      "size": 5,
-     "trades": 33,
+     "trades": 34,
      "won": 30,
-     "net": -1.76,
+     "net": -6.79,
      "fillable": {
-      "trades": 26,
+      "trades": 27,
       "won": 23,
-      "net": -4.84,
+      "net": -9.87,
       "miss": 7
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 6,
+       "trades": 7,
        "won": 6,
-       "net": 2.66,
+       "net": -2.37,
        "first": 1794034800
       },
       {
@@ -115719,23 +115719,23 @@
     {
      "name": "fav91-15m-late-wide-xebh",
      "size": 5,
-     "trades": 156,
+     "trades": 157,
      "won": 137,
-     "net": -39.05,
+     "net": -44.08,
      "fillable": {
-      "trades": 125,
+      "trades": 126,
       "won": 108,
-      "net": -40.99,
+      "net": -46.02,
       "miss": 31
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 35,
+       "trades": 36,
        "won": 33,
-       "net": 3.59,
+       "net": -1.44,
        "first": 1793977200
       },
       {
@@ -118061,23 +118061,23 @@
     {
      "name": "fav91-92-15m-late-pm-maker1",
      "size": 5,
-     "trades": 23,
+     "trades": 24,
      "won": 20,
-     "net": -4.26,
+     "net": -9.26,
      "fillable": {
-      "trades": 15,
+      "trades": 16,
       "won": 12,
-      "net": -8.46,
+      "net": -13.46,
       "miss": 8
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 4,
+       "trades": 5,
        "won": 4,
-       "net": 2.1,
+       "net": -2.9,
        "first": 1794034800
       },
       {
@@ -118324,23 +118324,23 @@
     {
      "name": "fav91-92-15m-late-pm-up",
      "size": 5,
-     "trades": 15,
-     "won": 13,
-     "net": -4.27,
+     "trades": 16,
+     "won": 14,
+     "net": -3.86,
      "fillable": {
-      "trades": 11,
-      "won": 9,
-      "net": -6,
+      "trades": 12,
+      "won": 10,
+      "net": -5.6,
       "miss": 4
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 2,
-       "won": 2,
-       "net": 0.87,
+       "trades": 3,
+       "won": 3,
+       "net": 1.28,
        "first": 1794036600
       },
       {
@@ -118369,23 +118369,23 @@
     {
      "name": "fav91-15m-late-up",
      "size": 5,
-     "trades": 69,
-     "won": 60,
-     "net": -19.1,
+     "trades": 70,
+     "won": 61,
+     "net": -18.7,
      "fillable": {
-      "trades": 51,
-      "won": 42,
-      "net": -26.9,
+      "trades": 52,
+      "won": 43,
+      "net": -26.49,
       "miss": 18
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 13,
-       "won": 12,
-       "net": 0.15,
+       "trades": 14,
+       "won": 13,
+       "net": 0.56,
        "first": 1793979900
       },
       {
@@ -120859,23 +120859,23 @@
     {
      "name": "up60-first60",
      "size": 5,
-     "trades": 398,
-     "won": 221,
-     "net": -206.78,
+     "trades": 399,
+     "won": 222,
+     "net": -203.64,
      "fillable": {
-      "trades": 332,
-      "won": 184,
-      "net": -175.39,
+      "trades": 333,
+      "won": 185,
+      "net": -172.25,
       "miss": 66
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 43,
-       "won": 27,
-       "net": 3.92,
+       "trades": 44,
+       "won": 28,
+       "net": 7.06,
        "first": 1793978100
       },
       {
@@ -120925,23 +120925,23 @@
     {
      "name": "slide90-80-70",
      "size": 5,
-     "trades": 591,
+     "trades": 592,
      "won": 510,
-     "net": -100.76,
+     "net": -105.8,
      "fillable": {
-      "trades": 471,
+      "trades": 472,
       "won": 411,
-      "net": -83.35,
+      "net": -88.39,
       "miss": 120
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 64,
+       "trades": 65,
        "won": 57,
-       "net": 8.61,
+       "net": 3.57,
        "first": 1793977200
       },
       {
@@ -120991,23 +120991,23 @@
     {
      "name": "slide95-85-75",
      "size": 5,
-     "trades": 591,
+     "trades": 592,
      "won": 517,
-     "net": -96.71,
+     "net": -101.75,
      "fillable": {
-      "trades": 469,
+      "trades": 470,
       "won": 415,
-      "net": -75.94,
+      "net": -80.98,
       "miss": 122
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 64,
+       "trades": 65,
        "won": 57,
-       "net": 2.57,
+       "net": -2.47,
        "first": 1793977200
       },
       {
@@ -121057,23 +121057,23 @@
     {
      "name": "fav95-up-only",
      "size": 5,
-     "trades": 310,
-     "won": 295,
-     "net": -27.56,
+     "trades": 311,
+     "won": 296,
+     "net": -27.47,
      "fillable": {
-      "trades": 268,
-      "won": 254,
-      "net": -29.91,
+      "trades": 269,
+      "won": 255,
+      "net": -29.82,
       "miss": 42
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 31,
-       "won": 31,
-       "net": 4.97,
+       "trades": 32,
+       "won": 32,
+       "net": 5.07,
        "first": 1793977200
       },
       {
@@ -121123,23 +121123,23 @@
     {
      "name": "fav95-down-only",
      "size": 5,
-     "trades": 307,
+     "trades": 308,
      "won": 296,
-     "net": -8.49,
+     "net": -13.5,
      "fillable": {
-      "trades": 244,
+      "trades": 245,
       "won": 233,
-      "net": -18.6,
+      "net": -23.62,
       "miss": 62
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 34,
+       "trades": 35,
        "won": 33,
-       "net": 0.63,
+       "net": -4.38,
        "first": 1793977200
       },
       {
@@ -121189,23 +121189,23 @@
     {
      "name": "fav99-last30",
      "size": 5,
-     "trades": 299,
-     "won": 294,
-     "net": -11.44,
+     "trades": 300,
+     "won": 295,
+     "net": -11.39,
      "fillable": {
       "trades": 200,
       "won": 195,
       "net": -16.08,
-      "miss": 98
+      "miss": 99
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 30,
-       "won": 29,
-       "net": -3.55,
+       "trades": 31,
+       "won": 30,
+       "net": -3.5,
        "first": 1793977200
       },
       {
@@ -121515,23 +121515,23 @@
     {
      "name": "model3-fav-15m",
      "size": 5,
-     "trades": 583,
+     "trades": 584,
      "won": 304,
-     "net": -192.36,
+     "net": -197.54,
      "fillable": {
       "trades": 380,
       "won": 192,
       "net": -178.44,
-      "miss": 203
+      "miss": 204
      },
-     "open": 2,
+     "open": 1,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-07",
-       "trades": 55,
+       "trades": 56,
        "won": 33,
-       "net": 19.81,
+       "net": 14.63,
        "first": 1793978100
       },
       {
@@ -121748,13 +121748,13 @@
     "net": -3.9,
     "todayNet": -0.82,
     "lastError": null,
-    "lastOrderAt": 1794045698171
+    "lastOrderAt": null
    }
   },
   {
    "key": "xrp15m",
    "label": "XRP 15m",
-   "windowsDone": 3,
+   "windowsDone": 0,
    "lastError": null,
    "feeds": [
     {
@@ -127642,7 +127642,7 @@
       "net": -39.42,
       "miss": 52
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -137823,13 +137823,13 @@
     "net": -15.4,
     "todayNet": -10.55,
     "lastError": null,
-    "lastOrderAt": 1794045719875
+    "lastOrderAt": null
    }
   },
   {
    "key": "doge15m",
    "label": "DOGE 15m",
-   "windowsDone": 3,
+   "windowsDone": 0,
    "lastError": null,
    "feeds": [
     {
@@ -137844,7 +137844,7 @@
     },
     {
      "name": "coinbase doge",
-     "healthy": false,
+     "healthy": true,
      "errors": 0
     },
     {
@@ -153915,7 +153915,7 @@
   {
    "key": "bnb15m",
    "label": "BNB 15m",
-   "windowsDone": 3,
+   "windowsDone": 0,
    "lastError": null,
    "feeds": [
     {
@@ -153930,7 +153930,7 @@
     },
     {
      "name": "coinbase bnb",
-     "healthy": false,
+     "healthy": true,
      "errors": 0
     },
     {
@@ -169668,7 +169668,7 @@
   {
    "key": "hype15m",
    "label": "HYPE 15m",
-   "windowsDone": 3,
+   "windowsDone": 0,
    "lastError": null,
    "feeds": [
     {
@@ -171347,7 +171347,7 @@
       "net": 0,
       "miss": 0
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -172992,7 +172992,7 @@
       "net": -83.59,
       "miss": 37
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -173124,7 +173124,7 @@
       "net": -293.92,
       "miss": 167
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -173520,7 +173520,7 @@
       "net": -210.1,
       "miss": 86
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -173586,7 +173586,7 @@
       "net": -68.44,
       "miss": 93
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -173916,7 +173916,7 @@
       "net": -269.4,
       "miss": 70
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -174048,7 +174048,7 @@
       "net": -137.35,
       "miss": 61
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -174430,7 +174430,7 @@
       "net": -39.68,
       "miss": 134
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -174694,7 +174694,7 @@
       "net": -85.94,
       "miss": 59
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -174916,7 +174916,7 @@
       "net": -70.33,
       "miss": 69
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -175444,7 +175444,7 @@
       "net": 9.22,
       "miss": 68
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -175906,7 +175906,7 @@
       "net": -215.06,
       "miss": 118
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -182527,7 +182527,7 @@
       "net": -68.55,
       "miss": 48
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -182791,7 +182791,7 @@
       "net": -189.13,
       "miss": 70
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -183319,7 +183319,7 @@
       "net": -141.75,
       "miss": 82
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -183451,7 +183451,7 @@
       "net": -247.18,
       "miss": 92
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -183517,7 +183517,7 @@
       "net": -192.28,
       "miss": 61
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -183583,7 +183583,7 @@
       "net": -156.8,
       "miss": 53
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -183913,7 +183913,7 @@
       "net": -247.34,
       "miss": 67
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -183979,7 +183979,7 @@
       "net": -267.52,
       "miss": 83
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -184045,7 +184045,7 @@
       "net": -71.3,
       "miss": 104
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -184111,7 +184111,7 @@
       "net": -1165.49,
       "miss": 83
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -184177,7 +184177,7 @@
       "net": -1082.08,
       "miss": 86
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -185153,7 +185153,7 @@
       "net": -300.86,
       "miss": 141
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -185330,7 +185330,7 @@
       "net": -95.8,
       "miss": 238
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -185546,13 +185546,13 @@
     "net": -4.81,
     "todayNet": -4.81,
     "lastError": null,
-    "lastOrderAt": 1794044763296
+    "lastOrderAt": null
    }
   },
   {
    "key": "btc1h",
    "label": "BTC 1h",
-   "windowsDone": 1,
+   "windowsDone": 0,
    "lastError": null,
    "feeds": [
     {
@@ -193559,7 +193559,7 @@
       "net": -36.65,
       "miss": 60
      },
-     "open": 1,
+     "open": 2,
      "discarded": false,
      "days": [
       {
@@ -193693,7 +193693,7 @@
   {
    "key": "eth1h",
    "label": "ETH 1h",
-   "windowsDone": 1,
+   "windowsDone": 0,
    "lastError": null,
    "feeds": [
     {
@@ -201492,7 +201492,7 @@
       "net": 10.92,
       "miss": 49
      },
-     "open": 1,
+     "open": 2,
      "discarded": false,
      "days": [
       {
@@ -201619,7 +201619,7 @@
   {
    "key": "sol1h",
    "label": "SOL 1h",
-   "windowsDone": 1,
+   "windowsDone": 0,
    "lastError": null,
    "feeds": [
     {
@@ -205340,7 +205340,7 @@
       "net": -69.68,
       "miss": 40
      },
-     "open": 1,
+     "open": 2,
      "discarded": false,
      "days": [
       {
@@ -205604,7 +205604,7 @@
       "net": -58.1,
       "miss": 34
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -209350,7 +209350,7 @@
   {
    "key": "xrp1h",
    "label": "XRP 1h",
-   "windowsDone": 1,
+   "windowsDone": 0,
    "lastError": null,
    "feeds": [
     {
@@ -210481,7 +210481,7 @@
       "net": 0,
       "miss": 0
      },
-     "open": 1,
+     "open": 2,
      "discarded": false,
      "days": [
       {
@@ -217288,7 +217288,7 @@
   {
    "key": "doge1h",
    "label": "DOGE 1h",
-   "windowsDone": 1,
+   "windowsDone": 0,
    "lastError": null,
    "feeds": [
     {
@@ -217303,7 +217303,7 @@
     },
     {
      "name": "coinbase doge",
-     "healthy": false,
+     "healthy": true,
      "errors": 0
     },
     {
@@ -221063,7 +221063,7 @@
       "net": -94.62,
       "miss": 17
      },
-     "open": 1,
+     "open": 2,
      "discarded": false,
      "days": [
       {
@@ -224826,7 +224826,7 @@
   {
    "key": "bnb1h",
    "label": "BNB 1h",
-   "windowsDone": 1,
+   "windowsDone": 0,
    "lastError": null,
    "feeds": [
     {
@@ -224841,7 +224841,7 @@
     },
     {
      "name": "coinbase bnb",
-     "healthy": false,
+     "healthy": true,
      "errors": 0
     },
     {
@@ -232511,7 +232511,7 @@
   {
    "key": "hype1h",
    "label": "HYPE 1h",
-   "windowsDone": 1,
+   "windowsDone": 0,
    "lastError": null,
    "feeds": [
     {
@@ -234294,7 +234294,7 @@
       "net": -268.25,
       "miss": 35
      },
-     "open": 1,
+     "open": 2,
      "discarded": false,
      "days": [
       {
@@ -234360,7 +234360,7 @@
       "net": -284.99,
       "miss": 24
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -236882,7 +236882,7 @@
       "net": -65.38,
       "miss": 19
      },
-     "open": 1,
+     "open": 2,
      "discarded": false,
      "days": [
       {
@@ -237280,7 +237280,7 @@
       "net": -78.6,
       "miss": 24
      },
-     "open": 1,
+     "open": 2,
      "discarded": false,
      "days": [
       {
@@ -249831,7 +249831,7 @@
     },
     {
      "name": "coinbase doge",
-     "healthy": false,
+     "healthy": true,
      "errors": 0
     },
     {
@@ -252362,7 +252362,7 @@
     },
     {
      "name": "coinbase bnb",
-     "healthy": false,
+     "healthy": true,
      "errors": 0
     },
     {
@@ -275662,7 +275662,7 @@
     },
     {
      "name": "coinbase doge",
-     "healthy": false,
+     "healthy": true,
      "errors": 0
     },
     {
@@ -280473,7 +280473,7 @@
     },
     {
      "name": "coinbase bnb",
-     "healthy": false,
+     "healthy": true,
      "errors": 0
     },
     {
@@ -289306,10 +289306,10 @@
   }
  ],
  "latency": {
-  "n": 46,
-  "warmMedian": 47,
-  "coldMedian": 65,
-  "binanceMedian": 248
+  "n": 2,
+  "warmMedian": 52,
+  "coldMedian": 268,
+  "binanceMedian": 339
  },
  "realTrades": [
   {
