@@ -1,0 +1,1308 @@
+{
+ "kalshi_sample": [
+  {
+   "venue": "kalshi",
+   "evt": "Who will be the next Secretary General of NATO?",
+   "q": "Who will be the next Secretary General of NATO? | Klaus Iohannis",
+   "bid": 0.02,
+   "ask": 0.04,
+   "end": "2099-01-08T15:00:00Z",
+   "cat": "Elections",
+   "ticker": "KXNEXTNATOSECGEN-99-KIOH"
+  },
+  {
+   "venue": "kalshi",
+   "evt": "Who will be the next Secretary General of NATO?",
+   "q": "Who will be the next Secretary General of NATO? | Kaja Kallas",
+   "bid": 0.13,
+   "ask": 0.2,
+   "end": "2099-01-08T15:00:00Z",
+   "cat": "Elections",
+   "ticker": "KXNEXTNATOSECGEN-99-KKAL"
+  },
+  {
+   "venue": "kalshi",
+   "evt": "Who will be the next Secretary General of NATO?",
+   "q": "Who will be the next Secretary General of NATO? | Ben Wallace",
+   "bid": 0.01,
+   "ask": 0.02,
+   "end": "2099-01-08T15:00:00Z",
+   "cat": "Elections",
+   "ticker": "KXNEXTNATOSECGEN-99-BWAL"
+  },
+  {
+   "venue": "kalshi",
+   "evt": "Who will be the next Secretary General of NATO?",
+   "q": "Who will be the next Secretary General of NATO? | Mette Frederiksen",
+   "bid": 0.26,
+   "ask": 0.34,
+   "end": "2099-01-08T15:00:00Z",
+   "cat": "Elections",
+   "ticker": "KXNEXTNATOSECGEN-99-MFRE"
+  },
+  {
+   "venue": "kalshi",
+   "evt": "Who will be the next Secretary General of NATO?",
+   "q": "Who will be the next Secretary General of NATO? | Ursula von der Leyen",
+   "bid": 0.01,
+   "ask": 0.02,
+   "end": "2099-01-08T15:00:00Z",
+   "cat": "Elections",
+   "ticker": "KXNEXTNATOSECGEN-99-ULEY"
+  },
+  {
+   "venue": "kalshi",
+   "evt": "Who will be the next Secretary General of NATO?",
+   "q": "Who will be the next Secretary General of NATO? | Petr Pavel",
+   "bid": 0.01,
+   "ask": 0.09,
+   "end": "2099-01-08T15:00:00Z",
+   "cat": "Elections",
+   "ticker": "KXNEXTNATOSECGEN-99-PPAV"
+  },
+  {
+   "venue": "kalshi",
+   "evt": "Who will be the next Secretary General of NATO?",
+   "q": "Who will be the next Secretary General of NATO? | Alexander Stubb",
+   "bid": 0.11,
+   "ask": 0.14,
+   "end": "2099-01-08T15:00:00Z",
+   "cat": "Elections",
+   "ticker": "KXNEXTNATOSECGEN-99-ASTU"
+  },
+  {
+   "venue": "kalshi",
+   "evt": "Who will be the next Secretary General of NATO?",
+   "q": "Who will be the next Secretary General of NATO? | Keir Starmer",
+   "bid": 0.16,
+   "ask": 0.23,
+   "end": "2099-01-08T15:00:00Z",
+   "cat": "Elections",
+   "ticker": "KXNEXTNATOSECGEN-99-KSTA"
+  },
+  {
+   "venue": "kalshi",
+   "evt": "Who will the next Pope be?",
+   "q": "Who will the next Pope be? | Pierbattista Pizzaballa",
+   "bid": 0.03,
+   "ask": 0.045,
+   "end": "2070-01-01T15:00:00Z",
+   "cat": "Elections",
+   "ticker": "KXNEWPOPE-70-PPIZ"
+  },
+  {
+   "venue": "kalshi",
+   "evt": "Who will the next Pope be?",
+   "q": "Who will the next Pope be? | Pietro Parolin",
+   "bid": 0.04,
+   "ask": 0.055,
+   "end": "2070-01-01T15:00:00Z",
+   "cat": "Elections",
+   "ticker": "KXNEWPOPE-70-PPAR"
+  },
+  {
+   "venue": "kalshi",
+   "evt": "Who will the next Pope be?",
+   "q": "Who will the next Pope be? | Fridolin Ambongo",
+   "bid": 0.02,
+   "ask": 0.033,
+   "end": "2070-01-01T15:00:00Z",
+   "cat": "Elections",
+   "ticker": "KXNEWPOPE-70-FAMB"
+  },
+  {
+   "venue": "kalshi",
+   "evt": "Who will the next Pope be?",
+   "q": "Who will the next Pope be? | Luis Antonio Tagle",
+   "bid": 0.071,
+   "ask": 0.075,
+   "end": "2070-01-01T15:00:00Z",
+   "cat": "Elections",
+   "ticker": "KXNEWPOPE-70-LANT"
+  },
+  {
+   "venue": "kalshi",
+   "evt": "Who will the next Pope be?",
+   "q": "Who will the next Pope be? | Matteo Zuppi",
+   "bid": 0.024,
+   "ask": 0.039,
+   "end": "2070-01-01T15:00:00Z",
+   "cat": "Elections",
+   "ticker": "KXNEWPOPE-70-MZUP"
+  },
+  {
+   "venue": "kalshi",
+   "evt": "Who will the next Pope be?",
+   "q": "Who will the next Pope be? | Peter Erdo",
+   "bid": 0.022,
+   "ask": 0.033,
+   "end": "2070-01-01T15:00:00Z",
+   "cat": "Elections",
+   "ticker": "KXNEWPOPE-70-PERD"
+  },
+  {
+   "venue": "kalshi",
+   "evt": "Who will the next Pope be?",
+   "q": "Who will the next Pope be? | Anders Arborelius",
+   "bid": 0.015,
+   "ask": 0.036,
+   "end": "2070-01-01T15:00:00Z",
+   "cat": "Elections",
+   "ticker": "KXNEWPOPE-70-AARB"
+  },
+  {
+   "venue": "kalshi",
+   "evt": "Will Zohran Mamdani become President of the United States before Jan 22, 2045?",
+   "q": "Will Zohran Mamdani become President of the United States before Jan 22, 2045? | Before Jan 22, 2045",
+   "bid": 0.12,
+   "ask": 0.16,
+   "end": "2045-01-29T15:00:00Z",
+   "cat": "Politics",
+   "ticker": "KXPERSONPRESMAM-45"
+  },
+  {
+   "venue": "kalshi",
+   "evt": "Who will be the next DNC Chair?",
+   "q": "Who will be the next DNC Chair? | Shasti Conrad",
+   "bid": 0.01,
+   "ask": 0.099,
+   "end": "2045-01-08T15:00:00Z",
+   "cat": "Politics",
+   "ticker": "KXNEXTDNCCHAIR-45-SCON"
+  },
+  {
+   "venue": "kalshi",
+   "evt": "Who will be the next DNC Chair?",
+   "q": "Who will be the next DNC Chair? | Reyna Walters-Morgan",
+   "bid": 0.001,
+   "ask": 0.062,
+   "end": "2045-01-08T15:00:00Z",
+   "cat": "Politics",
+   "ticker": "KXNEXTDNCCHAIR-45-RWAL"
+  },
+  {
+   "venue": "kalshi",
+   "evt": "Who will be the next DNC Chair?",
+   "q": "Who will be the next DNC Chair? | Artie Blanco",
+   "bid": 0.001,
+   "ask": 0.077,
+   "end": "2045-01-08T15:00:00Z",
+   "cat": "Politics",
+   "ticker": "KXNEXTDNCCHAIR-45-ABLA"
+  },
+  {
+   "venue": "kalshi",
+   "evt": "Who will be the next DNC Chair?",
+   "q": "Who will be the next DNC Chair? | Martin O\u2019Malley",
+   "bid": 0.13,
+   "ask": 0.21,
+   "end": "2045-01-08T15:00:00Z",
+   "cat": "Politics",
+   "ticker": "KXNEXTDNCCHAIR-45-MOMA"
+  },
+  {
+   "venue": "kalshi",
+   "evt": "Who will be the next DNC Chair?",
+   "q": "Who will be the next DNC Chair? | Faiz Shakir",
+   "bid": 0.12,
+   "ask": 0.2,
+   "end": "2045-01-08T15:00:00Z",
+   "cat": "Politics",
+   "ticker": "KXNEXTDNCCHAIR-45-FSHA"
+  },
+  {
+   "venue": "kalshi",
+   "evt": "Who will be the next DNC Chair?",
+   "q": "Who will be the next DNC Chair? | Stacey Abrams",
+   "bid": 0.002,
+   "ask": 0.062,
+   "end": "2045-01-08T15:00:00Z",
+   "cat": "Politics",
+   "ticker": "KXNEXTDNCCHAIR-45-SABR"
+  },
+  {
+   "venue": "kalshi",
+   "evt": "Who will be the next DNC Chair?",
+   "q": "Who will be the next DNC Chair? | Virginia McGregor",
+   "bid": 0.01,
+   "ask": 0.05,
+   "end": "2045-01-08T15:00:00Z",
+   "cat": "Politics",
+   "ticker": "KXNEXTDNCCHAIR-45-VMCG"
+  },
+  {
+   "venue": "kalshi",
+   "evt": "Who will be the next DNC Chair?",
+   "q": "Who will be the next DNC Chair? | Quintessa Hathaway",
+   "bid": 0.01,
+   "ask": 0.04,
+   "end": "2045-01-08T15:00:00Z",
+   "cat": "Politics",
+   "ticker": "KXNEXTDNCCHAIR-45-QHAT"
+  },
+  {
+   "venue": "kalshi",
+   "evt": "Who will be the next DNC Chair?",
+   "q": "Who will be the next DNC Chair? | Sherrod Brown",
+   "bid": 0.01,
+   "ask": 0.06,
+   "end": "2045-01-08T15:00:00Z",
+   "cat": "Politics",
+   "ticker": "KXNEXTDNCCHAIR-45-SBRO"
+  },
+  {
+   "venue": "kalshi",
+   "evt": "Who will be the next DNC Chair?",
+   "q": "Who will be the next DNC Chair? | Tim Walz",
+   "bid": 0.01,
+   "ask": 0.06,
+   "end": "2045-01-08T15:00:00Z",
+   "cat": "Politics",
+   "ticker": "KXNEXTDNCCHAIR-45-TWAL"
+  },
+  {
+   "venue": "kalshi",
+   "evt": "Who will be the next DNC Chair?",
+   "q": "Who will be the next DNC Chair? | J.B. Pritzker",
+   "bid": 0.001,
+   "ask": 0.063,
+   "end": "2045-01-08T15:00:00Z",
+   "cat": "Politics",
+   "ticker": "KXNEXTDNCCHAIR-45-JPRI"
+  },
+  {
+   "venue": "kalshi",
+   "evt": "Who will be the next DNC Chair?",
+   "q": "Who will be the next DNC Chair? | David Hogg",
+   "bid": 0.001,
+   "ask": 0.074,
+   "end": "2045-01-08T15:00:00Z",
+   "cat": "Politics",
+   "ticker": "KXNEXTDNCCHAIR-45-DHOG"
+  },
+  {
+   "venue": "kalshi",
+   "evt": "Who will be the next DNC Chair?",
+   "q": "Who will be the next DNC Chair? | Rahm Emanuel",
+   "bid": 0.011,
+   "ask": 0.094,
+   "end": "2045-01-08T15:00:00Z",
+   "cat": "Politics",
+   "ticker": "KXNEXTDNCCHAIR-45-REMA"
+  },
+  {
+   "venue": "kalshi",
+   "evt": "Who will be named as Xi Jinping's successor?",
+   "q": "Who will be named as Xi Jinping's successor? | Ding Xuexiang",
+   "bid": 0.16,
+   "ask": 0.17,
+   "end": "2045-01-01T04:59:00Z",
+   "cat": "Politics",
+   "ticker": "KXXISUCCESSOR-45JAN01-DXUE"
+  },
+  {
+   "venue": "kalshi",
+   "evt": "Who will be named as Xi Jinping's successor?",
+   "q": "Who will be named as Xi Jinping's successor? | Chen Jining",
+   "bid": 0.064,
+   "ask": 0.1,
+   "end": "2045-01-01T04:59:00Z",
+   "cat": "Politics",
+   "ticker": "KXXISUCCESSOR-45JAN01-CJIN"
+  },
+  {
+   "venue": "kalshi",
+   "evt": "Who will be named as Xi Jinping's successor?",
+   "q": "Who will be named as Xi Jinping's successor? | Li Qiang",
+   "bid": 0.095,
+   "ask": 0.16,
+   "end": "2045-01-01T04:59:00Z",
+   "cat": "Politics",
+   "ticker": "KXXISUCCESSOR-45JAN01-LQIA"
+  },
+  {
+   "venue": "kalshi",
+   "evt": "Who will be named as Xi Jinping's successor?",
+   "q": "Who will be named as Xi Jinping's successor? | Cai Qi",
+   "bid": 0.001,
+   "ask": 0.019,
+   "end": "2045-01-01T04:59:00Z",
+   "cat": "Politics",
+   "ticker": "KXXISUCCESSOR-45JAN01-CQI"
+  },
+  {
+   "venue": "kalshi",
+   "evt": "Who will be named as Xi Jinping's successor?",
+   "q": "Who will be named as Xi Jinping's successor? | Li Xi",
+   "bid": 0.02,
+   "ask": 0.077,
+   "end": "2045-01-01T04:59:00Z",
+   "cat": "Politics",
+   "ticker": "KXXISUCCESSOR-45JAN01-LXI"
+  },
+  {
+   "venue": "kalshi",
+   "evt": "Who will be named as Xi Jinping's successor?",
+   "q": "Who will be named as Xi Jinping's successor? | Yin Li",
+   "bid": 0.001,
+   "ask": 0.02,
+   "end": "2045-01-01T04:59:00Z",
+   "cat": "Politics",
+   "ticker": "KXXISUCCESSOR-45JAN01-YLI"
+  },
+  {
+   "venue": "kalshi",
+   "evt": "Who will be named as Xi Jinping's successor?",
+   "q": "Who will be named as Xi Jinping's successor? | Li Ganjie",
+   "bid": 0.003,
+   "ask": 0.02,
+   "end": "2045-01-01T04:59:00Z",
+   "cat": "Politics",
+   "ticker": "KXXISUCCESSOR-45JAN01-LGAN"
+  },
+  {
+   "venue": "kalshi",
+   "evt": "Who will be named as Xi Jinping's successor?",
+   "q": "Who will be named as Xi Jinping's successor? | Zhao Leji",
+   "bid": 0.097,
+   "ask": 0.1,
+   "end": "2045-01-01T04:59:00Z",
+   "cat": "Politics",
+   "ticker": "KXXISUCCESSOR-45JAN01-ZLEJ"
+  },
+  {
+   "venue": "kalshi",
+   "evt": "Who will be named as Xi Jinping's successor?",
+   "q": "Who will be named as Xi Jinping's successor? | Wang Huning",
+   "bid": 0.001,
+   "ask": 0.019,
+   "end": "2045-01-01T04:59:00Z",
+   "cat": "Politics",
+   "ticker": "KXXISUCCESSOR-45JAN01-WHUN"
+  },
+  {
+   "venue": "kalshi",
+   "evt": "Who will be named as Xi Jinping's successor?",
+   "q": "Who will be named as Xi Jinping's successor? | He Lifeng",
+   "bid": 0.002,
+   "ask": 0.02,
+   "end": "2045-01-01T04:59:00Z",
+   "cat": "Politics",
+   "ticker": "KXXISUCCESSOR-45JAN01-HLIF"
+  },
+  {
+   "venue": "kalshi",
+   "evt": "Who will be named as Xi Jinping's successor?",
+   "q": "Who will be named as Xi Jinping's successor? | Ma Xingrui",
+   "bid": 0.001,
+   "ask": 0.019,
+   "end": "2045-01-01T04:59:00Z",
+   "cat": "Politics",
+   "ticker": "KXXISUCCESSOR-45JAN01-MXIN"
+  },
+  {
+   "venue": "kalshi",
+   "evt": "Who will be named as Xi Jinping's successor?",
+   "q": "Who will be named as Xi Jinping's successor? | Chen Min'er",
+   "bid": 0.002,
+   "ask": 0.019,
+   "end": "2045-01-01T04:59:00Z",
+   "cat": "Politics",
+   "ticker": "KXXISUCCESSOR-45JAN01-CMIN"
+  },
+  {
+   "venue": "kalshi",
+   "evt": "Who will be named as Xi Jinping's successor?",
+   "q": "Who will be named as Xi Jinping's successor? | Zhang Guoqing",
+   "bid": 0.002,
+   "ask": 0.018,
+   "end": "2045-01-01T04:59:00Z",
+   "cat": "Politics",
+   "ticker": "KXXISUCCESSOR-45JAN01-ZGUO"
+  },
+  {
+   "venue": "kalshi",
+   "evt": "Who will be named as Xi Jinping's successor?",
+   "q": "Who will be named as Xi Jinping's successor? | Yin Yong",
+   "bid": 0.001,
+   "ask": 0.019,
+   "end": "2045-01-01T04:59:00Z",
+   "cat": "Politics",
+   "ticker": "KXXISUCCESSOR-45JAN01-YYON"
+  },
+  {
+   "venue": "kalshi",
+   "evt": "Will Nick Fuentes become President of the United States before 2045?",
+   "q": "Will Nick Fuentes become President of the United States before 2045? | Before 2045",
+   "bid": 0.19,
+   "ask": 0.22,
+   "end": "2045-01-08T15:00:00Z",
+   "cat": "Elections",
+   "ticker": "KXPERSONPRESFUENTES-45"
+  },
+  {
+   "venue": "kalshi",
+   "evt": "Who will succeed Netanyahu as Prime Minister of Israel?",
+   "q": "Who will succeed Netanyahu as Prime Minister of Israel? | Naftali Bennett",
+   "bid": 0.033,
+   "ask": 0.052,
+   "end": "2045-01-01T15:00:00Z",
+   "cat": "Elections",
+   "ticker": "KXNEXTISRAELPM-45JAN01-NBEN"
+  },
+  {
+   "venue": "kalshi",
+   "evt": "Who will succeed Netanyahu as Prime Minister of Israel?",
+   "q": "Who will succeed Netanyahu as Prime Minister of Israel? | Yoav Gallant",
+   "bid": 0.001,
+   "ask": 0.02,
+   "end": "2045-01-01T15:00:00Z",
+   "cat": "Elections",
+   "ticker": "KXNEXTISRAELPM-45JAN01-YGAL"
+  },
+  {
+   "venue": "kalshi",
+   "evt": "Who will succeed Netanyahu as Prime Minister of Israel?",
+   "q": "Who will succeed Netanyahu as Prime Minister of Israel? | Yariv Levin",
+   "bid": 0.001,
+   "ask": 0.02,
+   "end": "2045-01-01T15:00:00Z",
+   "cat": "Elections",
+   "ticker": "KXNEXTISRAELPM-45JAN01-YLEV"
+  },
+  {
+   "venue": "kalshi",
+   "evt": "Who will succeed Netanyahu as Prime Minister of Israel?",
+   "q": "Who will succeed Netanyahu as Prime Minister of Israel? | Israel Katz",
+   "bid": 0.02,
+   "ask": 0.048,
+   "end": "2045-01-01T15:00:00Z",
+   "cat": "Elections",
+   "ticker": "KXNEXTISRAELPM-45JAN01-IKAT"
+  },
+  {
+   "venue": "kalshi",
+   "evt": "Who will succeed Netanyahu as Prime Minister of Israel?",
+   "q": "Who will succeed Netanyahu as Prime Minister of Israel? | Benny Gantz",
+   "bid": 0.005,
+   "ask": 0.007,
+   "end": "2045-01-01T15:00:00Z",
+   "cat": "Elections",
+   "ticker": "KXNEXTISRAELPM-45JAN01-BGAN"
+  },
+  {
+   "venue": "kalshi",
+   "evt": "Who will succeed Netanyahu as Prime Minister of Israel?",
+   "q": "Who will succeed Netanyahu as Prime Minister of Israel? | Yair Lapid",
+   "bid": 0.001,
+   "ask": 0.019,
+   "end": "2045-01-01T15:00:00Z",
+   "cat": "Elections",
+   "ticker": "KXNEXTISRAELPM-45JAN01-YLAP"
+  }
+ ],
+ "predictit_sample": [
+  {
+   "venue": "predictit",
+   "evt": "Who will win the 2028 Republican presidential nomination?",
+   "q": "Who will win the 2028 Republican presidential nomination? | JD Vance",
+   "bid": 0.32,
+   "ask": 0.33,
+   "end": "NA"
+  },
+  {
+   "venue": "predictit",
+   "evt": "Who will win the 2028 Republican presidential nomination?",
+   "q": "Who will win the 2028 Republican presidential nomination? | Marco Rubio",
+   "bid": 0.2,
+   "ask": 0.21,
+   "end": "NA"
+  },
+  {
+   "venue": "predictit",
+   "evt": "Who will win the 2028 Republican presidential nomination?",
+   "q": "Who will win the 2028 Republican presidential nomination? | Ron DeSantis",
+   "bid": 0.19,
+   "ask": 0.2,
+   "end": "NA"
+  },
+  {
+   "venue": "predictit",
+   "evt": "Who will win the 2028 Republican presidential nomination?",
+   "q": "Who will win the 2028 Republican presidential nomination? | Ted Cruz",
+   "bid": 0.04,
+   "ask": 0.05,
+   "end": "NA"
+  },
+  {
+   "venue": "predictit",
+   "evt": "Who will win the 2028 Republican presidential nomination?",
+   "q": "Who will win the 2028 Republican presidential nomination? | Donald Trump Jr.",
+   "bid": 0.03,
+   "ask": 0.04,
+   "end": "NA"
+  },
+  {
+   "venue": "predictit",
+   "evt": "Who will win the 2028 Republican presidential nomination?",
+   "q": "Who will win the 2028 Republican presidential nomination? | Glenn Youngkin",
+   "bid": 0.03,
+   "ask": 0.04,
+   "end": "NA"
+  },
+  {
+   "venue": "predictit",
+   "evt": "Who will win the 2028 Republican presidential nomination?",
+   "q": "Who will win the 2028 Republican presidential nomination? | Brian Kemp",
+   "bid": 0.04,
+   "ask": 0.05,
+   "end": "NA"
+  },
+  {
+   "venue": "predictit",
+   "evt": "Who will win the 2028 Republican presidential nomination?",
+   "q": "Who will win the 2028 Republican presidential nomination? | Tucker Carlson",
+   "bid": 0.03,
+   "ask": 0.04,
+   "end": "NA"
+  },
+  {
+   "venue": "predictit",
+   "evt": "Who will win the 2028 Republican presidential nomination?",
+   "q": "Who will win the 2028 Republican presidential nomination? | Donald Trump",
+   "bid": 0.02,
+   "ask": 0.03,
+   "end": "NA"
+  },
+  {
+   "venue": "predictit",
+   "evt": "Who will win the 2028 Republican presidential nomination?",
+   "q": "Who will win the 2028 Republican presidential nomination? | M. Taylor Greene",
+   "bid": 0.01,
+   "ask": 0.02,
+   "end": "NA"
+  },
+  {
+   "venue": "predictit",
+   "evt": "Who will win the 2028 Democratic presidential nomination?",
+   "q": "Who will win the 2028 Democratic presidential nomination? | Jon Ossoff",
+   "bid": 0.26,
+   "ask": 0.27,
+   "end": "NA"
+  },
+  {
+   "venue": "predictit",
+   "evt": "Who will win the 2028 Democratic presidential nomination?",
+   "q": "Who will win the 2028 Democratic presidential nomination? | A. Ocasio-Cortez",
+   "bid": 0.17,
+   "ask": 0.18,
+   "end": "NA"
+  },
+  {
+   "venue": "predictit",
+   "evt": "Who will win the 2028 Democratic presidential nomination?",
+   "q": "Who will win the 2028 Democratic presidential nomination? | Gavin Newsom",
+   "bid": 0.14,
+   "ask": 0.15,
+   "end": "NA"
+  },
+  {
+   "venue": "predictit",
+   "evt": "Who will win the 2028 Democratic presidential nomination?",
+   "q": "Who will win the 2028 Democratic presidential nomination? | Andy Beshear",
+   "bid": 0.08,
+   "ask": 0.09,
+   "end": "NA"
+  },
+  {
+   "venue": "predictit",
+   "evt": "Who will win the 2028 Democratic presidential nomination?",
+   "q": "Who will win the 2028 Democratic presidential nomination? | Pete Buttigieg",
+   "bid": 0.07,
+   "ask": 0.08,
+   "end": "NA"
+  },
+  {
+   "venue": "predictit",
+   "evt": "Who will win the 2028 Democratic presidential nomination?",
+   "q": "Who will win the 2028 Democratic presidential nomination? | Kamala Harris",
+   "bid": 0.05,
+   "ask": 0.06,
+   "end": "NA"
+  },
+  {
+   "venue": "predictit",
+   "evt": "Who will win the 2028 Democratic presidential nomination?",
+   "q": "Who will win the 2028 Democratic presidential nomination? | Rahm Emanuel",
+   "bid": 0.04,
+   "ask": 0.06,
+   "end": "NA"
+  },
+  {
+   "venue": "predictit",
+   "evt": "Who will win the 2028 Democratic presidential nomination?",
+   "q": "Who will win the 2028 Democratic presidential nomination? | JB Pritzker",
+   "bid": 0.04,
+   "ask": 0.05,
+   "end": "NA"
+  },
+  {
+   "venue": "predictit",
+   "evt": "Who will win the 2028 Democratic presidential nomination?",
+   "q": "Who will win the 2028 Democratic presidential nomination? | Josh Shapiro",
+   "bid": 0.04,
+   "ask": 0.05,
+   "end": "NA"
+  },
+  {
+   "venue": "predictit",
+   "evt": "Who will win the 2028 Democratic presidential nomination?",
+   "q": "Who will win the 2028 Democratic presidential nomination? | Wes Moore",
+   "bid": 0.04,
+   "ask": 0.05,
+   "end": "NA"
+  },
+  {
+   "venue": "predictit",
+   "evt": "Who will win the 2028 Democratic presidential nomination?",
+   "q": "Who will win the 2028 Democratic presidential nomination? | Mark Kelly",
+   "bid": 0.03,
+   "ask": 0.05,
+   "end": "NA"
+  },
+  {
+   "venue": "predictit",
+   "evt": "Who will win the 2028 Democratic presidential nomination?",
+   "q": "Who will win the 2028 Democratic presidential nomination? | Ro Khanna",
+   "bid": 0.03,
+   "ask": 0.05,
+   "end": "NA"
+  },
+  {
+   "venue": "predictit",
+   "evt": "Who will win the 2028 Democratic presidential nomination?",
+   "q": "Who will win the 2028 Democratic presidential nomination? | Gretchen Whitmer",
+   "bid": 0.02,
+   "ask": 0.03,
+   "end": "NA"
+  },
+  {
+   "venue": "predictit",
+   "evt": "Who will win the 2028 Democratic presidential nomination?",
+   "q": "Who will win the 2028 Democratic presidential nomination? | Cory Booker",
+   "bid": 0.01,
+   "ask": 0.02,
+   "end": "NA"
+  },
+  {
+   "venue": "predictit",
+   "evt": "Who will win the 2028 Democratic presidential nomination?",
+   "q": "Who will win the 2028 Democratic presidential nomination? | Ruben Gallego",
+   "bid": 0.01,
+   "ask": 0.02,
+   "end": "NA"
+  },
+  {
+   "venue": "predictit",
+   "evt": "Who will win the 2028 US presidential election?",
+   "q": "Who will win the 2028 US presidential election? | Jon Ossoff",
+   "bid": 0.18,
+   "ask": 0.19,
+   "end": "NA"
+  },
+  {
+   "venue": "predictit",
+   "evt": "Who will win the 2028 US presidential election?",
+   "q": "Who will win the 2028 US presidential election? | JD Vance",
+   "bid": 0.16,
+   "ask": 0.17,
+   "end": "NA"
+  },
+  {
+   "venue": "predictit",
+   "evt": "Who will win the 2028 US presidential election?",
+   "q": "Who will win the 2028 US presidential election? | A. Ocasio-Cortez",
+   "bid": 0.12,
+   "ask": 0.13,
+   "end": "NA"
+  },
+  {
+   "venue": "predictit",
+   "evt": "Who will win the 2028 US presidential election?",
+   "q": "Who will win the 2028 US presidential election? | Marco Rubio",
+   "bid": 0.11,
+   "ask": 0.13,
+   "end": "NA"
+  },
+  {
+   "venue": "predictit",
+   "evt": "Who will win the 2028 US presidential election?",
+   "q": "Who will win the 2028 US presidential election? | Gavin Newsom",
+   "bid": 0.1,
+   "ask": 0.11,
+   "end": "NA"
+  },
+  {
+   "venue": "predictit",
+   "evt": "Who will win the 2028 US presidential election?",
+   "q": "Who will win the 2028 US presidential election? | Andy Beshear",
+   "bid": 0.06,
+   "ask": 0.07,
+   "end": "NA"
+  },
+  {
+   "venue": "predictit",
+   "evt": "Who will win the 2028 US presidential election?",
+   "q": "Who will win the 2028 US presidential election? | Kamala Harris",
+   "bid": 0.04,
+   "ask": 0.05,
+   "end": "NA"
+  },
+  {
+   "venue": "predictit",
+   "evt": "Who will win the 2028 US presidential election?",
+   "q": "Who will win the 2028 US presidential election? | Pete Buttigieg",
+   "bid": 0.04,
+   "ask": 0.05,
+   "end": "NA"
+  },
+  {
+   "venue": "predictit",
+   "evt": "Who will win the 2028 US presidential election?",
+   "q": "Who will win the 2028 US presidential election? | Josh Shapiro",
+   "bid": 0.03,
+   "ask": 0.04,
+   "end": "NA"
+  },
+  {
+   "venue": "predictit",
+   "evt": "Who will win the 2028 US presidential election?",
+   "q": "Who will win the 2028 US presidential election? | Donald Trump",
+   "bid": 0.02,
+   "ask": 0.03,
+   "end": "NA"
+  },
+  {
+   "venue": "predictit",
+   "evt": "Who will win the 2028 US presidential election?",
+   "q": "Who will win the 2028 US presidential election? | JB Pritzker",
+   "bid": 0.01,
+   "ask": 0.02,
+   "end": "NA"
+  },
+  {
+   "venue": "predictit",
+   "evt": "Who will win the 2028 US presidential election?",
+   "q": "Who will win the 2028 US presidential election? | Gretchen Whitmer",
+   "bid": 0.01,
+   "ask": 0.02,
+   "end": "NA"
+  },
+  {
+   "venue": "predictit",
+   "evt": "Which party will win the 2028 US presidential election?",
+   "q": "Which party will win the 2028 US presidential election? | Democratic",
+   "bid": 0.66,
+   "ask": 0.67,
+   "end": "NA"
+  },
+  {
+   "venue": "predictit",
+   "evt": "Which party will win the 2028 US presidential election?",
+   "q": "Which party will win the 2028 US presidential election? | Republican",
+   "bid": 0.34,
+   "ask": 0.35,
+   "end": "NA"
+  },
+  {
+   "venue": "predictit",
+   "evt": "Who will be the next Supreme Court nominee?",
+   "q": "Who will be the next Supreme Court nominee? | Andrew Oldham",
+   "bid": 0.14,
+   "ask": 0.15,
+   "end": "NA"
+  },
+  {
+   "venue": "predictit",
+   "evt": "Who will be the next Supreme Court nominee?",
+   "q": "Who will be the next Supreme Court nominee? | James Ho",
+   "bid": 0.03,
+   "ask": 0.15,
+   "end": "NA"
+  },
+  {
+   "venue": "predictit",
+   "evt": "Who will be the next Supreme Court nominee?",
+   "q": "Who will be the next Supreme Court nominee? | Neomi Rao",
+   "bid": 0.02,
+   "ask": 0.05,
+   "end": "NA"
+  },
+  {
+   "venue": "predictit",
+   "evt": "Who will be the next Supreme Court nominee?",
+   "q": "Who will be the next Supreme Court nominee? | Aileen Cannon",
+   "bid": 0.03,
+   "ask": 0.07,
+   "end": "NA"
+  },
+  {
+   "venue": "predictit",
+   "evt": "Who will be the next Supreme Court nominee?",
+   "q": "Who will be the next Supreme Court nominee? | Amul Thapar",
+   "bid": 0.04,
+   "ask": 0.05,
+   "end": "NA"
+  },
+  {
+   "venue": "predictit",
+   "evt": "Who will be the next Supreme Court nominee?",
+   "q": "Who will be the next Supreme Court nominee? | Ted Cruz",
+   "bid": 0.03,
+   "ask": 0.04,
+   "end": "NA"
+  },
+  {
+   "venue": "predictit",
+   "evt": "Who will be the next Supreme Court nominee?",
+   "q": "Who will be the next Supreme Court nominee? | Mike Lee",
+   "bid": 0.03,
+   "ask": 0.04,
+   "end": "NA"
+  },
+  {
+   "venue": "predictit",
+   "evt": "Who will be the next Supreme Court nominee?",
+   "q": "Who will be the next Supreme Court nominee? | Emil Bove",
+   "bid": 0.03,
+   "ask": 0.04,
+   "end": "NA"
+  },
+  {
+   "venue": "predictit",
+   "evt": "Which party will win the 2026 US Senate election in Alaska?",
+   "q": "Which party will win the 2026 US Senate election in Alaska? | Democratic (Peltola)",
+   "bid": 0.95,
+   "ask": 0.97,
+   "end": "NA"
+  },
+  {
+   "venue": "predictit",
+   "evt": "Which party will win the 2026 US Senate election in Alaska?",
+   "q": "Which party will win the 2026 US Senate election in Alaska? | GOP (S. Sullivan)",
+   "bid": 0.03,
+   "ask": 0.05,
+   "end": "NA"
+  },
+  {
+   "venue": "predictit",
+   "evt": "Will Mike Johnson remain Speaker of the House through the 119th Congress?",
+   "q": "Will Mike Johnson remain Speaker of the House through the 119th Congress? | ",
+   "bid": 0.93,
+   "ask": 0.98,
+   "end": "NA"
+  }
+ ],
+ "manifold_sample": [
+  {
+   "venue": "manifold",
+   "evt": "Will JD Vance win the 2028 US Presidential Election?",
+   "q": "Will JD Vance win the 2028 US Presidential Election?",
+   "bid": 0.15793220903320157,
+   "ask": 0.15793220903320157,
+   "end": 1857275940000
+  },
+  {
+   "venue": "manifold",
+   "evt": "Will JD Vance be nominated for President for the 2028 US Presidential Election?",
+   "q": "Will JD Vance be nominated for President for the 2028 US Presidential Election?",
+   "bid": 0.3729099142897136,
+   "ask": 0.3729099142897136,
+   "end": 1846126740000
+  },
+  {
+   "venue": "manifold",
+   "evt": "If Trump were elected in 2024, will Trump attempt to run for a third term in 2028 or 2032?",
+   "q": "If Trump were elected in 2024, will Trump attempt to run for a third term in 2028 or 2032?",
+   "bid": 0.14999999999999994,
+   "ask": 0.14999999999999994,
+   "end": 1857277920000
+  },
+  {
+   "venue": "manifold",
+   "evt": "Will there be a serious attempt by the GOP to overturn the election?",
+   "q": "Will there be a serious attempt by the GOP to overturn the election?",
+   "bid": 0.04573364935693577,
+   "ask": 0.04573364935693577,
+   "end": 1799625540000
+  },
+  {
+   "venue": "manifold",
+   "evt": "Will someone under 70 be elected US president in 2028?",
+   "q": "Will someone under 70 be elected US president in 2028?",
+   "bid": 0.851837264607338,
+   "ask": 0.851837264607338,
+   "end": 1857196740000
+  },
+  {
+   "venue": "manifold",
+   "evt": "Will any German State Prime Minister after a 2026 election be elected with AfD support?",
+   "q": "Will any German State Prime Minister after a 2026 election be elected with AfD support?",
+   "bid": 0.7287352708973691,
+   "ask": 0.7287352708973691,
+   "end": 1798761540000
+  },
+  {
+   "venue": "manifold",
+   "evt": "Will there be any significant legislation or executive orders cancelling vote-by-mail in the 2026 federal elections?",
+   "q": "Will there be any significant legislation or executive orders cancelling vote-by-mail in the 2026 federal elections?",
+   "bid": 0.18257092911997583,
+   "ask": 0.18257092911997583,
+   "end": 1799049540000
+  },
+  {
+   "venue": "manifold",
+   "evt": "Will a Democrat win the 2028 Presidential Election?",
+   "q": "Will a Democrat win the 2028 Presidential Election?",
+   "bid": 0.6346424363991182,
+   "ask": 0.6346424363991182,
+   "end": 1866437940000
+  },
+  {
+   "venue": "manifold",
+   "evt": "The winner of the 2028 US election would be of Indian descent.",
+   "q": "The winner of the 2028 US election would be of Indian descent.",
+   "bid": 0.04642736242328182,
+   "ask": 0.04642736242328182,
+   "end": 1860127140000
+  },
+  {
+   "venue": "manifold",
+   "evt": "Harris wins 2028 election?",
+   "q": "Harris wins 2028 election?",
+   "bid": 0.03000000000000006,
+   "ask": 0.03000000000000006,
+   "end": 1862467140000
+  },
+  {
+   "venue": "manifold",
+   "evt": "Will the 2028 US presidential election occur \"as normal\"?",
+   "q": "Will the 2028 US presidential election occur \"as normal\"?",
+   "bid": 0.7499999999999998,
+   "ask": 0.7499999999999998,
+   "end": 1864310340000
+  },
+  {
+   "venue": "manifold",
+   "evt": "Will Taylor Swift win the 2028 presidential election?",
+   "q": "Will Taylor Swift win the 2028 presidential election?",
+   "bid": 0.02609616283970711,
+   "ask": 0.02609616283970711,
+   "end": 1861891140000
+  },
+  {
+   "venue": "manifold",
+   "evt": "Will someone I've met be elected President in either 2028 or 2032?",
+   "q": "Will someone I've met be elected President in either 2028 or 2032?",
+   "bid": 0.4817271665097112,
+   "ask": 0.4817271665097112,
+   "end": 1989464340000
+  },
+  {
+   "venue": "manifold",
+   "evt": "Will Donald Trump attempt to suspend, delay, or reschedule the 2028 elections?",
+   "q": "Will Donald Trump attempt to suspend, delay, or reschedule the 2028 elections?",
+   "bid": 0.15305823192469997,
+   "ask": 0.15305823192469997,
+   "end": 1836543540000
+  },
+  {
+   "venue": "manifold",
+   "evt": "Will Reform win the next UK election?",
+   "q": "Will Reform win the next UK election?",
+   "bid": 0.21926841509128753,
+   "ask": 0.21926841509128753,
+   "end": 1881529140000
+  },
+  {
+   "venue": "manifold",
+   "evt": "If Donald Trump wins the election, will he die while in office?",
+   "q": "If Donald Trump wins the election, will he die while in office?",
+   "bid": 0.09999999999999995,
+   "ask": 0.09999999999999995,
+   "end": 1861937940000
+  },
+  {
+   "venue": "manifold",
+   "evt": "If Trump Wins, will the USA pass more Ukraine aid at least once before the 2026 midterm elections?",
+   "q": "If Trump Wins, will the USA pass more Ukraine aid at least once before the 2026 midterm elections?",
+   "bid": 0.865906672138367,
+   "ask": 0.865906672138367,
+   "end": 1798779540000
+  },
+  {
+   "venue": "manifold",
+   "evt": "Will Donald Trump be elected president of the US in the 2048 election?",
+   "q": "Will Donald Trump be elected president of the US in the 2048 election?",
+   "bid": 0.010000000000000035,
+   "ask": 0.010000000000000035,
+   "end": 2480817540000
+  },
+  {
+   "venue": "manifold",
+   "evt": "Will AI be among the top 5 most important issues for voters in the lead up to the 2028 election?",
+   "q": "Will AI be among the top 5 most important issues for voters in the lead up to the 2028 election?",
+   "bid": 0.678937678512299,
+   "ask": 0.678937678512299,
+   "end": 1864357140000
+  },
+  {
+   "venue": "manifold",
+   "evt": "Will a woman be elected as the President of the United States before the end of 2040?",
+   "q": "Will a woman be elected as the President of the United States before the end of 2040?",
+   "bid": 0.6657962820513665,
+   "ask": 0.6657962820513665,
+   "end": 2240607540000
+  },
+  {
+   "venue": "manifold",
+   "evt": "Will the U.S. have a free and fair presidential election in 2028?",
+   "q": "Will the U.S. have a free and fair presidential election in 2028?",
+   "bid": 0.6376647713410575,
+   "ask": 0.6376647713410575,
+   "end": 1888811940000
+  },
+  {
+   "venue": "manifold",
+   "evt": "Iran Obtains Nuclear Weapon by 2030? Conditional Trump Elected.",
+   "q": "Iran Obtains Nuclear Weapon by 2030? Conditional Trump Elected.",
+   "bid": 0.25053544311255665,
+   "ask": 0.25053544311255665,
+   "end": 1893542340000
+  },
+  {
+   "venue": "manifold",
+   "evt": "Will the next elected leader of the Conservative Party be their leader by the time the next general election is held?",
+   "q": "Will the next elected leader of the Conservative Party be their leader by the time the next general election is held?",
+   "bid": 0.7097160859665348,
+   "ask": 0.7097160859665348,
+   "end": 1877900340000
+  },
+  {
+   "venue": "manifold",
+   "evt": "Will JD Vance take over the presidency from Donald Trump before the 2028 election?",
+   "q": "Will JD Vance take over the presidency from Donald Trump before the 2028 election?",
+   "bid": 0.15491542404965494,
+   "ask": 0.15491542404965494,
+   "end": 1857945540000
+  },
+  {
+   "venue": "manifold",
+   "evt": "Will the Democratic Party win the 2028 Presidential Election?",
+   "q": "Will the Democratic Party win the 2028 Presidential Election?",
+   "bid": 0.5947961880785853,
+   "ask": 0.5947961880785853,
+   "end": 1866437940000
+  },
+  {
+   "venue": "manifold",
+   "evt": "Will Donald Trump have been the Republican nominee in every presidential election from 2016 until his death?",
+   "q": "Will Donald Trump have been the Republican nominee in every presidential election from 2016 until his death?",
+   "bid": 0.17927489712817501,
+   "ask": 0.17927489712817501,
+   "end": 2209014000000
+  },
+  {
+   "venue": "manifold",
+   "evt": "If Trump is elected, will the US still be a liberal democracy at the end of his term? (V-DEM)",
+   "q": "If Trump is elected, will the US still be a liberal democracy at the end of his term? (V-DEM)",
+   "bid": 0.348394227226113,
+   "ask": 0.348394227226113,
+   "end": 1863730740000
+  },
+  {
+   "venue": "manifold",
+   "evt": "Will an AI be elected to public office in the USA by 2034? (850M subsidy)",
+   "q": "Will an AI be elected to public office in the USA by 2034? (850M subsidy)",
+   "bid": 0.22723976820476688,
+   "ask": 0.22723976820476688,
+   "end": 2019707940000
+  },
+  {
+   "venue": "manifold",
+   "evt": "Will a Democrat win the 2028 US presidential election?",
+   "q": "Will a Democrat win the 2028 US presidential election?",
+   "bid": 0.6198968930772104,
+   "ask": 0.6198968930772104,
+   "end": 1857189600000
+  },
+  {
+   "venue": "manifold",
+   "evt": "Conditional on Donald Trump winning the election, will there be a free and fair election in 2028?",
+   "q": "Conditional on Donald Trump winning the election, will there be a free and fair election in 2028?",
+   "bid": 0.6662127032499019,
+   "ask": 0.6662127032499019,
+   "end": 1848664740000
+  },
+  {
+   "venue": "manifold",
+   "evt": "Democrats win 2028 US Presidential Election?",
+   "q": "Democrats win 2028 US Presidential Election?",
+   "bid": 0.6105386125873543,
+   "ask": 0.6105386125873543,
+   "end": 1861948740000
+  },
+  {
+   "venue": "manifold",
+   "evt": "Will Kamala Harris run in the 2028 election primary?",
+   "q": "Will Kamala Harris run in the 2028 election primary?",
+   "bid": 0.4699999999999999,
+   "ask": 0.4699999999999999,
+   "end": 1861937940000
+  },
+  {
+   "venue": "manifold",
+   "evt": "Will Marine Le Pen win the 2027 French Presidential Election",
+   "q": "Will Marine Le Pen win the 2027 French Presidential Election",
+   "bid": 0.48999999999999994,
+   "ask": 0.48999999999999994,
+   "end": 1810871940000
+  },
+  {
+   "venue": "manifold",
+   "evt": "Will Marine Le Pen win the 2027 French Presidential Election?",
+   "q": "Will Marine Le Pen win the 2027 French Presidential Election?",
+   "bid": 0.4890503638919796,
+   "ask": 0.4890503638919796,
+   "end": 1809734340000
+  },
+  {
+   "venue": "manifold",
+   "evt": "Will a Democrat be elected president in 2028?",
+   "q": "Will a Democrat be elected president in 2028?",
+   "bid": 0.6340369864588866,
+   "ask": 0.6340369864588866,
+   "end": 1857967140000
+  },
+  {
+   "venue": "manifold",
+   "evt": "Will the next U.S. President (elected in Nov. 2024 & inaugurated in Jan. 2025) serve their full 4-year term?",
+   "q": "Will the next U.S. President (elected in Nov. 2024 & inaugurated in Jan. 2025) serve their full 4-year term?",
+   "bid": 0.7907982149355682,
+   "ask": 0.7907982149355682,
+   "end": 1863665940000
+  },
+  {
+   "venue": "manifold",
+   "evt": "Will the State of Palestine hold a fair presidential election by 2030?",
+   "q": "Will the State of Palestine hold a fair presidential election by 2030?",
+   "bid": 0.3085010027984332,
+   "ask": 0.3085010027984332,
+   "end": 1893448800000
+  },
+  {
+   "venue": "manifold",
+   "evt": "Will Zelenskyy be re-elected as president of Ukraine in the next election?",
+   "q": "Will Zelenskyy be re-elected as president of Ukraine in the next election?",
+   "bid": 0.3143675838300689,
+   "ask": 0.3143675838300689,
+   "end": 1830304740000
+  },
+  {
+   "venue": "manifold",
+   "evt": "Will Trump participate in an election for a third term?",
+   "q": "Will Trump participate in an election for a third term?",
+   "bid": 0.05222494266461592,
+   "ask": 0.05222494266461592,
+   "end": 1861937940000
+  },
+  {
+   "venue": "manifold",
+   "evt": "By 2033, Will an AI be elected to public office in a democracy?",
+   "q": "By 2033, Will an AI be elected to public office in a democracy?",
+   "bid": 0.26931847683103016,
+   "ask": 0.26931847683103016,
+   "end": 1988161140000
+  },
+  {
+   "venue": "manifold",
+   "evt": "Will the next person elected US vice president assume the presidency?",
+   "q": "Will the next person elected US vice president assume the presidency?",
+   "bid": 0.2714590538163317,
+   "ask": 0.2714590538163317,
+   "end": 1863752340000
+  },
+  {
+   "venue": "manifold",
+   "evt": "Sen. Fetterman leaves Democratic Party before 2028 election?",
+   "q": "Sen. Fetterman leaves Democratic Party before 2028 election?",
+   "bid": 0.40230732513180417,
+   "ask": 0.40230732513180417,
+   "end": 1861919940000
+  },
+  {
+   "venue": "manifold",
+   "evt": "Will Jean-Luc M\u00e9lenchon be candidate to the french presidential election in 2027",
+   "q": "Will Jean-Luc M\u00e9lenchon be candidate to the french presidential election in 2027",
+   "bid": 0.9432221966683589,
+   "ask": 0.9432221966683589,
+   "end": 1814479140000
+  },
+  {
+   "venue": "manifold",
+   "evt": "Will Keir Starmer lead the Labour party into the next General Election?",
+   "q": "Will Keir Starmer lead the Labour party into the next General Election?",
+   "bid": 0.00736161308827399,
+   "ask": 0.00736161308827399,
+   "end": 1893542340000
+  },
+  {
+   "venue": "manifold",
+   "evt": "Will the inflation rate in the US reach 6% between the 2024 and 2028 presidential elections?",
+   "q": "Will the inflation rate in the US reach 6% between the 2024 and 2028 presidential elections?",
+   "bid": 0.5999999999999999,
+   "ask": 0.5999999999999999,
+   "end": 1857185940000
+  },
+  {
+   "venue": "manifold",
+   "evt": "If Republicans lose the 2028 presidential election, will they attempt a coup? [Broad definition]",
+   "q": "If Republicans lose the 2028 presidential election, will they attempt a coup? [Broad definition]",
+   "bid": 0.5196694700098269,
+   "ask": 0.5196694700098269,
+   "end": 1863730740000
+  },
+  {
+   "venue": "manifold",
+   "evt": "If Trump is elected, will he attempt to pardon himself?",
+   "q": "If Trump is elected, will he attempt to pardon himself?",
+   "bid": 0.5243471947741913,
+   "ask": 0.5243471947741913,
+   "end": 1864616340000
+  },
+  {
+   "venue": "manifold",
+   "evt": "If the Republican candidate for president loses in 2028, will they deny the election result?",
+   "q": "If the Republican candidate for president loses in 2028, will they deny the election result?",
+   "bid": 0.5245936966919588,
+   "ask": 0.5245936966919588,
+   "end": 1863665940000
+  },
+  {
+   "venue": "manifold",
+   "evt": "If elected, will Donald Trump dismantle the department of education as promised?",
+   "q": "If elected, will Donald Trump dismantle the department of education as promised?",
+   "bid": 0.6600742483752117,
+   "ask": 0.6600742483752117,
+   "end": 1863676740000
+  },
+  {
+   "venue": "manifold",
+   "evt": "Will the CFTC permit real-money prediction markets on the 2028 US Presidential Election?",
+   "q": "Will the CFTC permit real-money prediction markets on the 2028 US Presidential Election?",
+   "bid": 0.8678471151533883,
+   "ask": 0.8678471151533883,
+   "end": 1861948740000
+  }
+ ]
+}
