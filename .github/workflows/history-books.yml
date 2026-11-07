@@ -33,7 +33,7 @@ jobs:
             bash history/push.sh "$PWD/sd" || true
             sleep $(( 600 - ($(date +%s) - t0) > 0 ? 600 - ($(date +%s) - t0) : 1 ))
           done
-      - if: always()
+      - if: ${{ !cancelled() }}  # cancel the run to stop the loop
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh workflow run market-books --ref main -R "$GITHUB_REPOSITORY" || true
