@@ -77,6 +77,7 @@ console.log(`Pred bot recorder ${build()}. Status: http://127.0.0.1:${STATUS_POR
  * The back-data downloader (src/history.ts) runs as its own process so its downloads never delay a snapshot: an hour after
  * start (5 minutes in), then every 6 hours, each run resuming where the last one stopped. HISTORY=off disables it.
  */
+let stopping = false;
 let history: ChildProcess | null = null;
 function runHistory() {
   if (history || process.env.HISTORY === "off") return;
@@ -86,14 +87,29 @@ function runHistory() {
     history = null;
   });
 }
+/** Paper loggers for esports, indices and politics markets (src/eventpaper.ts, paper only), restarted a minute after any exit. EVENTPAPER=off disables it. */
+let eventPaper: ChildProcess | null = null;
+let eventPaperTimer: NodeJS.Timeout | null = null;
+function runEventPaper() {
+  eventPaperTimer = null;
+  if (eventPaper || stopping || process.env.EVENTPAPER === "off") return;
+  const tsx = join(ROOT, "node_modules", ".bin", "tsx");
+  eventPaper = spawn(tsx, [join(ROOT, "src", "eventpaper.ts")], { cwd: ROOT, stdio: ["ignore", "inherit", "inherit"], env: process.env });
+  eventPaper.on("exit", () => {
+    eventPaper = null;
+    if (!stopping) eventPaperTimer = setTimeout(runEventPaper, 60_000);
+  });
+}
+eventPaperTimer = setTimeout(runEventPaper, 30_000);
 const historyTimer = setTimeout(runHistory, 300_000);
 const historyEvery = setInterval(runHistory, 6 * 3600_000);
 
-let stopping = false;
 function stop() {
   if (stopping) return;
   stopping = true;
   clearTimeout(historyTimer);
+  if (eventPaperTimer) clearTimeout(eventPaperTimer);
+  eventPaper?.kill("SIGTERM");
   clearInterval(historyEvery);
   clearInterval(latencyTimer);
   if (reportTimer) clearInterval(reportTimer);

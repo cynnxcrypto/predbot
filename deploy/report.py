@@ -97,6 +97,7 @@ def summary():
             except Exception:
                 continue
             rows.append({"series": "btc5m" if series == "live" else series} | {k: t.get(k) for k in ("t", "window", "left", "variant", "side", "ask", "limit", "freshAsk", "dry", "ok", "status", "error", "cost", "shares", "fee", "ms", "won", "pnl")})
+    out["eventPaper"] = s.get("eventPaper")  # 7 Nov 2026: esports/indices/politics paper loggers (src/eventpaper.ts)
     out["realTrades"] = sorted(rows, key=lambda r: r.get("t") or 0)[-200:]
     return out
 
