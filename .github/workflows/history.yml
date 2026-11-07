@@ -4,9 +4,6 @@ name: market-history
 on:
   schedule:
     - cron: "23 */6 * * *"
-  push:
-    branches: ["claude/project-thread-0qs39w"]
-    paths: ["history/run.txt", "history/collect.py", ".github/workflows/history.yml"]
   workflow_dispatch:
 permissions:
   contents: write

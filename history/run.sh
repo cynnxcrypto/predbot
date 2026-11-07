@@ -5,7 +5,8 @@ here=$(cd "$(dirname "$0")" && pwd)
 sd="$here/../sd"
 if [ ! -d "$sd/.git" ]; then
   git clone -q --depth 1 --filter=blob:none --sparse --branch server-data "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "$sd"
-  git -C "$sd" sparse-checkout set data/history
+  # only what the collector reads back: state, results, temperature market files (for the station list)
+  git -C "$sd" sparse-checkout set --no-cone '/data/history/*' '!/data/history/*/' '/data/history/results/' '/data/history/pm/temperature/' '/data/history/pm/weather_other/'
 fi
 export OUT="$sd/data/history"
 mkdir -p "$OUT"

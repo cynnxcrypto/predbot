@@ -7,7 +7,8 @@ for i in 1 2 3 4 5 6; do
   export GIT_INDEX_FILE="$PWD/.git/history-index"
   rm -f "$GIT_INDEX_FILE"
   git read-tree origin/server-data
-  git add -f --sparse data/history 2>/dev/null || git add -f data/history  # no -A: never delete files other jobs wrote
+  # --no-all: never stage deletions (each job only has part of data/history checked out)
+  git add -f --no-all --sparse data/history 2>/dev/null || git add -f --no-all data/history
   tree=$(git write-tree)
   if [ "$tree" = "$(git rev-parse origin/server-data^{tree})" ]; then unset GIT_INDEX_FILE; echo "nothing to push"; exit 0; fi
   c=$(git -c user.name="history-bot" -c user.email="history-bot@users.noreply.github.com" commit-tree "$tree" -p origin/server-data -m "history: data update [skip ci]")
