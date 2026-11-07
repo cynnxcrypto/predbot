@@ -53,7 +53,13 @@ const QUESTIONS = {
     instructions: "How much should we stake on the proposed bet?",
     criteria: { skip: "Skip ($0): not worth it at this price", half: "Small ($2.50): some doubt", normal: "Normal ($5): fair-to-good bet", double: "Double ($10): high confidence it is underpriced" },
   },
-  confidence: { type: "score", instructions: "How confident are you (0-100) that the bet wins?" },
+  // A bare "score" question is rejected by the API (football thread, 7 Nov 22:50 KST): ask it as 10 labelled levels and
+  // map back to a % (probability-weighted mean of the level midpoints).
+  confidence: {
+    type: "choice",
+    instructions: "How confident are you that the bet wins? Pick the band for the chance the side being bought wins.",
+    criteria: Object.fromEntries(Array.from({ length: 10 }, (_, i) => [`c${i * 10 + 5}`, `${i * 10}-${i * 10 + 10}% chance the bet wins`])),
+  },
 };
 
 /** Up to 12 recent headlines for a query from Google News RSS (5 s timeout, empty on any failure). */
@@ -101,6 +107,8 @@ export function parseJev(j: { model?: string; answers?: Record<string, Answer> }
   const pick = s?.choice && s.choice in STAKES ? s.choice : probs ? Object.entries(probs).sort((a, b) => b[1] - a[1])[0]?.[0] : undefined;
   if (!pick || !(pick in STAKES)) return { mult: null, err: "no stake in answer", model: j.model, ms, at };
   const c = j.answers?.confidence;
-  const conf = c == null ? null : Number(c.score ?? c.value ?? (typeof c === "number" ? c : NaN));
+  const cp = c?.probabilities;
+  const tot = cp ? Object.values(cp).reduce((x, y) => x + Number(y), 0) : 0;
+  const conf = cp && tot > 0 ? Object.entries(cp).reduce((x, [k, v]) => x + Number(k.slice(1)) * Number(v), 0) / tot : c?.choice ? Number(c.choice.slice(1)) : c == null ? null : Number(c.score ?? c.value ?? NaN);
   return { mult: STAKES[pick], pick, probs, confidence: Number.isFinite(conf) ? conf : null, model: j.model, ms, at };
 }
