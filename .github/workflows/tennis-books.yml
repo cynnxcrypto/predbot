@@ -1,0 +1,24 @@
+name: tennis-books
+on:
+  push:
+    branches: ["claude/**"]
+    paths: ["tennis/books_loop.py", ".github/workflows/tennis-books.yml"]
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  books:
+    runs-on: ubuntu-latest
+    timeout-minutes: 200
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - name: loop
+        run: LOOP=9000 timeout 160m python tennis/books_loop.py || true
+      - name: commit
+        run: |
+          git config user.name "tennis-bot"; git config user.email "tennis-bot@users.noreply.github.com"
+          git add tennis/out/books
+          git commit -m "tennis books [skip ci]" || exit 0
+          for i in 1 2 3; do git pull --rebase origin "${GITHUB_REF_NAME}" && git push origin "HEAD:${GITHUB_REF_NAME}" && break; sleep 5; done
