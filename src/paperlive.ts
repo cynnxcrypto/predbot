@@ -862,6 +862,32 @@ const familyStreak = new Map<string, { streak: number; haltUntil: number; lastWi
 function saveFamilyStreak(): void {
   saveJson(FAMILY_PAPER_FILE, Object.fromEntries(familyStreak));
 }
+/** One-shot day-stop resets, applied once at start-up (the server restarts on every deploy). 7 Nov 2026 11:49 KST,
+ *  enrique on going live: "are u kidding, i want it to trade" — the paper/dry day stops tripped this morning would have
+ *  kept both live rules silent until midnight. Clears the paper family halt and the live family streak for each rule;
+ *  the 3-loss stop counts again from here. */
+const DAY_STOP_RESETS: Record<string, string> = {
+  "ahead5-cheap60-15m-dayhalt3-big3-down-one": "2026-11-07T02:50:00Z",
+  "ahead5-cheap60-15m-dayhalt3": "2026-11-07T02:50:00Z",
+};
+{
+  const done = loadJson<Record<string, string>>("day-stop-resets-done.json", {});
+  const live = loadJson<Record<string, unknown>>("live-family-halts.json", {});
+  let changed = false;
+  for (const [name, at] of Object.entries(DAY_STOP_RESETS)) {
+    if (done[name] === at || Date.now() < Date.parse(at)) continue;
+    familyStreak.delete(name);
+    delete live[name];
+    done[name] = at;
+    changed = true;
+    console.log(`paper: day stop of ${name} reset (${at})`);
+  }
+  if (changed) {
+    saveFamilyStreak();
+    saveJson("live-family-halts.json", live);
+    saveJson("day-stop-resets-done.json", done);
+  }
+}
 /** familyMaxPerWindow: entries taken by a variant in the current window, per window length. */
 const familyWindowTaken = new Map<string, { window: number; n: number }>();
 function nextKstMidnight(t: number): number {
