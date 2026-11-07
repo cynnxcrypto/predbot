@@ -316,6 +316,18 @@ const FAVICON = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
 <circle cx="24" cy="9" r="3.5" fill="#f7931a"/>
 </svg>`;
 
+// Top-level dashboards (see notes/dashboards.md). Add one here: it gets a tab, a #<id> deep link and a <section id="sec-<id>">.
+// A dashboard with no content yet shows its placeholder; crypto's section is the existing page below.
+const SECTIONS: { id: string; label: string; soon?: string }[] = [
+  { id: "crypto", label: "Crypto" },
+  { id: "sports", label: "Sports", soon: "Polymarket sports markets will live here: their own real-money panel, trade log and paper lab, separate from crypto. Nothing trades here yet." },
+  { id: "politics", label: "Politics", soon: "Polymarket politics and election markets will live here, with their own panels and paper lab. Nothing trades here yet." },
+  { id: "other", label: "Other", soon: "Event markets that are neither crypto, sports nor politics will live here. Nothing trades here yet." },
+];
+const hx = (x: string) => x.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
+const SEC_NAV = '<nav class="secs" id="secs">' + SECTIONS.map((x) => `<button class="sb" data-s="${x.id}">${hx(x.label)}${x.soon ? '<span class="soon">soon</span>' : ""}</button>`).join("") + "</nav>";
+const SEC_PLACEHOLDERS = SECTIONS.filter((x) => x.soon).map((x) => `<section class="sec hide" id="sec-${x.id}"><div class="panel emptytab"><b>${hx(x.label)} is coming.</b><br>${hx(x.soon!)}</div></section>`).join("\n");
+
 const PAGE = `<!doctype html><html><head><meta charset="utf-8"><title>Pred bot</title>
 <meta name="viewport" content="width=device-width,initial-scale=1"><link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <style>
@@ -323,7 +335,7 @@ const PAGE = `<!doctype html><html><head><meta charset="utf-8"><title>Pred bot</
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.45 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-variant-numeric:tabular-nums}
 main{max-width:2400px;margin:0 auto;padding:28px 28px 60px}
-.top{display:flex;align-items:center;gap:14px;margin-bottom:12px;flex-wrap:wrap}.tabs{display:flex;gap:4px;margin:0 0 16px;flex-wrap:wrap;border-bottom:1px solid var(--line);padding-bottom:10px}.tabs .tb{font:inherit;font-size:11px;letter-spacing:.14em;text-transform:uppercase;padding:6px 14px;border-radius:999px;border:1px solid transparent;background:none;color:var(--mut);cursor:pointer}.tabs .tb:hover{color:var(--fg)}.tabs .tb.on{color:var(--fg);border-color:var(--fg)}.tabs .tb .n{margin-left:8px;font-size:10px;color:var(--mut);letter-spacing:0;text-transform:none}.tabs .tb .n .ok{color:var(--up)}.tabs .tb .n .bad{color:var(--down)}.hide{display:none!important}.secs{display:flex;gap:2px;margin:0 0 14px;border-bottom:1px solid var(--line)}.secs .sb{font:inherit;font-size:12px;font-weight:700;letter-spacing:.16em;text-transform:uppercase;padding:8px 16px 9px;margin-bottom:-1px;background:none;border:0;border-bottom:2px solid transparent;color:var(--mut);cursor:pointer}.secs .sb:hover{color:var(--fg)}.secs .sb.on{color:var(--fg);border-bottom-color:var(--fg)}.secs .sb .soon{margin-left:7px;font-size:9px;font-weight:400;letter-spacing:.08em;color:var(--mut);border:1px solid var(--line);border-radius:999px;padding:1px 6px;vertical-align:1px}.ov td.r b{font-weight:600}.ov .mut.sm{font-size:11px}.emptytab{padding:28px 0;color:var(--mut);font-size:13px;line-height:1.7}
+.top{display:flex;align-items:center;gap:14px;margin-bottom:12px;flex-wrap:wrap}.tabs{display:flex;gap:4px;margin:0 0 16px;flex-wrap:wrap;border-bottom:1px solid var(--line);padding-bottom:10px}.tabs .tb{font:inherit;font-size:11px;letter-spacing:.14em;text-transform:uppercase;padding:6px 14px;border-radius:999px;border:1px solid transparent;background:none;color:var(--mut);cursor:pointer}.tabs .tb:hover{color:var(--fg)}.tabs .tb.on{color:var(--fg);border-color:var(--fg)}.tabs .tb .n{margin-left:8px;font-size:10px;color:var(--mut);letter-spacing:0;text-transform:none}.tabs .tb .n .ok{color:var(--up)}.tabs .tb .n .bad{color:var(--down)}.hide{display:none!important}.secs{display:flex;flex-wrap:wrap;gap:2px;margin:0 0 14px;border-bottom:1px solid var(--line)}@media(max-width:600px){.secs .sb{padding:8px 9px 9px;letter-spacing:.1em}.secs .sb .soon{display:none}}.secs .sb{font:inherit;font-size:12px;font-weight:700;letter-spacing:.16em;text-transform:uppercase;padding:8px 16px 9px;margin-bottom:-1px;background:none;border:0;border-bottom:2px solid transparent;color:var(--mut);cursor:pointer}.secs .sb:hover{color:var(--fg)}.secs .sb.on{color:var(--fg);border-bottom-color:var(--fg)}.secs .sb .soon{margin-left:7px;font-size:9px;font-weight:400;letter-spacing:.08em;color:var(--mut);border:1px solid var(--line);border-radius:999px;padding:1px 6px;vertical-align:1px}.ov td.r b{font-weight:600}.ov .mut.sm{font-size:11px}.emptytab{padding:28px 0;color:var(--mut);font-size:13px;line-height:1.7}
 h1{font-size:20px;margin:0;font-weight:700;letter-spacing:.2px}
 .pill{font-size:11px;letter-spacing:.14em;text-transform:uppercase;padding:4px 10px;border-radius:999px;border:1px solid var(--line);color:var(--mut)}
 .pill.live{color:#0f1117;background:var(--up);border-color:var(--up);font-weight:700}
@@ -446,7 +458,7 @@ tr.dim{transition:opacity .4s}
 .coin.btc{background:#f7931a}.coin.eth{background:#8c9eff}.coin.sol{background:#14f195}.coin.xrp{background:#b3bccb}.coin.doge{background:#c2a633}.coin.bnb{background:#f3ba2f}.coin.hype{background:#97fce4}
 </style></head><body><main>
 <div class="top"><h1>Pred bot</h1><span class="pill" id="mode">off</span><span class="pill" id="listed">—</span><span class="sub" id="sub">loading</span></div>
-<nav class="secs" id="secs"><button class="sb" data-s="crypto">Crypto</button><button class="sb" data-s="sports">Sports<span class="soon">soon</span></button></nav>
+${SEC_NAV}
 <section class="sec" id="sec-crypto">
 <div class="tabs" id="tabs"><button class="tb" data-t="overview">overview</button><button class="tb" data-t="5m">5 min<span class="n" id="n5m"></span></button><button class="tb" data-t="15m">15 min<span class="n" id="n15m"></span></button><button class="tb" data-t="1h">1 hour<span class="n" id="n1h"></span></button><button class="tb" data-t="4h">4 hours<span class="n" id="n4h"></span></button><button class="tb" data-t="24h">24 hours<span class="n" id="n24h"></span></button></div>
 
@@ -500,7 +512,7 @@ tr.dim{transition:opacity .4s}
 </div>
 <div class="note" id="note"></div>
 </section>
-<section class="sec hide" id="sec-sports"><div class="panel emptytab"><b>Sports is coming.</b><br>Polymarket sports, politics and event markets will live here: their own real-money panel, trade log and paper lab, separate from crypto. Nothing trades here yet.</div></section>
+${SEC_PLACEHOLDERS}
 </main><script>
 var el=function(id){return document.getElementById(id)};
 var money=function(n){return n==null?"—":"$"+Number(n).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2})};
@@ -516,7 +528,7 @@ var hhmm=function(sec){return new Date(sec*1000).toLocaleTimeString("en-GB",{tim
 function cls(n){return n==null?"":n<0?"bad":n>0?"ok":""}
 var seen={},LABHTML="";
 var WINS=["5m","15m","1h","4h","24h"];var WOF=function(lb){var m=/(\\d+)\\s?(m|h|d)\\b/.exec(String(lb||"BTC 5m"));if(!m)return "5m";return m[2]==="d"?"24h":m[1]+m[2]};
-var SECS=["crypto","sports"];var okTab=function(t){return t==="overview"||WINS.indexOf(t)>=0};var lsGet=function(k){try{return localStorage.getItem(k)}catch(e){return null}};
+var SECS=${JSON.stringify(SECTIONS.map((x) => x.id))};var okTab=function(t){return t==="overview"||WINS.indexOf(t)>=0};var lsGet=function(k){try{return localStorage.getItem(k)}catch(e){return null}};
 // Deep links: #crypto, #crypto/15m, #sports (a bare #15m still opens that crypto tab). Without a hash the last section and tab are remembered.
 var HROUTE=function(){return String(location.hash||"").replace(/^#[/]?/,"").toLowerCase().split("/")};
 var SEC=(function(){var h=HROUTE();if(SECS.indexOf(h[0])>=0)return h[0];if(okTab(h[0]))return "crypto";var s=lsGet("wsec");return SECS.indexOf(s)>=0?s:"crypto"})();
