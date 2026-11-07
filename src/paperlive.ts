@@ -885,6 +885,16 @@ const DAY_STOP_RESETS: Record<string, string> = {
     changed = true;
     console.log(`paper: day stop of ${name} reset (${at})`);
   }
+  // 7 Nov 15:10 KST: the live rules moved to the paper twins WITHOUT the paper day stop (only real losses stop them);
+  // carry today's real loss streak over to the new names once.
+  const moves: [string, string][] = [["ahead5-cheap60-15m-dayhalt3", "ahead5-cheap60-15m-first3"], ["ahead5-cheap60-15m-dayhalt3-big3-down-one", "ahead5-cheap60-15m-big3-down-one"]];
+  for (const [from, to] of moves) {
+    const key = `move:${from}`;
+    if (done[key]) continue;
+    if (live[from] && !live[to]) live[to] = live[from];
+    done[key] = to;
+    changed = true;
+  }
   if (changed) {
     saveFamilyStreak();
     saveJson("live-family-halts.json", live);

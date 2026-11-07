@@ -34,25 +34,23 @@
       "maxLossPerDay": 20,
       "variants": [
         {
-          "variant": "ahead5-cheap60-15m-dayhalt3-big3-down-one",
+          "variant": "ahead5-cheap60-15m-big3-down-one",
           "size": 3,
           "haltAfterLosses": 4,
           "familyHaltLosses": 3,
           "maxLossPerDay": 9,
           "cap": 0.6,
-          "skipOnFall": false,
-          "resumeFrom": "2026-11-07T02:50:00Z"
+          "skipOnFall": false
         },
         {
-          "variant": "ahead5-cheap60-15m-dayhalt3",
+          "variant": "ahead5-cheap60-15m-first3",
           "size": 3,
           "haltAfterLosses": 4,
           "familyHaltLosses": 3,
           "maxLossPerDay": 9,
           "cap": 0.6,
           "bidUnderC": 1,
-          "bidSec": 60,
-          "resumeFrom": "2026-11-07T02:50:00Z"
+          "bidSec": 60
         }
       ]
     },
@@ -61,25 +59,23 @@
       "maxLossPerDay": 20,
       "variants": [
         {
-          "variant": "ahead5-cheap60-15m-dayhalt3-big3-down-one",
+          "variant": "ahead5-cheap60-15m-big3-down-one",
           "size": 3,
           "haltAfterLosses": 4,
           "familyHaltLosses": 3,
           "maxLossPerDay": 9,
           "cap": 0.6,
-          "skipOnFall": false,
-          "resumeFrom": "2026-11-07T02:50:00Z"
+          "skipOnFall": false
         },
         {
-          "variant": "ahead5-cheap60-15m-dayhalt3",
+          "variant": "ahead5-cheap60-15m-first3",
           "size": 3,
           "haltAfterLosses": 4,
           "familyHaltLosses": 3,
           "maxLossPerDay": 9,
           "cap": 0.6,
           "bidUnderC": 1,
-          "bidSec": 60,
-          "resumeFrom": "2026-11-07T02:50:00Z"
+          "bidSec": 60
         }
       ]
     },
@@ -93,15 +89,14 @@
       "maxLossPerDay": 20,
       "variants": [
         {
-          "variant": "ahead5-cheap60-15m-dayhalt3",
+          "variant": "ahead5-cheap60-15m-first3",
           "size": 3,
           "haltAfterLosses": 4,
           "familyHaltLosses": 3,
           "maxLossPerDay": 9,
           "cap": 0.6,
           "bidUnderC": 1,
-          "bidSec": 60,
-          "resumeFrom": "2026-11-07T02:50:00Z"
+          "bidSec": 60
         }
       ]
     },
@@ -110,15 +105,14 @@
       "maxLossPerDay": 20,
       "variants": [
         {
-          "variant": "ahead5-cheap60-15m-dayhalt3",
+          "variant": "ahead5-cheap60-15m-first3",
           "size": 3,
           "haltAfterLosses": 4,
           "familyHaltLosses": 3,
           "maxLossPerDay": 9,
           "cap": 0.6,
           "bidUnderC": 1,
-          "bidSec": 60,
-          "resumeFrom": "2026-11-07T02:50:00Z"
+          "bidSec": 60
         }
       ]
     },
@@ -127,25 +121,23 @@
       "maxLossPerDay": 15,
       "variants": [
         {
-          "variant": "ahead5-cheap60-15m-dayhalt3-big3-down-one",
+          "variant": "ahead5-cheap60-15m-big3-down-one",
           "size": 3,
           "haltAfterLosses": 4,
           "familyHaltLosses": 3,
           "maxLossPerDay": 9,
           "cap": 0.6,
-          "skipOnFall": false,
-          "resumeFrom": "2026-11-07T02:50:00Z"
+          "skipOnFall": false
         },
         {
-          "variant": "ahead5-cheap60-15m-dayhalt3",
+          "variant": "ahead5-cheap60-15m-first3",
           "size": 3,
           "haltAfterLosses": 4,
           "familyHaltLosses": 3,
           "maxLossPerDay": 9,
           "cap": 0.6,
           "bidUnderC": 1,
-          "bidSec": 60,
-          "resumeFrom": "2026-11-07T02:50:00Z"
+          "bidSec": 60
         }
       ]
     },
@@ -154,15 +146,14 @@
       "maxLossPerDay": 15,
       "variants": [
         {
-          "variant": "ahead5-cheap60-15m-dayhalt3",
+          "variant": "ahead5-cheap60-15m-first3",
           "size": 3,
           "haltAfterLosses": 4,
           "familyHaltLosses": 3,
           "maxLossPerDay": 9,
           "cap": 0.6,
           "bidUnderC": 1,
-          "bidSec": 60,
-          "resumeFrom": "2026-11-07T02:50:00Z"
+          "bidSec": 60
         }
       ]
     },
@@ -171,15 +162,14 @@
       "maxLossPerDay": 15,
       "variants": [
         {
-          "variant": "ahead5-cheap60-15m-dayhalt3",
+          "variant": "ahead5-cheap60-15m-first3",
           "size": 3,
           "haltAfterLosses": 4,
           "familyHaltLosses": 3,
           "maxLossPerDay": 9,
           "cap": 0.6,
           "bidUnderC": 1,
-          "bidSec": 60,
-          "resumeFrom": "2026-11-07T02:50:00Z"
+          "bidSec": 60
         }
       ]
     }
