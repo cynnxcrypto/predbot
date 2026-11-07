@@ -1,9 +1,9 @@
 name: market-books
-# Order-book snapshots of open daily index/commodity series, every ~10 min in US trading hours (13:30-21:10 UTC, Mon-Fri).
+# Order-book snapshots every ~10 min: daily index/commodity series in US hours, and games starting within 95 min.
 # Research data only; does not touch the trading bot.
 on:
   schedule:
-    - cron: "*/10 13-21 * * 1-5"
+    - cron: "*/10 * * * *"
   workflow_dispatch:
 permissions:
   contents: write
