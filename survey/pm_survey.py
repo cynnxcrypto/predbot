@@ -730,19 +730,24 @@ def favhist():
                     say(f"  {k} fav {band}%: n={len(allv)} {100*st.mean(allv):+.2f}c/share vs fair (±{2*se:.1f}) | " + " ".join(per))
 
 
-def news_headlines(a, b, day):
-    d0 = (day - timedelta(days=4)).strftime("%Y-%m-%d"); d1 = day.strftime("%Y-%m-%d")
+def news_headlines(a, b, day, kickoff_ts=None):
+    from email.utils import parsedate_to_datetime
+    d0 = (day - timedelta(days=4)).strftime("%Y-%m-%d"); d1 = (day + timedelta(days=1)).strftime("%Y-%m-%d")
     qy = f'"{a}" "{b}" after:{d0} before:{d1}'
     url = "https://news.google.com/rss/search?" + urllib.parse.urlencode({"q": qy, "hl": "en-US", "gl": "US", "ceid": "US:en"})
     b_ = get(url, tries=2)
     if not isinstance(b_, str): return []
     out = []
-    for it in re.findall(r"<item>(.*?)</item>", b_, re.S)[:12]:
+    for it in re.findall(r"<item>(.*?)</item>", b_, re.S)[:40]:
         t = re.search(r"<title>(.*?)</title>", it, re.S); pd = re.search(r"<pubDate>(.*?)</pubDate>", it)
+        if t and kickoff_ts:
+            try:
+                if not pd or parsedate_to_datetime(pd.group(1)).timestamp() > kickoff_ts - 3600: continue  # only news published 1h+ before kickoff
+            except Exception: continue
         if t:
             title = re.sub(r"<!\[CDATA\[|\]\]>", "", t.group(1)).replace("&amp;", "&").replace("&#39;", "'").replace("&quot;", '"')
             out.append(f"{pd.group(1)[5:16] if pd else ''} | {title}")
-    return out
+    return out[:12]
 
 def jevstates2():
     say("## Jev states v2 (context + market prices + news) for matched Polymarket football matches")
@@ -777,7 +782,7 @@ def jevstates2():
         f["prediction_market_prices_10min_before_kickoff"] = {"home_win": round(r["H"]["k10"], 3), "draw": round(r["D"]["k10"], 3), "away_win": round(r["A"]["k10"], 3)}
         f["prediction_market_prices_24h_before_kickoff"] = {"home_win": round(r["H"]["k24h"] or 0, 3), "draw": round(r["D"]["k24h"] or 0, 3), "away_win": round(r["A"]["k24h"] or 0, 3)}
         if r.get("avg"): f["bookmaker_consensus_fair_probabilities"] = {"home_win": round(r["avg"][0], 3), "draw": round(r["avg"][1], 3), "away_win": round(r["avg"][2], 3)}
-        news_jobs.append((f, r["fdH"], r["fdA"], day.date()))
+        news_jobs.append((f, r["fdH"], r["fdA"], day.date(), r["start"]))
         f["context"] = ("You advise a bettor who can buy any outcome on a prediction market at the listed 10-minute price plus ~1-2% in costs. "
                         "Prices are crowd probabilities and are usually well calibrated, so only call a side underpriced when your judgement "
                         "(team news, injuries, suspensions, rotation, motivation, schedule congestion, form, matchup) clearly disagrees with it.")
@@ -786,12 +791,12 @@ def jevstates2():
     # news in parallel with a hard deadline so the run always finishes and commits
     deadline = time.time() + 35 * 60
     def fetch(job):
-        f, a, b, d = job
+        f, a, b, d, ko = job
         if time.time() > deadline: return
-        f["news_headlines_last_4_days_before_match_day"] = news_headlines(a, b, d) or "none found"
+        f["news_headlines_published_before_kickoff"] = news_headlines(a, b, d, ko) or "none found"
     news_jobs.sort(key=lambda j: (j[0]["competition"][:7] != "Spanish", j[3]), reverse=False)
     with ThreadPoolExecutor(8) as ex: list(ex.map(fetch, news_jobs))
-    say(f"news fetched for {sum(1 for j in news_jobs if 'news_headlines_last_4_days_before_match_day' in j[0])}/{len(news_jobs)} matches")
+    say(f"news fetched for {sum(1 for j in news_jobs if 'news_headlines_published_before_kickoff' in j[0])}/{len(news_jobs)} matches")
     for m in out: assert "\"won\": " not in json.dumps(m["state"]), "result leaked into state"
     questions = {
         "result": {"type": "choice", "instructions": "Using all the context, what are the true probabilities of the full-time result? Be calibrated.",
@@ -803,7 +808,7 @@ def jevstates2():
     json.dump({"model": "jev-latest", "endpoint": "https://api.typesafe.ai/v1/systemone", "questions": questions, "matches": out}, open(f"{OUT}/jev_states_v2.json", "w"))
     by = {}
     for m in out: by[m["lg"]] = by.get(m["lg"], 0) + 1
-    say(f"wrote {len(out)} states {by}; with news: {sum(1 for m in out if isinstance(m['state'].get('news_headlines_last_4_days_before_match_day'), list))}")
+    say(f"wrote {len(out)} states {by}; with news: {sum(1 for m in out if isinstance(m['state'].get('news_headlines_published_before_kickoff'), list))}")
     if out: say("sample state: " + json.dumps(out[-1]["state"])[:1500])
 
 if __name__ == "__main__":
