@@ -478,6 +478,167 @@ def feeds():
         fresh = f", items {len(dates)}, newest {min(dates):.0f} min old" if dates else ""
         say(f"- {name}: HTTP {code} in {ms} ms, {len(body)//1024} KB{fresh}")
 
+
+# ---------------------------------------------------------------- football: Polymarket vs Pinnacle closing (football-data.co.uk)
+import csv, io, difflib
+FD_LEAGUES = {"E0": ["premier-league", "epl"], "SP1": ["la-liga", "laliga"], "I1": ["serie-a"], "D1": ["bundesliga"], "F1": ["ligue-1"],
+              "E1": ["championship", "efl-championship"], "N1": ["eredivisie"], "P1": ["primeira-liga"]}
+def fd_rows():
+    rows = []
+    for season in ("2526", "2627"):
+        for code in FD_LEAGUES:
+            b = get(f"https://www.football-data.co.uk/mmz4281/{season}/{code}.csv", tries=2)
+            if not isinstance(b, str) or "HomeTeam" not in b[:400]:
+                say(f"  football-data {season}/{code}: {'missing' if b is None else str(b)[:60]!r}"); continue
+            n = 0
+            for r in csv.DictReader(io.StringIO(b.lstrip("\ufeff"))):
+                try: d = datetime.strptime(r["Date"], "%d/%m/%Y" if len(r["Date"]) == 10 else "%d/%m/%y").date()
+                except Exception: continue
+                r["_date"], r["_lg"] = d, code; rows.append(r); n += 1
+            say(f"  football-data {season}/{code}: {n} matches; Pinnacle close cols: {'PSCH' in b[:2000]}")
+    return rows
+
+def odds3(r, pre):
+    try:
+        h, d, a = float(r[pre + "H"]), float(r[pre + "D"]), float(r[pre + "A"])
+        t = 1 / h + 1 / d + 1 / a
+        return (1 / h / t, 1 / d / t, 1 / a / t, t - 1)
+    except Exception:
+        return None
+
+def tnorm(s):
+    s = (s or "").lower()
+    for a, b in (("manchester", "man"), ("united", "utd"), ("athletic club", "ath bilbao"), ("atlético", "ath"), ("atletico", "ath"), ("internazionale", "inter"),
+                 ("borussia ", ""), ("fc ", ""), (" fc", ""), ("cf ", ""), (" cf", ""), ("rcd ", ""), ("real sociedad", "sociedad"), ("rayo vallecano", "vallecano"),
+                 ("de madrid", ""), ("de barcelona", ""), ("de vigo", ""), ("ac ", ""), ("as ", ""), ("ssc ", ""), ("1. ", ""), ("tsg ", ""), ("vfb ", ""), ("vfl ", ""),
+                 ("olympique ", ""), ("stade ", ""), ("paris saint-germain", "paris sg"), ("wolverhampton wanderers", "wolves"), ("nottingham forest", "nott'm forest"),
+                 ("tottenham hotspur", "tottenham"), ("brighton & hove albion", "brighton"), ("west ham united", "west ham"), ("newcastle united", "newcastle"),
+                 ("bayer leverkusen", "leverkusen"), ("eintracht frankfurt", "ein frankfurt"), ("mönchengladbach", "m'gladbach"), ("monchengladbach", "m'gladbach")):
+        s = s.replace(a, b)
+    return re.sub(r"[^a-z' ]", "", s).strip()
+
+def sim(a, b):
+    a, b = tnorm(a), tnorm(b)
+    if not a or not b: return 0
+    if a in b or b in a: return 0.95
+    return difflib.SequenceMatcher(None, a, b).ratio()
+
+def football():
+    say("## Football: Polymarket kickoff price vs Pinnacle closing line vs result")
+    fd = fd_rows()
+    by_date = {}
+    for r in fd: by_date.setdefault(r["_date"], []).append(r)
+    pm_ev, seen = [], set()
+    for code, slugs in FD_LEAGUES.items():
+        for sl in slugs:
+            got = page_events({"closed": "true", "tag_slug": sl, "end_date_min": "2025-08-01T00:00:00Z"}, cap=6000)
+            n = 0
+            for e in got:
+                if e.get("id") in seen or " vs" not in (e.get("title") or ""): continue
+                seen.add(e.get("id")); pm_ev.append((code, e)); n += 1
+            say(f"  PM tag {sl}: {len(got)} closed events, {n} new match events")
+    jobs = []
+    for code, e in pm_ev:
+        title = re.sub(r"\s*-\s*.*$", "", e.get("title") or "")
+        parts = re.split(r"\s+vs\.?\s+", title)
+        if len(parts) != 2: continue
+        A, B = parts
+        mk = {}
+        start = None
+        for m in e.get("markets") or []:
+            qn = (m.get("question") or "").lower()
+            toks = jl(m.get("clobTokenIds")); prices = jl(m.get("outcomePrices"))
+            if not toks or not prices: continue
+            if any(x in qn for x in ("halftime", "half", "score", "o/u", "over", "spread", "both teams", "corners", "exact")): continue
+            start = start or ts(m.get("gameStartTime")) or ts(m.get("eventStartTime"))
+            try: won = float(prices[0]) > 0.5
+            except Exception: continue
+            if "draw" in qn: mk["D"] = (toks[0], won, m)
+            else:
+                g = m.get("groupItemTitle") or qn
+                sa, sb = sim(g, A), sim(g, B)
+                if max(sa, sb) < 0.5: continue
+                mk["H" if sa >= sb else "A"] = (toks[0], won, m)
+        if len(mk) != 3 or not start: continue
+        cands = by_date.get(start.date(), []) + by_date.get((start - timedelta(hours=12)).date(), [])
+        best, bs = None, 0
+        for r in cands:
+            if r["_lg"] != code: continue
+            sc = sim(r["HomeTeam"], A) + sim(r["AwayTeam"], B)
+            if sc > bs: best, bs = r, sc
+        if not best or bs < 1.2: continue
+        jobs.append({"lg": code, "A": A, "B": B, "fdH": best["HomeTeam"], "fdA": best["AwayTeam"], "ftr": best.get("FTR"), "start": start.timestamp(),
+                     "mk": {k: (v[0], v[1]) for k, v in mk.items()}, "vol": float(e.get("volume") or 0),
+                     "pin": odds3(best, "PSC") or odds3(best, "PS"), "avg": odds3(best, "AvgC") or odds3(best, "Avg"), "b365": odds3(best, "B365C")})
+    say(f"PM match events: {len(pm_ev)}, matched to football-data with 3 markets: {len(jobs)}")
+    def fetch(j):
+        out = dict(j)
+        for k, (tok, won) in j["mk"].items():
+            h = get(CLOB + "/prices-history", {"market": tok, "startTs": int(j["start"] - 2 * 86400), "endTs": int(j["start"] + 60), "fidelity": 5}, tries=2)
+            hist = sorted((h or {}).get("history") or [], key=lambda x: x["t"]) if isinstance(h, dict) else []
+            out[k] = {"won": won, "k10": price_at(hist, j["start"] - 600), "k75": price_at(hist, j["start"] - 75 * 60),
+                      "k6h": price_at(hist, j["start"] - 6 * 3600), "k24h": price_at(hist, j["start"] - 86400), "n": len(hist)}
+        return out
+    with ThreadPoolExecutor(24) as ex:
+        res = list(ex.map(fetch, jobs))
+    json.dump(res, open(f"{OUT}/football.json", "w"), default=str)
+    ok = [r for r in res if all(r.get(k, {}).get("k10") is not None for k in "HDA")]
+    say(f"with kickoff prices for H/D/A: {len(ok)}")
+    if not ok: return
+    # 1) PM calibration at kickoff
+    def cal(rows, key, lab):
+        pts = [(r[k][key], 1 if r[k]["won"] else 0) for r in rows for k in "HDA" if r[k].get(key) is not None and 0.01 < r[k][key] < 0.99]
+        if not pts: return
+        say(f"### PM {lab} ({key}) n={len(pts)}")
+        for lo, hi in ((0, .15), (.15, .25), (.25, .35), (.35, .45), (.45, .55), (.55, .65), (.65, .8), (.8, 1)):
+            b = [(p, w) for p, w in pts if lo <= p < hi]
+            if len(b) < 20: continue
+            ap = sum(p for p, _ in b) / len(b); wr = sum(w for _, w in b) / len(b)
+            say(f"  {int(lo*100):>2}-{int(hi*100):<3}c n={len(b):>4} avg {100*ap:5.1f}c won {100*wr:5.1f}% edge {100*(wr-ap):+5.1f}pts ±{200*math.sqrt(max(wr*(1-wr),1e-4)/len(b)):.1f}")
+        dr = [(r["D"][key], 1 if r["D"]["won"] else 0) for r in rows if r["D"].get(key)]
+        if dr: say(f"  draws only: n={len(dr)} avg {100*sum(p for p,_ in dr)/len(dr):.1f}c won {100*sum(w for _,w in dr)/len(dr):.1f}%")
+    cal(ok, "k10", "10 min pre-kickoff")
+    cal(ok, "k24h", "24 h pre-kickoff")
+    # 2) PM vs Pinnacle closing
+    for ref in ("pin", "avg"):
+        rr = [r for r in ok if r.get(ref)]
+        if not rr: continue
+        diffs, bets = [], {}
+        for r in rr:
+            fair = dict(zip("HDA", r[ref][:3]))
+            for k in "HDA":
+                p = r[k]["k10"]; d = p - fair[k]; diffs.append(d)
+                for th in (0.02, 0.03, 0.05, 0.08):
+                    if fair[k] - p >= th:   # PM cheaper than the sharp line -> buy on PM at ~mid + 1c
+                        cost = p + 0.01 + 0.05 * p * (1 - p)
+                        bets.setdefault(th, []).append((1 if r[k]["won"] else 0) - cost)
+        say(f"### PM 10-min-pre-kickoff vs {ref} closing (de-vigged), {len(rr)} matches")
+        say(f"  mean diff {100*st.mean(diffs):+.2f}pts, median |diff| {100*st.median([abs(x) for x in diffs]):.2f}pts, p90 |diff| {100*q([abs(x) for x in diffs], .9):.2f}pts")
+        for th, v in sorted(bets.items()):
+            say(f"  buy PM when {int(th*100)}+pts below {ref}: n={len(v)} won {100*sum(1 for x in v if x > 0)/len(v):.0f}% net {sum(v):+.2f} per $1-share ({100*st.mean(v):+.2f}c/share after 1c slip + fee)")
+        # does the sharp line beat PM at predicting results? (log loss)
+        llp = llr = 0
+        for r in rr:
+            fair = dict(zip("HDA", r[ref][:3]))
+            tot = sum(r[k]["k10"] for k in "HDA")
+            for k in "HDA":
+                if r[k]["won"]:
+                    llp -= math.log(max(1e-4, r[k]["k10"] / tot)); llr -= math.log(max(1e-4, fair[k]))
+        say(f"  log loss per match: PM {llp/len(rr):.4f} vs {ref} {llr/len(rr):.4f} (lower = sharper)")
+    # 3) last-75-min move (lineups) toward/away from the close
+    mv = []
+    for r in ok:
+        if not r.get("pin") and not r.get("avg"): continue
+        fair = dict(zip("HDA", (r.get("pin") or r.get("avg"))[:3]))
+        for k in "HDA":
+            a, b = r[k].get("k75"), r[k]["k10"]
+            if a is None: continue
+            mv.append((abs(a - fair[k]), abs(b - fair[k]), b - a, r[k]["won"]))
+    if mv:
+        say(f"### lineup window (75→10 min pre-kickoff): |PM−close| {100*st.mean(x[0] for x in mv):.2f} → {100*st.mean(x[1] for x in mv):.2f}pts; moves ≥3c: {sum(1 for x in mv if abs(x[2]) >= .03)} of {len(mv)}")
+        big = [x for x in mv if x[2] >= .03]
+        if big: say(f"  sides that rose ≥3c in that window: won {100*sum(1 for x in big if x[3])/len(big):.0f}% (n={len(big)})")
+
 if __name__ == "__main__":
     steps = sys.argv[1:] or ["feeds", "landscape", "sports", "kalshi", "calib"]
     evs = None
@@ -489,6 +650,7 @@ if __name__ == "__main__":
             elif s == "sports": sports()
             elif s == "kalshi": kalshi()
             elif s == "feeds": feeds()
+            elif s == "football": football()
         except Exception as e:
             import traceback; traceback.print_exc(); say(f"STEP {s} FAILED: {e!r}")
         say(f"({s} took {time.time()-t0:.0f}s)")
