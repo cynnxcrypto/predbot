@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Order-book snapshots (fillability check): daily index/commodity series during US hours, and every game moneyline/total/spread
-starting within the next 95 minutes.
+starting within the next 95 minutes,
+plus esports match/map moneylines in play (up to 5 h after start).
 Writes OUT/books/<YYYY-MM-DD>/<HHMM>.json.gz: {"t": unix, "markets": [{series, event_slug, market_id, question, group_item,
 token_ids, outcomes, books: [{bids:[[p,size]..], asks:[[p,size]..], ts}] (top 5 levels per token)}]}."""
 import gzip, json, os, sys, time, urllib.parse
@@ -34,7 +35,8 @@ def soon_games(now):
             fam = "esports" if any(t.get("slug") == "esports" for t in e.get("tags") or []) else ("football" if any(t.get("slug") == "soccer" for t in e.get("tags") or []) else "games")
             for m in e.get("markets") or []:
                 gs = tsec(m.get("gameStartTime"))
-                if not gs or not (now - 300 <= gs <= now + 95 * 60) or m.get("closed") or m.get("sportsMarketType") not in MAIN:
+                back = 5 * 3600 if fam == "esports" else 300  # esports: keep snapshotting in-play until the market closes
+                if not gs or not (now - back <= gs <= now + 95 * 60) or m.get("closed") or m.get("sportsMarketType") not in MAIN:
                     continue
                 if float(m.get("volumeNum") or 0) < 1000 and m.get("sportsMarketType") != "moneyline":
                     continue

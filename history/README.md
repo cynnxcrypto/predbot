@@ -13,7 +13,7 @@ Read any file with pandas: `pd.read_csv(path)` (gzip is detected) or `pd.read_pa
 pm/<family>/<YYYY>/<YYYY-MM-DD>.events.csv.gz     one row per event whose endDate is that UTC day (teams, score, series)
 pm/<family>/<YYYY>/<YYYY-MM-DD>.markets.csv.gz    resolved markets of those events (join on event_id)
 pm/<family>/<YYYY>/<YYYY-MM-DD>.prices.parquet    price path of outcome 0 (token_ids[0])
-pm/<family>/<YYYY>/<YYYY-MM-DD>.prices1m.parquet  1-minute path, game start -6 h .. +5 h (main game markets)
+pm/<family>/<YYYY>/<YYYY-MM-DD>.prices1m.parquet  1-minute path, game start -2 h .. +4 h (main game markets)
 books/<YYYY-MM-DD>/<HHMM>.json.gz                 live order-book snapshots, from 7 Nov 2026 on (below)
 results/...                                       independent outcome sources (below)
 state.json                                        days done (a day is pulled at D+2, re-pulled once at D+8)
@@ -49,21 +49,22 @@ resolved at pull time), `uma_status`, `last_trade`, `best_bid`, `best_ask` (at c
 `volume_clob`, `liquidity`, `created_at`, `start_date`, `end_date`, `closed_time`, `neg_risk`, `fees_enabled`, `fee_rate`, `fee_exp`
 (taker fee per share = rate × (p(1−p))^exp), `tick`, `station` (ICAO station for temperature markets), `description` (only when it
 differs from the event's).
-Game families keep main lines (moneyline / totals / spreads) plus any market with $100+ volume; near-empty props (most exact-score and
+Game families keep main lines (moneyline / totals / spreads) plus any market with $500+ volume; near-empty props (most exact-score and
 corner lines) are counted in `coverage.json` as `dropped_props` but not stored.
 
 ### prices*.parquet
 `market_id` (int64), `t` (unix seconds UTC), `p` (float32, price of outcome 0; outcome 1 = 1 − p for binary markets).
 Source: CLOB `prices-history`. These are Polymarket's sampled prices (midpoint / last trade), **not** order-book asks:
-add slippage. `prices`: ~10-minute points over the market's life, thinned to hourly when more than 7 days before the end.
+add slippage. `prices`: 10-minute points in the last 48 h before the end, hourly from 48 h to 14 days out, 6-hourly before that.
 Only markets with volume ≥ $1,000 (games) or ≥ $200 (other families) get price files; thinner ones have the markets row only.
-`prices1m`: 1-minute points from game start −6 h to +5 h for moneylines with $2k+ volume and totals/spreads with $10k+ volume.
+`prices1m`: 1-minute points from game start −2 h to +4 h for moneylines with $5k+ volume and totals/spreads with $25k+ volume.
 
 ### books/ (order-book snapshots, forward only)
 Every ~10 minutes (GitHub cron; runs can slip 5-15 min): `{"t": unix, "markets": [{series, family, event_slug, game_start, market_id,
 smt, question, group_item, token_ids, outcomes, books: [{bids: [[price, size], …], asks: [[price, size], …], ts}, …]}]}`, top 5 levels
 per token. Covers (a) every game moneyline (plus totals/spreads with $1k+ volume) starting within the next 95 minutes, all sports and
-esports, and (b) the daily index/commodity series (SPX, SPY close, NDX, Dow, Russell, WTI, NG, gold, SPY open) on weekdays 13-21 UTC.
+esports, plus esports markets in play (up to 5 h after start),
+and (b) the daily index/commodity series (SPX, SPY close, NDX, Dow, Russell, WTI, NG, gold, SPY open) on weekdays 13-21 UTC.
 Use it to check whether a backtested price was really on offer.
 
 ## Independent results (`results/`)
