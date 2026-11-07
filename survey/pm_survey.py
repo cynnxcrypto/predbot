@@ -742,10 +742,13 @@ def news_headlines(a, b, day, kickoff_ts=None):
         t = re.search(r"<title>(.*?)</title>", it, re.S); pd = re.search(r"<pubDate>(.*?)</pubDate>", it)
         if t and kickoff_ts:
             try:
-                if not pd or parsedate_to_datetime(pd.group(1)).timestamp() > kickoff_ts - 3600: continue  # only news published 1h+ before kickoff
+                day0 = datetime.fromtimestamp(kickoff_ts, timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
+                # Google pubDates are imprecise and match-day items include results: keep only items from the days BEFORE match day
+                if not pd or parsedate_to_datetime(pd.group(1)).timestamp() >= day0 - 3 * 3600: continue
             except Exception: continue
         if t:
             title = re.sub(r"<!\[CDATA\[|\]\]>", "", t.group(1)).replace("&amp;", "&").replace("&#39;", "'").replace("&quot;", '"')
+            if re.search(r"highlight|player rating|report|reaction|\bbeat|\bwin over|winning ways|\bdraw with|\bheld\b|\bstun|thrash|\bdefeat|\d+\s*-\s*\d+ (win|loss|defeat|victory)", title, re.I): continue
             out.append(f"{pd.group(1)[5:16] if pd else ''} | {title}")
     return out[:12]
 
