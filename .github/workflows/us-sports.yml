@@ -1,0 +1,27 @@
+name: us-sports-survey
+on:
+  push:
+    branches: ["claude/project-thread-mhhjzb"]
+    paths: ["survey_us/pull.py", "survey_us/run.txt", ".github/workflows/us-sports.yml"]
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  pull:
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - name: pull
+        run: |
+          pip install -q openpyxl pdfplumber || true
+          python survey_us/pull.py $(cat survey_us/run.txt) 2>&1 | tail -400 > survey_us/run.log || true
+      - name: commit results
+        run: |
+          mkdir -p survey_us/out; mv survey_us/run.log survey_us/out/run.log || true
+          git config user.name "survey-bot"; git config user.email "survey-bot@users.noreply.github.com"
+          git add survey_us/out
+          git commit -m "us sports survey data [skip ci]" || exit 0
+          for i in 1 2 3; do git pull --rebase origin "${GITHUB_REF_NAME}" && git push origin "HEAD:${GITHUB_REF_NAME}" && break; sleep 5; done
