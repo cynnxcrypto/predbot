@@ -339,7 +339,7 @@ const SECTIONS: { id: string; label: string; soon?: string; paper?: boolean }[] 
   { id: "esports", paper: true, label: "Esports", soon: "Polymarket esports map and match markets will live here with their own panels and paper lab." },
   { id: "us-sports", label: "US Sports", soon: "Polymarket NBA, NFL and NHL game markets will live here with their own panels and paper lab." },
   { id: "indices", paper: true, label: "Indices & Commodities", soon: "Polymarket daily up/down markets on indices and commodities (SPX, Gold, Oil) will live here with their own panels and paper lab." },
-  { id: "weather", label: "Weather", soon: "Polymarket daily city temperature markets will live here with their own panels and paper lab." },
+  { id: "weather", paper: true, label: "Weather", soon: "Polymarket daily city temperature markets will live here with their own panels and paper lab." },
   { id: "politics", paper: true, label: "Politics", soon: "Polymarket politics and election markets will live here with their own panels and paper lab." },
   { id: "other", label: "Other", soon: "Event markets that fit no other tab will live here." },
 ];

@@ -143,6 +143,7 @@ type Match = {
 };
 type Side = { id: string; token: string; team: string; feeRate: number };
 type Fixture = { id: string; league: string; title: string; kickoff: number; home: Side; away: Side; done?: boolean; note?: string; homeAsk?: number | null; awayAsk?: number | null; pxAt?: number };
+type WxEvent = { id: string; title: string; station: string; tz: string; date: [number, number, number]; buckets: { id: string; token: string; label: string; feeRate: number }[] };
 type Maker = { rule: string; marketId: string; title: string; outcome: string; idx: number; token: string; bid: number; t: number; feeRate: number; ask: number };
 type State = {
   matches: Record<string, Match>;
@@ -151,8 +152,9 @@ type State = {
   trades: PaperTrade[];
   signals: Signal[];
   fixtures: Record<string, Fixture>;
+  wx: Record<string, WxEvent>;
 };
-const state: State = { matches: {}, done: {}, makers: [], trades: [], signals: [], fixtures: {}, ...loadJson<Partial<State>>(STATE_FILE, {}) };
+const state: State = { matches: {}, done: {}, makers: [], trades: [], signals: [], fixtures: {}, wx: {}, ...loadJson<Partial<State>>(STATE_FILE, {}) };
 // 7 Nov 2026 20:15 KST fix: the first run counted matches whose map 1 had ended before the logger started (map-1 price
 // already decided), so it "bought" mid-map-2 prices. Drop those esports rows once; later rows need sawLive.
 if (!state.done["fix:esports-sawlive"]) {
@@ -566,6 +568,8 @@ const RULE_TEXT: Record<string, [string, string]> = {
   "football-laliga-home": ["football", "La Liga: buy the home team to win when its ask is 65-80c 10 minutes before kickoff; hold to the result. Ten seasons of bookmaker prices: +7.6c per $1 over 462 matches, 10 of 11 seasons positive; Polymarket 2024-26: 54 bets, 83% won, +9.4c/share."],
   "football-portugal-home": ["football", "Portugal Primeira Liga shadow: buy the home favourite at 65-80c 10 minutes before kickoff; bookmaker history +8.0c per $1 over 311 matches, Polymarket sample -5.9c (24)."],
   "football-italy-away": ["football", "Serie A shadow: buy the away favourite at 65-80c 10 minutes before kickoff; bookmaker history +9.4c per $1 over 189 matches."],
+  "weather-fav16": ["weather", "Highest-temperature city market: at 16:00 station local time buy the leading temperature bucket when its mid is 50-85c and the ask is within 2c of mid; hold to settlement (highest routine METAR reading of the local day). Backtest 43 days: 398 trades, 75.6% won, +3.7c/share after 2c slip and fees; positive 5 of 7 weeks."],
+  "weather-fav15": ["weather", "Shadow of the afternoon-favourite weather rule at 15:00 local: backtest 785 trades, 72% won, +1.9c/share."],
   "football-laliga-home55": ["football", "La Liga control: buy the home team at 55-65c 10 minutes before kickoff; expected about break-even (+0.3c in bookmaker history)."],
 };
 function record(rule: string): string {
@@ -594,6 +598,78 @@ async function jevTick() {
     });
     delete tr.jevPending;
     if (tr.jev.mult != null) log(`jev ${tr.rule} ${tr.title}: ${tr.jev.pick} (${tr.jev.ms} ms)`);
+  }
+}
+
+// ---------- weather (thesis reviews/weather-thesis-2026-11-07.md, 8 Nov 00:50 KST) ----------
+// "Highest temperature in <city> on <date>?" events (11 buckets). At 16:00 station local time (shadow: 15:00) find the
+// bucket with the highest mid; if that mid is 50-85c and its ask <= mid + 2c, take the ask ($5 walking the book, fee
+// 0.05 x p(1-p)), hold to settlement. Hong Kong excluded (resolves on the HK Observatory, not METAR). Backtest 16:00:
+// 398 trades, 75.6% won, +3.7c/share after 2c slip + fee, 43 days.
+const WX_TZ: Record<string, string> = { CYYZ: "America/Toronto", EDDM: "Europe/Berlin", EFHK: "Europe/Helsinki", EGLC: "Europe/London", EHAM: "Europe/Amsterdam", EPWA: "Europe/Warsaw", FACT: "Africa/Johannesburg", KATL: "America/New_York", KAUS: "America/Chicago", KDAL: "America/Chicago", KDEN: "America/Denver", KHOU: "America/Chicago", KLAX: "America/Los_Angeles", KLGA: "America/New_York", KMIA: "America/New_York", KORD: "America/Chicago", KSEA: "America/Los_Angeles", KSFO: "America/Los_Angeles", LEMD: "Europe/Madrid", LFPB: "Europe/Paris", LIMC: "Europe/Rome", LLBG: "Asia/Jerusalem", LTAC: "Europe/Istanbul", LTFM: "Europe/Istanbul", MMMX: "America/Mexico_City", MPMG: "America/Panama", NZWN: "Pacific/Auckland", OEJN: "Asia/Riyadh", OPKC: "Asia/Karachi", RCSS: "Asia/Taipei", RJTT: "Asia/Tokyo", RKPK: "Asia/Seoul", RKSI: "Asia/Seoul", RPLL: "Asia/Manila", SAEZ: "America/Argentina/Buenos_Aires", SBGR: "America/Sao_Paulo", UUWW: "Europe/Moscow", VILK: "Asia/Kolkata", WMKK: "Asia/Kuala_Lumpur", WSSS: "Asia/Singapore", ZBAA: "Asia/Shanghai", ZGGG: "Asia/Shanghai", ZGSZ: "Asia/Shanghai", ZHHH: "Asia/Shanghai", ZSPD: "Asia/Shanghai", ZSQD: "Asia/Shanghai", ZUCK: "Asia/Shanghai", ZUUU: "Asia/Shanghai" };
+const WX_RULES: { rule: string; hour: number }[] = [
+  { rule: "weather-fav16", hour: 16 },
+  { rule: "weather-fav15", hour: 15 },
+];
+type GEventWx = GEvent & { description?: string };
+async function weatherRefresh() {
+  let evs: GEventWx[];
+  try {
+    evs = (await pages(`${GAMMA}/events?tag_slug=highest-temperature&closed=false`, 2000)) as GEventWx[];
+  } catch (e) {
+    log(`weather list failed: ${(e as Error).message}`);
+    return;
+  }
+  const seen = new Set<string>();
+  for (const e of evs) {
+    if (!e.id || !/^Highest temperature in /i.test(e.title ?? "") || /hong kong/i.test(e.title ?? "")) continue;
+    seen.add(e.id);
+    if (state.wx[e.id]) continue;
+    const station = /\(([A-Z0-9]{4})\)/.exec(e.description ?? "")?.[1];
+    const date = slugDate(e.slug ?? "");
+    const tz = station ? WX_TZ[station] : undefined;
+    if (!station || !tz || !date) continue;
+    const buckets = (e.markets ?? [])
+      .map((m) => {
+        const toks = jl<string[]>(m.clobTokenIds, []);
+        const yes = jl<string[]>(m.outcomes, []).findIndex((o) => /^yes$/i.test(o));
+        return m.id && toks.length === 2 && yes >= 0 ? { id: m.id, token: toks[yes], label: m.groupItemTitle ?? m.question ?? m.id, feeRate: Number(m.feeSchedule?.rate ?? 0.05) } : null;
+      })
+      .filter((b): b is NonNullable<typeof b> => b != null);
+    if (buckets.length >= 3) state.wx[e.id] = { id: e.id, title: e.title ?? e.id, station, tz, date, buckets };
+  }
+  for (const k of Object.keys(state.wx)) if (!seen.has(k)) delete state.wx[k];
+}
+async function weatherTick() {
+  const now = Date.now();
+  for (const ev of Object.values(state.wx)) {
+    for (const { rule, hour } of WX_RULES) {
+      const key = `${rule}|${ev.id}`;
+      if (state.done[key]) continue;
+      const at = zonedUtc(ev.date[0], ev.date[1], ev.date[2], hour, ev.tz);
+      if (now < at) continue;
+      state.done[key] = now;
+      if (now > at + 15 * 60_000) continue; // missed (logger was down): no look-back
+      const books = await Promise.all(ev.buckets.map((b) => book(b.token).catch(() => null)));
+      let best = -1;
+      books.forEach((b, i) => {
+        if (b?.mid != null && (best < 0 || b.mid > books[best]!.mid!)) best = i;
+      });
+      if (best < 0) continue;
+      const bk = books[best]!;
+      const bu = ev.buckets[best];
+      const mid = bk.mid!;
+      const ask = bk.bestAsk!;
+      const extra: Record<string, unknown> = { station: ev.station, localHour: hour, bucket: bu.label, mid, bid: bk.bestBid, ask, spread: ask - (bk.bestBid ?? ask), depth2c: bk.asks.filter((a) => a.price <= ask + 0.02 + 1e-9).reduce((x, a) => x + a.price * a.size, 0), mids: books.map((b) => b?.mid ?? null) };
+      if (mid < 0.5 - 1e-9 || mid > 0.85 + 1e-9) continue;
+      if (ask > mid + 0.02 + 1e-9) {
+        extra.skip = `ask ${Math.round(ask * 100)}c over mid+2c`;
+        signal(rule, ev.title, false, extra);
+        continue;
+      }
+      const tr = enter(rule, { marketId: bu.id, title: ev.title, outcome: bu.label, idx: 0, token: bu.token, feeRate: bu.feeRate }, bk, ask, extra);
+      signal(rule, ev.title, Boolean(tr), extra);
+    }
   }
 }
 
@@ -674,6 +750,7 @@ const GROUPS: Record<string, string[]> = {
   esports: ["esports-map1", "esports-fav-shadow", "esports-map1-dota"],
   indices: ["gold-momentum", "spx-underdog", "spy-underdog"],
   politics: ["election-lock-taker", "election-lock-maker"],
+  weather: ["weather-fav16", "weather-fav15"],
   football: ["football-laliga-home", "football-portugal-home", "football-italy-away", "football-laliga-home55"],
 };
 function summarize() {
@@ -719,8 +796,8 @@ function summarize() {
         .map((t) => ({ info: infoOf(t), jm: t.jev?.mult ?? null, jc: t.jev?.confidence ?? null, settledAt: t.settledAt ?? null, rule: t.rule, t: t.t, title: t.title, outcome: t.outcome, ask: t.ask, avg: t.avg == null ? null : Math.round(t.avg * 1000) / 1000, shares: Math.round(t.shares * 100) / 100, cost: Math.round(t.cost * 100) / 100, fillable: t.fillable, won: t.won ?? null, pnl: t.pnl == null ? null : Math.round(t.pnl * 100) / 100, jev: t.jev?.pick ?? (t.jev?.err ? `error: ${t.jev.err}` : t.jevPending ? "asking" : null) })),
       // Why matches ended without a trade (diagnostics: "map 1 already decided when first seen", "no P0", ...).
       notes: g === "esports" ? Object.values(state.matches).reduce<Record<string, number>>((o, m) => ((o[m.evaluated ? m.note ?? (m.tEnd != null ? "evaluated" : "done") : m.tEnd != null ? "map 1 over, waiting" : m.start <= Date.now() ? "live" : "upcoming"] = (o[m.evaluated ? m.note ?? (m.tEnd != null ? "evaluated" : "done") : m.tEnd != null ? "map 1 over, waiting" : m.start <= Date.now() ? "live" : "upcoming"] ?? 0) + 1), o), {}) : undefined,
-      skips: g === "football" ? state.signals.filter((x) => rules.includes(x.rule) && x.extra.skip).slice(-15).reverse().map((x) => ({ rule: x.rule, t: x.t, title: x.title, why: x.extra.skip, ask: x.extra.ask })) : undefined,
-      upcoming: g === "football" ? Object.values(state.fixtures).filter((f) => !f.done).length : undefined,
+      skips: g === "football" || g === "weather" ? state.signals.filter((x) => rules.includes(x.rule) && x.extra.skip).slice(-15).reverse().map((x) => ({ rule: x.rule, t: x.t, title: x.title, why: x.extra.skip, ask: x.extra.ask })) : undefined,
+      upcoming: g === "football" ? Object.values(state.fixtures).filter((f) => !f.done).length : g === "weather" ? Object.keys(state.wx).length : undefined,
       watch: watchOf(g),
       watchAt: g === "politics" ? polWatchAt : undefined,
       sigs: state.signals
@@ -765,7 +842,7 @@ async function guard(name: string, f: () => Promise<void>) {
 }
 async function main() {
   log("started (paper only)");
-  let last = { esList: 0, idx: 0, pol: 0, mk: 0, settle: 0, fb: 0 };
+  let last = { esList: 0, idx: 0, pol: 0, mk: 0, settle: 0, fb: 0, wx: 0 };
   for (;;) {
     const now = Date.now();
     if (now - last.esList > 5 * 60_000) {
@@ -778,6 +855,11 @@ async function main() {
       await guard("football list", footballRefresh);
     }
     await guard("football", footballTick);
+    if (now - last.wx > 10 * 60_000) {
+      last.wx = now;
+      await guard("weather list", weatherRefresh);
+    }
+    await guard("weather", weatherTick);
     if (now - last.idx > 3 * 60_000) {
       last.idx = now;
       await guard("indices", indicesTick);

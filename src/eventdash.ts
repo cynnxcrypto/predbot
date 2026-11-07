@@ -74,15 +74,17 @@ export const CATS: Record<string, Cat> = {
     report: "reviews/indices-thesis-2026-11-07.md",
   },
   weather: {
+    group: "weather",
     books: () => false,
     collector: ["temperature", "weather_other"],
     tags: ["daily-temperature"],
     research: [
       "53 cities' daily highest temperature, 11 brackets each, settled from airport METAR.",
       "Collector stores every bracket market, its prices and the METAR readings (results/temperature).",
-      "First backtest pull timed out; rerun in progress.",
+      "Thesis (8 Nov): free forecasts lose to the market; morning favourites fair; afternoon favourites underpriced.",
+      "Paper rule: leading bucket at 16:00 local priced 50-85c, backtest 398 trades, 76% won, +3.7c/share (43 days).",
     ],
-    plan: "Rule from the backtest (forecast vs bracket price) once the rerun lands. No rule running yet.",
+    plan: "Paper: weather-fav16 (16:00 local) and shadow weather-fav15, ~9 + ~18 trades/day; real only after 100+ fillable trades, >=50% won, positive net.",
   },
   politics: {
     group: "politics",
@@ -108,6 +110,8 @@ export const CATS: Record<string, Cat> = {
 };
 export const RULE_NAMES: Record<string, string> = {
   "football-laliga-home": "La Liga home favourite 65-80c",
+  "weather-fav16": "Afternoon favourite bucket at 16:00 local, 50-85c",
+  "weather-fav15": "Afternoon favourite at 15:00 local",
   "football-portugal-home": "Portugal home favourite 65-80c",
   "football-italy-away": "Italy away favourite 65-80c",
   "football-laliga-home55": "La Liga home 55-65c (control)",
@@ -120,7 +124,7 @@ export const RULE_NAMES: Record<string, string> = {
   "election-lock-taker": "Election lock 97-99c, taker",
   "election-lock-maker": "Election lock 97-99c, maker 1c under",
 };
-const SHADOW = new Set(["football-portugal-home", "football-italy-away", "football-laliga-home55", "esports-fav-shadow", "esports-map1-dota", "spx-underdog", "spy-underdog"]);
+const SHADOW = new Set(["weather-fav15", "football-portugal-home", "football-italy-away", "football-laliga-home55", "esports-fav-shadow", "esports-map1-dota", "spx-underdog", "spy-underdog"]);
 
 async function get(url: string, ms = 8000): Promise<Response> {
   const r = await fetch(url, { headers: { "user-agent": UA }, signal: AbortSignal.timeout(ms) });
