@@ -1,0 +1,295 @@
+
+=== run 2026-11-07 08:56 UTC ['discover', 'hist', 'books', 'underlying']
+tag stocks closed=false: 120 events
+tag stocks closed=true: 2100 events
+tag indices closed=false: 0 events
+tag indices closed=true: 0 events
+tag commodities closed=false: 22 events
+tag commodities closed=true: 1249 events
+tag gold closed=false: 5 events
+tag gold closed=true: 1250 events
+tag oil closed=false: 62 events
+tag oil closed=true: 514 events
+tag finance closed=false: 422 events
+tag finance closed=true: 2100 events
+tag economy closed=false: 203 events
+tag economy closed=true: 1217 events
+tag equities closed=false: 153 events
+tag equities closed=true: 2100 events
+tag sp-500 closed=false: 7 events
+tag sp-500 closed=true: 327 events
+tag s-p-500 closed=false: 0 events
+tag s-p-500 closed=true: 0 events
+tag daily-close closed=false: 63 events
+tag daily-close closed=true: 2100 events
+tag up-or-down closed=false: 1500 events
+tag up-or-down closed=true: 2100 events
+tag spx closed=false: 5 events
+tag spx closed=true: 487 events
+tag nasdaq closed=false: 1 events
+tag nasdaq closed=true: 0 events
+tag markets closed=false: 0 events
+tag markets closed=true: 6 events
+tag business closed=false: 110 events
+tag business closed=true: 753 events
+tag fed closed=false: 25 events
+tag fed closed=true: 122 events
+tag silver closed=false: 3 events
+tag silver closed=true: 1247 events
+tag crude-oil closed=false: 0 events
+tag crude-oil closed=true: 2 events
+tag nasdaq-100 closed=false: 0 events
+tag nasdaq-100 closed=true: 0 events
+tag dow-jones closed=false: 0 events
+tag dow-jones closed=true: 0 events
+tag commodity closed=false: 0 events
+tag commodity closed=true: 1 events
+series found: 99
+series nasdaq-round-the-clock-by closed=false: 1 (+0)
+series nasdaq-round-the-clock-by closed=true: 1 (+0)
+series spy-hit-month closed=false: 1 (+0)
+series spy-hit-month closed=true: 5 (+0)
+series spy-hit-price-weekly closed=false: 1 (+0)
+series spy-hit-price-weekly closed=true: 32 (+2)
+series spy-open-daily-up-or-down closed=false: 1 (+0)
+series spy-open-daily-up-or-down closed=true: 75 (+0)
+series spy-daily-close-uo closed=false: 1 (+0)
+series spy-daily-close-uo closed=true: 138 (+10)
+series spy-daily-up-or-down closed=false: 1 (+0)
+series spy-daily-up-or-down closed=true: 157 (+8)
+series what-will-gold-gc-hit closed=false: 1 (+0)
+series what-will-gold-gc-hit closed=true: 4 (+0)
+series crude-oil-cl-hit closed=false: 1 (+0)
+series crude-oil-cl-hit closed=true: 12 (+0)
+series xagusd-hit-month closed=false: 1 (+0)
+series xagusd-hit-month closed=true: 6 (+0)
+series xauusd-hit-month closed=false: 1 (+0)
+series xauusd-hit-month closed=true: 4 (+0)
+series natural-gas-hit-price-weekly closed=false: 1 (+0)
+series natural-gas-hit-price-weekly closed=true: 32 (+0)
+series wti-crude-oil-hit-price-weekly closed=false: 1 (+0)
+series wti-crude-oil-hit-price-weekly closed=true: 32 (+0)
+series silver-hit-price-weekly closed=false: 1 (+0)
+series silver-hit-price-weekly closed=true: 32 (+0)
+series gold-hit-price-weekly closed=false: 1 (+0)
+series gold-hit-price-weekly closed=true: 32 (+0)
+series natural-gas-daily-up-or-down closed=false: 3 (+0)
+series natural-gas-daily-up-or-down closed=true: 154 (+0)
+series oil-daily-up-or-down closed=false: 1 (+0)
+series oil-daily-up-or-down closed=true: 156 (+0)
+series wti-daily-close-uo closed=false: 1 (+0)
+series wti-daily-close-uo closed=true: 138 (+0)
+series silver-daily-up-or-down closed=false: 1 (+0)
+series silver-daily-up-or-down closed=true: 156 (+0)
+series gold-daily-up-or-down closed=false: 1 (+0)
+series gold-daily-up-or-down closed=true: 156 (+0)
+series ng-hit-month closed=false: 0 (+0)
+series ng-hit-month closed=true: 3 (+0)
+series crude-oil-cl-above closed=false: 0 (+0)
+series crude-oil-cl-above closed=true: 4 (+0)
+series crude-oil-cl-settle closed=false: 0 (+0)
+series crude-oil-cl-settle closed=true: 4 (+0)
+series silver-si-above closed=false: 0 (+0)
+series silver-si-above closed=true: 3 (+0)
+series will-silver-si-hit closed=false: 0 (+0)
+series will-silver-si-hit closed=true: 4 (+0)
+series what-will-silver-si-settle-at closed=false: 0 (+0)
+series what-will-silver-si-settle-at closed=true: 4 (+0)
+series gold-gc-above closed=false: 0 (+0)
+series gold-gc-above closed=true: 4 (+0)
+series what-will-gold-gc-settle-at closed=false: 0 (+0)
+series what-will-gold-gc-settle-at closed=true: 4 (+0)
+series crude-oil-all-time-high closed=false: 0 (+0)
+series crude-oil-all-time-high closed=true: 2 (+0)
+series nymex-crude-oil-futures-wti-daily-up-or-down closed=false: 0 (+0)
+series nymex-crude-oil-futures-wti-daily-up-or-down closed=true: 80 (+1)
+series comex-gold-futures-daily-up-or-down closed=false: 0 (+0)
+series comex-gold-futures-daily-up-or-down closed=true: 80 (+0)
+series comex-silver-futures-daily-up-or-down closed=false: 0 (+0)
+series comex-silver-futures-daily-up-or-down closed=true: 78 (+0)
+series copper-hg-above closed=false: 0 (+0)
+series copper-hg-above closed=true: 1 (+0)
+series what-will-copper-hg-hit closed=false: 0 (+0)
+series what-will-copper-hg-hit closed=true: 1 (+0)
+series gold-up-or-down-15m closed=false: 0 (+0)
+series gold-up-or-down-15m closed=true: 853 (+0)
+series gold-up-or-down-1h closed=false: 0 (+0)
+series gold-up-or-down-1h closed=true: 141 (+0)
+series us-crude-oil-reserves-fall-to closed=false: 0 (+0)
+series us-crude-oil-reserves-fall-to closed=true: 3 (+0)
+series us-crude-reserves closed=false: 0 (+0)
+series us-crude-reserves closed=true: 2 (+0)
+series us-forces-seize-another-oil-ship closed=false: 0 (+0)
+series us-forces-seize-another-oil-ship closed=true: 8 (+5)
+series iran-strike-gulf-oil-facilities closed=false: 0 (+0)
+series iran-strike-gulf-oil-facilities closed=true: 2 (+0)
+series kharg-island-oil-terminal-be-hit closed=false: 0 (+0)
+series kharg-island-oil-terminal-be-hit closed=true: 2 (+1)
+series us-seize-iran-linked-tanker closed=false: 0 (+0)
+series us-seize-iran-linked-tanker closed=true: 3 (+1)
+series companies-added-to-sp-500 closed=false: 1 (+0)
+series companies-added-to-sp-500 closed=true: 1 (+0)
+series how-low-2-year-treasury closed=false: 2 (+0)
+series how-low-2-year-treasury closed=true: 1 (+0)
+series how-high-2-year-treasury closed=false: 2 (+0)
+series how-high-2-year-treasury closed=true: 1 (+0)
+series how-low-10-year-treasury closed=false: 2 (+0)
+series how-low-10-year-treasury closed=true: 3 (+0)
+series how-high-10-year-treasury closed=false: 2 (+0)
+series how-high-10-year-treasury closed=true: 5 (+0)
+series sp-500-monthly-close-negrisk closed=false: 1 (+0)
+series sp-500-monthly-close-negrisk closed=true: 2 (+0)
+series sp-500-monthly-hit closed=false: 1 (+0)
+series sp-500-monthly-hit closed=true: 4 (+0)
+series how-low-5-year-treasury closed=false: 2 (+0)
+series how-low-5-year-treasury closed=true: 2 (+0)
+series how-high-5-year-treasury closed=false: 2 (+0)
+series how-high-5-year-treasury closed=true: 2 (+0)
+series how-low-30-year-treasury closed=false: 2 (+0)
+series how-low-30-year-treasury closed=true: 2 (+0)
+series how-high-30-year-treasury closed=false: 2 (+0)
+series how-high-30-year-treasury closed=true: 2 (+0)
+series russell-2000-daily-up-or-down closed=false: 1 (+0)
+series russell-2000-daily-up-or-down closed=true: 264 (+17)
+series hang-seng-daily-up-or-down closed=false: 1 (+0)
+series hang-seng-daily-up-or-down closed=true: 265 (+226)
+series spx-open-daily-up-or-down closed=false: 1 (+0)
+series spx-open-daily-up-or-down closed=true: 199 (+0)
+series dax-daily-up-or-down closed=false: 1 (+0)
+series dax-daily-up-or-down closed=true: 265 (+226)
+series ftse-100-daily-up-or-down closed=false: 1 (+0)
+series ftse-100-daily-up-or-down closed=true: 265 (+226)
+series dow-jones-daily-up-or-down closed=false: 1 (+0)
+series dow-jones-daily-up-or-down closed=true: 265 (+16)
+series nik-daily-up-or-down closed=false: 1 (+0)
+series nik-daily-up-or-down closed=true: 264 (+17)
+series spx-daily-up-or-down closed=false: 1 (+0)
+series spx-daily-up-or-down closed=true: 266 (+0)
+series nasdaq-100-monthly-close-negrisk closed=false: 0 (+0)
+series nasdaq-100-monthly-close-negrisk closed=true: 1 (+0)
+series silver-up-or-down-15m closed=false: 0 (+0)
+series silver-up-or-down-15m closed=true: 853 (+0)
+series silver-up-or-down-1h closed=false: 0 (+0)
+series silver-up-or-down-1h closed=true: 141 (+0)
+series xom-kpis closed=false: 0 (+0)
+series xom-kpis closed=true: 2 (+1)
+series cvx-kpis closed=false: 0 (+0)
+series cvx-kpis closed=true: 2 (+1)
+series cl-earnings closed=false: 0 (+0)
+series cl-earnings closed=true: 2 (+1)
+series us-treasury-blockchain closed=false: 1 (+0)
+series us-treasury-blockchain closed=true: 2 (+1)
+series hood-kpis closed=false: 0 (+0)
+series hood-kpis closed=true: 1 (+0)
+series buffett-v-ackman-v-sp closed=false: 0 (+0)
+series buffett-v-ackman-v-sp closed=true: 3 (+0)
+series 10-year-treasur closed=false: 0 (+0)
+series 10-year-treasur closed=true: 22 (+0)
+series spgi-earnings closed=false: 0 (+0)
+series spgi-earnings closed=true: 4 (+3)
+series dow-earnings closed=false: 0 (+0)
+series dow-earnings closed=true: 2 (+1)
+series gs-earnings closed=false: 0 (+0)
+series gs-earnings closed=true: 2 (+1)
+series sp-500-monthly-ou closed=false: 0 (+0)
+series sp-500-monthly-ou closed=true: 3 (+0)
+series spx-hit-price-monthly closed=false: 0 (+0)
+series spx-hit-price-monthly closed=true: 1 (+0)
+series spx-multi-strikes-weekly closed=false: 0 (+0)
+series spx-multi-strikes-weekly closed=true: 2 (+0)
+series ipo-closing-market-cap closed=false: 1 (+0)
+series ipo-closing-market-cap closed=true: 57 (+0)
+series qqq-hit-price-weekly closed=false: 0 (+0)
+series qqq-hit-price-weekly closed=true: 4 (+0)
+series ndx-daily-up-or-down closed=false: 0 (+0)
+series ndx-daily-up-or-down closed=true: 134 (+1)
+series ndx-hit-price-monthly closed=false: 0 (+0)
+series ndx-hit-price-monthly closed=true: 1 (+0)
+series ndx-multi-strikes-weekly closed=false: 0 (+0)
+series ndx-multi-strikes-weekly closed=true: 2 (+0)
+series qqq-daily-up-or-down closed=false: 0 (+0)
+series qqq-daily-up-or-down closed=true: 23 (+2)
+series dji-multi-strikes-weekly closed=false: 0 (+0)
+series dji-multi-strikes-weekly closed=true: 2 (+1)
+series dji-hit-price-monthly closed=false: 0 (+0)
+series dji-hit-price-monthly closed=true: 1 (+0)
+series rut-hit-price-monthly closed=false: 0 (+0)
+series rut-hit-price-monthly closed=true: 1 (+0)
+series rut-multi-strikes-weekly closed=false: 0 (+0)
+series rut-multi-strikes-weekly closed=true: 2 (+1)
+series gold-card closed=false: 1 (+0)
+series gold-card closed=true: 6 (+6)
+series aflw-games closed=false: 4 (+0)
+series aflw-games closed=true: 97 (+11)
+series bkjpn closed=false: 39 (+0)
+series bkjpn closed=true: 368 (+34)
+series ncaa-cbb closed=false: 370 (+0)
+series ncaa-cbb closed=true: 2000 (+132)
+series cwbb closed=false: 329 (+0)
+series cwbb closed=true: 2000 (+124)
+series ahl-2026 closed=false: 41 (+0)
+series ahl-2026 closed=true: 1094 (+68)
+series premier-league-2025 closed=false: 97 (+10)
+series premier-league-2025 closed=true: 1990 (+167)
+series epl closed=false: 0 (+0)
+series epl closed=true: 404 (+0)
+series efl-cup closed=false: 4 (+0)
+series efl-cup closed=true: 600 (+21)
+series clf-games closed=false: 68 (+1)
+series clf-games closed=true: 1839 (+35)
+series fa-cup closed=false: 664 (+4)
+series fa-cup closed=true: 2000 (+25)
+series itf closed=false: 88 (+0)
+series itf closed=true: 2000 (+2)
+series nik-hit-price-monthly closed=false: 0 (+0)
+series nik-hit-price-monthly closed=true: 1 (+0)
+events kept: 6859 markets: 20439
+step discover 414s
+hist markets: 20375 with points: 19552
+step hist 740s
+book snapshots: 820
+step books 21s
+^GSPC {'1d': 61, '1h': 5099, '5m': 4681, '1m': 2731}
+^NDX {'1d': 61, '1h': 5099, '5m': 4681, '1m': 2731}
+^IXIC {'1d': 61, '1h': 5099, '5m': 4681, '1m': 2731}
+^DJI {'1d': 181, '1h': 5099, '5m': 4681, '1m': 2731}
+^RUT {'1d': 61, '1h': 5099, '5m': 4681, '1m': 2731}
+SPY {'1d': 181, '1h': 12114, '5m': 11043, '1m': 6381}
+QQQ {'1d': 181, '1h': 12078, '5m': 11214, '1m': 6498}
+IWM {'1d': 181, '1h': 12114, '5m': 10929, '1m': 5416}
+GC=F {'1d': 153, '1h': 17389, '5m': 17292, '1m': 10133}
+SI=F {'1d': 153, '1h': 17389, '5m': 17292, '1m': 10133}
+CL=F {'1d': 153, '1h': 17389, '5m': 17292, '1m': 10133}
+BZ=F {'1d': 153, '1h': 17389, '5m': 17292, '1m': 10133}
+NG=F {'1d': 153, '1h': 17389, '5m': 17292, '1m': 10133}
+HG=F {'1d': 153, '1h': 17389, '5m': 17292, '1m': 10133}
+ES=F {'1d': 153, '1h': 17389, '5m': 17291, '1m': 10124}
+NQ=F {'1d': 153, '1h': 17389, '5m': 17291, '1m': 10124}
+YM=F {'1d': 153, '1h': 17389, '5m': 17292, '1m': 10133}
+RTY=F {'1d': 488, '1h': 17389, '5m': 17291, '1m': 10124}
+^VIX {'1d': 181, '1h': 10220, '5m': 9538, '1m': 5551}
+^VIX9D {'1d': 181, '1h': 4917, '5m': 4681, '1m': 2730}
+^VIX1D {'1d': 186, '1h': 4917, '5m': 4681, '1m': 2730}
+^VXN {'1d': 181, '1h': 4917, '5m': 4681, '1m': 2730}
+^OVX {'1d': 181, '1h': 4917, '5m': 4681, '1m': 2730}
+^GVZ {'1d': 181, '1h': 4917, '5m': 4681, '1m': 2730}
+^N225 {'1d': 61, '1h': 5111, '5m': 4681, '1m': 2731}
+^KS11 {'1d': 181, '1h': 4381, '5m': 4321, '1m': 2521}
+^TNX {'1d': 61, '1h': 4202, '5m': 4080, '1m': 2800}
+GLD {'1d': 181, '1h': 12114, '5m': 10867, '1m': 5360}
+USO {'1d': 181, '1h': 12114, '5m': 10758, '1m': 5044}
+DX-Y.NYB {'1d': 61, '1h': 17389, '5m': 17292, '1m': 10133}
+stooq fail ^spx
+stooq fail ^ndx
+stooq fail ^dji
+stooq fail xauusd
+stooq fail cl.f
+stooq fail gc.f
+stooq fail si.f
+cboe_vix.csv 474604
+cboe_vix1d.csv 56135
+cboe_vix9d.csv 202427
+fomc.html 166346
+bls_schedule.html 55389
+bls_empsit.html 55395
+step underlying 24s

@@ -1,0 +1,497 @@
+{
+ "12053": {
+  "slug": "nasdaq-round-the-clock-by",
+  "title": "Nasdaq round the clock by",
+  "recurrence": null
+ },
+ "11909": {
+  "slug": "spy-hit-month",
+  "title": "(SPY) hit Month",
+  "recurrence": "monthly"
+ },
+ "11389": {
+  "slug": "spy-hit-price-weekly",
+  "title": "SPY Hit Price Weekly",
+  "recurrence": "weekly"
+ },
+ "12335": {
+  "slug": "spy-open-daily-up-or-down",
+  "title": "SPY Open Daily Up or Down",
+  "recurrence": "daily"
+ },
+ "11525": {
+  "slug": "spy-daily-close-uo",
+  "title": "SPY Daily Close U/O",
+  "recurrence": "daily"
+ },
+ "11303": {
+  "slug": "spy-daily-up-or-down",
+  "title": "SPY Daily Up or Down",
+  "recurrence": "daily"
+ },
+ "10802": {
+  "slug": "what-will-gold-gc-hit",
+  "title": "What will Gold (GC) hit__",
+  "recurrence": "monthly"
+ },
+ "10820": {
+  "slug": "crude-oil-cl-hit",
+  "title": "Crude Oil (CL) hit__",
+  "recurrence": "monthly"
+ },
+ "11910": {
+  "slug": "xagusd-hit-month",
+  "title": "(XAGUSD) hit Month",
+  "recurrence": "monthly"
+ },
+ "12052": {
+  "slug": "xauusd-hit-month",
+  "title": "(XAUUSD) hit Month",
+  "recurrence": "monthly"
+ },
+ "11401": {
+  "slug": "natural-gas-hit-price-weekly",
+  "title": "Natural Gas Hit Price Weekly",
+  "recurrence": "weekly"
+ },
+ "11399": {
+  "slug": "wti-crude-oil-hit-price-weekly",
+  "title": "WTI Crude Oil Hit Price Weekly",
+  "recurrence": "weekly"
+ },
+ "11398": {
+  "slug": "silver-hit-price-weekly",
+  "title": "Silver Hit Price Weekly",
+  "recurrence": "weekly"
+ },
+ "11397": {
+  "slug": "gold-hit-price-weekly",
+  "title": "Gold Hit Price Weekly",
+  "recurrence": "weekly"
+ },
+ "11311": {
+  "slug": "natural-gas-daily-up-or-down",
+  "title": "NATURAL GAS Daily Up or Down",
+  "recurrence": "daily"
+ },
+ "11309": {
+  "slug": "oil-daily-up-or-down",
+  "title": "OIL Daily Up or Down",
+  "recurrence": "daily"
+ },
+ "11526": {
+  "slug": "wti-daily-close-uo",
+  "title": "WTI Daily Close U/O",
+  "recurrence": "daily"
+ },
+ "11308": {
+  "slug": "silver-daily-up-or-down",
+  "title": "SILVER Daily Up or Down",
+  "recurrence": "daily"
+ },
+ "11307": {
+  "slug": "gold-daily-up-or-down",
+  "title": "GOLD Daily Up or Down",
+  "recurrence": "daily"
+ },
+ "11908": {
+  "slug": "ng-hit-month",
+  "title": "(NG) hit Month",
+  "recurrence": "monthly"
+ },
+ "10823": {
+  "slug": "crude-oil-cl-above",
+  "title": "Crude Oil (CL) above ___",
+  "recurrence": "monthly"
+ },
+ "10821": {
+  "slug": "crude-oil-cl-settle",
+  "title": "Crude Oil (CL) settle",
+  "recurrence": "monthly"
+ },
+ "10804": {
+  "slug": "silver-si-above",
+  "title": "Silver (SI) above ___",
+  "recurrence": "monthly"
+ },
+ "10805": {
+  "slug": "will-silver-si-hit",
+  "title": "Will Silver (SI) hit__",
+  "recurrence": "monthly"
+ },
+ "10806": {
+  "slug": "what-will-silver-si-settle-at",
+  "title": "What will Silver (SI) settle at",
+  "recurrence": "monthly"
+ },
+ "10801": {
+  "slug": "gold-gc-above",
+  "title": "Gold (GC) above ___",
+  "recurrence": "monthly"
+ },
+ "10803": {
+  "slug": "what-will-gold-gc-settle-at",
+  "title": "What will Gold (GC) settle at",
+  "recurrence": "monthly"
+ },
+ "11490": {
+  "slug": "crude-oil-all-time-high",
+  "title": "Crude Oil all time high",
+  "recurrence": "monthly"
+ },
+ "10460": {
+  "slug": "nymex-crude-oil-futures-wti-daily-up-or-down",
+  "title": "NYMEX Crude Oil Futures (WTI) Daily Up or Down",
+  "recurrence": "daily"
+ },
+ "10457": {
+  "slug": "comex-gold-futures-daily-up-or-down",
+  "title": "COMEX Gold Futures Daily Up or Down",
+  "recurrence": "daily"
+ },
+ "10458": {
+  "slug": "comex-silver-futures-daily-up-or-down",
+  "title": "COMEX Silver Futures Daily Up or Down",
+  "recurrence": "daily"
+ },
+ "10981": {
+  "slug": "copper-hg-above",
+  "title": "Copper (HG) above",
+  "recurrence": "monthly"
+ },
+ "10980": {
+  "slug": "what-will-copper-hg-hit",
+  "title": "What will Copper (HG) hit",
+  "recurrence": "monthly"
+ },
+ "12967": {
+  "slug": "gold-up-or-down-15m",
+  "title": "Gold Up or Down 15m",
+  "recurrence": "15m"
+ },
+ "12976": {
+  "slug": "gold-up-or-down-1h",
+  "title": "Gold Up or Down 1h",
+  "recurrence": "hourly"
+ },
+ "12753": {
+  "slug": "us-crude-oil-reserves-fall-to",
+  "title": "US crude oil reserves fall to __",
+  "recurrence": "monthly"
+ },
+ "11520": {
+  "slug": "us-crude-reserves",
+  "title": "US Crude Reserves",
+  "recurrence": "monthly"
+ },
+ "10897": {
+  "slug": "us-forces-seize-another-oil-ship",
+  "title": "U.S. forces seize another oil ship",
+  "recurrence": null
+ },
+ "11270": {
+  "slug": "iran-strike-gulf-oil-facilities",
+  "title": "Iran strike gulf oil facilities",
+  "recurrence": null
+ },
+ "11269": {
+  "slug": "kharg-island-oil-terminal-be-hit",
+  "title": "Kharg Island oil terminal be hit",
+  "recurrence": null
+ },
+ "11200": {
+  "slug": "us-seize-iran-linked-tanker",
+  "title": "US seize Iran-linked tanker",
+  "recurrence": null
+ },
+ "10782": {
+  "slug": "companies-added-to-sp-500",
+  "title": "Companies added to S&P 500",
+  "recurrence": null
+ },
+ "12990": {
+  "slug": "how-low-2-year-treasury",
+  "title": "How low 2-year Treasury",
+  "recurrence": "monthly"
+ },
+ "12987": {
+  "slug": "how-high-2-year-treasury",
+  "title": "How high 2-year Treasury",
+  "recurrence": null
+ },
+ "12994": {
+  "slug": "how-low-10-year-treasury",
+  "title": "How low 10-year Treasury",
+  "recurrence": "monthly"
+ },
+ "12993": {
+  "slug": "how-high-10-year-treasury",
+  "title": "How high 10-year Treasury",
+  "recurrence": "monthly"
+ },
+ "10856": {
+  "slug": "sp-500-monthly-close-negrisk",
+  "title": "S&P 500 monthly close negrisk",
+  "recurrence": "monthly"
+ },
+ "10854": {
+  "slug": "sp-500-monthly-hit",
+  "title": "S&P 500 monthly hit",
+  "recurrence": "monthly"
+ },
+ "12992": {
+  "slug": "how-low-5-year-treasury",
+  "title": "How low 5-year Treasury",
+  "recurrence": "monthly"
+ },
+ "12991": {
+  "slug": "how-high-5-year-treasury",
+  "title": "How high 5-year Treasury",
+  "recurrence": "monthly"
+ },
+ "12996": {
+  "slug": "how-low-30-year-treasury",
+  "title": "How low 30-year Treasury",
+  "recurrence": "monthly"
+ },
+ "12995": {
+  "slug": "how-high-30-year-treasury",
+  "title": "How high 30-year Treasury",
+  "recurrence": "monthly"
+ },
+ "10388": {
+  "slug": "russell-2000-daily-up-or-down",
+  "title": "Russell 2000 Daily Up or Down",
+  "recurrence": "daily"
+ },
+ "10387": {
+  "slug": "hang-seng-daily-up-or-down",
+  "title": "Hang Seng Daily Up or Down",
+  "recurrence": "daily"
+ },
+ "10945": {
+  "slug": "spx-open-daily-up-or-down",
+  "title": "SPX Open Daily Up or Down",
+  "recurrence": "daily"
+ },
+ "10386": {
+  "slug": "dax-daily-up-or-down",
+  "title": "DAX Daily Up or Down",
+  "recurrence": "daily"
+ },
+ "10385": {
+  "slug": "ftse-100-daily-up-or-down",
+  "title": "FTSE 100 Daily Up or Down",
+  "recurrence": "daily"
+ },
+ "10384": {
+  "slug": "dow-jones-daily-up-or-down",
+  "title": "Dow Jones Daily Up or Down",
+  "recurrence": "daily"
+ },
+ "10382": {
+  "slug": "nik-daily-up-or-down",
+  "title": "NIK Daily Up or Down",
+  "recurrence": "daily"
+ },
+ "10383": {
+  "slug": "spx-daily-up-or-down",
+  "title": "SPX Daily Up or Down",
+  "recurrence": "daily"
+ },
+ "10859": {
+  "slug": "nasdaq-100-monthly-close-negrisk",
+  "title": "NASDAQ 100 monthly close negrisk",
+  "recurrence": "monthly"
+ },
+ "12968": {
+  "slug": "silver-up-or-down-15m",
+  "title": "Silver Up or Down 15m",
+  "recurrence": "15m"
+ },
+ "12977": {
+  "slug": "silver-up-or-down-1h",
+  "title": "Silver Up or Down 1h",
+  "recurrence": "hourly"
+ },
+ "12289": {
+  "slug": "xom-kpis",
+  "title": "XOM KPIs",
+  "recurrence": null
+ },
+ "12290": {
+  "slug": "cvx-kpis",
+  "title": "CVX KPIs",
+  "recurrence": null
+ },
+ "12274": {
+  "slug": "cl-earnings",
+  "title": "CL Earnings",
+  "recurrence": null
+ },
+ "10560": {
+  "slug": "us-treasury-blockchain",
+  "title": "US Treasury Blockchain",
+  "recurrence": null
+ },
+ "12307": {
+  "slug": "hood-kpis",
+  "title": "HOOD KPIs",
+  "recurrence": null
+ },
+ "10758": {
+  "slug": "buffett-v-ackman-v-sp",
+  "title": "Buffett v. Ackman v. S&P",
+  "recurrence": "weekly"
+ },
+ "10067": {
+  "slug": "10-year-treasur",
+  "title": "10-year Treasur",
+  "recurrence": "weekly"
+ },
+ "11050": {
+  "slug": "spgi-earnings",
+  "title": "SPGI Earnings",
+  "recurrence": null
+ },
+ "12193": {
+  "slug": "dow-earnings",
+  "title": "DOW Earnings",
+  "recurrence": null
+ },
+ "12030": {
+  "slug": "gs-earnings",
+  "title": "GS Earnings",
+  "recurrence": null
+ },
+ "10855": {
+  "slug": "sp-500-monthly-ou",
+  "title": "S&P 500 monthly O/U",
+  "recurrence": "monthly"
+ },
+ "10594": {
+  "slug": "spx-hit-price-monthly",
+  "title": "SPX Hit Price Monthly",
+  "recurrence": "monthly"
+ },
+ "10603": {
+  "slug": "spx-multi-strikes-weekly",
+  "title": "SPX Multi Strikes Weekly",
+  "recurrence": "weekly"
+ },
+ "11134": {
+  "slug": "ipo-closing-market-cap",
+  "title": "IPO Closing Market Cap",
+  "recurrence": null
+ },
+ "11388": {
+  "slug": "qqq-hit-price-weekly",
+  "title": "QQQ Hit Price Weekly",
+  "recurrence": "weekly"
+ },
+ "10381": {
+  "slug": "ndx-daily-up-or-down",
+  "title": "NDX Daily Up or Down",
+  "recurrence": "daily"
+ },
+ "10595": {
+  "slug": "ndx-hit-price-monthly",
+  "title": "NDX Hit Price Monthly",
+  "recurrence": "monthly"
+ },
+ "10604": {
+  "slug": "ndx-multi-strikes-weekly",
+  "title": "NDX Multi Strikes Weekly",
+  "recurrence": "weekly"
+ },
+ "11302": {
+  "slug": "qqq-daily-up-or-down",
+  "title": "QQQ Daily Up or Down",
+  "recurrence": "daily"
+ },
+ "10605": {
+  "slug": "dji-multi-strikes-weekly",
+  "title": "DJI Multi Strikes Weekly",
+  "recurrence": "weekly"
+ },
+ "10597": {
+  "slug": "dji-hit-price-monthly",
+  "title": "DJI Hit Price Monthly",
+  "recurrence": "monthly"
+ },
+ "10601": {
+  "slug": "rut-hit-price-monthly",
+  "title": "RUT Hit Price Monthly",
+  "recurrence": "monthly"
+ },
+ "10606": {
+  "slug": "rut-multi-strikes-weekly",
+  "title": "RUT Multi Strikes Weekly",
+  "recurrence": "weekly"
+ },
+ "10526": {
+  "slug": "gold-card",
+  "title": "Gold Card",
+  "recurrence": null
+ },
+ "12564": {
+  "slug": "aflw-games",
+  "title": "AFL Women",
+  "recurrence": "daily"
+ },
+ "11470": {
+  "slug": "bkjpn",
+  "title": "Japan B League",
+  "recurrence": "daily"
+ },
+ "10470": {
+  "slug": "ncaa-cbb",
+  "title": "NCAA CBB",
+  "recurrence": "daily"
+ },
+ "10471": {
+  "slug": "cwbb",
+  "title": "CWBB",
+  "recurrence": "daily"
+ },
+ "10699": {
+  "slug": "ahl-2026",
+  "title": "ahl-2026",
+  "recurrence": "daily"
+ },
+ "10188": {
+  "slug": "premier-league-2025",
+  "title": "Premier League 2025",
+  "recurrence": "daily"
+ },
+ "36": {
+  "slug": "epl",
+  "title": "EPL",
+  "recurrence": "daily"
+ },
+ "10329": {
+  "slug": "efl-cup",
+  "title": "EFL Cup",
+  "recurrence": "daily"
+ },
+ "12410": {
+  "slug": "clf-games",
+  "title": "Club Friendlies",
+  "recurrence": "daily"
+ },
+ "10314": {
+  "slug": "fa-cup",
+  "title": "FA Cup",
+  "recurrence": "daily"
+ },
+ "11634": {
+  "slug": "itf",
+  "title": "ITF",
+  "recurrence": "daily"
+ },
+ "10596": {
+  "slug": "nik-hit-price-monthly",
+  "title": "NIK Hit Price Monthly",
+  "recurrence": "monthly"
+ }
+}
