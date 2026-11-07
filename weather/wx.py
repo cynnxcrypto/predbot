@@ -1,8 +1,8 @@
 """Weather-market research helper (runs on GitHub Actions; results -> weather/out/)."""
-import json, sys, time
+import json, sys, time, urllib.request, urllib.parse, os, gzip
 T0 = time.time()
 def left(): return 95*60 - (time.time() - T0)
-def log(*a): print(f"[{int(time.time()-T0)}s]", *a, file=sys.stderr, flush=True), urllib.request, urllib.parse, os, gzip
+def log(*a): print(f"[{int(time.time()-T0)}s]", *a, file=sys.stderr, flush=True)
 OUT = "weather/out"; os.makedirs(OUT, exist_ok=True)
 UA = {"User-Agent": "predbot-research/1.0"}
 def get(url, tries=2):
