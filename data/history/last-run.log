@@ -1,40 +1,21 @@
-run start 2026-11-07T11:07:44Z args: --budget-min 290 --start 2025-01-01
-pm: 663 days to do (0 re-pulls)
-2026-10-25 first esports:390/191/0 football:7877/2018/0 other:21/11/0 other_sports:1601/57/0 politics:1325/269/0 sports_futures:42/7/0 temperature:1034/546/0 tennis:747/173/0 us_sports:2050/1057/0 weather_other:45/21/0 195s
-2026-10-24 first esports:406/199/0 football:10141/2260/0 other:9/8/0 other_sports:1453/23/0 politics:130/49/0 temperature:1034/531/0 tennis:326/103/0 us_sports:4670/1229/0 weather_other:45/14/0 441s
-2026-10-23 first esports:318/145/0 finance_daily:82/46/0 football:2815/867/0 other:352/95/0 other_sports:785/218/0 politics:31/31/0 sports_futures:2/2/0 temperature:1034/534/0 tennis:249/126/0 us_sports:944/496/0 weather_other:45/19/0 531s
-2026-10-22 first esports:410/221/0 finance_daily:78/40/0 football:2071/797/0 other:117/92/0 other_sports:444/3/0 politics:51/41/0 sports_futures:38/12/0 temperature:1034/533/0 tennis:309/144/0 us_sports:660/420/0 weather_other:138/25/0 618s
-2026-10-21 first esports:358/183/0 finance_daily:66/39/0 football:2313/788/0 other:160/137/0 other_sports:447/23/0 politics:51/38/0 sports_futures:132/11/0 temperature:1034/601/0 tennis:479/232/0 us_sports:655/421/0 weather_other:54/43/0 707s
-2026-10-20 first esports:319/180/0 finance_daily:41/29/0 football:2211/684/0 other:54/49/0 other_sports:533/88/0 politics:29/27/0 sports_futures:1606/131/0 temperature:1012/581/0 tennis:513/216/0 us_sports:567/300/0 weather_other:20/7/0 793s
-2026-10-19 first esports:265/145/0 finance_daily:1/0/0 football:1935/627/0 other:7/3/0 other_sports:2446/386/0 politics:87/70/0 sports_futures:1/1/0 temperature:176/105/0 tennis:907/237/0 us_sports:270/141/0 weather_other:16/16/0 864s
-2026-10-18 first esports:384/141/0 football:7808/2019/0 other:6/3/0 other_sports:1049/431/0 politics:554/77/0 sports_futures:26/14/0 tennis:561/146/0 us_sports:1645/636/0 weather_other:4/4/0 1043s
-2026-10-17 first esports:535/225/0 football:9772/2068/0 other:6/1/0 other_sports:1036/394/0 politics:70/42/0 sports_futures:134/23/0 tennis:380/130/0 us_sports:4047/932/0 1278s
-pushed 2423b82cc563f0b1daf9f9971200bbe4d2094e80
-2026-10-16 first esports:520/252/0 football:2449/801/0 other:37/30/0 other_sports:1491/780/0 politics:60/33/0 sports_futures:771/300/0 tennis:210/116/0 us_sports:539/294/0 weather_other:23/23/0 1383s
-2026-10-15 first esports:383/212/0 football:2672/928/0 other:98/90/0 other_sports:1002/437/0 politics:58/54/0 sports_futures:52/35/0 tennis:334/174/0 us_sports:561/302/0 1470s
-2026-10-14 first esports:352/188/0 football:2276/748/0 other:58/50/0 other_sports:1040/453/0 politics:37/31/0 tennis:580/265/0 us_sports:662/386/0 1548s
-2026-10-13 first esports:274/169/0 football:2072/777/0 other:32/31/0 other_sports:1015/503/0 politics:25/24/0 sports_futures:1425/42/0 tennis:603/226/0 us_sports:514/273/0 1627s
-2026-10-12 first esports:301/144/0 football:1752/669/0 other:1/1/0 other_sports:2312/421/0 politics:57/38/0 sports_futures:419/170/0 tennis:735/225/0 us_sports:310/164/0 weather_other:16/16/0 1701s
-2026-10-11 first esports:480/166/0 football:6471/1796/0 other:56/56/0 other_sports:1588/426/0 politics:71/59/0 sports_futures:124/71/0 tennis:655/126/0 us_sports:1576/682/0 1869s
-2026-10-10 first esports:516/196/0 football:8707/2150/0 other:16/15/0 other_sports:1580/440/0 politics:215/68/0 sports_futures:30/21/0 tennis:286/81/0 us_sports:3559/911/0 2081s
-2026-10-09 first esports:499/218/0 football:3168/990/0 other:17/15/0 other_sports:1281/658/0 politics:105/49/0 sports_futures:248/149/0 tennis:392/182/0 us_sports:440/239/0 2173s
-2026-10-08 first esports:382/212/0 football:642/219/0 other:6/6/0 other_sports:899/413/0 politics:141/87/0 sports_futures:1/1/0 tennis:399/149/0 us_sports:533/285/0 2226s
-2026-10-07 first esports:341/206/0 football:925/316/0 other:38/26/0 other_sports:928/448/0 politics:22/21/0 sports_futures:13/11/0 tennis:650/263/0 us_sports:458/268/0 weather_other:1/1/0 2285s
-2026-10-06 first esports:240/149/0 football:1532/578/0 other:6/6/0 other_sports:966/462/0 politics:140/73/0 sports_futures:1395/19/0 tennis:543/239/0 us_sports:384/222/0 weather_other:1/1/0 2351s
-2026-10-05 first esports:221/124/0 football:1193/450/0 other:11/11/0 other_sports:3287/434/0 politics:4804/1447/0 sports_futures:76/53/0 tennis:724/263/0 us_sports:261/159/0 weather_other:20/17/0 2443s
-2026-10-04 first esports:394/159/0 football:2800/804/0 other:1/1/0 other_sports:1901/460/0 politics:314/143/0 sports_futures:37/12/0 tennis:659/157/0 us_sports:2024/947/0 weather_other:11/11/0 2547s
-pushed c69f6906247981adac758e6d62a25af22578b1cc
-2026-10-03 first esports:487/208/0 football:5434/1158/0 other:7/7/0 other_sports:1819/406/0 politics:65/35/0 sports_futures:19/19/0 tennis:294/103/0 us_sports:4450/1065/0 2697s
-2026-10-02 first esports:444/223/0 football:1800/623/0 other:9/9/0 other_sports:1333/742/0 politics:41/40/0 sports_futures:30/14/0 tennis:350/151/0 us_sports:737/434/0 weather_other:14/14/0 2778s
-2026-10-01 first esports:313/198/0 football:1265/455/0 other:319/259/0 other_sports:1518/905/0 politics:269/263/0 sports_futures:54/53/0 tennis:398/198/0 us_sports:334/211/0 weather_other:36/36/0 2862s
-2026-09-30 first esports:326/222/0 football:982/329/0 other:152/147/0 other_sports:1010/492/0 politics:480/395/0 sports_futures:8/3/0 tennis:608/290/0 us_sports:353/236/0 weather_other:6/6/0 2936s
-2026-09-29 first esports:301/174/0 football:1710/576/0 other:29/25/0 other_sports:982/491/0 politics:57/57/0 sports_futures:1464/22/0 tennis:543/246/0 us_sports:387/227/0 weather_other:14/14/0 3010s
-2026-09-28 first esports:286/150/0 football:1189/439/0 other:2/2/0 other_sports:2621/457/0 politics:192/82/0 sports_futures:110/90/0 tennis:726/212/0 us_sports:166/91/0 weather_other:16/16/0 3071s
-2026-09-27 first esports:476/237/0 football:2936/820/0 other_sports:947/415/0 politics:91/69/0 sports_futures:87/75/0 tennis:608/140/0 us_sports:2231/827/0 3177s
-2026-09-26 first esports:561/282/0 football:3816/1028/0 other_sports:892/406/0 politics:2/2/0 tennis:245/95/0 us_sports:4400/981/0 3292s
-2026-09-25 first esports:479/236/0 football:1285/442/0 other:15/13/0 other_sports:1399/773/0 politics:31/30/0 sports_futures:54/33/0 tennis:269/118/0 us_sports:615/291/0 3363s
-2026-09-24 first esports:431/250/0 football:934/331/0 other:14/14/0 other_sports:943/444/0 politics:160/81/0 sports_futures:38/24/0 tennis:394/179/0 us_sports:392/216/0 3422s
-2026-09-23 first esports:391/260/0 football:656/201/0 other:8/8/0 other_sports:1000/491/0 politics:9/8/0 tennis:407/233/0 us_sports:339/219/0 3482s
-2026-09-22 first esports:352/205/0 football:1008/197/0 other:2/2/0 other_sports:1038/508/0 politics:54/44/0 sports_futures:1379/44/0 tennis:466/214/0 us_sports:454/233/0 weather_other:1/1/0 3543s
-2026-09-21 first esports:298/191/0 football:620/216/0 other_sports:2660/462/0 politics:817/245/0 sports_futures:16/10/0 tennis:547/200/0 us_sports:225/127/0 weather_other:16/16/0 3601s
-2026-09-20 first esports:447/190/0 football:7321/1831/0 other_sports:2021/540/0 politics:613/321/0 sports_futures:475/117/0 tennis:579/165/0 us_sports:2219/812/0 3806s
+run start 2026-11-07T10:44:49Z args: --budget-min 290 --start 2025-01-01
+pm: 674 days to do (0 re-pulls)
+2026-11-05 first esports:306/147/0 finance_daily:294/164/0 football:2189/1198/0 other:100/95/0 other_sports:503/7/0 politics:45/37/0 sports_futures:68/39/0 temperature:1034/623/0 tennis:420/270/0 us_sports:1663/846/0 weather_other:79/10/0 90s
+2026-11-04 first esports:352/176/0 finance_daily:294/117/0 football:1534/893/0 other:108/87/0 other_sports:427/9/0 politics:5054/1307/0 sports_futures:110/0/0 temperature:1034/620/0 tennis:498/233/0 us_sports:664/319/0 weather_other:48/9/0 189s
+2026-11-03 first esports:317/160/0 finance_daily:294/122/0 football:2225/1125/0 other:79/66/0 other_sports:428/10/0 politics:681/351/0 sports_futures:1553/49/0 temperature:1034/569/0 tennis:712/393/0 us_sports:1827/919/0 weather_other:41/0/0 286s
+2026-11-02 first esports:238/127/0 finance_daily:294/119/0 football:2612/1276/0 other:97/82/0 other_sports:1065/1/0 politics:238/139/0 sports_futures:215/69/0 temperature:1034/588/0 tennis:737/162/0 us_sports:724/381/0 weather_other:61/24/0 367s
+2026-11-01 first esports:320/153/0 finance_daily:6/1/0 football:7078/2667/0 other:393/313/0 other_sports:1963/527/0 politics:372/353/0 sports_futures:401/258/0 temperature:1034/602/0 tennis:546/183/0 us_sports:1897/1012/0 weather_other:91/54/0 561s
+2026-10-31 first esports:419/222/0 football:9660/3086/0 other:45/42/0 other_sports:1424/27/0 politics:190/146/0 sports_futures:988/543/0 temperature:1034/587/0 tennis:242/153/0 us_sports:4412/1367/0 weather_other:45/9/0 787s
+2026-10-30 first esports:338/195/0 finance_daily:914/334/0 football:2679/1146/0 other:557/209/0 other_sports:525/77/0 politics:134/99/0 sports_futures:56/53/0 temperature:1034/559/0 tennis:270/186/0 us_sports:1246/746/0 weather_other:49/13/0 877s
+2026-10-29 first esports:329/194/0 finance_daily:268/86/0 football:2339/981/0 other:152/129/0 other_sports:442/6/0 politics:116/57/0 temperature:1034/552/0 tennis:357/189/0 us_sports:1096/614/0 weather_other:85/10/0 956s
+2026-10-28 first esports:246/150/0 finance_daily:254/70/0 football:3093/1452/0 other:172/149/0 other_sports:461/7/0 politics:775/218/0 temperature:1034/551/0 tennis:476/254/0 us_sports:1350/773/0 weather_other:45/11/0 1054s
+2026-10-27 first esports:324/203/0 finance_daily:250/37/0 football:3468/1325/0 other:117/104/0 other_sports:601/61/0 politics:957/338/0 sports_futures:1407/33/0 temperature:1034/548/0 tennis:549/260/0 us_sports:1008/626/0 weather_other:50/24/0 1152s
+2026-10-26 first esports:282/200/0 finance_daily:136/39/0 football:1762/966/0 other:57/41/0 other_sports:1946/17/0 politics:811/296/0 sports_futures:22/16/0 temperature:1034/529/0 tennis:954/350/0 us_sports:724/460/0 weather_other:62/34/0 1232s
+To https://github.com/cynnxcrypto/predbot.git
+ ! [rejected]        f4f0e0f9b2cefb5d50698f5686f35e88032665aa -> server-data (fetch first)
+error: failed to push some refs to 'https://github.com/cynnxcrypto/predbot.git'
+hint: Updates were rejected because the remote contains work that you do not
+hint: have locally. This is usually caused by another repository pushing to
+hint: the same ref. If you want to integrate the remote changes, use
+hint: 'git pull' before pushing again.
+hint: See the 'Note about fast-forwards' in 'git push --help' for details.
