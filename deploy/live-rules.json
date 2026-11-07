@@ -186,7 +186,7 @@
   ],
   "lossCap": {
     "since": "2026-11-07T02:44:00Z",
-    "maxLoss": 50,
-    "note": "enrique 7 Nov 11:46 KST: go live with the BIG3 DOWN taker and the maker (1c-under bid), lose no more than $50 combined from 11:44 KST"
+    "maxLoss": 70,
+    "note": "enrique 7 Nov 11:46 KST: go live with the BIG3 DOWN taker and the maker (1c-under bid), lose no more than $50 combined from 11:44 KST; 8 Nov 02:11 KST enrique: +$20 -> $70 (stop at -$134 since Friday)"
   }
 }
