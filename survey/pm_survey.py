@@ -392,22 +392,68 @@ def kalshi():
 
 # ---------------------------------------------------------------- feeds
 FEEDS = {
+    # general news / wires
     "Google News top": "https://news.google.com/rss?hl=en-US&gl=US&ceid=US:en",
-    "Google News politics search": "https://news.google.com/rss/search?q=election+results&hl=en-US&gl=US&ceid=US:en",
+    "Google News search (any keyword)": "https://news.google.com/rss/search?q=election+results&hl=en-US&gl=US&ceid=US:en",
+    "AP via Google News": "https://news.google.com/rss/search?q=source:Associated+Press&hl=en-US&gl=US&ceid=US:en",
+    "Reuters via Google News": "https://news.google.com/rss/search?q=site:reuters.com&hl=en-US&gl=US&ceid=US:en",
+    "Bing News search": "https://www.bing.com/news/search?q=breaking&format=rss",
     "BBC world": "https://feeds.bbci.co.uk/news/world/rss.xml",
-    "BBC sport": "https://feeds.bbci.co.uk/sport/rss.xml",
-    "ESPN top": "https://www.espn.com/espn/rss/news",
-    "ESPN NFL": "https://www.espn.com/espn/rss/nfl/news",
-    "CBS Sports": "https://www.cbssports.com/rss/headlines/",
+    "Guardian world": "https://www.theguardian.com/world/rss",
+    "Al Jazeera": "https://www.aljazeera.com/xml/rss/all.xml",
+    "NPR news": "https://feeds.npr.org/1001/rss.xml",
+    "CNBC top": "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=100003114",
+    "Yahoo News": "https://news.yahoo.com/rss/",
+    "GDELT doc API": "https://api.gdeltproject.org/api/v2/doc/doc?query=election&mode=artlist&format=json&maxrecords=10&sort=datedesc",
+    # politics
     "NYT politics": "https://rss.nytimes.com/services/xml/rss/nyt/Politics.xml",
     "Politico": "https://rss.politico.com/politics-news.xml",
-    "Guardian world": "https://www.theguardian.com/world/rss",
-    "AP via Google": "https://news.google.com/rss/search?q=source:Associated+Press&hl=en-US&gl=US&ceid=US:en",
+    "The Hill": "https://thehill.com/feed/",
+    "Axios": "https://api.axios.com/feed/",
+    "White House news": "https://www.whitehouse.gov/news/feed/",
+    "Federal Register API": "https://www.federalregister.gov/api/v1/documents.json?per_page=5&order=newest",
+    "Congress.gov bills (needs key)": "https://api.congress.gov/v3/bill?format=json",
+    "FiveThirtyEight-style polls (RCP)": "https://www.realclearpolling.com/",
+    "Wikipedia recent changes API": "https://en.wikipedia.org/w/api.php?action=query&list=recentchanges&rclimit=5&format=json",
+    # economy / official
+    "Fed press releases": "https://www.federalreserve.gov/feeds/press_all.xml",
+    "BLS releases": "https://www.bls.gov/feed/bls_latest.rss",
+    "SEC EDGAR latest filings": "https://www.sec.gov/cgi-bin/browse-edgar?action=getcurrent&type=8-K&output=atom",
+    "NOAA weather alerts": "https://api.weather.gov/alerts/active?status=actual&limit=5",
+    "USGS earthquakes": "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_hour.geojson",
+    # sports
+    "BBC sport": "https://feeds.bbci.co.uk/sport/rss.xml",
+    "BBC football": "https://feeds.bbci.co.uk/sport/football/rss.xml",
+    "CBS Sports": "https://www.cbssports.com/rss/headlines/",
+    "Yahoo Sports": "https://sports.yahoo.com/rss/",
+    "ESPN RSS": "https://www.espn.com/espn/rss/news",
+    "ESPN scoreboard API": "https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard",
+    "RotoWire NBA news": "https://www.rotowire.com/rss/news.php?sport=NBA",
+    "RotoWire NFL news": "https://www.rotowire.com/rss/news.php?sport=NFL",
+    "NHL official API": "https://api-web.nhle.com/v1/schedule/now",
+    "MLB StatsAPI": "https://statsapi.mlb.com/api/v1/schedule?sportId=1",
+    "NBA official scoreboard": "https://cdn.nba.com/static/json/liveData/scoreboard/todaysScoreboard_00.json",
+    "NBA injury report page": "https://official.nba.com/nba-injury-report-2025-26-season/",
+    "Sleeper NFL players API": "https://api.sleeper.app/v1/players/nfl/trending/add?lookback_hours=24&limit=5",
+    "football-data.org (needs key)": "https://api.football-data.org/v4/matches",
+    "OpenLigaDB Bundesliga": "https://api.openligadb.de/getmatchdata/bl1",
+    "Sofascore live": "https://api.sofascore.com/api/v1/sport/football/events/live",
+    "Reddit r/nba new": "https://www.reddit.com/r/nba/new/.rss",
     "Reddit r/sportsbook": "https://www.reddit.com/r/sportsbook/new/.rss",
-    "ESPN NBA injuries API": "https://site.api.espn.com/apis/site/v2/sports/basketball/nba/injuries",
-    "Pinnacle guest (no key)": "https://guest.api.arcadia.pinnacle.com/0.1/sports",
-    "The Odds API (no key)": "https://api.the-odds-api.com/v4/sports",
-    "GDELT doc API": "https://api.gdeltproject.org/api/v2/doc/doc?query=polymarket&mode=artlist&format=json&maxrecords=10",
+    # social
+    "Bluesky public search": "https://public.api.bsky.app/xrpc/app.bsky.feed.searchPosts?q=breaking&limit=5",
+    "Bluesky firehose (Jetstream)": "https://jetstream2.us-east.bsky.network/",
+    "Mastodon public timeline": "https://mastodon.social/api/v1/timelines/public?limit=5",
+    "Telegram public channel preview": "https://t.me/s/disclosetv",
+    "Truth Social (Trump) RSS mirror": "https://trumpstruth.org/feed",
+    "Nitter (X mirror)": "https://nitter.net/AP/rss",
+    # odds / markets
+    "Kalshi API": "https://api.elections.kalshi.com/trade-api/v2/markets?limit=1",
+    "Manifold API": "https://api.manifold.markets/v0/markets?limit=5",
+    "PredictIt API": "https://www.predictit.org/api/marketdata/all/",
+    "Betfair (needs account)": "https://api.betfair.com/exchange/betting/rest/v1.0/listEventTypes/",
+    "The Odds API (needs key)": "https://api.the-odds-api.com/v4/sports",
+    "Polymarket Gamma": "https://gamma-api.polymarket.com/events?limit=1",
 }
 def feeds():
     say("## News/data feeds from a GitHub runner (US)")
@@ -446,4 +492,4 @@ if __name__ == "__main__":
         except Exception as e:
             import traceback; traceback.print_exc(); say(f"STEP {s} FAILED: {e!r}")
         say(f"({s} took {time.time()-t0:.0f}s)")
-        open(f"{OUT}/summary.md", "w").write("\n".join(SUMMARY) + "\n")
+        open(f"{OUT}/summary-{'-'.join(steps)}.md", "w").write("\n".join(SUMMARY) + "\n")
