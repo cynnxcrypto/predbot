@@ -481,11 +481,10 @@ def feeds():
 
 # ---------------------------------------------------------------- football: Polymarket vs Pinnacle closing (football-data.co.uk)
 import csv, io, difflib
-FD_LEAGUES = {"E0": ["premier-league", "epl"], "SP1": ["la-liga", "laliga"], "I1": ["serie-a"], "D1": ["bundesliga"], "F1": ["ligue-1"],
-              "E1": ["championship", "efl-championship"], "N1": ["eredivisie"], "P1": ["primeira-liga"]}
+FD_LEAGUES = {"SP1": ["la-liga", "laliga", "spain", "la-liga-2"]}   # Spain first (enrique, 7 Nov); expand later
 def fd_rows():
     rows = []
-    for season in ("2526", "2627"):
+    for season in ("2425", "2526", "2627"):
         for code in FD_LEAGUES:
             b = get(f"https://www.football-data.co.uk/mmz4281/{season}/{code}.csv", tries=2)
             if not isinstance(b, str) or "HomeTeam" not in b[:400]:
@@ -531,7 +530,7 @@ def football():
     pm_ev, seen = [], set()
     for code, slugs in FD_LEAGUES.items():
         for sl in slugs:
-            got = page_events({"closed": "true", "tag_slug": sl, "end_date_min": "2025-08-01T00:00:00Z"}, cap=6000)
+            got = page_events({"closed": "true", "tag_slug": sl, "end_date_min": "2024-08-01T00:00:00Z"}, cap=10000)
             n = 0
             for e in got:
                 if e.get("id") in seen or " vs" not in (e.get("title") or ""): continue
