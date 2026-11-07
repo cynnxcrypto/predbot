@@ -171,6 +171,29 @@ DAILY = ("spx-daily-up-or-down", "spy-daily-up-or-down", "ndx-daily-up-or-down",
          "gold-daily-up-or-down", "silver-daily-up-or-down", "oil-daily-up-or-down", "natural-gas-daily-up-or-down", "spx-open-daily-up-or-down",
          "spy-daily-close-uo", "wti-daily-close-uo", "qqq-daily-up-or-down", "spy-open-daily-up-or-down")
 
+def probe():
+    evs = load("events.json.gz") or []
+    m = next(m for e in evs if e["closed"] and (e["series"] or ["-"])[0] == "spx-daily-up-or-down" for m in e["markets"])
+    tok = (jl(m["clobTokenIds"]) or [""])[0]
+    tests = [("https://data-api.polymarket.com/trades", {"market": m["conditionId"], "limit": 5}),
+             ("https://data-api.polymarket.com/trades", {"market": m["conditionId"], "limit": 5, "takerOnly": "false"}),
+             ("https://data-api.polymarket.com/trades", {"limit": 3})]
+    for u, pr in tests:
+        url = u + "?" + urllib.parse.urlencode(pr)
+        try:
+            with urllib.request.urlopen(urllib.request.Request(url, headers=UA), timeout=30) as r:
+                log("PROBE", url[:120], r.status, r.read()[:300])
+        except Exception as e:
+            body = getattr(e, "read", lambda: b"")()[:200]
+            log("PROBE FAIL", url[:120], repr(e)[:150], body)
+    gq = {"query": '{orderFilledEvents(first: 5, orderBy: timestamp, orderDirection: desc, where: {makerAssetId: "%s"}) {timestamp makerAmountFilled takerAmountFilled makerAssetId takerAssetId}}' % tok}
+    for url in ["https://api.goldsky.com/api/public/project_cl6mb8i9h0003e201j6li0diw/subgraphs/orderbook-subgraph/0.0.1/gn"]:
+        try:
+            req = urllib.request.Request(url, data=json.dumps(gq).encode(), headers={**UA, "Content-Type": "application/json"})
+            with urllib.request.urlopen(req, timeout=30) as r: log("PROBE goldsky", r.status, r.read()[:400])
+        except Exception as e:
+            log("PROBE goldsky FAIL", repr(e)[:200], getattr(e, "read", lambda: b"")()[:200])
+
 def trades():
     evs = load("events.json.gz") or []
     old = load("trades.json.gz") or {}
