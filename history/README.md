@@ -56,7 +56,7 @@ corner lines) are counted in `coverage.json` as `dropped_props` but not stored.
 `market_id` (int64), `t` (unix seconds UTC), `p` (float32, price of outcome 0; outcome 1 = 1 − p for binary markets).
 Source: CLOB `prices-history`. These are Polymarket's sampled prices (midpoint / last trade), **not** order-book asks:
 add slippage. `prices`: 10-minute points in the last 48 h before the end, hourly from 48 h to 14 days out, 6-hourly before that.
-Only markets with volume ≥ $1,000 (games) or ≥ $200 (other families) get price files; thinner ones have the markets row only.
+Price files: game main lines (moneyline, totals, spreads, halftime, BTTS) with $1k+ volume, game props with $10k+, other families $200+. Props keep `token_ids` only at $10k+ and no `condition_id` (size).
 `prices1m`: 1-minute points from game start −2 h to +4 h for moneylines with $5k+ volume and totals/spreads with $25k+ volume.
 
 ### books/ (order-book snapshots, forward only)

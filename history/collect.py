@@ -215,8 +215,14 @@ def keep_market(fam, r):
     return fam not in GAME_FAMS or r["volume"] >= 500 or r["smt"] in ("moneyline", "totals", "spreads", "child_moneyline")
 
 
-def price_min_vol(fam):
-    return 1000 if fam in GAME_FAMS else 200
+MAIN_LINES = ("moneyline", "totals", "spreads", "child_moneyline", "soccer_halftime_result", "both_teams_to_score")
+
+
+def wants_prices(fam, r):
+    """Game families: main lines with $1k+ volume, props only with $10k+; other families: $200+."""
+    if fam in GAME_FAMS:
+        return r["volume"] >= (1000 if r["smt"] in MAIN_LINES or not r["smt"] else 10000)
+    return r["volume"] >= 200
 
 
 def fetch_prices(row):
@@ -312,6 +318,9 @@ def do_day(d, pool):
             if not m.get("closed"):
                 continue
             r = market_row(d, fam, ev, m)
+            if fam in GAME_FAMS and r["smt"] not in MAIN_LINES and r["smt"]:
+                r["condition_id"] = ""  # props: ids are long random strings that dominate file size; market_id joins prices
+                r["token_ids"] = "[]" if r["volume"] < 10000 else r["token_ids"]
             if keep_market(fam, r):
                 by.setdefault(fam, []).append(r)
             else:
@@ -321,7 +330,7 @@ def do_day(d, pool):
         base = f"{OUT}/pm/{fam}/{d.year}/{d}"
         write_csv_gz(base + ".events.csv.gz", evrows[fam])
         write_csv_gz(base + ".markets.csv.gz", rows)
-        want = [r for r in rows if r["volume"] >= price_min_vol(fam)]
+        want = [r for r in rows if wants_prices(fam, r)]
         P, O = {"market_id": [], "t": [], "p": []}, {"market_id": [], "t": [], "p": []}
         for mid, pts, one in pool.map(fetch_prices, want):
             mid = int(mid)
