@@ -65,7 +65,7 @@ for e in ev:
             if already: continue
             tau=tdays(t,end)
             d=abs(math.log(K/S)); fair=min(1,2*(1-Phi(d/(sv*math.sqrt(tau))))) if tau>0 else 0
-            rows.append(dict(f=f,dd=dd,p=p,fair=fair,yes=yes,vol=float(m["volumeNum"] or 0),wk="weekly" in f))
+            rows.append(dict(mid=m["id"],t=t,f=f,dd=dd,p=p,fair=fair,yes=yes,vol=float(m["volumeNum"] or 0),wk="weekly" in f))
 json.dump(rows,open("barrier_rows.json","w"))
 print("rows",len(rows))
 B=[0,.03,.1,.2,.35,.5,.65,.8,1.01]

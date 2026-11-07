@@ -89,7 +89,7 @@ for e in ev:
         if ref and f:
             v = rem_var(sym, t, C)
             if v > 0: fair = Phi(math.log(f / ref) / math.sqrt(v))
-        rows.append({"s": s, "C": C, "ck": ckh, "pm": p, "fair": fair, "up": up, "vol": m["volumeNum"],
+        rows.append({"mid": m["id"], "t": t, "s": s, "C": C, "ck": ckh, "pm": p, "fair": fair, "up": up, "vol": m["volumeNum"],
                      "futok": (fut_close > ref) == up if (ref and fut_close) else None})
 json.dump(rows, open(D + "../rows.json", "w"))
 def ll(p, y): p = min(max(p, 0.01), 0.99); return -math.log(p if y else 1 - p)
