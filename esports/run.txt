@@ -1,1 +1,1 @@
-discover
+sources landscape collect
