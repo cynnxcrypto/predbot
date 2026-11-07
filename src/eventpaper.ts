@@ -16,6 +16,7 @@
  * Every rule is $5 at the real ask (walking the book), taker fee rate x p x (1-p) per share, held to settlement.
  */
 import { loadJson, saveJson } from "./store.js";
+import { JEV_CONTEXT, headlines, jevKey, jevStake, type JevStake } from "./jev.js";
 
 const GAMMA = "https://gamma-api.polymarket.com";
 const CLOB = "https://clob.polymarket.com";
@@ -111,6 +112,9 @@ export type PaperTrade = {
   won?: boolean | null;
   pnl?: number | null;
   settledAt?: number;
+  /** Jev's stake multiplier on this bet (src/jev.ts); pnl x mult = the Jev-sized result. jevPending until asked. */
+  jev?: JevStake;
+  jevPending?: boolean;
 };
 type Signal = { rule: string; t: number; title: string; traded: boolean; extra: Record<string, unknown> };
 type Match = {
@@ -163,6 +167,7 @@ function enter(rule: string, m: { marketId: string; title: string; outcome: stri
   const w = walk(bk.asks, STAKE, limit);
   if (w.shares <= 0 || w.avg == null) return null;
   const tr: PaperTrade = { rule, ...m, t: Date.now(), ask: bk.bestAsk, avg: w.avg, shares: w.shares, cost: w.cost, fee: feeOf(m.feeRate, w.shares, w.avg), fillable: w.full, extra };
+  tr.jevPending = true;
   state.trades.push(tr);
   log(`${rule} ${m.title} ${m.outcome} at ${Math.round(bk.bestAsk * 100)}c ($${w.cost.toFixed(2)}${w.full ? "" : ", not fully fillable"})`);
   return tr;
@@ -518,6 +523,51 @@ async function footballTick() {
   }
 }
 
+// ---------- Jev sizing (enrique 7 Nov 2026: Jev decides the stake on every bet, all categories) ----------
+// Spec: /mnt/project-files/reviews/jev-sizing-spec.md. Paper: the flat $5 trade is kept; Jev's multiplier is logged on it.
+const RULE_TEXT: Record<string, [string, string]> = {
+  "esports-map1": ["esports", "Bo3 CS2/LoL/Valorant match: after map 1, buy the map-1 winner's match share when its ask is 8+ pts under a map-strength model (pre-match price -> per-map chance q; model = 1-(1-q)^2), 60-120 s after map 1 ends; hold to the match result. Backtest: +3.1c/share out of sample over 171 matches."],
+  "esports-fav-shadow": ["esports", "Bo3 esports shadow: the pre-match favourite won map 1 but its match price rose under 5 pts and is under 90c; buy it, hold to the match result."],
+  "esports-map1-dota": ["esports", "Dota 2 Bo3 shadow of the map-1 under-reaction rule (buy the map-1 winner when the match ask is 8+ pts under the map model)."],
+  "gold-momentum": ["indices", "Gold daily up/down: the first time a side asks 55-70c with 4+ hours to the 17:00 New York close, buy the higher-priced side; hold to settlement. Backtest: 69% won, +8.1c/share over 142 days."],
+  "spx-underdog": ["indices", "S&P 500 daily up/down control: the first time a side asks 30-45c with 4+ hours to the 16:00 New York close, buy the cheaper side; expected about break-even."],
+  "spy-underdog": ["indices", "SPY daily up/down control: buy the cheaper side when it first asks 30-45c with 4+ hours to the close; expected about break-even."],
+  "election-lock-taker": ["politics", "Election favourite lock: a binary election market ending in 1-7 days whose favourite asks 97-99c with $5+ at the ask; buy the favourite at the ask, hold to resolution. History: favourites at 97-99c held ~+2% over 541 trades."],
+  "election-lock-maker": ["politics", "Election favourite lock, maker: bid 1c under a 97-99c favourite ask in a binary election ending in 1-7 days; filled if the ask reaches the bid within 6 h."],
+  "football-laliga-home": ["football", "La Liga: buy the home team to win when its ask is 65-80c 10 minutes before kickoff; hold to the result. Ten seasons of bookmaker prices: +7.6c per $1 over 462 matches, 10 of 11 seasons positive; Polymarket 2024-26: 54 bets, 83% won, +9.4c/share."],
+  "football-portugal-home": ["football", "Portugal Primeira Liga shadow: buy the home favourite at 65-80c 10 minutes before kickoff; bookmaker history +8.0c per $1 over 311 matches, Polymarket sample -5.9c (24)."],
+  "football-italy-away": ["football", "Serie A shadow: buy the away favourite at 65-80c 10 minutes before kickoff; bookmaker history +9.4c per $1 over 189 matches."],
+  "football-laliga-home55": ["football", "La Liga control: buy the home team at 55-65c 10 minutes before kickoff; expected about break-even (+0.3c in bookmaker history)."],
+};
+function record(rule: string): string {
+  const st = state.trades.filter((t) => t.rule === rule && t.pnl != null);
+  if (!st.length) return "live paper: no settled bets yet";
+  const won = st.filter((t) => t.won).length;
+  const c = (st.reduce((a, t) => a + (t.pnl ?? 0), 0) / st.reduce((a, t) => a + t.shares, 0)) * 100;
+  return `live paper: ${st.length} settled, ${Math.round((100 * won) / st.length)}% won, ${c >= 0 ? "+" : ""}${c.toFixed(1)}c/share; last 10: ${st.slice(-10).map((t) => (t.won ? "W" : t.won === false ? "L" : "T")).join("")}`;
+}
+async function jevTick() {
+  for (const tr of state.trades.filter((t) => t.jevPending).slice(0, 5)) {
+    const [cat, text] = RULE_TEXT[tr.rule] ?? ["other", tr.rule];
+    const q = tr.title.replace(/\(.*?\)|-.*$|Up or Down.*$/gi, "").replace(/^(Counter-Strike|Valorant|LoL|League of Legends|Dota 2):\s*/i, "").trim() || tr.title;
+    const news = jevKey() ? await headlines(q) : [];
+    const { extra, ...bet } = tr;
+    tr.jev = await jevStake({
+      category: cat,
+      market: tr.title,
+      event: tr.title,
+      proposed_bet: { buy: tr.outcome, price: bet.ask, avg_fill: bet.avg, best_bid: extra?.bid ?? null, depth_usd_at_ask: extra?.depth1c ?? extra?.depth2c ?? extra?.sizeAtAsk ?? null, costs: `taker fee ${tr.feeRate} x p x (1-p) per share`, default_stake_usd: 5, max_stake_usd: 10, rule: text },
+      rule_track_record: record(tr.rule),
+      market_context: { price_now: bet.ask },
+      facts: extra ?? {},
+      news_headlines: news,
+      context: JEV_CONTEXT,
+    });
+    delete tr.jevPending;
+    if (tr.jev.mult != null) log(`jev ${tr.rule} ${tr.title}: ${tr.jev.pick} (${tr.jev.ms} ms)`);
+  }
+}
+
 // ---------- settlement and summary ----------
 async function settleTick() {
   const open = state.trades.filter((t) => t.pnl == null);
@@ -566,6 +616,21 @@ function summarize() {
           won: st.filter((t) => t.won).length,
           net: Math.round(st.reduce((s, t) => s + (t.pnl ?? 0), 0) * 100) / 100,
           fillable: { trades: fl.length, won: fl.filter((t) => t.won).length, net: Math.round(fl.reduce((s, t) => s + (t.pnl ?? 0), 0) * 100) / 100 },
+          jev: (() => {
+            const js = st.filter((t) => t.jev?.mult != null);
+            const b: Record<string, { n: number; won: number; net: number }> = {};
+            for (const t of js) {
+              const k = t.jev!.pick ?? "?";
+              const x = (b[k] ??= { n: 0, won: 0, net: 0 });
+              x.n++;
+              x.won += t.won ? 1 : 0;
+              x.net = Math.round((x.net + (t.pnl ?? 0)) * 100) / 100;
+            }
+            const staked = js.reduce((a, t) => a + t.cost * t.jev!.mult!, 0);
+            const net = js.reduce((a, t) => a + (t.pnl ?? 0) * t.jev!.mult!, 0);
+            const flat = js.reduce((a, t) => a + (t.pnl ?? 0), 0);
+            return { asked: ts.filter((t) => t.jev).length, errors: ts.filter((t) => t.jev?.err).length, lastErr: ts.filter((t) => t.jev?.err).slice(-1)[0]?.jev?.err ?? null, settled: js.length, net: Math.round(net * 100) / 100, flatNet: Math.round(flat * 100) / 100, perDollar: staked > 0 ? Math.round((net / staked) * 1000) / 10 : null, buckets: b };
+          })(),
           perShare: st.length ? Math.round((st.reduce((s, t) => s + (t.pnl ?? 0), 0) / st.reduce((s, t) => s + t.shares, 0)) * 1000) / 10 : null,
         };
       }),
@@ -573,7 +638,7 @@ function summarize() {
         .filter((t) => rules.includes(t.rule))
         .slice(-25)
         .reverse()
-        .map((t) => ({ rule: t.rule, t: t.t, title: t.title, outcome: t.outcome, ask: t.ask, avg: t.avg == null ? null : Math.round(t.avg * 1000) / 1000, shares: Math.round(t.shares * 100) / 100, cost: Math.round(t.cost * 100) / 100, fillable: t.fillable, won: t.won ?? null, pnl: t.pnl == null ? null : Math.round(t.pnl * 100) / 100 })),
+        .map((t) => ({ rule: t.rule, t: t.t, title: t.title, outcome: t.outcome, ask: t.ask, avg: t.avg == null ? null : Math.round(t.avg * 1000) / 1000, shares: Math.round(t.shares * 100) / 100, cost: Math.round(t.cost * 100) / 100, fillable: t.fillable, won: t.won ?? null, pnl: t.pnl == null ? null : Math.round(t.pnl * 100) / 100, jev: t.jev?.pick ?? (t.jev?.err ? `error: ${t.jev.err}` : t.jevPending ? "asking" : null) })),
       // Why matches ended without a trade (diagnostics: "map 1 already decided when first seen", "no P0", ...).
       notes: g === "esports" ? Object.values(state.matches).reduce<Record<string, number>>((o, m) => ((o[m.evaluated ? m.note ?? (m.tEnd != null ? "evaluated" : "done") : m.tEnd != null ? "map 1 over, waiting" : m.start <= Date.now() ? "live" : "upcoming"] = (o[m.evaluated ? m.note ?? (m.tEnd != null ? "evaluated" : "done") : m.tEnd != null ? "map 1 over, waiting" : m.start <= Date.now() ? "live" : "upcoming"] ?? 0) + 1), o), {}) : undefined,
       skips: g === "football" ? state.signals.filter((x) => rules.includes(x.rule) && x.extra.skip).slice(-15).reverse().map((x) => ({ rule: x.rule, t: x.t, title: x.title, why: x.extra.skip, ask: x.extra.ask })) : undefined,
@@ -622,6 +687,9 @@ async function main() {
     if (now - last.settle > 10 * 60_000) {
       last.settle = now;
       await guard("settle", settleTick);
+    }
+    {
+      await guard("jev", jevTick);
     }
     save();
     summarize();
