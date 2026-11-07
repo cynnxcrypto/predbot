@@ -1,0 +1,4 @@
+{
+ "https://data-api.polymarket.com/trades?market=0x30f5cf3ba9c16bb54ccdf9f907f72de224752142acd4b397664c976cc2d7d057&limit=50": "None",
+ "https://data-api.polymarket.com/trades?market=0x30f5cf3ba9c16bb54ccdf9f907f72de224752142acd4b397664c976cc2d7d057&limit=50&takerOnly=false": "None"
+}
