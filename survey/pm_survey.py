@@ -763,7 +763,7 @@ def jevstates2():
         rows.sort(key=lambda x: x["date"]); hist[code] = rows
     LGN = {"SP1": "Spanish La Liga", "SP2": "Spanish Segunda Division", "E0": "English Premier League", "E1": "English Championship", "D1": "German Bundesliga",
            "I1": "Italian Serie A", "F1": "French Ligue 1", "N1": "Dutch Eredivisie", "P1": "Portuguese Primeira Liga", "T1": "Turkish Super Lig", "B1": "Belgian Pro League"}
-    out, nnews = [], 0
+    out, news_jobs = [], []
     for r in sorted(FOOT_OK, key=lambda r: r["start"]):
         rows = hist.get(r["lg"], [])
         day = datetime.fromtimestamp(r["start"], timezone.utc)
@@ -777,14 +777,21 @@ def jevstates2():
         f["prediction_market_prices_10min_before_kickoff"] = {"home_win": round(r["H"]["k10"], 3), "draw": round(r["D"]["k10"], 3), "away_win": round(r["A"]["k10"], 3)}
         f["prediction_market_prices_24h_before_kickoff"] = {"home_win": round(r["H"]["k24h"] or 0, 3), "draw": round(r["D"]["k24h"] or 0, 3), "away_win": round(r["A"]["k24h"] or 0, 3)}
         if r.get("avg"): f["bookmaker_consensus_fair_probabilities"] = {"home_win": round(r["avg"][0], 3), "draw": round(r["avg"][1], 3), "away_win": round(r["avg"][2], 3)}
-        if nnews < 2500:
-            f["news_headlines_last_4_days_before_match_day"] = news_headlines(r["A"], r["B"], day.date()) or "none found"
-            nnews += 1; time.sleep(0.4)
+        news_jobs.append((f, r["A"], r["B"], day.date()))
         f["context"] = ("You advise a bettor who can buy any outcome on a prediction market at the listed 10-minute price plus ~1-2% in costs. "
                         "Prices are crowd probabilities and are usually well calibrated, so only call a side underpriced when your judgement "
                         "(team news, injuries, suspensions, rotation, motivation, schedule congestion, form, matchup) clearly disagrees with it.")
         out.append({"date": day.strftime("%Y-%m-%d"), "lg": r["lg"], "home": r["A"], "away": r["B"], "fdH": r["fdH"], "fdA": r["fdA"], "ftr": r["ftr"],
                     "pm": {k: r[k]["k10"] for k in "HDA"}, "state": f})
+    # news in parallel with a hard deadline so the run always finishes and commits
+    deadline = time.time() + 35 * 60
+    def fetch(job):
+        f, a, b, d = job
+        if time.time() > deadline: return
+        f["news_headlines_last_4_days_before_match_day"] = news_headlines(a, b, d) or "none found"
+    news_jobs.sort(key=lambda j: (j[0]["competition"][:7] != "Spanish", j[3]), reverse=False)
+    with ThreadPoolExecutor(8) as ex: list(ex.map(fetch, news_jobs))
+    say(f"news fetched for {sum(1 for j in news_jobs if 'news_headlines_last_4_days_before_match_day' in j[0])}/{len(news_jobs)} matches")
     questions = {
         "result": {"type": "choice", "instructions": "Using all the context, what are the true probabilities of the full-time result? Be calibrated.",
                    "criteria": {"home": "The home team wins", "draw": "The match ends in a draw", "away": "The away team wins"}},

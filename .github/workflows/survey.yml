@@ -9,13 +9,13 @@ permissions:
 jobs:
   survey:
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 240
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: { python-version: "3.12" }
       - name: run
-        run: python survey/pm_survey.py $(cat survey/run.txt 2>/dev/null) 2>survey/out-stderr.log || true
+        run: timeout 170m python survey/pm_survey.py $(cat survey/run.txt 2>/dev/null) 2>survey/out-stderr.log || true
       - name: jev states (no key needed)
         run: grep -q jevstates survey/run.txt && python3 survey/jev_backtest.py --states || true
       - name: commit results
