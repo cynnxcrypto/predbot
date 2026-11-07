@@ -1,0 +1,26 @@
+name: weather-research
+on:
+  push:
+    branches: ["claude/project-thread-ugx9bn"]
+    paths: ["weather/*.py", "weather/run.txt", ".github/workflows/weather.yml"]
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - name: run
+        run: python weather/wx.py $(cat weather/run.txt) 2>weather/stderr.log || true
+      - name: commit results
+        run: |
+          mkdir -p weather/out && mv weather/stderr.log weather/out/stderr.log || true
+          git config user.name "survey-bot"; git config user.email "survey-bot@users.noreply.github.com"
+          git add weather/out
+          git commit -m "weather results [skip ci]" || exit 0
+          git pull --rebase origin "${GITHUB_REF_NAME}" || true
+          git push origin "HEAD:${GITHUB_REF_NAME}"
