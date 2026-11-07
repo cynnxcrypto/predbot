@@ -136,6 +136,7 @@ type Match = {
   evaluated?: boolean;
   /** The map-1 price was seen undecided (5-95c), so a later decided run is a map end we watched, not one long over. */
   sawLive?: boolean;
+  gap?: number;
   note?: string;
   /** Gamma best ask of outcome 0 at the last list refresh (dashboard only). */
   px0?: number | null;
@@ -320,6 +321,7 @@ async function esportsTick() {
     const depth2c = bk.asks.filter((a) => a.price <= ask + 0.02 + 1e-9).reduce((s, a) => s + a.price * a.size, 0);
     const base = { marketId: m.id, title: m.title, outcome: m.outcomes[w], idx: w, token: m.tokens[w], feeRate: m.feeRate };
     const extra = { game: m.game, p0: m.p0, q, model, gap: ask - model, p0w, bid: bk.bestBid, ask, mid: bk.mid, depth2c, volume: m.volume, start: m.start, tEnd: m.tEnd };
+    m.gap = Math.round((ask - model) * 1000) / 1000; // diagnostics: how far the match ask sat from the model after map 1
     const r1 = m.game === "dota2" ? "esports-map1-dota" : "esports-map1";
     if (ask <= model - 0.08) signal(r1, m.title, Boolean(enter(r1, base, bk, ask + 0.01, extra)), extra);
     else if (ask <= model - 0.04) signal(`${r1}-nearmiss`, m.title, false, extra);
@@ -742,6 +744,7 @@ function summarize() {
           .sort((a, b) => (a.day < b.day ? -1 : 1))
           .map((o) => ({ ...o, net: Math.round(o.net * 100) / 100, fnet: Math.round(o.fnet * 100) / 100, jnet: Math.round(o.jnet * 100) / 100 }));
       })(),
+      gaps: g === "esports" ? Object.values(state.matches).filter((m) => m.gap != null).map((m) => m.gap).slice(-30) : undefined,
       watching: g === "esports" ? Object.values(state.matches).filter((m) => !m.evaluated && m.start < Date.now() + 86400_000).length : g === "politics" ? state.makers.length : undefined,
     };
   }
