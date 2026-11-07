@@ -419,8 +419,21 @@ async function makersTick() {
 const FOOTBALL: { tag: string; league: string }[] = [
   { tag: "la-liga", league: "laliga" },
   { tag: "primeira-liga", league: "portugal" },
-  { tag: "serie-a", league: "italy" },
+  // Tag serie-a returns ~36 events (football thread, 7 Nov 22:24 KST): Serie A is found by its series id from Gamma /sports.
+  { tag: "", league: "italy" },
 ];
+type GSport = { sport?: string; series?: string | number; tags?: string; resolution?: string };
+let serieASeries: string | null = null;
+/** Serie A's series id from Gamma /sports: the "sea" entry, never "bkseriea" (basketball) or "ecu1" (Ecuador). */
+async function serieA(): Promise<string | null> {
+  if (serieASeries) return serieASeries;
+  const xs = await getJson<GSport[]>(`${GAMMA}/sports`);
+  const pick = xs.find((x) => x.sport === "sea") ?? xs.find((x) => x.sport !== "bkseriea" && x.sport !== "ecu1" && /serie.?a|seriea|legaseriea/i.test(`${x.resolution ?? ""}`));
+  serieASeries = pick?.series != null ? String(pick.series).split(",")[0] : "10203"; // 10203 = "sea" Serie A on 7 Nov 2026
+  if (!serieASeries) log("football: no Serie A entry in /sports");
+  return serieASeries;
+}
+const PROP = /halftime|half|score|o\/u|over|spread|both teams|corners|exact/i;
 const norm = (x: string) => x.toLowerCase().normalize("NFD").replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ").trim();
 /** Pick the "Will <team> win" market for a team named in the event title (exact name first, then first word). */
 export function winMarketFor(team: string, ms: { question?: string; groupItemTitle?: string }[]): number {
@@ -441,7 +454,9 @@ async function footballRefresh() {
   for (const L of FOOTBALL) {
     let evs: GEvent[];
     try {
-      evs = await pages(`${GAMMA}/events?tag_slug=${L.tag}&closed=false&end_date_min=${new Date(now).toISOString()}&end_date_max=${new Date(now + 4 * 86400_000).toISOString()}`);
+      const sel = L.tag ? `tag_slug=${L.tag}` : `series_id=${await serieA()}`;
+      if (sel.endsWith("null")) continue;
+      evs = await pages(`${GAMMA}/events?${sel}&closed=false&end_date_min=${new Date(now).toISOString()}&end_date_max=${new Date(now + 4 * 86400_000).toISOString()}`);
     } catch (e) {
       log(`football ${L.tag} failed: ${(e as Error).message}`);
       continue;
@@ -450,7 +465,7 @@ async function footballRefresh() {
       if (!e.id || state.fixtures[e.id]) continue;
       const tm = /^(.+?)\s+vs\.?\s+(.+?)$/i.exec((e.title ?? "").replace(/\s*[-:|(].*$/, "").trim());
       if (!tm) continue;
-      const wins = (e.markets ?? []).filter((m) => /\bwin\b/i.test(m.question ?? "") && !/draw/i.test(m.question ?? "") && !m.closed);
+      const wins = (e.markets ?? []).filter((m) => /\bwin\b/i.test(m.question ?? "") && !/draw/i.test(m.question ?? "") && !PROP.test(m.question ?? "") && !m.closed);
       if (wins.length < 2) continue;
       const hi = winMarketFor(tm[1], wins);
       const ai = winMarketFor(tm[2], wins);
