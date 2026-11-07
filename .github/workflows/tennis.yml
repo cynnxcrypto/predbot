@@ -1,0 +1,25 @@
+name: tennis-research
+on:
+  push:
+    branches: ["claude/**"]
+    paths: ["tennis/fetch.py", "tennis/run.txt", ".github/workflows/tennis.yml"]
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  pull:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - name: run
+        run: timeout 40m python tennis/fetch.py || true
+      - name: commit results
+        run: |
+          git config user.name "tennis-bot"; git config user.email "tennis-bot@users.noreply.github.com"
+          git add tennis/out
+          git commit -m "tennis research data [skip ci]" || exit 0
+          git pull --rebase origin "${GITHUB_REF_NAME}" || true
+          git push origin "HEAD:${GITHUB_REF_NAME}"
