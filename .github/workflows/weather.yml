@@ -15,7 +15,7 @@ jobs:
       - uses: actions/setup-python@v5
         with: { python-version: "3.12" }
       - name: run
-        run: python weather/wx.py $(cat weather/run.txt) 2>weather/stderr.log || true
+        run: timeout 105m python weather/wx.py $(cat weather/run.txt) 2>weather/stderr.log || true
       - name: commit results
         run: |
           mkdir -p weather/out && mv weather/stderr.log weather/out/stderr.log || true

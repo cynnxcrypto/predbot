@@ -1,11 +1,14 @@
 """Weather-market research helper (runs on GitHub Actions; results -> weather/out/)."""
-import json, sys, time, urllib.request, urllib.parse, os, gzip
+import json, sys, time
+T0 = time.time()
+def left(): return 95*60 - (time.time() - T0)
+def log(*a): print(f"[{int(time.time()-T0)}s]", *a, file=sys.stderr, flush=True), urllib.request, urllib.parse, os, gzip
 OUT = "weather/out"; os.makedirs(OUT, exist_ok=True)
 UA = {"User-Agent": "predbot-research/1.0"}
-def get(url, tries=3):
+def get(url, tries=2):
     for i in range(tries):
         try:
-            r = urllib.request.urlopen(urllib.request.Request(url, headers=UA), timeout=40)
+            r = urllib.request.urlopen(urllib.request.Request(url, headers=UA), timeout=20)
             b = r.read()
             try: return json.loads(b)
             except Exception: return b.decode("utf-8", "replace")
@@ -65,15 +68,15 @@ def paged(q):
         if len(ev) < 100: break
     return out
 
-def collect(days="80"):
+def collect(days="60"):
     cutoff = (dt.datetime.utcnow() - dt.timedelta(days=int(days))).strftime("%Y-%m-%d")
     allev = {}
-    for slug in ("highest-temperature", "daily-temperature", "weather", "temperature", "precipitation"):
+    for slug in ("highest-temperature", "daily-temperature", "precipitation"):
         for closed in ("true", "false"):
             allev.update(paged(f"tag_slug={slug}&closed={closed}&order=endDate&ascending=false&end_date_min={cutoff}"))
+            log(slug, closed, len(allev))
     ev = [e for e in allev.values() if (e.get("endDate") or "") >= cutoff]
-    print("events", len(ev), file=sys.stderr)
-    # slim events
+    log("events", len(ev))
     slim = []
     for e in ev:
         st = re.search(r"\(([A-Z0-9]{4})\)", e.get("description") or "")
@@ -85,42 +88,41 @@ def collect(days="80"):
                                   "bid": m.get("bestBid"), "ask": m.get("bestAsk"), "liq": m.get("liquidity"), "closed": m.get("closed"),
                                   "fee": m.get("feeSchedule"), "rew": m.get("clobRewards")} for m in e.get("markets") or []]})
     save("wx_events", slim)
-    # price history, 10-min, YES token
+    stations = sorted({e["station"] for e in slim if e["station"]})
+    json.dump(stations, open(f"{OUT}/stations.json", "w"))
+    obs_fc(stations, cutoff)
+    ht = sorted([e for e in slim if e["title"].startswith("Highest temperature")], key=lambda e: e["end"], reverse=True)
     jobs = []
-    for e in slim:
-        if not e["title"].startswith("Highest temperature"): continue
+    for e in ht:
         s0 = int(dt.datetime.fromisoformat((e["created"] or e["start"]).replace("Z","+00:00")[:19]).replace(tzinfo=dt.timezone.utc).timestamp()) - 3600
         s1 = int(dt.datetime.fromisoformat(e["end"].replace("Z","+00:00")[:19]).replace(tzinfo=dt.timezone.utc).timestamp()) + 2*86400
         for m in e["markets"]:
             if m["tok"]: jobs.append((m["tok"][0], s0, s1))
-    print("price jobs", len(jobs), file=sys.stderr)
+    log("price jobs", len(jobs))
     def ph(j):
+        if left() < 25*60: return j[0], "SKIP"
         tok, a, b = j
         r = get(f"https://clob.polymarket.com/prices-history?market={tok}&startTs={a}&endTs={b}&fidelity=10")
         return tok, (r or {}).get("history") if isinstance(r, dict) else None
     hist = {}
-    with ThreadPoolExecutor(8) as ex:
-        for tok, h in ex.map(ph, jobs): hist[tok] = h
+    with ThreadPoolExecutor(16) as ex:
+        for i, (tok, h) in enumerate(ex.map(ph, jobs)):
+            if h != "SKIP": hist[tok] = h
+            if i % 2000 == 0: log("prices", i)
     save("wx_prices", hist)
-    print("prices ok", sum(1 for v in hist.values() if v), file=sys.stderr)
-    # trades (real fills) for markets
+    log("prices ok", sum(1 for v in hist.values() if v), "of", len(jobs))
     def tr(cid):
-        out = []; off = 0
-        while off < 3000:
-            r = get(f"https://data-api.polymarket.com/trades?market={cid}&limit=500&offset={off}&takerOnly=true")
-            if not isinstance(r, list) or not r: break
-            out += [{"t": x.get("timestamp"), "p": x.get("price"), "s": x.get("size"), "side": x.get("side"), "o": x.get("outcomeIndex")} for x in r]
-            if len(r) < 500: break
-            off += 500
-        return cid, out
-    cids = [m["cid"] for e in slim if e["title"].startswith("Highest temperature") for m in e["markets"] if m["cid"]]
+        if left() < 8*60: return cid, "SKIP"
+        r = get(f"https://data-api.polymarket.com/trades?market={cid}&limit=500&takerOnly=true")
+        if not isinstance(r, list): return cid, None
+        return cid, [{"t": x.get("timestamp"), "p": x.get("price"), "s": x.get("size"), "side": x.get("side"), "o": x.get("outcomeIndex")} for x in r]
+    cids = [m["cid"] for e in ht[:1500] for m in e["markets"] if m["cid"]]
     trades = {}
-    with ThreadPoolExecutor(8) as ex:
-        for cid, t in ex.map(tr, cids): trades[cid] = t
+    with ThreadPoolExecutor(16) as ex:
+        for cid, t in ex.map(tr, cids):
+            if t != "SKIP": trades[cid] = t
     save("wx_trades", trades)
-    stations = sorted({e["station"] for e in slim if e["station"]})
-    json.dump(stations, open(f"{OUT}/stations.json", "w"))
-    obs_fc(stations, cutoff)
+    log("trades", len(trades), "of", len(cids))
 
 def obs_fc(stations, cutoff):
     info = get("https://aviationweather.gov/api/data/stationinfo?ids=" + ",".join(stations) + "&format=json") or []
@@ -135,7 +137,7 @@ def obs_fc(stations, cutoff):
     with ThreadPoolExecutor(4) as ex:
         for st, t in ex.map(ob, stations): obs[st] = t if isinstance(t, str) else None
     save("wx_obs", obs)
-    print("obs ok", sum(1 for v in obs.values() if v and len(v) > 1000), file=sys.stderr)
+    log("obs ok", sum(1 for v in obs.values() if v and len(v) > 1000))
     coords = {}
     for i in info if isinstance(info, list) else []:
         sid = i.get("icaoId") or i.get("id")
@@ -153,7 +155,7 @@ def obs_fc(stations, cutoff):
     with ThreadPoolExecutor(3) as ex:
         for st, r in ex.map(f, stations): fc[st] = r
     save("wx_fc", fc)
-    print("fc ok", sum(1 for v in fc.values() if v), file=sys.stderr)
+    log("fc ok", sum(1 for v in fc.values() if v))
 
 if __name__ == "__main__":
     globals()[sys.argv[1]](*sys.argv[2:])
