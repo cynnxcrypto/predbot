@@ -185,9 +185,10 @@ def gpost(q, tries=3):
         except Exception as e:
             if i == tries - 1: print("GS FAIL", e, file=sys.stderr); return None
             time.sleep(2 * (i + 1))
-def fills():
+def fills_small(): fills("cands_small")
+def fills(name="cands"):
     import gzip
-    C = json.load(gzip.open(os.path.join(os.path.dirname(OUT), "cands.json.gz")))
+    C = json.load(gzip.open(os.path.join(os.path.dirname(OUT), name + ".json.gz")))
     def one(c):
         out = []
         for side, tok in ((0, c["tok"]), (1, c["tok2"])):
@@ -205,8 +206,8 @@ def fills():
                     out.append((int(f["timestamp"]) - c["t"], round(p if side == 0 else 1 - p, 4), round(sh / 1e6, 2), side, "ms" if fld == "makerAssetId" else "mb"))
         c["fills"] = sorted(out)
         return c
-    with ThreadPoolExecutor(8) as ex: res = list(ex.map(one, C))
-    with gzip.open(f"{OUT}/fills.json.gz", "wt") as f: json.dump(res, f)
+    with ThreadPoolExecutor(12) as ex: res = list(ex.map(one, C))
+    with gzip.open(f"{OUT}/fills_{name}.json.gz", "wt") as f: json.dump(res, f)
     print("fills done", sum(1 for c in res if c["fills"]), file=sys.stderr)
 
 if __name__ == "__main__":

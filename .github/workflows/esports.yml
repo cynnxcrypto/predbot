@@ -2,7 +2,7 @@ name: esports-research
 on:
   push:
     branches: ["claude/project-thread-hdudg2"]
-    paths: ["esports/*.py", "esports/run.txt", "esports/cands.json.gz", ".github/workflows/esports.yml"]
+    paths: ["esports/*.py", "esports/run.txt", "esports/cands*.json.gz", ".github/workflows/esports.yml"]
   workflow_dispatch:
 permissions:
   contents: write
