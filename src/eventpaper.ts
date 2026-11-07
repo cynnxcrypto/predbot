@@ -137,9 +137,11 @@ type Match = {
   /** The map-1 price was seen undecided (5-95c), so a later decided run is a map end we watched, not one long over. */
   sawLive?: boolean;
   note?: string;
+  /** Gamma best ask of outcome 0 at the last list refresh (dashboard only). */
+  px0?: number | null;
 };
 type Side = { id: string; token: string; team: string; feeRate: number };
-type Fixture = { id: string; league: string; title: string; kickoff: number; home: Side; away: Side; done?: boolean; note?: string };
+type Fixture = { id: string; league: string; title: string; kickoff: number; home: Side; away: Side; done?: boolean; note?: string; homeAsk?: number | null; awayAsk?: number | null; pxAt?: number };
 type Maker = { rule: string; marketId: string; title: string; outcome: string; idx: number; token: string; bid: number; t: number; feeRate: number; ask: number };
 type State = {
   matches: Record<string, Match>;
@@ -184,7 +186,7 @@ const ESPORTS: { id: number; game: string; shadow?: boolean }[] = [
   { id: 10369, game: "val" },
   { id: 10309, game: "dota2", shadow: true },
 ];
-type GMarket = { id?: string; question?: string; groupItemTitle?: string; eventStartTime?: string; sportsMarketType?: string; outcomes?: string; clobTokenIds?: string; gameStartTime?: string; closed?: boolean; outcomePrices?: string; volumeNum?: number; feeSchedule?: { rate?: number } | null; bestAsk?: number; acceptingOrders?: boolean; endDate?: string; liquidityNum?: number; conditionId?: string };
+type GMarket = { id?: string; question?: string; groupItemTitle?: string; eventStartTime?: string; sportsMarketType?: string; outcomes?: string; clobTokenIds?: string; gameStartTime?: string; closed?: boolean; outcomePrices?: string; volumeNum?: number; feeSchedule?: { rate?: number } | null; bestAsk?: number; bestBid?: number; acceptingOrders?: boolean; endDate?: string; liquidityNum?: number; conditionId?: string };
 type GEvent = { id?: string; title?: string; slug?: string; startTime?: string; endDate?: string; markets?: GMarket[] };
 const tsOf = (s?: string) => {
   if (!s) return NaN;
@@ -223,6 +225,7 @@ async function esportsRefresh() {
       const cur = state.matches[match.id];
       if (cur) {
         cur.start = start;
+        cur.px0 = match.bestAsk ?? cur.px0 ?? null;
         continue;
       }
       state.matches[match.id] = {
@@ -236,6 +239,7 @@ async function esportsRefresh() {
         map1Tokens: jl<string[]>(map1.clobTokenIds, []),
         feeRate: Number(match.feeSchedule?.rate ?? 0.05),
         volume: match.volumeNum ?? null,
+        px0: match.bestAsk ?? null,
       };
     }
   }
@@ -351,6 +355,7 @@ async function indicesTick() {
       const outs = jl<string[]>(m.outcomes, ["Up", "Down"]);
       if (toks.length !== 2) continue;
       const books = await Promise.all(toks.map((t) => book(t).catch(() => null)));
+      idxWatch.set(key, { rule: s.rule, title: e.title ?? e.slug ?? m.id, close, outs, asks: books.map((x) => x?.bestAsk ?? null), bids: books.map((x) => x?.bestBid ?? null), at: now, status: `waiting for an ask in ${Math.round(s.lo * 100)}-${Math.round(s.hi * 100)}c` });
       const ok = books
         .map((b, i) => ({ b, i }))
         .filter(({ b }) => b && b.bestAsk != null && b.bestAsk >= s.lo - 1e-9 && b.bestAsk <= s.hi + 1e-9 && b.asks[0].size * b.asks[0].price >= STAKE);
@@ -360,6 +365,8 @@ async function indicesTick() {
       const extra = { slug: e.slug, hoursToClose: (close - now) / 3600_000, close, asks: books.map((x) => x?.bestAsk ?? null), bids: books.map((x) => x?.bestBid ?? null), sizeAtAsk: b!.asks[0].size };
       const tr = enter(s.rule, { marketId: m.id, title: e.title ?? e.slug ?? m.id, outcome: outs[i], idx: i, token: toks[i], feeRate: Number(m.feeSchedule?.rate ?? 0.04) }, b!, 1, extra);
       signal(s.rule, e.title ?? "", Boolean(tr), extra);
+      const iw = idxWatch.get(key);
+      if (iw) iw.status = tr ? `bought ${outs[i]} at ${Math.round(b!.bestAsk! * 100)}c` : "in band, no fill";
       state.done[key] = now;
     }
   }
@@ -379,8 +386,17 @@ async function politicsTick() {
       log(`politics ${tag} failed: ${(err as Error).message}`);
     }
   }
+  const cand: PolWatch[] = [];
   for (const { e, m } of seen.values()) {
     const key = `election-lock|${m.id}`;
+    {
+      const end = Date.parse(m.endDate ?? e.endDate ?? "");
+      const fav = (m.bestAsk ?? 0) >= 0.5 ? 0 : 1;
+      const favAsk = fav === 0 ? (m.bestAsk ?? null) : m.bestBid != null ? Math.round((1 - m.bestBid) * 1000) / 1000 : null;
+      const outs0 = jl<string[]>(m.outcomes, []);
+      if (!m.closed && outs0.length === 2 && ELECT.test(`${e.title ?? ""} ${m.question ?? ""}`) && !TRAP.test(m.question ?? "") && end - now >= 0 && end - now <= 7 * 86400_000 && favAsk != null && favAsk >= 0.85)
+        cand.push({ t: end, title: m.question ?? e.title ?? m.id!, outcome: outs0[fav], ask: favAsk, liq: m.liquidityNum ?? null, status: state.done[key] ? "bought" : end - now < 86400_000 ? "under 1 day left" : favAsk < 0.97 ? "below 97c" : favAsk > 0.99 ? "above 99c" : m.liquidityNum != null && m.liquidityNum < 2000 ? "liquidity under $2k" : "in band" });
+    }
     if (state.done[key] || m.closed || m.acceptingOrders === false) continue;
     const outs = jl<string[]>(m.outcomes, []);
     const toks = jl<string[]>(m.clobTokenIds, []);
@@ -400,6 +416,8 @@ async function politicsTick() {
     state.makers.push({ rule: "election-lock-maker", ...base, bid: Math.round((bk.bestAsk - 0.01) * 100) / 100, t: now, ask: bk.bestAsk });
     state.done[key] = now;
   }
+  polWatch = cand.sort((a, b) => a.t - b.t).slice(0, 40);
+  polWatchAt = now;
 }
 async function makersTick() {
   const now = Date.now();
@@ -467,7 +485,7 @@ async function footballRefresh() {
       continue;
     }
     for (const e of evs) {
-      if (!e.id || state.fixtures[e.id]) continue;
+      if (!e.id) continue;
       const tm = /^(.+?)\s+vs\.?\s+(.+?)$/i.exec((e.title ?? "").replace(/\s*[-:|(].*$/, "").trim());
       if (!tm) continue;
       const wins = (e.markets ?? []).filter((m) => /\bwin\b/i.test(m.question ?? "") && !/draw/i.test(m.question ?? "") && !PROP.test(m.question ?? "") && !m.closed);
@@ -475,6 +493,11 @@ async function footballRefresh() {
       const hi = winMarketFor(tm[1], wins);
       const ai = winMarketFor(tm[2], wins);
       if (hi < 0 || ai < 0 || hi === ai) continue;
+      const known = state.fixtures[e.id];
+      if (known) {
+        if (!known.done) Object.assign(known, { homeAsk: wins[hi].bestAsk ?? null, awayAsk: wins[ai].bestAsk ?? null, pxAt: now });
+        continue;
+      }
       const side = (m: GMarket, team: string): Side | null => {
         const toks = jl<string[]>(m.clobTokenIds, []);
         const outs = jl<string[]>(m.outcomes, []);
@@ -485,7 +508,7 @@ async function footballRefresh() {
       const away = side(wins[ai], tm[2]);
       const kickoff = tsOf(wins[hi].gameStartTime) || tsOf(wins[hi].eventStartTime) || tsOf(e.startTime);
       if (!home || !away || !Number.isFinite(kickoff) || kickoff < now) continue;
-      state.fixtures[e.id] = { id: e.id, league: L.league, title: e.title ?? `${tm[1]} vs. ${tm[2]}`, kickoff, home, away };
+      state.fixtures[e.id] = { id: e.id, league: L.league, title: e.title ?? `${tm[1]} vs. ${tm[2]}`, kickoff, home, away, homeAsk: wins[hi].bestAsk ?? null, awayAsk: wins[ai].bestAsk ?? null, pxAt: now };
     }
   }
   for (const [k, f] of Object.entries(state.fixtures)) if (f.kickoff < now - 3 * 86400_000) delete state.fixtures[k];
@@ -500,6 +523,7 @@ async function footballTick() {
       continue;
     }
     const [hb, ab] = await Promise.all([book(f.home.token).catch(() => null), book(f.away.token).catch(() => null)]);
+    Object.assign(f, { homeAsk: hb?.bestAsk ?? null, awayAsk: ab?.bestAsk ?? null, pxAt: now });
     const look = (rule: string, sd: Side, bk: Book | null, lo: number, hi: number) => {
       const ask = bk?.bestAsk;
       if (!bk || ask == null || ask < lo - 1e-9 || ask > hi + 1e-9) return;
@@ -510,16 +534,19 @@ async function footballTick() {
       if (skip) {
         extra.skip = skip;
         signal(rule, f.title, false, extra);
+        f.note = `skipped: ${skip}`;
         return;
       }
       const tr = enter(rule, { marketId: sd.id, title: f.title, outcome: sd.team, idx: 0, token: sd.token, feeRate: sd.feeRate }, bk, ask + 0.01, extra);
       signal(rule, f.title, Boolean(tr), extra);
+      f.note = tr ? `bought ${sd.team} at ${Math.round(ask * 100)}c` : "in band, no fill";
     };
     if (f.league === "laliga") {
       look("football-laliga-home", f.home, hb, 0.65, 0.8);
       if (hb?.bestAsk != null && hb.bestAsk < 0.65 - 1e-9) look("football-laliga-home55", f.home, hb, 0.55, 0.65);
     } else if (f.league === "portugal") look("football-portugal-home", f.home, hb, 0.65, 0.8);
     else if (f.league === "italy") look("football-italy-away", f.away, ab, 0.65, 0.8);
+    f.note ??= `no rule fired: home ${hb?.bestAsk == null ? "—" : Math.round(hb.bestAsk * 100) + "c"}, away ${ab?.bestAsk == null ? "—" : Math.round(ab.bestAsk * 100) + "c"}`;
   }
 }
 
@@ -592,6 +619,55 @@ async function settleTick() {
     await sleep(200);
   }
 }
+// ---------- dashboard watch lists (not saved; rebuilt by the ticks) ----------
+type PolWatch = { t: number; title: string; outcome: string; ask: number; liq: number | null; status: string };
+const idxWatch = new Map<string, { rule: string; title: string; close: number; outs: string[]; asks: (number | null)[]; bids: (number | null)[]; at: number; status: string }>();
+let polWatch: PolWatch[] = [];
+let polWatchAt = 0;
+const health: Record<string, { ok?: number; err?: string; errAt?: number }> = {};
+const kstDay = (ms: number) => new Date(ms + 9 * 3600_000).toISOString().slice(0, 10);
+const c100 = (x: unknown) => (typeof x === "number" ? Math.round(x * 1000) / 10 : null);
+/** Why a logged signal did or did not become a trade, in a few words. */
+function whyOf(x: Signal): string {
+  const e = x.extra;
+  if (typeof e.skip === "string") return `skipped: ${e.skip}`;
+  if (e.unfilled) return "maker bid not filled in 6 h";
+  if (x.rule.endsWith("-nearmiss")) return `near miss: ask ${c100(e.ask)}c vs model ${c100(e.model)}c`;
+  return x.traded ? "traded" : "signal, no fill";
+}
+/** One short line of context for a trade (league + kickoff, game + model, hours to close, event). */
+function infoOf(t: PaperTrade): string {
+  const e = t.extra ?? {};
+  if (typeof e.league === "string") return `${e.league}${typeof e.spread === "number" ? ` · spread ${Math.round(e.spread * 100)}c` : ""}`;
+  if (typeof e.game === "string") return `${e.game} · model ${c100(e.model)}c · P0 ${c100(e.p0)}c`;
+  if (typeof e.hoursToClose === "number") return `${e.hoursToClose.toFixed(1)} h to close`;
+  if (typeof e.event === "string") return e.event.slice(0, 60);
+  if (e.bidAt) return "maker bid filled";
+  return "";
+}
+function watchOf(g: string): unknown[] {
+  const now = Date.now();
+  if (g === "football") {
+    const ruleOf: Record<string, string> = { laliga: "football-laliga-home", portugal: "football-portugal-home", italy: "football-italy-away" };
+    return Object.values(state.fixtures)
+      .filter((f) => f.kickoff > now - 3 * 3600_000)
+      .sort((a, b) => a.kickoff - b.kickoff)
+      .slice(0, 40)
+      .map((f) => ({ t: f.kickoff, title: f.title, league: f.league, home: f.home.team, away: f.away.team, homeAsk: f.homeAsk ?? null, awayAsk: f.awayAsk ?? null, pxAt: f.pxAt ?? null, rule: ruleOf[f.league] ?? null, status: f.done ? f.note ?? "looked" : "looks 12-8 min before kickoff" }));
+  }
+  if (g === "esports")
+    return Object.values(state.matches)
+      .filter((m) => m.start > now - 6 * 3600_000)
+      .sort((a, b) => a.start - b.start)
+      .slice(0, 40)
+      .map((m) => ({ t: m.start, title: m.title, game: m.game, outs: m.outcomes, px0: m.px0 ?? null, p0: m.p0 ?? null, vol: m.volume, status: m.evaluated ? m.note ?? "evaluated" : m.tEnd != null ? `map 1 to ${m.outcomes[m.w ?? 0]}, checking price` : m.start <= now ? "live, waiting for map 1" : "upcoming" }));
+  if (g === "indices") {
+    for (const [k, w] of idxWatch) if (w.close < now - 3600_000) idxWatch.delete(k);
+    return [...idxWatch.values()].sort((a, b) => a.close - b.close).map((w) => ({ t: w.close, title: w.title, rule: w.rule, outs: w.outs, asks: w.asks, bids: w.bids, at: w.at, status: w.status }));
+  }
+  if (g === "politics") return [...state.makers.map((m) => ({ t: m.t + 6 * 3600_000, title: m.title, outcome: m.outcome, ask: m.ask, bid: m.bid, status: `maker bid ${Math.round(m.bid * 100)}c open` })), ...polWatch];
+  return [];
+}
 const GROUPS: Record<string, string[]> = {
   esports: ["esports-map1", "esports-fav-shadow", "esports-map1-dota"],
   indices: ["gold-momentum", "spx-underdog", "spy-underdog"],
@@ -599,7 +675,7 @@ const GROUPS: Record<string, string[]> = {
   football: ["football-laliga-home", "football-portugal-home", "football-italy-away", "football-laliga-home55"],
 };
 function summarize() {
-  const out: Record<string, unknown> = { at: Date.now() };
+  const out: Record<string, unknown> = { at: Date.now(), health };
   for (const [g, rules] of Object.entries(GROUPS)) {
     out[g] = {
       rules: rules.map((r) => {
@@ -636,13 +712,36 @@ function summarize() {
       }),
       recent: state.trades
         .filter((t) => rules.includes(t.rule))
-        .slice(-25)
+        .slice(-40)
         .reverse()
-        .map((t) => ({ rule: t.rule, t: t.t, title: t.title, outcome: t.outcome, ask: t.ask, avg: t.avg == null ? null : Math.round(t.avg * 1000) / 1000, shares: Math.round(t.shares * 100) / 100, cost: Math.round(t.cost * 100) / 100, fillable: t.fillable, won: t.won ?? null, pnl: t.pnl == null ? null : Math.round(t.pnl * 100) / 100, jev: t.jev?.pick ?? (t.jev?.err ? `error: ${t.jev.err}` : t.jevPending ? "asking" : null) })),
+        .map((t) => ({ info: infoOf(t), jm: t.jev?.mult ?? null, jc: t.jev?.confidence ?? null, settledAt: t.settledAt ?? null, rule: t.rule, t: t.t, title: t.title, outcome: t.outcome, ask: t.ask, avg: t.avg == null ? null : Math.round(t.avg * 1000) / 1000, shares: Math.round(t.shares * 100) / 100, cost: Math.round(t.cost * 100) / 100, fillable: t.fillable, won: t.won ?? null, pnl: t.pnl == null ? null : Math.round(t.pnl * 100) / 100, jev: t.jev?.pick ?? (t.jev?.err ? `error: ${t.jev.err}` : t.jevPending ? "asking" : null) })),
       // Why matches ended without a trade (diagnostics: "map 1 already decided when first seen", "no P0", ...).
       notes: g === "esports" ? Object.values(state.matches).reduce<Record<string, number>>((o, m) => ((o[m.evaluated ? m.note ?? (m.tEnd != null ? "evaluated" : "done") : m.tEnd != null ? "map 1 over, waiting" : m.start <= Date.now() ? "live" : "upcoming"] = (o[m.evaluated ? m.note ?? (m.tEnd != null ? "evaluated" : "done") : m.tEnd != null ? "map 1 over, waiting" : m.start <= Date.now() ? "live" : "upcoming"] ?? 0) + 1), o), {}) : undefined,
       skips: g === "football" ? state.signals.filter((x) => rules.includes(x.rule) && x.extra.skip).slice(-15).reverse().map((x) => ({ rule: x.rule, t: x.t, title: x.title, why: x.extra.skip, ask: x.extra.ask })) : undefined,
       upcoming: g === "football" ? Object.values(state.fixtures).filter((f) => !f.done).length : undefined,
+      watch: watchOf(g),
+      watchAt: g === "politics" ? polWatchAt : undefined,
+      sigs: state.signals
+        .filter((x) => rules.includes(x.rule.replace(/-nearmiss$/, "")))
+        .slice(-25)
+        .reverse()
+        .map((x) => ({ t: x.t, rule: x.rule, title: x.title, traded: x.traded, why: whyOf(x), ask: typeof x.extra.ask === "number" ? x.extra.ask : null })),
+      days: (() => {
+        const d: Record<string, { day: string; n: number; won: number; net: number; fnet: number; jnet: number }> = {};
+        for (const t of state.trades) {
+          if (!rules.includes(t.rule) || t.pnl == null) continue;
+          const k = kstDay(t.settledAt ?? t.t);
+          const o = (d[k] ??= { day: k, n: 0, won: 0, net: 0, fnet: 0, jnet: 0 });
+          o.n++;
+          o.won += t.won ? 1 : 0;
+          o.net += t.pnl;
+          if (t.fillable) o.fnet += t.pnl;
+          o.jnet += t.pnl * (t.jev?.mult ?? 1);
+        }
+        return Object.values(d)
+          .sort((a, b) => (a.day < b.day ? -1 : 1))
+          .map((o) => ({ ...o, net: Math.round(o.net * 100) / 100, fnet: Math.round(o.fnet * 100) / 100, jnet: Math.round(o.jnet * 100) / 100 }));
+      })(),
       watching: g === "esports" ? Object.values(state.matches).filter((m) => !m.evaluated && m.start < Date.now() + 86400_000).length : g === "politics" ? state.makers.length : undefined,
     };
   }
@@ -651,10 +750,14 @@ function summarize() {
 
 // ---------- main loop ----------
 async function guard(name: string, f: () => Promise<void>) {
+  const h = (health[name] ??= {});
   try {
     await f();
+    h.ok = Date.now();
   } catch (e) {
     log(`${name} failed: ${(e as Error).message}`);
+    h.err = (e as Error).message.slice(0, 160);
+    h.errAt = Date.now();
   }
 }
 async function main() {

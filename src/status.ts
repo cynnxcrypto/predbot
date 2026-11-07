@@ -3,6 +3,7 @@ import { loadJson } from "./store.js";
 import { STATUS_PORT } from "./config.js";
 import type { Recorder } from "./recorder.js";
 import { LOGOS } from "./logos.js";
+import { CATS, EV_CSS, EV_JS, eventsStatus, evSectionHtml } from "./eventdash.js";
 import { VARIANTS, discarded, setDiscarded } from "./paperlive.js";
 import { addLiveRule, liveConfig, MIN_SIZE, removeLiveRule, setLiveMaxLoss, setLiveRuleSize, setLiveRuleHalt } from "./live.js";
 
@@ -281,6 +282,19 @@ export function serveStatus(recorder: Recorder, build: string, others: Recorder[
       });
       return;
     }
+    if (req.url?.startsWith("/api/events")) {
+      const sec = new URL(req.url, "http://x").searchParams.get("sec") ?? "";
+      eventsStatus(sec)
+        .then((j) => {
+          res.writeHead(200, { "content-type": "application/json" });
+          res.end(JSON.stringify(j));
+        })
+        .catch((e: Error) => {
+          res.writeHead(500, { "content-type": "application/json" });
+          res.end(JSON.stringify({ error: e.message }));
+        });
+      return;
+    }
     if (req.url === "/api/status") {
       res.writeHead(200, { "content-type": "application/json" });
       res.end(JSON.stringify({ build, ...recorder.status(), series: others.map((r) => r.status()), eventPaper: loadJson<unknown>("eventpaper-summary.json", null) }));
@@ -330,10 +344,9 @@ const SECTIONS: { id: string; label: string; soon?: string; paper?: boolean }[] 
   { id: "other", label: "Other", soon: "Event markets that fit no other tab will live here." },
 ];
 const hx = (x: string) => x.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
-const SEC_NAV = '<nav class="secs" id="secs">' + SECTIONS.map((x) => `<button class="sb" data-s="${x.id}">${hx(x.label)}${x.soon && !x.paper ? '<span class="soon">soon</span>' : ""}</button>`).join("") + "</nav>";
-// Tabs with a paper logger (src/eventpaper.ts) get a panel filled from /api/status eventPaper by epRender() in the page.
-const EP_TABS = SECTIONS.filter((x) => x.paper).map((x) => x.id);
-const SEC_PLACEHOLDERS = SECTIONS.filter((x) => x.soon).map((x) => `<section class="sec hide" id="sec-${x.id}">${EP_TABS.includes(x.id) ? `<div class="panel" id="ep-${x.id}"><b>${hx(x.label)} paper lab</b><br><span class="mut">Paper only, no real money. Waiting for the first logger report.</span></div>` : `<div class="panel emptytab"><b>${hx(x.label)} is coming.</b><br>${hx(x.soon!)}</div>`}</section>`).join("\n");
+const SEC_NAV = '<nav class="secs" id="secs">' + SECTIONS.map((x) => `<button class="sb" data-s="${x.id}">${hx(x.label)}${x.soon && !x.paper && !CATS[x.id] ? '<span class="soon">soon</span>' : ""}</button>`).join("") + "</nav>";
+// Categories in CATS (src/eventdash.ts) get the full event layout, filled from /api/events?sec=<id> by evRender() in the page.
+const SEC_PLACEHOLDERS = SECTIONS.filter((x) => x.id !== "crypto").map((x) => (CATS[x.id] ? evSectionHtml(x.id, x.label) : `<section class="sec hide" id="sec-${x.id}"><div class="panel emptytab"><b>${hx(x.label)} is coming.</b><br>${hx(x.soon ?? "")}</div></section>`)).join("\n");
 
 const PAGE = `<!doctype html><html><head><meta charset="utf-8"><title>Pred bot</title>
 <meta name="viewport" content="width=device-width,initial-scale=1"><link rel="icon" href="/favicon.svg" type="image/svg+xml">
@@ -463,7 +476,7 @@ tr.dim{transition:opacity .4s}
 .clock.soon{animation:soon 1s ease-in-out infinite}
 .coin{display:inline-flex;width:16px;height:16px;border-radius:50%;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:#0f1117;vertical-align:-3px;margin-right:6px;font-family:ui-sans-serif,system-ui,sans-serif}
 .coin.btc{background:#f7931a}.coin.eth{background:#8c9eff}.coin.sol{background:#14f195}.coin.xrp{background:#b3bccb}.coin.doge{background:#c2a633}.coin.bnb{background:#f3ba2f}.coin.hype{background:#97fce4}
-</style></head><body><main>
+${EV_CSS}</style></head><body><main>
 <div class="top"><h1>Pred bot</h1><span class="pill" id="mode">off</span><span class="pill" id="listed">—</span><span class="sub" id="sub">loading</span></div>
 ${SEC_NAV}
 <section class="sec" id="sec-crypto">
@@ -542,7 +555,7 @@ var SEC=(function(){var h=HROUTE();if(SECS.indexOf(h[0])>=0)return h[0];if(okTab
 var TAB=(function(){var h=HROUTE();if(h[0]==="crypto"&&okTab(h[1]))return h[1];if(okTab(h[0]))return h[0];var t=lsGet("wtab");return okTab(t)?t:"overview"})();
 function setHash(){var r="#"+(SEC==="crypto"?"crypto/"+TAB:SEC);if(location.hash!==r)try{history.replaceState(null,"",r)}catch(e){}}
 function showSec(x){SEC=x;try{localStorage.setItem("wsec",x)}catch(e){}SECS.forEach(function(k){var e=el("sec-"+k);if(e)e.classList.toggle("hide",k!==x)});var bs=document.querySelectorAll("#secs .sb");for(var i=0;i<bs.length;i++)bs[i].classList.toggle("on",bs[i].getAttribute("data-s")===x);var ab=document.querySelector("#secs .sb.on");if(ab&&ab.scrollIntoView)try{ab.scrollIntoView({block:"nearest",inline:"nearest"})}catch(e){}document.body.classList.toggle("ov-tab",x==="crypto"&&TAB==="overview");LABHTML="";WKEY="";setHash()}
-document.addEventListener("click",function(e){var b=e.target&&e.target.closest?e.target.closest("#secs .sb"):null;if(!b)return;showSec(b.getAttribute("data-s"));poll()});
+document.addEventListener("click",function(e){var b=e.target&&e.target.closest?e.target.closest("#secs .sb"):null;if(!b)return;showSec(b.getAttribute("data-s"));poll();if(typeof evPoll==="function")evPoll(true)});
 window.addEventListener("hashchange",function(){var h=HROUTE();var x=SECS.indexOf(h[0])>=0?h[0]:okTab(h[0])?"crypto":null;if(!x)return;var t=x==="crypto"?(okTab(h[1])?h[1]:okTab(h[0])?h[0]:TAB):TAB;if(x===SEC&&t===TAB)return;if(x==="crypto")showTab(t);showSec(x);poll()});
 var NMARK={};function showTab(t){TAB=t;document.body.classList.toggle("ov-tab",SEC==="crypto"&&t==="overview");if(SEC==="crypto")setHash();try{localStorage.setItem("wtab",t)}catch(e){}var bs=document.querySelectorAll("#tabs .tb");for(var i=0;i<bs.length;i++)bs[i].classList.toggle("on",bs[i].getAttribute("data-t")===t);var empty=t!=="overview"&&!NMARK[t];var ps=document.querySelectorAll("[data-tabs]");for(var j=0;j<ps.length;j++){var p=ps[j];if(p.id==="emptytab")p.classList.toggle("hide",!empty);else p.classList.toggle("hide",empty||p.getAttribute("data-tabs").split(" ").indexOf(t)<0)}LABHTML="";WKEY="";el("emptytab").innerHTML=empty?'<b>'+t+' windows are not recorded yet.</b><br>Polymarket runs '+t+' Up/Down markets on BTC, ETH, SOL, XRP, DOGE, BNB and HYPE. Nothing here until the recorder follows them.':""}
 document.addEventListener("click",function(e){var b=e.target&&e.target.closest?e.target.closest("#tabs .tb"):null;if(!b)return;showTab(b.getAttribute("data-t"));poll()});
@@ -558,14 +571,7 @@ async function editHalt(series,variant,cur){var v=prompt("Stop "+variant+" after
 async function editMaxLoss(series,cur,variant){var v=prompt(variant?"Daily loss stop in $ for "+variant+" on this market (5 to 500). This rule stops for the rest of the KST day once its own loss today reaches it; the other rules keep going.":"Default daily loss stop in $ for each rule on this market (5 to 500). Every rule stops on its own for the rest of the KST day once its loss today reaches it; a rule with its own stop keeps that.",cur);if(v==null)return;var n=Number(v);if(!(n>=5&&n<=500)){alert("Daily stop must be $5 to $500");return}var r=await fetch("/api/maxloss",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({series:series,maxLoss:n,variant:variant||""})});var j=await r.json();if(!r.ok)alert(j.error||"failed");else poll()}
 async function pauseRule(series,variant,on){var r=await fetch("/api/pause",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({series:series,variant:variant,on:on})});var j=await r.json();if(!r.ok)alert(j.error||"failed");else poll()}
 async function discard(name,restore){if(!restore&&!confirm("Discard "+name+" for good? It stops simulating on every market."))return;var r=await fetch("/api/discard",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({name:name,restore:restore})});var j=await r.json();if(!r.ok)alert(j.error||"failed");else poll()}
-var EPN={"football-laliga-home":"La Liga home favourite 65-80c","football-portugal-home":"Portugal home favourite 65-80c (shadow)","football-italy-away":"Italy away favourite 65-80c (shadow)","football-laliga-home55":"La Liga home 55-65c (control)","esports-map1":"Map-1 under-reaction (CS2/LoL/Val)","esports-fav-shadow":"Favourite won map 1, price stuck (shadow)","esports-map1-dota":"Map-1 under-reaction, Dota 2 (shadow)","gold-momentum":"Gold daily momentum 55-70c","spx-underdog":"SPX underdog 30-45c (control)","spy-underdog":"SPY underdog 30-45c (control)","election-lock-taker":"Election lock 97-99c, taker","election-lock-maker":"Election lock 97-99c, maker 1c under"};
-function epRender(E){if(!E)return;${JSON.stringify(EP_TABS)}.forEach(function(g){var d=el("ep-"+g),G=E[g];if(!d||!G)return;var esc=function(x){return String(x==null?"":x).replace(/[&<>]/g,function(c){return c==="&"?"&amp;":c==="<"?"&lt;":"&gt;"})};var sg=function(v){return (v<0?"-$":"+$")+Math.abs(v).toFixed(2)};
-var h='<b>Paper lab</b> <span class="mut">paper only, $5 per trade at the real ask, held to settlement · updated '+new Date(E.at).toLocaleTimeString("en-GB",{timeZone:"Asia/Seoul",hour:"2-digit",minute:"2-digit"})+' kst'+(G.watching!=null?' · watching '+G.watching:'')+(G.upcoming!=null?' · '+G.upcoming+' matches ahead':'')+'</span>';
-h+='<table><tr><th>rule</th><th>signals</th><th>trades</th><th>open</th><th>won</th><th>c/share</th><th>net</th><th>fillable net</th><th title="Jev picks skip/half/normal/double the $5 stake; same bets, Jev-sized">Jev-sized net</th></tr>'+G.rules.map(function(r){return '<tr><td title="'+esc(r.rule)+'">'+esc(EPN[r.rule]||r.rule)+'</td><td>'+r.signals+(r.nearMisses?' <span class="mut">+'+r.nearMisses+' near</span>':'')+'</td><td>'+r.trades+'</td><td>'+r.open+'</td><td>'+r.won+'/'+r.settled+(r.settled?' <span class="mut">'+Math.round(100*r.won/r.settled)+'%</span>':'')+'</td><td class="'+cls(r.perShare)+'">'+(r.perShare==null?'—':(r.perShare>0?'+':'')+r.perShare+'c')+'</td><td class="'+cls(r.net)+'">'+sg(r.net)+'</td><td class="'+cls(r.fillable.net)+'">'+sg(r.fillable.net)+' <span class="mut">('+r.fillable.won+'/'+r.fillable.trades+')</span></td><td>'+(r.jev&&r.jev.settled?'<span class="'+cls(r.jev.net)+'">'+sg(r.jev.net)+'</span> <span class="mut">vs flat '+sg(r.jev.flatNet)+(r.jev.perDollar!=null?', '+r.jev.perDollar+'c/$':'')+'</span>':'<span class="mut">'+(r.jev&&r.jev.errors?'no Jev ('+esc(r.jev.lastErr)+')':'—')+'</span>')+'</td></tr>'}).join("")+'</table>';
-h+=G.recent.length?'<table><tr><th>kst</th><th>rule</th><th>market</th><th>side</th><th>ask</th><th>fill</th><th>shares</th><th>Jev</th><th>result</th></tr>'+G.recent.map(function(t){return '<tr><td>'+new Date(t.t).toLocaleString("en-GB",{timeZone:"Asia/Seoul",month:"short",day:"numeric",hour:"2-digit",minute:"2-digit"})+'</td><td>'+esc(t.rule)+'</td><td>'+esc(t.title)+'</td><td>'+esc(t.outcome)+'</td><td>'+Math.round(t.ask*100)+'c'+(t.fillable?'':' <span class="mut">thin</span>')+'</td><td>'+(t.avg==null?'—':(t.avg*100).toFixed(1)+'c')+'</td><td>'+(t.shares==null?'—':t.shares)+'</td><td class="mut">'+esc(t.jev||'—')+'</td><td class="'+(t.pnl==null?'mut':cls(t.pnl))+'">'+(t.pnl==null?'open':sg(t.pnl))+'</td></tr>'}).join("")+'</table>':'<div class="mut">No paper trades yet.</div>';
-if(G.skips&&G.skips.length)h+='<div class="mut" style="margin-top:6px">Skipped</div><table><tr><th>kst</th><th>rule</th><th>match</th><th>ask</th><th>why</th></tr>'+G.skips.map(function(x){return '<tr><td>'+new Date(x.t).toLocaleString("en-GB",{timeZone:"Asia/Seoul",month:"short",day:"numeric",hour:"2-digit",minute:"2-digit"})+'</td><td>'+esc(x.rule)+'</td><td>'+esc(x.title)+'</td><td>'+(x.ask==null?'—':Math.round(x.ask*100)+'c')+'</td><td>'+esc(x.why)+'</td></tr>'}).join("")+'</table>';
-d.innerHTML=h})}
-async function poll(){try{var s=await (await fetch("/api/status")).json();try{epRender(s.eventPaper)}catch(e){}var prevV=snapV();
+async function poll(){try{var s=await (await fetch("/api/status")).json();var prevV=snapV();
 var b=s.lastBook||{};var L=s.live||{mode:"off"};
 var hasRules=function(l){return !!l&&l.mode!=="off"&&l.mode!=="dry"&&(((l.variants&&l.variants.length)?l.variants:(l.variant?[l]:[])).length>0)};var hasHistory=function(l){return !!l&&((l.trades||0)>0||(l.days||[]).length>0||(l.open||0)>0)};var OL=(s.series||[]).map(function(r){return r.live}).filter(function(l){return hasRules(l)||hasHistory(l)});
 var RS={};RS[L.label||"BTC 5m"]=s;(s.series||[]).forEach(function(r){RS[r.label]=r});var ALL=[L].concat(OL);var sum=function(k){return ALL.reduce(function(a,l){return a+(l[k]||0)},0)};var inTab=function(lb){return TAB==="overview"||WOF(lb||"BTC 5m")===TAB};var ALLV=ALL.filter(function(l){return inTab(l.label||"BTC 5m")});var sumV=function(k){return ALLV.reduce(function(a,l){return a+(l[k]||0)},0)};var NM={};[s].concat(s.series||[]).forEach(function(r){var w=WOF(r.label||"BTC 5m");NM[w]=(NM[w]||0)+1});var tabsChanged=JSON.stringify(NM)!==JSON.stringify(NMARK);NMARK=NM;var TI={};ALL.forEach(function(l){var w=WOF(l.label||"BTC 5m");var o=TI[w]||(TI[w]={rules:0,today:0,tr:0});if(l.mode!=="off")((l.variants&&l.variants.length)?l.variants:(l.variant?[{variant:l.variant}]:[])).forEach(function(v){if(!v.paused&&!v.halted&&!v.manual)o.rules++});o.today+=l.todayNet||0;o.tr+=l.trades||0});WINS.forEach(function(w){var e=el("n"+w);if(!e)return;var o=TI[w];e.innerHTML=o&&(o.rules||o.tr)?'<span title="real rules on">'+o.rules+'</span> <span class="'+cls(o.today)+'" title="real net today">'+signed(o.today)+'</span>':(NM[w]?'<span class="mut" title="markets recorded, paper only">'+NM[w]+' paper</span>':'')});if(tabsChanged)showTab(TAB);var WNAME={"5m":"5-min","15m":"15-min","1h":"1-hour","4h":"4-hour","24h":"24-hour"};var fmtLeft=function(x){var h=Math.floor(x/3600),m=Math.floor(x%3600/60),sc=x%60;return (h?h+":"+String(m).padStart(2,"0"):String(m))+":"+String(sc).padStart(2,"0")};
@@ -694,5 +700,6 @@ document.addEventListener("input",function(e){if(e.target&&e.target.closest&&e.t
 document.addEventListener("click",async function(e){var b=e.target&&e.target.closest&&e.target.closest(".bet button");if(!b||b.disabled)return;var d=b.closest(".bet");var k=d.dataset.k;var h=H[k];if(!h)return;var side=b.dataset.side;var amt=Number(d.querySelector("input").value);var a=side==="UP"?h.up:h.down;var m=minFor(a);if(m==null||amt<m){alert("Minimum is $"+(m!=null?m.toFixed(2):"?")+" (Polymarket fills at least 5 shares)");return}
 if(!confirm("REAL MONEY\\n\\nBuy "+side+" on "+h.label+" for $"+amt+"\\nask now "+cents(a)+", pays up to "+cents(Math.min(0.99,a+0.05))+" · window closes in "+Math.floor(h.left/60)+":"+String(h.left%60).padStart(2,"0")+"\\n\\nTracked as the 'manual' strategy."))return;
 BETBUSY=true;drawBets();d.classList.add("busy");try{var r=await fetch("/api/manual",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({series:k==="btc5m"?"":k,side:side,amount:amt})});var j=await r.json();d.classList.remove("busy");if(!r.ok){d.classList.add("fail");setTimeout(function(){d.classList.remove("fail")},1500);alert("Not placed: "+(j.error||"failed"))}else{var t=j.trade||{};d.classList.add("done");setTimeout(function(){d.classList.remove("done")},1500);if(t.dry)alert("Dry mode: order signed, not sent.")}}catch(err){d.classList.remove("busy");alert("Not placed: "+err)}BETBUSY=false;poll()});
-showTab(TAB);showSec(SEC);poll();setInterval(poll,1000);
+${EV_JS}
+showTab(TAB);showSec(SEC);poll();setInterval(poll,1000);evPoll(true);
 </script></body></html>`;
