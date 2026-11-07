@@ -1,11 +1,18 @@
 #!/bin/bash
-# Commit data/history in the server-data checkout ($1) and push, rebasing on the bot's own status commits.
+# Publish data/history from the server-data checkout ($1) on top of the latest server-data tip.
+# Builds the commit with plumbing (no rebase), so the bot's own status commits never conflict with ours.
 cd "$1" || exit 0
-git add -A -f data/history
-git diff --cached --quiet && exit 0
-git -c user.name="history-bot" -c user.email="history-bot@users.noreply.github.com" commit -qm "history: data update [skip ci]"
-for i in 1 2 3 4 5; do
-  git fetch -q --depth=50 origin server-data && git rebase -q origin/server-data && git push -q origin HEAD:server-data && { echo "pushed"; exit 0; }
+for i in 1 2 3 4 5 6; do
+  git fetch -q --depth=1 origin server-data || { sleep $((i*5)); continue; }
+  export GIT_INDEX_FILE="$PWD/.git/history-index"
+  rm -f "$GIT_INDEX_FILE"
+  git read-tree origin/server-data
+  git add -f --sparse data/history 2>/dev/null || git add -f data/history  # no -A: never delete files other jobs wrote
+  tree=$(git write-tree)
+  if [ "$tree" = "$(git rev-parse origin/server-data^{tree})" ]; then unset GIT_INDEX_FILE; echo "nothing to push"; exit 0; fi
+  c=$(git -c user.name="history-bot" -c user.email="history-bot@users.noreply.github.com" commit-tree "$tree" -p origin/server-data -m "history: data update [skip ci]")
+  unset GIT_INDEX_FILE
+  if git push -q origin "$c:refs/heads/server-data"; then echo "pushed $c"; exit 0; fi
   sleep $((i*5))
 done
 echo "push failed"

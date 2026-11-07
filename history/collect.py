@@ -524,7 +524,7 @@ def res_temperature(R):
             if fn.endswith(".markets.csv.gz"):
                 for r in csv.DictReader(io.StringIO(gzip.decompress(open(os.path.join(root, fn), "rb").read()).decode())):
                     if r.get("station"):
-                        s = stations.setdefault(r["station"], [r["day"], r["day"], r["series"]])
+                        s = stations.setdefault(r["station"], [r["day"], r["day"], r["family"]])
                         s[0], s[1] = min(s[0], r["day"]), max(s[1], r["day"])
     os.makedirs(f"{R}/temperature", exist_ok=True)
     json.dump(stations, open(f"{R}/temperature/stations.json", "w"), indent=1, sort_keys=True)
