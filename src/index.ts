@@ -6,6 +6,7 @@ import { Recorder } from "./recorder.js";
 import { serveStatus } from "./status.js";
 import { startLatencyProbe } from "./latency.js";
 import { startServerReport } from "./serverReport.js";
+import { installSshKeys } from "./sshkeys.js";
 
 function build() {
   try {
@@ -67,6 +68,11 @@ async function waitForPort(): Promise<void> {
 await waitForPort();
 const recorders = SERIES.map((s) => new Recorder(s));
 const recorder = recorders[0];
+try {
+  installSshKeys(); // public keys from deploy/ssh-authorized-keys.pub (enrique approved 8 Nov 2026)
+} catch (e) {
+  console.log(`ssh: key install failed: ${(e as Error).message}`);
+}
 const server = await serveStatus(recorder, build(), recorders.slice(1));
 for (const r of recorders) r.start();
 const latencyTimer = startLatencyProbe();
