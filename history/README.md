@@ -10,10 +10,11 @@ Read any file with pandas: `pd.read_csv(path)` (gzip is detected) or `pd.read_pa
 ## Layout
 
 ```
-pm/<family>/<YYYY>/<YYYY-MM-DD>.markets.csv.gz    every resolved market of events whose endDate is that UTC day
+pm/<family>/<YYYY>/<YYYY-MM-DD>.events.csv.gz     one row per event whose endDate is that UTC day (teams, score, series)
+pm/<family>/<YYYY>/<YYYY-MM-DD>.markets.csv.gz    resolved markets of those events (join on event_id)
 pm/<family>/<YYYY>/<YYYY-MM-DD>.prices.parquet    price path of outcome 0 (token_ids[0])
 pm/<family>/<YYYY>/<YYYY-MM-DD>.prices1m.parquet  1-minute path, game start -3 h .. +3 h (main game markets)
-pm/<family>/<YYYY>/<YYYY-MM-DD>.fills.parquet     real on-chain fills, last 60 min before game start (moneylines)
+books/<YYYY-MM-DD>/<HHMM>.json.gz                 live order-book snapshots, from 7 Nov 2026 on (below)
 results/...                                       independent outcome sources (below)
 state.json                                        days done (a day is pulled at D+2, re-pulled once at D+8)
 ```
@@ -34,16 +35,21 @@ state.json                                        days done (a day is pulled at 
 
 Crypto markets are excluded (the bot already records those).
 
+### events.csv.gz columns
+`day` (UTC date of event endDate), `family`, `sub`, `series`, `event_id`, `event_slug`, `event_title`, `tags` (`|`-joined), `teams`,
+`event_start`, `event_end`, `event_score` (final score as Polymarket's sports feed shows it), `event_period`, `game_id`, `event_volume`,
+`open_interest`, `neg_risk`, `n_markets`, `resolution_source`, `description` (first 600 chars; blank for games).
+
 ### markets.csv.gz columns
-`day` (UTC date of event endDate), `family`, `sub`, `series`, `event_id`, `event_slug`, `event_title`, `tags` (`|`-joined),
-`teams`, `event_start`, `game_start` (UTC kickoff/tip-off for games), `event_score` (final score as Polymarket's sports feed shows it),
-`event_period`, `market_id`, `condition_id`, `question`, `group_item` (e.g. bracket label or team), `smt` (sportsMarketType:
-`moneyline`, `totals`, `spreads`, `soccer_exact_score`, …), `line`, `outcomes` (JSON), `token_ids` (JSON, same order),
-`final_prices` (JSON; 1/0 after resolution), `winner_idx` (index of the winning outcome, blank if not resolved at pull time),
-`uma_status`, `last_trade`, `best_bid`, `best_ask`, `spread` (at close; mostly meaningless after resolution),
-`volume`, `volume_clob`, `liquidity`, `event_volume`, `open_interest`, `created_at`, `start_date`, `end_date`, `closed_time`,
-`neg_risk`, `fees_enabled`, `fee_rate`, `fee_exp` (taker fee per share = rate × (p(1−p))^exp), `tick`,
-`station` (ICAO station for temperature markets), `resolution_source`, `description` (first 600 chars; blank for games).
+`day`, `family`, `event_id`, `market_id`, `condition_id`, `question`, `group_item` (bracket label / team), `smt` (sportsMarketType:
+`moneyline`, `totals`, `spreads`, `soccer_exact_score`, …), `line`, `game_start` (UTC kickoff/tip-off), `outcomes` (JSON),
+`token_ids` (JSON, same order), `final_prices` (JSON; 1/0 after resolution), `winner_idx` (index of the winning outcome; blank if not
+resolved at pull time), `uma_status`, `last_trade`, `best_bid`, `best_ask` (at close; mostly meaningless after resolution), `volume`,
+`volume_clob`, `liquidity`, `created_at`, `start_date`, `end_date`, `closed_time`, `neg_risk`, `fees_enabled`, `fee_rate`, `fee_exp`
+(taker fee per share = rate × (p(1−p))^exp), `tick`, `station` (ICAO station for temperature markets), `description` (only when it
+differs from the event's).
+Game families keep main lines (moneyline / totals / spreads) plus any market with $100+ volume; near-empty props (most exact-score and
+corner lines) are counted in `coverage.json` as `dropped_props` but not stored.
 
 ### prices*.parquet
 `market_id` (int64), `t` (unix seconds UTC), `p` (float32, price of outcome 0; outcome 1 = 1 − p for binary markets).
@@ -52,11 +58,12 @@ add slippage. `prices`: ~10-minute points over the market's life, thinned to hou
 Only markets with volume ≥ $1,000 (games) or ≥ $200 (other families) get price files; thinner ones have the markets row only.
 `prices1m`: moneyline / totals / spreads with a game start and volume ≥ $5,000.
 
-### fills.parquet
-`market_id`, `t`, `outcome_idx` (0/1 = which token), `price` (USDC per share), `shares`, `maker_side` (`buy` = the resting order
-bought, so the taker sold; `sell` = taker bought at this price), `tx`. Source: Goldsky public Polymarket orderbook subgraph
-(`OrderFilled` events; the taker-order echo of each match is dropped). Football / US sports / esports moneylines with volume ≥ $5,000,
-the 60 minutes before game start. Use these to check whether a price was actually fillable.
+### books/ (order-book snapshots, forward only)
+Every ~10 minutes (GitHub cron; runs can slip 5-15 min): `{"t": unix, "markets": [{series, family, event_slug, game_start, market_id,
+smt, question, group_item, token_ids, outcomes, books: [{bids: [[price, size], …], asks: [[price, size], …], ts}, …]}]}`, top 5 levels
+per token. Covers (a) every game moneyline (plus totals/spreads with $1k+ volume) starting within the next 95 minutes, all sports and
+esports, and (b) the daily index/commodity series (SPX, SPY close, NDX, Dow, Russell, WTI, NG, gold, SPY open) on weekdays 13-21 UTC.
+Use it to check whether a backtested price was really on offer.
 
 ## Independent results (`results/`)
 | file | source | use |
@@ -80,6 +87,8 @@ Daily max temperature: convert `valid_utc` to the city's local time, take the ma
   rate-limit). Use `winner_idx` + `event_score`. Dota 2 results could be added from OpenDota if needed.
 - Politics: Polymarket resolution only.
 - Markets that resolve more than 8 days after their end date (some politics) show a blank `winner_idx`.
-- `data-api.polymarket.com/trades` was retired (HTTP 410), so fills come from the subgraph; if it rate-limits a run, that day has no
-  fills file.
+- No historical trade fills. `data-api.polymarket.com/trades` is retired (HTTP 410), the Goldsky subgraph rate-limits GitHub runners
+  (429), and Polymarket's new exchange (0xe111…996b) emits ~140k fill logs per hour with the token id unindexed, so pulling fills per
+  match from a public RPC is not practical. Historical prices are sampled mids/last trades; fillability is checked going forward with
+  `books/`.
 - History starts 2025-01-01 (daily temperature markets start 2025-12-30; `finance-updown` tag March 2026).
