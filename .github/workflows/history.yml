@@ -25,4 +25,4 @@ jobs:
       - name: collect
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: bash history/run.sh $(cat history/run.txt 2>/dev/null) 2>&1 | tee history-run.log | tail -c 200000
+        run: if grep -q probe history/run.txt; then python3 history/probe.py; else bash history/run.sh $(cat history/run.txt 2>/dev/null) 2>&1 | tail -c 200000; fi

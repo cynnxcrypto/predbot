@@ -1,73 +1,30 @@
-#!/usr/bin/env python3
-"""One-off API probe for the history collector (prints to stdout)."""
-import json, sys, time, urllib.request, urllib.parse
-UA = {"User-Agent": "predbot-history/1.0"}
-def get(url, raw=False):
+import json, time, urllib.request
+def post(url, body):
     try:
-        with urllib.request.urlopen(urllib.request.Request(url, headers=UA), timeout=30) as r:
-            b = r.read()
-            return b if raw else json.loads(b)
-    except Exception as e:
-        return f"ERR {e}"
-G = "https://gamma-api.polymarket.com"
-sp = get(G + "/sports")
-print("## /sports", len(sp) if isinstance(sp, list) else sp)
-if isinstance(sp, list):
-    for s in sp: print(json.dumps(s)[:300])
-tags = []
-for off in range(0, 5000, 500):
-    b = get(G + f"/tags?limit=500&offset={off}")
-    if not isinstance(b, list) or not b: break
-    tags += b
-print("## tags", len(tags))
-KW = ["esport","counter","cs2","league-of","dota","valorant","soccer","football","la-liga","epl","premier","nba","nfl","nhl","weather","temperature","climate","s-p","spx","sp500","stock","gold","oil","commodit","up-or-down","daily","politic","election","finance","indices","economy","mlb","ucl","serie","bundes","ligue"]
-for t in tags:
-    s = (t.get("slug") or "").lower()
-    if any(k in s for k in KW): print("tag", t.get("id"), s, "|", t.get("label"))
-def show(tag, n=4):
-    b = get(G + "/events?" + urllib.parse.urlencode({"tag_slug": tag, "closed": "true", "limit": n, "order": "endDate", "ascending": "false"}))
-    print(f"### tag {tag}:", "n/a" if not isinstance(b, list) else len(b))
-    if not isinstance(b, list): print(b); return None
-    for e in b:
-        print(" EV", e.get("id"), e.get("slug"), "|", e.get("title"), "| end", e.get("endDate"), "| series", [x.get("slug") for x in e.get("series") or []], "| tags", [x.get("slug") for x in e.get("tags") or []][:8])
-        for m in (e.get("markets") or [])[:6]:
-            print("   M", m.get("id"), "|", m.get("question"), "| smt", m.get("sportsMarketType"), "| gst", m.get("gameStartTime"), "| out", m.get("outcomes"), m.get("outcomePrices"), "| vol", m.get("volumeNum"), "| uma", m.get("umaResolutionStatus"), "| closed", m.get("closedTime"), "| cid", (m.get("conditionId") or "")[:12], "| groupItem", m.get("groupItemTitle"))
-    return b
-keep = {}
-for tag in ["esports","counter-strike-2","cs2","league-of-legends","dota-2","soccer","la-liga","epl","nba","nfl","nhl","weather","temperature","highest-temperature","daily-temperature","up-or-down","stocks","finance","commodities","politics","elections","mlb","ucl"]:
-    r = show(tag)
-    if isinstance(r, list) and r: keep[tag] = r
-print("## events keys sample"); 
-for k, v in keep.items():
-    print(k, sorted(v[0].keys())); print("market keys", sorted(v[0]["markets"][0].keys())); break
-# description of one temperature / up-down market
-for k in ("temperature", "weather", "highest-temperature", "up-or-down", "stocks"):
-    if k in keep:
-        m = keep[k][0]["markets"][0]; print("DESC", k, (m.get("description") or "")[:900]); print("resSource", m.get("resolutionSource"), keep[k][0].get("resolutionSource"))
-# search
-for qy in ["highest temperature", "S&P 500 up or down", "Gold up or down", "Counter-Strike", "Map 1 winner"]:
-    b = get(G + "/public-search?" + urllib.parse.urlencode({"q": qy, "limit_per_type": 5, "events_status": "closed"}))
-    if isinstance(b, dict):
-        for e in (b.get("events") or [])[:5]: print("SEARCH", qy, "|", e.get("slug"), "|", e.get("title"), "| series", [x.get("slug") for x in e.get("series") or []] if e.get("series") else None, "| tags", [x.get("slug") for x in e.get("tags") or []][:8])
-    else: print("SEARCH", qy, str(b)[:200])
-# prices-history on one closed token
-for k, v in keep.items():
-    m = v[0]["markets"][0]; tok = json.loads(m.get("clobTokenIds") or "[]")
-    if not tok: continue
-    for fid in (1, 10, 60):
-        st = int(time.time()) - 20 * 86400
-        r = get(f"https://clob.polymarket.com/prices-history?market={tok[0]}&startTs={st}&endTs={int(time.time())}&fidelity={fid}")
-        print("PH", k, fid, (len(r.get("history", [])) if isinstance(r, dict) else r), str(r)[:200])
-    r = get(f"https://clob.polymarket.com/prices-history?market={tok[0]}&interval=max&fidelity=10"); print("PH max", str(r)[:200], len(r.get("history", [])) if isinstance(r, dict) else "")
-    r = get(f"https://data-api.polymarket.com/trades?market={m.get('conditionId')}&limit=5"); print("TRADES", str(r)[:600])
-    break
-for name, url in [("stooq", "https://stooq.com/q/d/l/?s=%5Espx&i=d"), ("yahoo", "https://query1.finance.yahoo.com/v8/finance/chart/%5EGSPC?range=5d&interval=1d"),
-                  ("iem", "https://mesonet.agron.iastate.edu/cgi-bin/request/asos.py?station=KLGA&data=tmpf&year1=2026&month1=11&day1=1&year2=2026&month2=11&day2=2&tz=America/New_York&format=onlycomma&latlon=no&missing=M&trace=T&direct=no"),
-                  ("iem-eglc", "https://mesonet.agron.iastate.edu/cgi-bin/request/asos.py?station=EGLC&data=tmpf&year1=2026&month1=11&day1=1&year2=2026&month2=11&day2=2&tz=Europe/London&format=onlycomma&latlon=no&missing=M&trace=T&direct=no"),
-                  ("nba", "https://cdn.nba.com/static/json/staticData/scheduleLeagueV2.json"), ("nhl", "https://api-web.nhle.com/v1/score/2026-11-05"),
-                  ("nflverse", "https://raw.githubusercontent.com/nflverse/nfldata/master/data/games.csv"), ("fdco", "https://www.football-data.co.uk/mmz4281/2526/SP1.csv"),
-                  ("fdco-new", "https://www.football-data.co.uk/new/ARG.csv"), ("openmeteo", "https://archive-api.open-meteo.com/v1/archive?latitude=40.77&longitude=-73.87&start_date=2026-11-01&end_date=2026-11-03&daily=temperature_2m_max"),
-                  ("fred", "https://fred.stlouisfed.org/graph/fredgraph.csv?id=DCOILWTICO"), ("liquipedia", "https://liquipedia.net/counterstrike/api.php?action=query&format=json&list=categorymembers&cmtitle=Category:Tournaments&cmlimit=2"),
-                  ("opendota", "https://api.opendota.com/api/proMatches"), ("hko", "https://data.weather.gov.hk/weatherAPI/opendata/opendata.php?dataType=CLMMAXT&rformat=csv&station=HKO")]:
-    r = get(url, raw=True)
-    print("SRC", name, (r[:300] if isinstance(r, bytes) else r))
+        req = urllib.request.Request(url, data=json.dumps(body).encode(), headers={"Content-Type": "application/json", "User-Agent": "predbot-history/1.0"})
+        with urllib.request.urlopen(req, timeout=60) as r: return r.read()[:600]
+    except Exception as e: return f"ERR {e}"
+EX = ["0x4bFb41d5B3570DeFd03C39a9A4D8dE6Bd8B8982E", "0xC5d563A36AE78145C45a50134d48A1215220f80a"]
+TOPIC = "0xd0a08e8c493f9c94f29311604c9de1b4e8c8d4c06bd0c789af57f2d65bfec0f6"
+for rpc in ["https://polygon-bor-rpc.publicnode.com", "https://polygon.drpc.org", "https://polygon-rpc.com", "https://1rpc.io/matic", "https://polygon.llamarpc.com"]:
+    bn = post(rpc, {"jsonrpc": "2.0", "id": 1, "method": "eth_blockNumber", "params": []})
+    print(rpc, bn)
+    try: n = int(json.loads(bn)["result"], 16)
+    except Exception: continue
+    t = time.time(); r = post(rpc, {"jsonrpc": "2.0", "id": 1, "method": "eth_getLogs", "params": [{"address": EX, "fromBlock": hex(n - 30), "toBlock": hex(n - 1)}]})
+    print(" logs30", round(time.time() - t, 1), "s", r[:300])
+    t = time.time()
+    try:
+        req = urllib.request.Request(rpc, data=json.dumps({"jsonrpc": "2.0", "id": 1, "method": "eth_getLogs", "params": [{"address": EX, "fromBlock": hex(n - 30), "toBlock": hex(n - 1)}]}).encode(), headers={"Content-Type": "application/json", "User-Agent": "x"})
+        d = json.loads(urllib.request.urlopen(req, timeout=60).read()); res = d.get("result") or []
+        print(" n logs", len(res), "topics0", {x["topics"][0] for x in res} if res else d)
+    except Exception as e: print(" err", e)
+for i in range(3):
+    print("goldsky", post("https://api.goldsky.com/api/public/project_cl6mb8i9h0003e201j6li0diw/subgraphs/orderbook-subgraph/0.0.1/gn", {"query": "{ orderFilledEvents(first: 2) { timestamp } }"})[:200]); time.sleep(20)
+print("gamma offset", )
+import urllib.parse
+for off in (900, 1000, 1500, 2000, 3000):
+    try:
+        u = "https://gamma-api.polymarket.com/events?" + urllib.parse.urlencode({"tag_slug": "games", "closed": "true", "end_date_min": "2026-10-31T00:00:00Z", "end_date_max": "2026-11-01T00:00:00Z", "limit": 100, "offset": off})
+        b = json.loads(urllib.request.urlopen(urllib.request.Request(u, headers={"User-Agent": "x"}), timeout=30).read()); print(off, len(b))
+    except Exception as e: print(off, e)
