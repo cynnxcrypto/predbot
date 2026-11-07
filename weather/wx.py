@@ -157,5 +157,54 @@ def obs_fc(stations, cutoff):
     save("wx_fc", fc)
     log("fc ok", sum(1 for v in fc.values() if v))
 
+
+def extra():
+    slim = json.load(gzip.open(f"{OUT}/wx_events.json.gz", "rt"))
+    ht = [e for e in slim if e["title"].startswith("Highest temperature")]
+    one = next(m["cid"] for e in ht if e["closed"] for m in e["markets"] if json.loads(m["px"] or "[0]")[0] == "1")
+    probe = {}
+    for u in (f"https://data-api.polymarket.com/trades?market={one}&limit=50", f"https://data-api.polymarket.com/trades?market={one}&limit=50&takerOnly=false"):
+        probe[u] = str(get(u))[:1500]
+    json.dump(probe, open(f"{OUT}/trades_probe.json", "w"), indent=1)
+    # trades for markets of closed events since 15 Oct, all pages up to 3000
+    def tr(cid):
+        if left() < 20*60: return cid, "SKIP"
+        out = []; off = 0
+        while off <= 2500:
+            r = get(f"https://data-api.polymarket.com/trades?market={cid}&limit=500&offset={off}&takerOnly=false")
+            if not isinstance(r, list) or not r: break
+            out += [[x.get("timestamp"), x.get("price"), x.get("size"), x.get("side"), x.get("outcomeIndex")] for x in r]
+            if len(r) < 500: break
+            off += 500
+        return cid, out
+    cids = [m["cid"] for e in ht if e["closed"] and e["end"] >= "2026-10-15" for m in e["markets"] if m["cid"]]
+    trades = {}
+    with ThreadPoolExecutor(12) as ex:
+        for i, (cid, t) in enumerate(ex.map(tr, cids)):
+            if t != "SKIP": trades[cid] = t
+            if i % 2000 == 0: log("trades", i, len(cids))
+    save("wx_trades2", trades); log("trades ok", sum(1 for v in trades.values() if v), len(trades))
+    # missing obs retry, slow
+    obs = json.load(gzip.open(f"{OUT}/wx_obs.json.gz", "rt"))
+    miss = [k for k, v in obs.items() if (not v or len(v) < 1000) and len(k) == 4 and k not in ("NCEI", "NOAA")]
+    y1, m1, d1 = "2026", 9, 8
+    for st in miss:
+        if left() < 10*60: break
+        time.sleep(6)
+        u = (f"https://mesonet.agron.iastate.edu/cgi-bin/request/asos.py?station={st}&data=tmpf&data=metar&year1=2026&month1=9&day1=8"
+             f"&year2=2026&month2=11&day2=8&tz=Etc/UTC&format=onlycomma&latlon=no&missing=M&trace=T&direct=no&report_type=3&report_type=4")
+        t = get(u, tries=3)
+        if isinstance(t, str) and len(t) > 1000: obs[st] = t
+        log("obs", st, len(t) if isinstance(t, str) else None)
+    save("wx_obs", obs)
+    # live books for open events (spread/depth snapshot)
+    books = {}
+    for e in ht:
+        if e["closed"]: continue
+        for m in e["markets"]:
+            if left() < 3*60: break
+            if m["tok"]: books[m["tok"][0]] = get(f"https://clob.polymarket.com/book?token_id={m['tok'][0]}")
+    save("wx_books", {"t": time.time(), "books": books}); log("books", len(books))
+
 if __name__ == "__main__":
     globals()[sys.argv[1]](*sys.argv[2:])
