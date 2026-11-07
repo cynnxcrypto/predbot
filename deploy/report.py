@@ -24,6 +24,21 @@ def gh(method, path, body=None):
         return e.code, None
 
 
+def dashboard_url():
+    """The Cloudflare quick-tunnel address changes whenever the tunnel restarts (7 Nov 2026: enrique lost the link and
+    must never need AWS to find it). The dashboard itself is password protected."""
+    for cmd in (["journalctl", "-u", "predbot-dashboard", "--no-pager", "-o", "cat", "-n", "400"],
+                ["sudo", "-n", "journalctl", "-u", "predbot-dashboard", "--no-pager", "-o", "cat", "-n", "400"]):
+        try:
+            out = subprocess.run(cmd, capture_output=True, text=True, timeout=20).stdout
+        except Exception:  # noqa: BLE001
+            continue
+        urls = re.findall(r"https://[a-z0-9-]+\.trycloudflare\.com", out)
+        if urls:
+            return urls[-1]
+    return None
+
+
 def summary():
     req = urllib.request.Request("http://127.0.0.1:8790/api/status")
     try:  # the dashboard has a password since 31 Oct 2026 23:15 KST (deploy/dashboard-setup.sh)
@@ -35,7 +50,8 @@ def summary():
         s = json.load(r)
     du = shutil.disk_usage(ROOT)  # 6 Nov 2026: a full disk killed the bot for hours; watch it in every report
     out = {"at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "build": s.get("build"),
-           "diskFreeGB": round(du.free / 1e9, 2), "diskTotalGB": round(du.total / 1e9, 2), "series": []}
+           "diskFreeGB": round(du.free / 1e9, 2), "diskTotalGB": round(du.total / 1e9, 2),
+           "dashboardUrl": dashboard_url(), "series": []}
     for x in [s] + (s.get("series") or []):
         live = x.get("live") or {}
         out["series"].append({
