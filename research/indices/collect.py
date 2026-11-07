@@ -167,6 +167,29 @@ def books():
     dump("books.json.gz", old + snap)
     log("book snapshots:", len(snap))
 
+DAILY = ("spx-daily-up-or-down", "spy-daily-up-or-down", "ndx-daily-up-or-down", "dow-jones-daily-up-or-down", "russell-2000-daily-up-or-down",
+         "gold-daily-up-or-down", "silver-daily-up-or-down", "oil-daily-up-or-down", "natural-gas-daily-up-or-down", "spx-open-daily-up-or-down",
+         "spy-daily-close-uo", "wti-daily-close-uo", "qqq-daily-up-or-down", "spy-open-daily-up-or-down")
+
+def trades():
+    evs = load("events.json.gz") or []
+    old = load("trades.json.gz") or {}
+    ms = [m for e in evs if e["closed"] and (e["series"] or ["-"])[0] in DAILY for m in e["markets"] if m.get("conditionId")]
+    def one(m):
+        if m["id"] in old: return m["id"], old[m["id"]]
+        out, off = [], 0
+        while off <= 20000:
+            b = get("https://data-api.polymarket.com/trades", {"market": m["conditionId"], "limit": 500, "offset": off, "takerOnly": "true"}, tries=3)
+            if not isinstance(b, list) or not b: break
+            out += [[x.get("timestamp"), x.get("outcomeIndex"), x.get("side"), x.get("price"), x.get("size")] for x in b]
+            if len(b) < 500: break
+            off += 500
+        return m["id"], out
+    with ThreadPoolExecutor(10) as ex:
+        for mid, t in ex.map(one, ms): old[mid] = t
+    dump("trades.json.gz", old)
+    log("trades markets:", len(old), "trades:", sum(len(v) for v in old.values()))
+
 YSYM = ["^GSPC", "^NDX", "^IXIC", "^DJI", "^RUT", "SPY", "QQQ", "IWM", "GC=F", "SI=F", "CL=F", "BZ=F", "NG=F", "HG=F", "ES=F", "NQ=F", "YM=F", "RTY=F",
         "^VIX", "^VIX9D", "^VIX1D", "^VXN", "^OVX", "^GVZ", "^N225", "^KS11", "^TNX", "GLD", "USO", "DX-Y.NYB"]
 
