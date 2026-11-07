@@ -1,4 +1,4 @@
-import { WINDOW_SEC, kstDay } from "./config.js";
+import { SERIES, WINDOW_SEC, kstDay, prefixOf } from "./config.js";
 import { chainlink } from "./feeds/index.js";
 import type { Feed } from "./feeds/socket.js";
 import type { BookRow } from "./recorder.js";
@@ -893,6 +893,33 @@ const DAY_STOP_RESETS: Record<string, string> = {
     if (done[key]) continue;
     if (live[from] && !live[to]) live[to] = live[from];
     done[key] = to;
+    changed = true;
+  }
+  // 7 Nov 15:30 KST (enrique: "does this look right?"): the by-rule table showed "—" today and BNB first3 "halted 00:19"
+  // (an old halt from when first3 was live on 31 Oct-3 Nov). Re-label today's real rows (since go-live 02:44Z) to the new
+  // names so per-rule today/loss stops see them, and give each series' new name the old name's halt state (or a clean one).
+  if (!done["relabel:2026-11-07"]) {
+    const since = Date.parse("2026-11-07T02:44:00Z");
+    for (const s of SERIES) {
+      const pre = prefixOf(s);
+      for (const f of [`${pre}live-totals.json`, `${pre}live-open.json`]) {
+        const rows = loadJson<{ t?: number; variant?: string }[]>(f, []);
+        let n = 0;
+        for (const r of rows) for (const [from, to] of moves) if (r.variant === from && (r.t ?? 0) >= since) (r.variant = to), n++;
+        if (n) saveJson(f, rows);
+      }
+      const halts = loadJson<Record<string, unknown>>(`${pre}live-halts.json`, {});
+      let hc = false;
+      for (const [from, to] of moves) {
+        const old = halts[from] as { halted?: boolean; haltedAt?: number | null } | undefined;
+        if (old) halts[to] = old.halted && (old.haltedAt ?? 0) < since ? { ...old, halted: false, haltedAt: null, streak: 0 } : old;
+        else if (halts[to]) halts[to] = { streak: 0, halted: false, haltedAt: null };
+        else continue;
+        hc = true;
+      }
+      if (hc) saveJson(`${pre}live-halts.json`, halts);
+    }
+    done["relabel:2026-11-07"] = "done";
     changed = true;
   }
   if (changed) {

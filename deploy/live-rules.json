@@ -40,7 +40,8 @@
           "familyHaltLosses": 3,
           "maxLossPerDay": 9,
           "cap": 0.6,
-          "skipOnFall": false
+          "skipOnFall": false,
+          "resumeFrom": "2026-11-07T06:25:00Z"
         },
         {
           "variant": "ahead5-cheap60-15m-first3",
@@ -50,7 +51,8 @@
           "maxLossPerDay": 9,
           "cap": 0.6,
           "bidUnderC": 1,
-          "bidSec": 60
+          "bidSec": 60,
+          "resumeFrom": "2026-11-07T06:25:00Z"
         }
       ]
     },
@@ -65,7 +67,8 @@
           "familyHaltLosses": 3,
           "maxLossPerDay": 9,
           "cap": 0.6,
-          "skipOnFall": false
+          "skipOnFall": false,
+          "resumeFrom": "2026-11-07T06:25:00Z"
         },
         {
           "variant": "ahead5-cheap60-15m-first3",
@@ -75,7 +78,8 @@
           "maxLossPerDay": 9,
           "cap": 0.6,
           "bidUnderC": 1,
-          "bidSec": 60
+          "bidSec": 60,
+          "resumeFrom": "2026-11-07T06:25:00Z"
         }
       ]
     },
@@ -96,7 +100,8 @@
           "maxLossPerDay": 9,
           "cap": 0.6,
           "bidUnderC": 1,
-          "bidSec": 60
+          "bidSec": 60,
+          "resumeFrom": "2026-11-07T06:25:00Z"
         }
       ]
     },
@@ -112,7 +117,8 @@
           "maxLossPerDay": 9,
           "cap": 0.6,
           "bidUnderC": 1,
-          "bidSec": 60
+          "bidSec": 60,
+          "resumeFrom": "2026-11-07T06:25:00Z"
         }
       ]
     },
@@ -127,7 +133,8 @@
           "familyHaltLosses": 3,
           "maxLossPerDay": 9,
           "cap": 0.6,
-          "skipOnFall": false
+          "skipOnFall": false,
+          "resumeFrom": "2026-11-07T06:25:00Z"
         },
         {
           "variant": "ahead5-cheap60-15m-first3",
@@ -137,7 +144,8 @@
           "maxLossPerDay": 9,
           "cap": 0.6,
           "bidUnderC": 1,
-          "bidSec": 60
+          "bidSec": 60,
+          "resumeFrom": "2026-11-07T06:25:00Z"
         }
       ]
     },
@@ -153,7 +161,8 @@
           "maxLossPerDay": 9,
           "cap": 0.6,
           "bidUnderC": 1,
-          "bidSec": 60
+          "bidSec": 60,
+          "resumeFrom": "2026-11-07T06:25:00Z"
         }
       ]
     },
@@ -169,7 +178,8 @@
           "maxLossPerDay": 9,
           "cap": 0.6,
           "bidUnderC": 1,
-          "bidSec": 60
+          "bidSec": 60,
+          "resumeFrom": "2026-11-07T06:25:00Z"
         }
       ]
     }
