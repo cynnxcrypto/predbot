@@ -33,9 +33,6 @@ def discover():
     evc = get(G + "/events", {"tag_slug": "esports", "closed": "true", "limit": 3, "order": "endDate", "ascending": "false"})
     dump("sample_closed", evc)
 
-if __name__ == "__main__":
-    for step in sys.argv[1:]:
-        globals()[step]()
 
 # ------------------------------------------------------------------ main steps
 from concurrent.futures import ThreadPoolExecutor
@@ -176,3 +173,7 @@ def sources():
         res[k] = {"status": st_, "bytes": len(b or b""), "sec": round(time.time() - t0, 1), "head": (b or b"")[:200].decode("utf-8", "replace")}
         time.sleep(1.2)
     dump("sources", res)
+
+if __name__ == "__main__":
+    for step in sys.argv[1:]:
+        globals()[step]()
