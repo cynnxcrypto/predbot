@@ -771,17 +771,17 @@ def jevstates2():
         if idx is None: continue
         f = jb.facts(rows, idx)
         f["competition"] = LGN.get(r["lg"], r["lg"]) + " (full-time result incl. stoppage time)"
-        f["home_team"], f["away_team"] = r["A"], r["B"]
+        f["home_team"], f["away_team"] = r["fdH"], r["fdA"]  # r["A"] is the away price dict (holds the result!)
         f.pop("league_base_rates", None)
         tot = sum(r[k]["k10"] for k in "HDA"); tot24 = sum((r[k]["k24h"] or r[k]["k10"]) for k in "HDA")
         f["prediction_market_prices_10min_before_kickoff"] = {"home_win": round(r["H"]["k10"], 3), "draw": round(r["D"]["k10"], 3), "away_win": round(r["A"]["k10"], 3)}
         f["prediction_market_prices_24h_before_kickoff"] = {"home_win": round(r["H"]["k24h"] or 0, 3), "draw": round(r["D"]["k24h"] or 0, 3), "away_win": round(r["A"]["k24h"] or 0, 3)}
         if r.get("avg"): f["bookmaker_consensus_fair_probabilities"] = {"home_win": round(r["avg"][0], 3), "draw": round(r["avg"][1], 3), "away_win": round(r["avg"][2], 3)}
-        news_jobs.append((f, r["A"], r["B"], day.date()))
+        news_jobs.append((f, r["fdH"], r["fdA"], day.date()))
         f["context"] = ("You advise a bettor who can buy any outcome on a prediction market at the listed 10-minute price plus ~1-2% in costs. "
                         "Prices are crowd probabilities and are usually well calibrated, so only call a side underpriced when your judgement "
                         "(team news, injuries, suspensions, rotation, motivation, schedule congestion, form, matchup) clearly disagrees with it.")
-        out.append({"date": day.strftime("%Y-%m-%d"), "lg": r["lg"], "home": r["A"], "away": r["B"], "fdH": r["fdH"], "fdA": r["fdA"], "ftr": r["ftr"],
+        out.append({"date": day.strftime("%Y-%m-%d"), "lg": r["lg"], "home": r["fdH"], "away": r["fdA"], "fdH": r["fdH"], "fdA": r["fdA"], "ftr": r["ftr"],
                     "pm": {k: r[k]["k10"] for k in "HDA"}, "state": f})
     # news in parallel with a hard deadline so the run always finishes and commits
     deadline = time.time() + 35 * 60
@@ -792,6 +792,7 @@ def jevstates2():
     news_jobs.sort(key=lambda j: (j[0]["competition"][:7] != "Spanish", j[3]), reverse=False)
     with ThreadPoolExecutor(8) as ex: list(ex.map(fetch, news_jobs))
     say(f"news fetched for {sum(1 for j in news_jobs if 'news_headlines_last_4_days_before_match_day' in j[0])}/{len(news_jobs)} matches")
+    for m in out: assert "\"won\": " not in json.dumps(m["state"]), "result leaked into state"
     questions = {
         "result": {"type": "choice", "instructions": "Using all the context, what are the true probabilities of the full-time result? Be calibrated.",
                    "criteria": {"home": "The home team wins", "draw": "The match ends in a draw", "away": "The away team wins"}},
