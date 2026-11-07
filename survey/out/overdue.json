@@ -3,9 +3,9 @@
   "cat": "Politics",
   "q": "Will Mary Peltola win the Alaska Senate race in 2026?",
   "end": "2026-11-04T04:59:00Z",
-  "hours_over": 74.6,
+  "hours_over": 74.8,
   "fav_ask": 0.981,
-  "liq": 218992,
+  "liq": 228770,
   "uma": "[]",
   "slug": "will-mary-peltola-win-the-alaska-senate-race-in-2026"
  },
@@ -13,9 +13,9 @@
   "cat": "Politics",
   "q": "Will Dan Sullivan win the Alaska Senate race in 2026?",
   "end": "2026-11-04T04:59:00Z",
-  "hours_over": 74.6,
+  "hours_over": 74.8,
   "fav_ask": 0.981,
-  "liq": 138833,
+  "liq": 161205,
   "uma": "[]",
   "slug": "will-dan-sullivan-win-the-alaska-senate-race-in-2026"
  },
@@ -23,9 +23,9 @@
   "cat": "Politics",
   "q": "Will the Republicans win the Mississippi Senate race in 2026?",
   "end": "2026-11-04T04:59:00Z",
-  "hours_over": 74.6,
+  "hours_over": 74.8,
   "fav_ask": 0.994,
-  "liq": 135194,
+  "liq": 155260,
   "uma": "[]",
   "slug": "will-the-republicans-win-the-mississippi-senate-race-in-2026"
  },
@@ -33,20 +33,1710 @@
   "cat": "Politics",
   "q": "Will the Democrats win the Mississippi Senate race in 2026?",
   "end": "2026-11-04T04:59:00Z",
-  "hours_over": 74.6,
+  "hours_over": 74.8,
   "fav_ask": 0.994,
-  "liq": 112982,
+  "liq": 134720,
   "uma": "[]",
   "slug": "will-the-democrats-win-the-mississippi-senate-race-in-2026"
  },
  {
   "cat": "Politics",
+  "q": "Will Aleksandar Vu\u010di\u0107 be the next Prime Minister of Serbia?",
+  "end": "2026-10-25T23:59:00Z",
+  "hours_over": 295.8,
+  "fav_ask": 0.986,
+  "liq": 107167,
+  "uma": "[]",
+  "slug": "will-aleksandar-vucic-be-the-next-prime-minister-of-serbia-20260629223938643"
+ },
+ {
+  "cat": "Politics",
+  "q": "Will Naftali Bennett be the next Prime Minister of Israel?",
+  "end": "2026-10-28T03:59:00Z",
+  "hours_over": 243.8,
+  "fav_ask": 0.984,
+  "liq": 76364,
+  "uma": "[]",
+  "slug": "will-naftali-bennett-be-the-next-prime-minister-of-israel"
+ },
+ {
+  "cat": "Politics",
+  "q": "Will Alberta vote for independence in 2026?",
+  "end": "2026-10-20T03:59:00Z",
+  "hours_over": 435.8,
+  "fav_ask": 0.979,
+  "liq": 74681,
+  "uma": "[]",
+  "slug": "will-alberta-vote-for-independence-in-2026"
+ },
+ {
+  "cat": "Politics",
+  "q": "Will Avigdor Lieberman be the next Prime Minister of Israel?",
+  "end": "2026-10-28T03:59:00Z",
+  "hours_over": 243.8,
+  "fav_ask": 0.915,
+  "liq": 55389,
+  "uma": "[]",
+  "slug": "will-avigdor-lieberman-be-the-next-prime-minister-of-israel"
+ },
+ {
+  "cat": "Politics",
+  "q": "Will Ebba Busch be the next Prime Minister of Sweden?",
+  "end": "2026-09-14T03:59:00Z",
+  "hours_over": 1299.8,
+  "fav_ask": 0.991,
+  "liq": 55109,
+  "uma": "[]",
+  "slug": "will-ebba-busch-be-the-next-prime-minister-of-sweden"
+ },
+ {
+  "cat": "Politics",
   "q": "Will the Republicans win the Kansas governor race in 2026?",
   "end": "2026-11-04T04:59:00Z",
-  "hours_over": 74.6,
+  "hours_over": 74.8,
   "fav_ask": 0.995,
-  "liq": 50205,
+  "liq": 49046,
   "uma": "[]",
   "slug": "will-the-republicans-win-the-kansas-governor-race-in-2026"
+ },
+ {
+  "cat": "Politics",
+  "q": "Will Bill Hill win the AK-AL House seat?",
+  "end": "2026-11-04T04:59:00Z",
+  "hours_over": 74.8,
+  "fav_ask": 0.955,
+  "liq": 39662,
+  "uma": "[]",
+  "slug": "will-a-win-the-ak-al-house-seat"
+ },
+ {
+  "cat": "Politics",
+  "q": "Will the Republican Party win the CO-04 House seat?",
+  "end": "2026-11-04T04:59:00Z",
+  "hours_over": 74.8,
+  "fav_ask": 0.989,
+  "liq": 37873,
+  "uma": "[]",
+  "slug": "will-the-republican-party-win-the-co-04-house-seat"
+ },
+ {
+  "cat": "Politics",
+  "q": "Will the Republican Party win the AK-AL House seat?",
+  "end": "2026-11-04T04:59:00Z",
+  "hours_over": 74.8,
+  "fav_ask": 0.958,
+  "liq": 36599,
+  "uma": "[]",
+  "slug": "will-the-republican-party-win-the-ak-al-house-seat"
+ },
+ {
+  "cat": "Politics",
+  "q": "Will Ilija Srdanovi\u0107 be the next prime minister of Serbia?",
+  "end": "2026-10-25T23:59:00Z",
+  "hours_over": 295.8,
+  "fav_ask": 0.89,
+  "liq": 31757,
+  "uma": "[]",
+  "slug": "will-ilija-srdanovic-be-the-next-prime-minister-of-serbia-20260629223938652"
+ },
+ {
+  "cat": "Politics",
+  "q": "Will the Democratic Party win the popular vote in the 2026 U.S. House of Representatives midterm elections by between 12% and 14%?",
+  "end": "2026-11-04T04:59:00Z",
+  "hours_over": 74.8,
+  "fav_ask": 0.924,
+  "liq": 30479,
+  "uma": "[]",
+  "slug": "will-the-democratic-party-win-the-popular-vote-in-the-2026-us-house-of-representatives-midterm-elections-by-between-12-and-14-485"
+ },
+ {
+  "cat": "Politics",
+  "q": "Will the Democratic Party win the CO-04 House seat?",
+  "end": "2026-11-04T04:59:00Z",
+  "hours_over": 74.8,
+  "fav_ask": 0.988,
+  "liq": 29902,
+  "uma": "[]",
+  "slug": "will-the-democratic-party-win-the-co-04-house-seat"
+ },
+ {
+  "cat": "Politics",
+  "q": "Will Hakeem Jeffries be the first Speaker of the House after the 2026 midterms?",
+  "end": "2026-11-04T04:59:00Z",
+  "hours_over": 74.8,
+  "fav_ask": 0.946,
+  "liq": 28237,
+  "uma": "[]",
+  "slug": "will-hakeem-jeffries-be-the-first-speaker-of-the-house-after-the-2026-midterms"
+ },
+ {
+  "cat": "Politics",
+  "q": "Will Vladan \u0110oki\u0107 be the next Prime Minister of Serbia?",
+  "end": "2026-10-25T23:59:00Z",
+  "hours_over": 295.8,
+  "fav_ask": 0.988,
+  "liq": 28099,
+  "uma": "[]",
+  "slug": "will-vladan-okic-be-the-next-prime-minister-of-serbia-20260811140916624"
+ },
+ {
+  "cat": "Politics",
+  "q": "Will the Republican Party win the AZ-02 House seat?",
+  "end": "2026-11-04T04:59:00Z",
+  "hours_over": 74.8,
+  "fav_ask": 0.993,
+  "liq": 27974,
+  "uma": "[]",
+  "slug": "will-the-republican-party-win-the-az-02-house-seat"
+ },
+ {
+  "cat": "Politics",
+  "q": "Will the Democratic Party win the FL-27 House seat?",
+  "end": "2026-11-04T04:59:00Z",
+  "hours_over": 74.8,
+  "fav_ask": 0.99,
+  "liq": 25197,
+  "uma": "[]",
+  "slug": "will-the-democratic-party-win-the-fl-27-house-seat"
+ },
+ {
+  "cat": "Politics",
+  "q": "Will the Republican Party win the FL-27 House seat?",
+  "end": "2026-11-04T04:59:00Z",
+  "hours_over": 74.8,
+  "fav_ask": 0.992,
+  "liq": 24128,
+  "uma": "[]",
+  "slug": "will-the-republican-party-win-the-fl-27-house-seat"
+ },
+ {
+  "cat": "Politics",
+  "q": "Will the Democratic Party win the popular vote in the 2026 U.S. House of Representatives midterm elections by 16% or more?",
+  "end": "2026-11-04T04:59:00Z",
+  "hours_over": 74.8,
+  "fav_ask": 0.983,
+  "liq": 22742,
+  "uma": "[]",
+  "slug": "will-the-democratic-party-win-the-popular-vote-in-the-2026-us-house-of-representatives-midterm-elections-by-16-or-more-667"
+ },
+ {
+  "cat": "Politics",
+  "q": "Will Chuck Schumer be the next Senate Majority Leader?",
+  "end": "2026-11-04T04:59:00Z",
+  "hours_over": 74.8,
+  "fav_ask": 0.87,
+  "liq": 22012,
+  "uma": "[]",
+  "slug": "will-chuck-schumer-be-the-next-senate-majority-leader"
+ },
+ {
+  "cat": "Politics",
+  "q": "Will the Democratic Party win the NC-05 House seat?",
+  "end": "2026-11-04T04:59:00Z",
+  "hours_over": 74.8,
+  "fav_ask": 0.995,
+  "liq": 21801,
+  "uma": "[]",
+  "slug": "will-the-democratic-party-win-the-nc-05-house-seat"
+ },
+ {
+  "cat": "Politics",
+  "q": "Will Chris Van Hollen be the next Senate Majority Leader?",
+  "end": "2026-11-04T04:59:00Z",
+  "hours_over": 74.8,
+  "fav_ask": 0.902,
+  "liq": 20411,
+  "uma": "[]",
+  "slug": "will-chris-van-hollen-be-the-next-senate-majority-leader"
+ },
+ {
+  "cat": "Politics",
+  "q": "Will the Democratic Party win the TN-04 House seat?",
+  "end": "2026-11-04T04:59:00Z",
+  "hours_over": 74.8,
+  "fav_ask": 0.968,
+  "liq": 19073,
+  "uma": "[]",
+  "slug": "will-the-democratic-party-win-the-tn-04-house-seat"
+ },
+ {
+  "cat": "Politics",
+  "q": "Will the Republican Party win the TN-04 House seat?",
+  "end": "2026-11-04T04:59:00Z",
+  "hours_over": 74.8,
+  "fav_ask": 0.966,
+  "liq": 17711,
+  "uma": "[]",
+  "slug": "will-the-republican-party-win-the-tn-04-house-seat"
+ },
+ {
+  "cat": "Politics",
+  "q": "Will Radomir Sai\u010di\u0107 be the next Prime Minister of Serbia?",
+  "end": "2026-10-25T23:59:00Z",
+  "hours_over": 295.8,
+  "fav_ask": 0.912,
+  "liq": 17225,
+  "uma": "[]",
+  "slug": "will-radomir-saicic-be-the-next-prime-minister-of-serbia"
+ },
+ {
+  "cat": "Politics",
+  "q": "Will the Democratic Party win the NC-07 House seat?",
+  "end": "2026-11-04T04:59:00Z",
+  "hours_over": 74.8,
+  "fav_ask": 0.994,
+  "liq": 16335,
+  "uma": "[]",
+  "slug": "will-the-democratic-party-win-the-nc-07-house-seat"
+ },
+ {
+  "cat": "Politics",
+  "q": "Will the Republican Party win the MN-01 House seat?",
+  "end": "2026-11-04T04:59:00Z",
+  "hours_over": 74.8,
+  "fav_ask": 0.965,
+  "liq": 16214,
+  "uma": "[]",
+  "slug": "will-the-republican-party-win-the-mn-01-house-seat"
+ },
+ {
+  "cat": "Politics",
+  "q": "Will Brian Schatz be the next Senate Majority Leader?",
+  "end": "2026-11-04T04:59:00Z",
+  "hours_over": 74.8,
+  "fav_ask": 0.969,
+  "liq": 16142,
+  "uma": "[]",
+  "slug": "will-brian-schatz-be-the-next-senate-majority-leader"
+ },
+ {
+  "cat": "Politics",
+  "q": "Will the Democratic Party win the WA-05 House seat?",
+  "end": "2026-11-04T04:59:00Z",
+  "hours_over": 74.8,
+  "fav_ask": 0.995,
+  "liq": 15946,
+  "uma": "[]",
+  "slug": "will-the-democratic-party-win-the-wa-05-house-seat"
+ },
+ {
+  "cat": "Politics",
+  "q": "Will the Republican Party win the FL-09 House seat?",
+  "end": "2026-11-04T04:59:00Z",
+  "hours_over": 74.8,
+  "fav_ask": 0.994,
+  "liq": 15723,
+  "uma": "[]",
+  "slug": "will-the-republican-party-win-the-fl-09-house-seat"
+ },
+ {
+  "cat": "Politics",
+  "q": "Will the Republican Party win the FL-07 House seat?",
+  "end": "2026-11-04T04:59:00Z",
+  "hours_over": 74.8,
+  "fav_ask": 0.995,
+  "liq": 15409,
+  "uma": "[]",
+  "slug": "will-the-republican-party-win-the-fl-07-house-seat"
+ },
+ {
+  "cat": "Politics",
+  "q": "Will the Democratic Party win the CA-23 House seat?",
+  "end": "2026-11-04T04:59:00Z",
+  "hours_over": 74.8,
+  "fav_ask": 0.954,
+  "liq": 15284,
+  "uma": "[]",
+  "slug": "will-the-democratic-party-win-the-ca-23-house-seat"
+ },
+ {
+  "cat": "Politics",
+  "q": "Will the Republican Party win the NC-07 House seat?",
+  "end": "2026-11-04T04:59:00Z",
+  "hours_over": 74.8,
+  "fav_ask": 0.994,
+  "liq": 14208,
+  "uma": "[]",
+  "slug": "will-the-republican-party-win-the-nc-07-house-seat"
+ },
+ {
+  "cat": "Politics",
+  "q": "Will Francis James Allison Oyague win the next Lima mayoral elections?",
+  "end": "2026-10-05T03:59:00Z",
+  "hours_over": 795.8,
+  "fav_ask": 0.99,
+  "liq": 13821,
+  "uma": "[]",
+  "slug": "will-francis-james-allison-oyague-win-the-next-lima-mayoral-elections-20260724154000922"
+ },
+ {
+  "cat": "Politics",
+  "q": "Will the Democratic Party win the FL-09 House seat?",
+  "end": "2026-11-04T04:59:00Z",
+  "hours_over": 74.8,
+  "fav_ask": 0.992,
+  "liq": 13683,
+  "uma": "[]",
+  "slug": "will-the-democratic-party-win-the-fl-09-house-seat"
+ },
+ {
+  "cat": "Politics",
+  "q": "Will Mike Thompson win the CA-04 House seat?",
+  "end": "2026-11-05T04:59:00Z",
+  "hours_over": 50.8,
+  "fav_ask": 0.959,
+  "liq": 13358,
+  "uma": "[]",
+  "slug": "will-mike-thompson-win-the-ca-04-house-seat-20260630172947751"
+ },
+ {
+  "cat": "Politics",
+  "q": "Will the Democratic Party win the MN-01 House seat?",
+  "end": "2026-11-04T04:59:00Z",
+  "hours_over": 74.8,
+  "fav_ask": 0.96,
+  "liq": 12794,
+  "uma": "[]",
+  "slug": "will-the-democratic-party-win-the-mn-01-house-seat"
+ },
+ {
+  "cat": "Politics",
+  "q": "Will Umaro Sissoco Embal\u00f3 win the 2025 Guinea-Bissau presidential election?",
+  "end": "2025-11-24T04:59:00Z",
+  "hours_over": 8354.8,
+  "fav_ask": 0.981,
+  "liq": 12477,
+  "uma": "[]",
+  "slug": "will-umaro-sissoco-embal-win-the-2025-guinea-bissau-presidential-election"
+ },
+ {
+  "cat": "Politics",
+  "q": "Will the Republican Party win the CA-23 House seat?",
+  "end": "2026-11-04T04:59:00Z",
+  "hours_over": 74.8,
+  "fav_ask": 0.948,
+  "liq": 12175,
+  "uma": "[]",
+  "slug": "will-the-republican-party-win-the-ca-23-house-seat"
+ },
+ {
+  "cat": "Politics",
+  "q": "Will the Democratic Party win the LA-05 House seat?",
+  "end": "2026-11-04T04:59:00Z",
+  "hours_over": 74.8,
+  "fav_ask": 0.954,
+  "liq": 11940,
+  "uma": "[\"proposed\", \"proposed\", \"disputed\", \"disputed\"]",
+  "slug": "will-the-democratic-party-win-the-la-05-house-seat"
+ },
+ {
+  "cat": "Politics",
+  "q": "Will the Republican Party win the WA-05 House seat?",
+  "end": "2026-11-04T04:59:00Z",
+  "hours_over": 74.8,
+  "fav_ask": 0.992,
+  "liq": 11605,
+  "uma": "[]",
+  "slug": "will-the-republican-party-win-the-wa-05-house-seat"
+ },
+ {
+  "cat": "Politics",
+  "q": "Will Mai Vang win the CA-07 House seat?",
+  "end": "2026-11-04T04:59:00Z",
+  "hours_over": 74.8,
+  "fav_ask": 0.992,
+  "liq": 11605,
+  "uma": "[]",
+  "slug": "will-mai-vang-win-the-ca-07-house-seat-20260706153655920"
+ },
+ {
+  "cat": "Politics",
+  "q": "Will Eric Jones win the CA-04 House seat?",
+  "end": "2026-11-05T04:59:00Z",
+  "hours_over": 50.8,
+  "fav_ask": 0.942,
+  "liq": 11560,
+  "uma": "[]",
+  "slug": "will-eric-jones-win-the-ca-04-house-seat-20260630172947750"
+ },
+ {
+  "cat": "Politics",
+  "q": "Will Jos\u00e9 M\u00e1rio Vaz win the 2025 Guinea-Bissau presidential election?",
+  "end": "2025-11-24T04:59:00Z",
+  "hours_over": 8354.8,
+  "fav_ask": 0.995,
+  "liq": 11453,
+  "uma": "[]",
+  "slug": "will-jos-mrio-vaz-win-the-2025-guinea-bissau-presidential-election"
+ },
+ {
+  "cat": "Politics",
+  "q": "Will there be between 120m and 125m votes cast in the 2026 U.S. House of Representatives midterm elections?",
+  "end": "2026-11-04T04:59:00Z",
+  "hours_over": 74.8,
+  "fav_ask": 0.91,
+  "liq": 11406,
+  "uma": "[]",
+  "slug": "will-there-be-between-120m-and-125m-votes-cast-in-the-2026-us-house-of-representatives-midterm-elections"
+ },
+ {
+  "cat": "Politics",
+  "q": "Will Mark Brown be the next Prime Minister of the Cook Islands following the 2026 Cook Islands parliamentary elections?",
+  "end": "2026-08-13T03:59:00Z",
+  "hours_over": 2067.8,
+  "fav_ask": 0.988,
+  "liq": 11328,
+  "uma": "[]",
+  "slug": "will-mark-brown-be-the-next-prime-minister-of-the-cook-islands-following-the-2026-cook-islands-parliamentary-elections-20260715193547853"
+ },
+ {
+  "cat": "Politics",
+  "q": "Will the Republican Party win the LA-06 House seat?",
+  "end": "2026-11-04T04:59:00Z",
+  "hours_over": 74.8,
+  "fav_ask": 0.932,
+  "liq": 11327,
+  "uma": "[]",
+  "slug": "will-the-republican-party-win-the-la-06-house-seat"
+ },
+ {
+  "cat": "Politics",
+  "q": "Will Doris Matsui win the CA-07 House seat?",
+  "end": "2026-11-04T04:59:00Z",
+  "hours_over": 74.8,
+  "fav_ask": 0.979,
+  "liq": 11183,
+  "uma": "[]",
+  "slug": "will-doris-matsui-win-the-ca-07-house-seat-20260706153655919"
+ },
+ {
+  "cat": "Politics",
+  "q": "Will the Democratic Party win the LA-06 House seat?",
+  "end": "2026-11-04T04:59:00Z",
+  "hours_over": 74.8,
+  "fav_ask": 0.931,
+  "liq": 11082,
+  "uma": "[]",
+  "slug": "will-the-democratic-party-win-the-la-06-house-seat"
+ },
+ {
+  "cat": "Politics",
+  "q": "Will the Republican Party win the LA-05 House seat?",
+  "end": "2026-11-04T04:59:00Z",
+  "hours_over": 74.8,
+  "fav_ask": 0.956,
+  "liq": 10995,
+  "uma": "[\"proposed\", \"proposed\", \"disputed\", \"disputed\"]",
+  "slug": "will-the-republican-party-win-the-la-05-house-seat"
+ },
+ {
+  "cat": "Politics",
+  "q": "Will Kathleen Taylor win the 2026 Reno mayoral election?",
+  "end": "2026-11-04T04:59:00Z",
+  "hours_over": 74.8,
+  "fav_ask": 0.994,
+  "liq": 10774,
+  "uma": "[]",
+  "slug": "will-kathleen-taylor-win-the-2026-reno-mayoral-election-20260626001418693"
+ },
+ {
+  "cat": "Politics",
+  "q": "Will Young Kim win the CA-40 House seat?",
+  "end": "2026-11-04T04:59:00Z",
+  "hours_over": 74.8,
+  "fav_ask": 0.974,
+  "liq": 10592,
+  "uma": "[]",
+  "slug": "will-young-kim-win-the-ca-40-house-seat-20260708145004621"
+ },
+ {
+  "cat": "Politics",
+  "q": "US x Cuba diplomatic meeting by October 31?",
+  "end": "2026-11-01T03:59:00Z",
+  "hours_over": 147.8,
+  "fav_ask": 0.976,
+  "liq": 10546,
+  "uma": "[]",
+  "slug": "us-x-cuba-diplomatic-meeting-by-october-31"
+ },
+ {
+  "cat": "Politics",
+  "q": "Will Kate Marshall win the 2026 Reno mayoral election?",
+  "end": "2026-11-04T04:59:00Z",
+  "hours_over": 74.8,
+  "fav_ask": 0.988,
+  "liq": 10529,
+  "uma": "[]",
+  "slug": "will-kate-marshall-win-the-2026-reno-mayoral-election-20260626001418692"
+ },
+ {
+  "cat": "Politics",
+  "q": "Will Ken Calvert win the CA-40 House seat?",
+  "end": "2026-11-04T04:59:00Z",
+  "hours_over": 74.8,
+  "fav_ask": 0.98,
+  "liq": 10320,
+  "uma": "[]",
+  "slug": "will-ken-calvert-win-the-ca-40-house-seat-20260708145004620"
+ },
+ {
+  "cat": "Politics",
+  "q": "Will Mike Johnson be the first Speaker of the House after the 2026 midterms?",
+  "end": "2026-11-04T04:59:00Z",
+  "hours_over": 74.8,
+  "fav_ask": 0.995,
+  "liq": 9561,
+  "uma": "[]",
+  "slug": "will-mike-johnson-be-the-first-speaker-of-the-house-after-the-2026-midterms"
+ },
+ {
+  "cat": "Politics",
+  "q": "Will Katherine Clark be the first Speaker of the House after the 2026 midterms?",
+  "end": "2026-11-04T04:59:00Z",
+  "hours_over": 74.8,
+  "fav_ask": 0.979,
+  "liq": 9259,
+  "uma": "[]",
+  "slug": "will-katherine-clark-be-the-first-speaker-of-the-house-after-the-2026-midterms"
+ },
+ {
+  "cat": "Politics",
+  "q": "Will Pete Aguilar be the first Speaker of the House after the 2026 midterms?",
+  "end": "2026-11-04T04:59:00Z",
+  "hours_over": 74.8,
+  "fav_ask": 0.978,
+  "liq": 8083,
+  "uma": "[]",
+  "slug": "will-pete-aguilar-be-the-first-speaker-of-the-house-after-the-2026-midterms"
+ },
+ {
+  "cat": "Politics",
+  "q": "Will Ivanka Popovi\u0107 be the next Prime Minister of Serbia?",
+  "end": "2026-10-25T23:59:00Z",
+  "hours_over": 295.8,
+  "fav_ask": 0.869,
+  "liq": 6391,
+  "uma": "[]",
+  "slug": "will-ivanka-popovic-be-the-next-prime-minister-of-serbia"
+ },
+ {
+  "cat": "Politics",
+  "q": "Will there be between 115m and 120m votes cast in the 2026 U.S. House of Representatives midterm elections?",
+  "end": "2026-11-04T04:59:00Z",
+  "hours_over": 74.8,
+  "fav_ask": 0.92,
+  "liq": 2949,
+  "uma": "[]",
+  "slug": "will-there-be-between-115m-and-120m-votes-cast-in-the-2026-us-house-of-representatives-midterm-elections"
+ },
+ {
+  "cat": "Sports",
+  "q": "Will Baker Mayfield finish the 2026-27 NFL regular season with the most passing yards?",
+  "end": "2026-01-27T04:59:00Z",
+  "hours_over": 6818.8,
+  "fav_ask": 0.983,
+  "liq": 2677,
+  "uma": "[]",
+  "slug": "will-baker-mayfield-finish-the-2026-27-nfl-regular-season-with-the-most-passing-yards"
+ },
+ {
+  "cat": "Politics",
+  "q": "California Expedited Environmental Review Proposition",
+  "end": "2026-11-04T04:59:00Z",
+  "hours_over": 74.8,
+  "fav_ask": 0.977,
+  "liq": 2617,
+  "uma": "[]",
+  "slug": "california-expedited-environmental-review-proposition"
+ },
+ {
+  "cat": "Politics",
+  "q": "Will the Republican Party hold fewer than 22 governorships after the 2026 midterm elections?",
+  "end": "2026-11-04T04:59:00Z",
+  "hours_over": 74.8,
+  "fav_ask": 0.995,
+  "liq": 2006,
+  "uma": "[]",
+  "slug": "will-the-republican-party-hold-fewer-than-22-governorships-after-the-2026-midterm-elections"
+ },
+ {
+  "cat": "Sports",
+  "q": "Will FK Livyi Bereh win on 2026-08-02?",
+  "end": "2026-08-02T15:00:00Z",
+  "hours_over": 2320.8,
+  "fav_ask": 0.93,
+  "liq": 1567,
+  "uma": "[]",
+  "slug": "ukr1-dyn-liv-2026-08-02-liv"
+ },
+ {
+  "cat": "Politics",
+  "q": "Will Hon\u00f3rio Augusto Lopes win the 2025 Guinea-Bissau presidential election?",
+  "end": "2025-11-24T04:59:00Z",
+  "hours_over": 8354.8,
+  "fav_ask": 0.991,
+  "liq": 1306,
+  "uma": "[]",
+  "slug": "will-honrio-augusto-lopes-win-the-2025-guinea-bissau-presidential-election"
+ },
+ {
+  "cat": "Politics",
+  "q": "Will Fernando Dias da Costa win the 2025 Guinea-Bissau presidential election?",
+  "end": "2025-11-24T04:59:00Z",
+  "hours_over": 8354.8,
+  "fav_ask": 0.965,
+  "liq": 1066,
+  "uma": "[]",
+  "slug": "will-fernando-dias-da-costa-win-the-2025-guinea-bissau-presidential-election"
+ },
+ {
+  "cat": "Sports",
+  "q": "Will Matthew Stafford finish the 2026-27 NFL regular season with the most passing yards?",
+  "end": "2026-01-27T04:59:00Z",
+  "hours_over": 6818.8,
+  "fav_ask": 0.9,
+  "liq": 888,
+  "uma": "[]",
+  "slug": "will-matthew-stafford-finish-the-2026-27-nfl-regular-season-with-the-most-passing-yards-20260715211220969"
+ },
+ {
+  "cat": "Politics",
+  "q": "Will Platforma Reupblicana \u201cN\u00f4 Kumpu Guin\u00e9\u201d win the most seats in the 2025 Guinea-Bissau National People\u2019s Assembly election?",
+  "end": "2025-11-24T04:59:00Z",
+  "hours_over": 8354.8,
+  "fav_ask": 0.959,
+  "liq": 834,
+  "uma": "[]",
+  "slug": "will-platforma-reupblicana-n-kumpu-guin-win-the-most-seats-in-the-2025-guinea-bissau-national-peoples-assembly-election"
+ },
+ {
+  "cat": "Crypto",
+  "q": "Will Apyx launch a token by June 30, 2026?",
+  "end": "2026-07-01T03:59:00Z",
+  "hours_over": 3099.8,
+  "fav_ask": 0.96,
+  "liq": 732,
+  "uma": "[]",
+  "slug": "will-apyx-launch-a-token-by-june-30-2026"
+ },
+ {
+  "cat": "Sports",
+  "q": "Will FK Dynamo Kyiv vs. FK Livyi Bereh end in a draw?",
+  "end": "2026-08-02T15:00:00Z",
+  "hours_over": 2320.8,
+  "fav_ask": 0.89,
+  "liq": 691,
+  "uma": "[]",
+  "slug": "ukr1-dyn-liv-2026-08-02-draw"
+ },
+ {
+  "cat": "Sports",
+  "q": "Will Drake Maye finish the 2026-27 NFL regular season with the most passing yards?",
+  "end": "2026-01-27T04:59:00Z",
+  "hours_over": 6818.8,
+  "fav_ask": 0.99,
+  "liq": 505,
+  "uma": "[]",
+  "slug": "will-drake-maye-finish-the-2026-27-nfl-regular-season-with-the-most-passing-yards"
+ },
+ {
+  "cat": "Sports",
+  "q": "FK Dynamo Kyiv vs. FK Livyi Bereh: O/U 2.5",
+  "end": "2026-08-02T15:00:00Z",
+  "hours_over": 2320.8,
+  "fav_ask": 0.9,
+  "liq": 480,
+  "uma": "[]",
+  "slug": "ukr1-dyn-liv-2026-08-02-total-2pt5"
+ },
+ {
+  "cat": "Sports",
+  "q": "Will Josh Allen finish the 2026-27 NFL regular season with the most passing yards?",
+  "end": "2026-01-27T04:59:00Z",
+  "hours_over": 6818.8,
+  "fav_ask": 0.99,
+  "liq": 466,
+  "uma": "[]",
+  "slug": "will-josh-allen-finish-the-2026-27-nfl-regular-season-with-the-most-passing-yards"
+ },
+ {
+  "cat": "Sports",
+  "q": "Will FK Chornomorets Odesa vs. FK Kolos Kovalivka end in a draw?",
+  "end": "2026-08-08T10:00:00Z",
+  "hours_over": 2181.8,
+  "fav_ask": 0.9,
+  "liq": 451,
+  "uma": "[]",
+  "slug": "ukr1-fco-kol-2026-08-08-draw"
+ },
+ {
+  "cat": "Sports",
+  "q": "FK Dynamo Kyiv vs. FK Livyi Bereh: O/U 3.5",
+  "end": "2026-08-02T15:00:00Z",
+  "hours_over": 2320.8,
+  "fav_ask": 0.95,
+  "liq": 423,
+  "uma": "[]",
+  "slug": "ukr1-dyn-liv-2026-08-02-total-3pt5"
+ },
+ {
+  "cat": "Sports",
+  "q": "Will Jordan Love finish the 2026-27 NFL regular season with the most passing yards?",
+  "end": "2026-01-27T04:59:00Z",
+  "hours_over": 6818.8,
+  "fav_ask": 0.858,
+  "liq": 408,
+  "uma": "[]",
+  "slug": "will-jordan-love-finish-the-2026-27-nfl-regular-season-with-the-most-passing-yards"
+ },
+ {
+  "cat": "Sports",
+  "q": "Will Patrick Mahomes finish the 2026-27 NFL regular season with the most passing yards?",
+  "end": "2026-01-27T04:59:00Z",
+  "hours_over": 6818.8,
+  "fav_ask": 0.983,
+  "liq": 400,
+  "uma": "[]",
+  "slug": "will-patrick-mahomes-finish-the-2026-27-nfl-regular-season-with-the-most-passing-yards"
+ },
+ {
+  "cat": "Sports",
+  "q": "Will Justin Herbert finish the 2026-27 NFL regular season with the most passing yards?",
+  "end": "2026-01-27T04:59:00Z",
+  "hours_over": 6818.8,
+  "fav_ask": 0.99,
+  "liq": 377,
+  "uma": "[]",
+  "slug": "will-justin-herbert-finish-the-2026-27-nfl-regular-season-with-the-most-passing-yards"
+ },
+ {
+  "cat": "Economy",
+  "q": "Natural Gas (NG) Up or Down on March 26?",
+  "end": "2026-03-26T21:00:00Z",
+  "hours_over": 5410.8,
+  "fav_ask": 0.93,
+  "liq": 370,
+  "uma": "[]",
+  "slug": "ng-up-or-down-on-march-26-2026"
+ },
+ {
+  "cat": "Sports",
+  "q": "Will Brock Purdy finish the 2026-27 NFL regular season with the most passing yards?",
+  "end": "2026-01-27T04:59:00Z",
+  "hours_over": 6818.8,
+  "fav_ask": 0.969,
+  "liq": 370,
+  "uma": "[]",
+  "slug": "will-brock-purdy-finish-the-2026-27-nfl-regular-season-with-the-most-passing-yards-20260715211220972"
+ },
+ {
+  "cat": "Sports",
+  "q": "Will Sam Darnold finish the 2026-27 NFL regular season with the most passing yards?",
+  "end": "2026-01-27T04:59:00Z",
+  "hours_over": 6818.8,
+  "fav_ask": 0.99,
+  "liq": 367,
+  "uma": "[]",
+  "slug": "will-sam-darnold-finish-the-2026-27-nfl-regular-season-with-the-most-passing-yards"
+ },
+ {
+  "cat": "Sports",
+  "q": "FK Dynamo Kyiv vs. FK Livyi Bereh: Both Teams to Score",
+  "end": "2026-08-02T15:00:00Z",
+  "hours_over": 2320.8,
+  "fav_ask": 0.87,
+  "liq": 358,
+  "uma": "[]",
+  "slug": "ukr1-dyn-liv-2026-08-02-btts"
+ },
+ {
+  "cat": "Other",
+  "q": "Will Bruno Donat be the next Secretary General of the United Nations?",
+  "end": "2026-02-28T00:00:00Z",
+  "hours_over": 6055.8,
+  "fav_ask": 0.991,
+  "liq": 356,
+  "uma": "[]",
+  "slug": "will-bruno-donat-be-the-next-secretary-general-of-the-united-nations"
+ },
+ {
+  "cat": "Sports",
+  "q": "Will Bryce Young finish the 2026-27 NFL regular season with the most passing yards?",
+  "end": "2026-01-27T04:59:00Z",
+  "hours_over": 6818.8,
+  "fav_ask": 0.99,
+  "liq": 345,
+  "uma": "[]",
+  "slug": "will-player-r-finish-the-2026-27-nfl-regular-season-with-the-most-passing-yards-20260715211220991"
+ },
+ {
+  "cat": "Sports",
+  "q": "Spread: FK Livyi Bereh (-1.5)",
+  "end": "2026-08-02T15:00:00Z",
+  "hours_over": 2320.8,
+  "fav_ask": 0.99,
+  "liq": 342,
+  "uma": "[]",
+  "slug": "ukr1-dyn-liv-2026-08-02-spread-away-1pt5"
+ },
+ {
+  "cat": "Sports",
+  "q": "Will Jalen Hurts finish the 2026-27 NFL regular season with the most passing yards?",
+  "end": "2026-01-27T04:59:00Z",
+  "hours_over": 6818.8,
+  "fav_ask": 0.98,
+  "liq": 341,
+  "uma": "[]",
+  "slug": "will-jalen-hurts-finish-the-2026-27-nfl-regular-season-with-the-most-passing-yards"
+ },
+ {
+  "cat": "Sports",
+  "q": "Will Caleb Williams finish the 2026-27 NFL regular season with the most passing yards?",
+  "end": "2026-01-27T04:59:00Z",
+  "hours_over": 6818.8,
+  "fav_ask": 0.99,
+  "liq": 336,
+  "uma": "[]",
+  "slug": "will-player-g-finish-the-2026-27-nfl-regular-season-with-the-most-passing-yards-20260715211220980"
+ },
+ {
+  "cat": "Sports",
+  "q": "Will FK Chornomorets Odesa win on 2026-08-08?",
+  "end": "2026-08-08T10:00:00Z",
+  "hours_over": 2181.8,
+  "fav_ask": 0.94,
+  "liq": 296,
+  "uma": "[]",
+  "slug": "ukr1-fco-kol-2026-08-08-fco"
+ },
+ {
+  "cat": "Sports",
+  "q": "Will Lamar Jackson finish the 2026-27 NFL regular season with the most passing yards?",
+  "end": "2026-01-27T04:59:00Z",
+  "hours_over": 6818.8,
+  "fav_ask": 0.988,
+  "liq": 267,
+  "uma": "[]",
+  "slug": "will-lamar-jackson-finish-the-2026-27-nfl-regular-season-with-the-most-passing-yards"
+ },
+ {
+  "cat": "Sports",
+  "q": "Will Trevor Lawrence finish the 2026-27 NFL regular season with the most passing yards?",
+  "end": "2026-01-27T04:59:00Z",
+  "hours_over": 6818.8,
+  "fav_ask": 0.99,
+  "liq": 266,
+  "uma": "[]",
+  "slug": "will-trevor-lawrence-finish-the-2026-27-nfl-regular-season-with-the-most-passing-yards"
+ },
+ {
+  "cat": "Politics",
+  "q": "Will Alabama use a new congressional map for the 2026 United States midterm elections?",
+  "end": "2026-11-04T04:59:00Z",
+  "hours_over": 74.8,
+  "fav_ask": 0.87,
+  "liq": 253,
+  "uma": "[]",
+  "slug": "will-alabama-use-a-new-congressional-map-for-the-2026-united-states-midterm-elections"
+ },
+ {
+  "cat": "Politics",
+  "q": "California Tax Spend Audit Proposition",
+  "end": "2026-11-04T04:59:00Z",
+  "hours_over": 74.8,
+  "fav_ask": 0.98,
+  "liq": 246,
+  "uma": "[]",
+  "slug": "california-tax-spend-audit-proposition"
+ },
+ {
+  "cat": "Sports",
+  "q": "Will Jaxson Dart finish the 2026-27 NFL regular season with the most passing yards?",
+  "end": "2026-01-27T04:59:00Z",
+  "hours_over": 6818.8,
+  "fav_ask": 0.989,
+  "liq": 240,
+  "uma": "[]",
+  "slug": "will-player-n-finish-the-2026-27-nfl-regular-season-with-the-most-passing-yards-20260715211220987"
+ },
+ {
+  "cat": "Sports",
+  "q": "Will C.J. Stroud finish the 2026-27 NFL regular season with the most passing yards?",
+  "end": "2026-01-27T04:59:00Z",
+  "hours_over": 6818.8,
+  "fav_ask": 0.987,
+  "liq": 228,
+  "uma": "[]",
+  "slug": "will-cj-stroud-finish-the-2026-27-nfl-regular-season-with-the-most-passing-yards"
+ },
+ {
+  "cat": "Other",
+  "q": "Will Rafael Grossi be the next Secretary General of the United Nations?",
+  "end": "2026-02-28T00:00:00Z",
+  "hours_over": 6055.8,
+  "fav_ask": 0.96,
+  "liq": 223,
+  "uma": "[]",
+  "slug": "will-rafael-grossi-be-the-next-secretary-general-of-the-united-nations"
+ },
+ {
+  "cat": "Sports",
+  "q": "FK Chornomorets Odesa vs. FK Kolos Kovalivka: O/U 1.5",
+  "end": "2026-08-08T10:00:00Z",
+  "hours_over": 2181.8,
+  "fav_ask": 0.99,
+  "liq": 221,
+  "uma": "[]",
+  "slug": "ukr1-fco-kol-2026-08-08-total-1pt5"
+ },
+ {
+  "cat": "Sports",
+  "q": "FK Chornomorets Odesa vs. FK Kolos Kovalivka: O/U 2.5",
+  "end": "2026-08-08T10:00:00Z",
+  "hours_over": 2181.8,
+  "fav_ask": 0.9,
+  "liq": 201,
+  "uma": "[]",
+  "slug": "ukr1-fco-kol-2026-08-08-total-2pt5"
+ },
+ {
+  "cat": "Politics",
+  "q": "Will Scott Black win the 2026 North Las Vegas mayoral election?",
+  "end": "2026-06-10T03:59:00Z",
+  "hours_over": 3603.8,
+  "fav_ask": 0.97,
+  "liq": 180,
+  "uma": "[]",
+  "slug": "will-scott-black-win-the-2026-north-las-vegas-mayoral-election-20260626001143911"
+ },
+ {
+  "cat": "Politics",
+  "q": "Will Louisiana use a new congressional map for the 2026 United States midterm elections?",
+  "end": "2026-11-04T04:59:00Z",
+  "hours_over": 74.8,
+  "fav_ask": 0.978,
+  "liq": 173,
+  "uma": "[]",
+  "slug": "will-louisiana-use-a-new-congressional-map-for-the-2026-united-states-midterm-elections"
+ },
+ {
+  "cat": "Sports",
+  "q": "FK Dynamo Kyiv vs. FK Livyi Bereh: FK Livyi Bereh O/U 1.5",
+  "end": "2026-08-02T15:00:00Z",
+  "hours_over": 2320.8,
+  "fav_ask": 0.99,
+  "liq": 171,
+  "uma": "[]",
+  "slug": "ukr1-dyn-liv-2026-08-02-team-total-away-1pt5"
+ },
+ {
+  "cat": "Sports",
+  "q": "FK Dynamo Kyiv to score first vs. FK Livyi Bereh?",
+  "end": "2026-08-02T15:00:00Z",
+  "hours_over": 2320.8,
+  "fav_ask": 0.98,
+  "liq": 166,
+  "uma": "[]",
+  "slug": "ukr1-dyn-liv-2026-08-02-first-to-score-home"
+ },
+ {
+  "cat": "Sports",
+  "q": "FK Livyi Bereh to score first vs. FK Dynamo Kyiv?",
+  "end": "2026-08-02T15:00:00Z",
+  "hours_over": 2320.8,
+  "fav_ask": 0.98,
+  "liq": 157,
+  "uma": "[]",
+  "slug": "ukr1-dyn-liv-2026-08-02-first-to-score-away"
+ },
+ {
+  "cat": "Sports",
+  "q": "FK Dynamo Kyiv vs. FK Livyi Bereh: FK Livyi Bereh O/U 0.5",
+  "end": "2026-08-02T15:00:00Z",
+  "hours_over": 2320.8,
+  "fav_ask": 0.95,
+  "liq": 150,
+  "uma": "[]",
+  "slug": "ukr1-dyn-liv-2026-08-02-team-total-away-0pt5"
+ },
+ {
+  "cat": "Sports",
+  "q": "FK Chornomorets Odesa vs. FK Kolos Kovalivka: FK Chornomorets Odesa O/U 1.5",
+  "end": "2026-08-08T10:00:00Z",
+  "hours_over": 2181.8,
+  "fav_ask": 0.97,
+  "liq": 130,
+  "uma": "[]",
+  "slug": "ukr1-fco-kol-2026-08-08-team-total-home-1pt5"
+ },
+ {
+  "cat": "Sports",
+  "q": "FK Chornomorets Odesa vs. FK Kolos Kovalivka: Both Teams to Score",
+  "end": "2026-08-08T10:00:00Z",
+  "hours_over": 2181.8,
+  "fav_ask": 0.95,
+  "liq": 101,
+  "uma": "[]",
+  "slug": "ukr1-fco-kol-2026-08-08-btts"
+ },
+ {
+  "cat": "Sports",
+  "q": "FK Chornomorets Odesa vs. FK Kolos Kovalivka: FK Chornomorets Odesa O/U 0.5",
+  "end": "2026-08-08T10:00:00Z",
+  "hours_over": 2181.8,
+  "fav_ask": 0.95,
+  "liq": 100,
+  "uma": "[]",
+  "slug": "ukr1-fco-kol-2026-08-08-team-total-home-0pt5"
+ },
+ {
+  "cat": "Sports",
+  "q": "FK Chornomorets Odesa vs. FK Kolos Kovalivka: FK Kolos Kovalivka O/U 0.5",
+  "end": "2026-08-08T10:00:00Z",
+  "hours_over": 2181.8,
+  "fav_ask": 0.95,
+  "liq": 100,
+  "uma": "[]",
+  "slug": "ukr1-fco-kol-2026-08-08-team-total-away-0pt5"
+ },
+ {
+  "cat": "Sports",
+  "q": "FK Chornomorets Odesa vs. FK Kolos Kovalivka: FK Kolos Kovalivka O/U 1.5",
+  "end": "2026-08-08T10:00:00Z",
+  "hours_over": 2181.8,
+  "fav_ask": 0.95,
+  "liq": 100,
+  "uma": "[]",
+  "slug": "ukr1-fco-kol-2026-08-08-team-total-away-1pt5"
+ },
+ {
+  "cat": "Crypto",
+  "q": "Will Papertrade launch a token by June 30, 2026?",
+  "end": "2026-07-01T03:59:00Z",
+  "hours_over": 3099.8,
+  "fav_ask": 0.96,
+  "liq": 86,
+  "uma": "[]",
+  "slug": "will-papertrade-launch-a-token-by-june-30-2026"
+ },
+ {
+  "cat": "Economy",
+  "q": "Natural Gas (NG) Up or Down on March 31?",
+  "end": "2026-03-31T21:00:00Z",
+  "hours_over": 5290.8,
+  "fav_ask": 0.979,
+  "liq": 82,
+  "uma": "[]",
+  "slug": "ng-up-or-down-on-march-31-2026"
+ },
+ {
+  "cat": "Crypto",
+  "q": "Will RISE launch a token by June 30, 2026?",
+  "end": "2026-07-01T03:59:00Z",
+  "hours_over": 3099.8,
+  "fav_ask": 0.98,
+  "liq": 76,
+  "uma": "[]",
+  "slug": "will-rise-launch-a-token-by-june-30-2026"
+ },
+ {
+  "cat": "Sports",
+  "q": "Spread: FK Kolos Kovalivka (-1.5)",
+  "end": "2026-08-08T10:00:00Z",
+  "hours_over": 2181.8,
+  "fav_ask": 0.98,
+  "liq": 70,
+  "uma": "[]",
+  "slug": "ukr1-fco-kol-2026-08-08-spread-away-1pt5"
+ },
+ {
+  "cat": "Sports",
+  "q": "Spread: FK Chornomorets Odesa (-1.5)",
+  "end": "2026-08-08T10:00:00Z",
+  "hours_over": 2181.8,
+  "fav_ask": 0.99,
+  "liq": 60,
+  "uma": "[]",
+  "slug": "ukr1-fco-kol-2026-08-08-spread-home-1pt5"
+ },
+ {
+  "cat": "Politics",
+  "q": "Will Daniele Monroe-Moreno win the 2026 North Las Vegas mayoral election?",
+  "end": "2026-06-10T03:59:00Z",
+  "hours_over": 3603.8,
+  "fav_ask": 0.96,
+  "liq": 49,
+  "uma": "[]",
+  "slug": "will-daniele-monroe-moreno-win-the-2026-north-las-vegas-mayoral-election-20260626001143910"
+ },
+ {
+  "cat": "Sports",
+  "q": "Map 3: Odd/Even Total Kills?",
+  "end": "2026-05-26T03:59:00Z",
+  "hours_over": 3963.8,
+  "fav_ask": 0.99,
+  "liq": 40,
+  "uma": "[]",
+  "slug": "cs2-vita-pre-2026-05-18-game3-odd-even-total-kills"
+ },
+ {
+  "cat": "Politics",
+  "q": "California Recall Election Reform Proposition",
+  "end": "2026-11-04T04:59:00Z",
+  "hours_over": 74.8,
+  "fav_ask": 0.94,
+  "liq": 35,
+  "uma": "[]",
+  "slug": "california-recall-election-reform-proposition"
+ },
+ {
+  "cat": "Politics",
+  "q": "Will A win the SC-02 House seat?",
+  "end": "2026-11-03T00:00:00Z",
+  "hours_over": 103.8,
+  "fav_ask": 0.99,
+  "liq": 34,
+  "uma": "[]",
+  "slug": "will-a-win-the-sc-02-house-seat"
+ },
+ {
+  "cat": "Sports",
+  "q": "archFnatic merger/acquisition announced by June 1, 2026?",
+  "end": "2026-06-02T03:59:00Z",
+  "hours_over": 3795.8,
+  "fav_ask": 0.94,
+  "liq": 27,
+  "uma": "[]",
+  "slug": "fnatic-mergeracquisition-announced-by-june-1-2026"
+ },
+ {
+  "cat": "Sports",
+  "q": "Map 1: Odd/Even Total Kills?",
+  "end": "2026-03-18T03:59:00Z",
+  "hours_over": 5619.8,
+  "fav_ask": 0.99,
+  "liq": 24,
+  "uma": "[]",
+  "slug": "cs2-aaa-inf1-2026-03-10-game1-odd-even-total-kills"
+ },
+ {
+  "cat": "Sports",
+  "q": "Map 3: Odd/Even Total Kills?",
+  "end": "2026-03-29T03:59:00Z",
+  "hours_over": 5355.8,
+  "fav_ask": 0.99,
+  "liq": 24,
+  "uma": "[]",
+  "slug": "cs2-sta6-b8acad-2026-03-21-game3-odd-even-total-kills"
+ },
+ {
+  "cat": "Tech",
+  "q": "AWS service disrupted by September 30?",
+  "end": "2026-10-01T03:59:00Z",
+  "hours_over": 891.8,
+  "fav_ask": 0.94,
+  "liq": 22,
+  "uma": "[]",
+  "slug": "aws-service-disrupted-by-september-30-20260811191112352"
+ },
+ {
+  "cat": "Tech",
+  "q": "AWS service disrupted by October 31?",
+  "end": "2026-11-01T03:59:00Z",
+  "hours_over": 147.8,
+  "fav_ask": 0.99,
+  "liq": 14,
+  "uma": "[]",
+  "slug": "aws-service-disrupted-by-october-31"
+ },
+ {
+  "cat": "Sports",
+  "q": "ODI Series Afghanistan vs Sri Lanka: Afghanistan vs Sri Lanka - Completed match?",
+  "end": "2026-03-27T01:00:00Z",
+  "hours_over": 5406.8,
+  "fav_ask": 0.99,
+  "liq": 11,
+  "uma": "[]",
+  "slug": "crint-afg-lka-2026-03-20-completed-match"
+ },
+ {
+  "cat": "Sports",
+  "q": "T20 Series Afghanistan vs Sri Lanka: Afghanistan vs Sri Lanka - Toss Match Double Draw",
+  "end": "2026-03-24T10:30:00Z",
+  "hours_over": 5469.3,
+  "fav_ask": 0.995,
+  "liq": 10,
+  "uma": "[]",
+  "slug": "crint-afg-lka-2026-03-17-toss-match-double-draw"
+ },
+ {
+  "cat": "Sports",
+  "q": "Mukono Super Smash T20: Bussana vs Ntunda",
+  "end": "2026-08-06T03:00:00Z",
+  "hours_over": 2236.8,
+  "fav_ask": 0.99,
+  "liq": 10,
+  "uma": "[]",
+  "slug": "cricmukono-bus-ntu-2026-07-30"
+ },
+ {
+  "cat": "Politics",
+  "q": "Will another party win the SC-02 House seat?",
+  "end": "2026-11-03T00:00:00Z",
+  "hours_over": 103.8,
+  "fav_ask": 0.99,
+  "liq": 9,
+  "uma": "[]",
+  "slug": "will-another-party-win-the-sc-02-house-seat"
+ },
+ {
+  "cat": "Politics",
+  "q": "Will any other outcome occur in the 2026 U.S. House of Representatives midterm elections?",
+  "end": "2026-11-03T00:00:00Z",
+  "hours_over": 103.8,
+  "fav_ask": 0.99,
+  "liq": 9,
+  "uma": "[]",
+  "slug": "will-any-other-outcome-occur-in-the-2026-us-house-of-representatives-midterm-elections"
+ },
+ {
+  "cat": "Sports",
+  "q": "T20 Series Afghanistan vs Sri Lanka: Afghanistan vs Sri Lanka - Completed match?",
+  "end": "2026-03-20T14:30:00Z",
+  "hours_over": 5561.3,
+  "fav_ask": 0.979,
+  "liq": 9,
+  "uma": "[]",
+  "slug": "crint-afg-lka-2026-03-13-completed-match"
+ },
+ {
+  "cat": "Sports",
+  "q": "T20 Series Afghanistan vs Sri Lanka: Afghanistan vs Sri Lanka",
+  "end": "2026-03-24T10:30:00Z",
+  "hours_over": 5469.3,
+  "fav_ask": 0.99,
+  "liq": 9,
+  "uma": "[]",
+  "slug": "crint-afg-lka-2026-03-17"
+ },
+ {
+  "cat": "Sports",
+  "q": "T20 Series Afghanistan vs Sri Lanka: Afghanistan vs Sri Lanka - Team Top Batter Draw",
+  "end": "2026-03-20T14:30:00Z",
+  "hours_over": 5561.3,
+  "fav_ask": 0.995,
+  "liq": 8,
+  "uma": "[]",
+  "slug": "crint-afg-lka-2026-03-13-team-top-batter-draw"
+ },
+ {
+  "cat": "Sports",
+  "q": "T20 Series Afghanistan vs Sri Lanka: Afghanistan vs Sri Lanka - Most Sixes Draw",
+  "end": "2026-03-20T14:30:00Z",
+  "hours_over": 5561.3,
+  "fav_ask": 0.99,
+  "liq": 7,
+  "uma": "[]",
+  "slug": "crint-afg-lka-2026-03-13-most-sixes-draw"
+ },
+ {
+  "cat": "Sports",
+  "q": "Will Odisha FC win on 2026-03-13?",
+  "end": "2026-03-13T14:00:00Z",
+  "hours_over": 5729.8,
+  "fav_ask": 0.97,
+  "liq": 6,
+  "uma": "[]",
+  "slug": "isp-ddy-ddy-2026-03-13-ddy"
+ },
+ {
+  "cat": "Sports",
+  "q": "T20 Series Afghanistan vs Sri Lanka: Afghanistan vs Sri Lanka - Who wins the toss?",
+  "end": "2026-03-20T14:30:00Z",
+  "hours_over": 5561.3,
+  "fav_ask": 0.99,
+  "liq": 6,
+  "uma": "[]",
+  "slug": "crint-afg-lka-2026-03-13-toss-winner"
+ },
+ {
+  "cat": "Sports",
+  "q": "ODI Series Afghanistan vs Sri Lanka: Afghanistan vs Sri Lanka",
+  "end": "2026-03-27T01:00:00Z",
+  "hours_over": 5406.8,
+  "fav_ask": 0.98,
+  "liq": 6,
+  "uma": "[]",
+  "slug": "crint-afg-lka-2026-03-20"
+ },
+ {
+  "cat": "Sports",
+  "q": "T20 Series Afghanistan vs Sri Lanka: Afghanistan vs Sri Lanka",
+  "end": "2026-03-22T10:30:00Z",
+  "hours_over": 5517.3,
+  "fav_ask": 0.98,
+  "liq": 5,
+  "uma": "[]",
+  "slug": "crint-afg-lka-2026-03-15"
+ },
+ {
+  "cat": "Sports",
+  "q": "ODI Series Afghanistan vs Sri Lanka: Afghanistan vs Sri Lanka",
+  "end": "2026-03-29T01:00:00Z",
+  "hours_over": 5358.8,
+  "fav_ask": 0.99,
+  "liq": 5,
+  "uma": "[]",
+  "slug": "crint-afg-lka-2026-03-22"
+ },
+ {
+  "cat": "Politics",
+  "q": "California Retroactive Tax Prohibition Proposition",
+  "end": "2026-11-04T04:59:00Z",
+  "hours_over": 74.8,
+  "fav_ask": 0.993,
+  "liq": 5,
+  "uma": "[]",
+  "slug": "california-retroactive-tax-prohibition-proposition"
+ },
+ {
+  "cat": "Sports",
+  "q": "ODI Series Afghanistan vs Sri Lanka: Afghanistan vs Sri Lanka - Who wins the toss?",
+  "end": "2026-03-29T01:00:00Z",
+  "hours_over": 5358.8,
+  "fav_ask": 0.98,
+  "liq": 4,
+  "uma": "[]",
+  "slug": "crint-afg-lka-2026-03-22-toss-winner"
+ },
+ {
+  "cat": "Sports",
+  "q": "Pakistan Super League: Rawalpindi Pindiz vs Peshawar Zalmi - Toss Match Double Peshawar Zalmi Winner",
+  "end": "2026-05-03T05:30:00Z",
+  "hours_over": 4514.3,
+  "fav_ask": 0.96,
+  "liq": 4,
+  "uma": "[]",
+  "slug": "cricpsl-raw-pes-2026-04-26-toss-match-double-pes"
+ },
+ {
+  "cat": "Sports",
+  "q": "FK Dynamo Kyiv vs. FK Livyi Bereh: Draw at halftime?",
+  "end": "2026-08-02T15:00:00Z",
+  "hours_over": 2320.8,
+  "fav_ask": 0.99,
+  "liq": 4,
+  "uma": "[]",
+  "slug": "ukr1-dyn-liv-2026-08-02-halftime-result-draw"
+ },
+ {
+  "cat": "Sports",
+  "q": "FK Dynamo Kyiv vs. FK Livyi Bereh: Second half draw?",
+  "end": "2026-08-02T15:00:00Z",
+  "hours_over": 2320.8,
+  "fav_ask": 0.99,
+  "liq": 4,
+  "uma": "[]",
+  "slug": "ukr1-dyn-liv-2026-08-02-second-half-result-draw"
+ },
+ {
+  "cat": "Sports",
+  "q": "T20 Series Afghanistan vs Sri Lanka: Afghanistan vs Sri Lanka - Most Sixes Afghanistan Winner",
+  "end": "2026-03-20T14:30:00Z",
+  "hours_over": 5561.3,
+  "fav_ask": 0.99,
+  "liq": 3,
+  "uma": "[]",
+  "slug": "crint-afg-lka-2026-03-13-most-sixes-afg"
+ },
+ {
+  "cat": "Sports",
+  "q": "ODI Series Afghanistan vs Sri Lanka: Afghanistan vs Sri Lanka",
+  "end": "2026-04-01T01:00:00Z",
+  "hours_over": 5286.8,
+  "fav_ask": 0.96,
+  "liq": 3,
+  "uma": "[]",
+  "slug": "crint-afg-lka-2026-03-25"
+ },
+ {
+  "cat": "Sports",
+  "q": "Will Galatasaray SK vs. Trabzonspor end in a draw?",
+  "end": "2026-05-01T17:30:00Z",
+  "hours_over": 4550.3,
+  "fav_ask": 0.99,
+  "liq": 3,
+  "uma": "[]",
+  "slug": "trsk-gal-tra-2026-05-01-draw"
+ },
+ {
+  "cat": "Politics",
+  "q": "California Public Campaign Financing Proposition",
+  "end": "2026-11-04T04:59:00Z",
+  "hours_over": 74.8,
+  "fav_ask": 0.98,
+  "liq": 3,
+  "uma": "[]",
+  "slug": "california-public-campaign-financing-proposition"
+ },
+ {
+  "cat": "Politics",
+  "q": "Will B win the SC-02 House seat?",
+  "end": "2026-11-03T00:00:00Z",
+  "hours_over": 103.8,
+  "fav_ask": 0.99,
+  "liq": 2,
+  "uma": "[]",
+  "slug": "will-b-win-the-sc-02-house-seat"
+ },
+ {
+  "cat": "Sports",
+  "q": "Will Odisha FC vs. Odisha FC end in a draw?",
+  "end": "2026-03-13T14:00:00Z",
+  "hours_over": 5729.8,
+  "fav_ask": 0.99,
+  "liq": 2,
+  "uma": "[]",
+  "slug": "isp-ddy-ddy-2026-03-13-draw"
+ },
+ {
+  "cat": "Sports",
+  "q": "T20 Series Afghanistan vs Sri Lanka: Afghanistan vs Sri Lanka - Who wins the toss?",
+  "end": "2026-03-24T10:30:00Z",
+  "hours_over": 5469.3,
+  "fav_ask": 0.99,
+  "liq": 2,
+  "uma": "[]",
+  "slug": "crint-afg-lka-2026-03-17-toss-winner"
+ },
+ {
+  "cat": "Sports",
+  "q": "Map 1: Odd/Even Total Kills?",
+  "end": "2026-03-31T03:59:00Z",
+  "hours_over": 5307.8,
+  "fav_ask": 0.99,
+  "liq": 2,
+  "uma": "[]",
+  "slug": "cs2-boss-fxt-2026-03-23-game1-odd-even-total-kills"
+ },
+ {
+  "cat": "Sports",
+  "q": "Map 2: Odd/Even Total Kills?",
+  "end": "2026-03-31T03:59:00Z",
+  "hours_over": 5307.8,
+  "fav_ask": 0.99,
+  "liq": 2,
+  "uma": "[]",
+  "slug": "cs2-boss-fxt-2026-03-23-game2-odd-even-total-kills"
+ },
+ {
+  "cat": "Sports",
+  "q": "Map 1: Odd/Even Total Kills?",
+  "end": "2026-03-31T03:59:00Z",
+  "hours_over": 5307.8,
+  "fav_ask": 0.99,
+  "liq": 2,
+  "uma": "[]",
+  "slug": "cs2-cce-spo-2026-03-23-game1-odd-even-total-kills"
+ },
+ {
+  "cat": "Sports",
+  "q": "Map 2: Odd/Even Total Kills?",
+  "end": "2026-03-31T03:59:00Z",
+  "hours_over": 5307.8,
+  "fav_ask": 0.99,
+  "liq": 2,
+  "uma": "[]",
+  "slug": "cs2-cce-spo-2026-03-23-game2-odd-even-total-kills"
+ },
+ {
+  "cat": "Sports",
+  "q": "Map 3: Odd/Even Total Kills?",
+  "end": "2026-03-31T03:59:00Z",
+  "hours_over": 5307.8,
+  "fav_ask": 0.99,
+  "liq": 2,
+  "uma": "[]",
+  "slug": "cs2-cce-spo-2026-03-23-game3-odd-even-total-kills"
+ },
+ {
+  "cat": "Sports",
+  "q": "Map 1: Odd/Even Total Kills?",
+  "end": "2026-04-01T03:59:00Z",
+  "hours_over": 5283.8,
+  "fav_ask": 0.99,
+  "liq": 2,
+  "uma": "[]",
+  "slug": "cs2-nosr-oly-2026-03-24-game1-odd-even-total-kills"
+ },
+ {
+  "cat": "Sports",
+  "q": "Mukono Super Smash T20: Naggalama vs Mpata",
+  "end": "2026-08-05T07:00:00Z",
+  "hours_over": 2256.8,
+  "fav_ask": 0.96,
+  "liq": 2,
+  "uma": "[]",
+  "slug": "cricmukono-nag-mpa-2026-07-29"
+ },
+ {
+  "cat": "Sports",
+  "q": "Mukono Super Smash T20: Mpata vs Bussana",
+  "end": "2026-08-05T03:00:00Z",
+  "hours_over": 2260.8,
+  "fav_ask": 0.96,
+  "liq": 2,
+  "uma": "[]",
+  "slug": "cricmukono-mpa-bus-2026-07-29"
+ },
+ {
+  "cat": "Sports",
+  "q": "T20 Series Afghanistan vs Sri Lanka: Afghanistan vs Sri Lanka - Toss Match Double Afghanistan Winner",
+  "end": "2026-03-20T14:30:00Z",
+  "hours_over": 5561.3,
+  "fav_ask": 0.99,
+  "liq": 1,
+  "uma": "[]",
+  "slug": "crint-afg-lka-2026-03-13-toss-match-double-afg"
+ },
+ {
+  "cat": "Sports",
+  "q": "Will Trabzonspor win on 2026-05-01?",
+  "end": "2026-05-01T17:30:00Z",
+  "hours_over": 4550.3,
+  "fav_ask": 0.99,
+  "liq": 1,
+  "uma": "[]",
+  "slug": "trsk-gal-tra-2026-05-01-tra"
+ },
+ {
+  "cat": "Sports",
+  "q": "Galatasaray SK vs. Trabzonspor: O/U 1.5",
+  "end": "2026-05-01T17:30:00Z",
+  "hours_over": 4550.3,
+  "fav_ask": 0.99,
+  "liq": 1,
+  "uma": "[]",
+  "slug": "trsk-gal-tra-2026-05-01-total-1pt5"
+ },
+ {
+  "cat": "Sports",
+  "q": "Kuwait Kerala Premier League T20: Palakad Patriots vs Blasters Cochin",
+  "end": "2026-08-04T13:30:00Z",
+  "hours_over": 2274.3,
+  "fav_ask": 0.99,
+  "liq": 1,
+  "uma": "[]",
+  "slug": "crickerala-pal-bla-2026-07-28"
+ },
+ {
+  "cat": "Sports",
+  "q": "CSD Suchitep\u00e9quez vs. Comunicaciones FC: O/U 8.5 Total Corners",
+  "end": "2026-07-26T23:00:00Z",
+  "hours_over": 2480.8,
+  "fav_ask": 0.99,
+  "liq": 0,
+  "uma": "[]",
+  "slug": "gtm-suc-com-2026-07-26-corners-total-8pt5"
+ },
+ {
+  "cat": "Sports",
+  "q": "CSD Suchitep\u00e9quez vs. Comunicaciones FC: O/U 9.5 Total Corners",
+  "end": "2026-07-26T23:00:00Z",
+  "hours_over": 2480.8,
+  "fav_ask": 0.99,
+  "liq": 0,
+  "uma": "[]",
+  "slug": "gtm-suc-com-2026-07-26-corners-total-9pt5"
+ },
+ {
+  "cat": "Sports",
+  "q": "CSD Suchitep\u00e9quez vs. Comunicaciones FC: O/U 10.5 Total Corners",
+  "end": "2026-07-26T23:00:00Z",
+  "hours_over": 2480.8,
+  "fav_ask": 0.99,
+  "liq": 0,
+  "uma": "[]",
+  "slug": "gtm-suc-com-2026-07-26-corners-total-10pt5"
+ },
+ {
+  "cat": "Sports",
+  "q": "CSD Suchitep\u00e9quez vs. Comunicaciones FC: O/U 11.5 Total Corners",
+  "end": "2026-07-26T23:00:00Z",
+  "hours_over": 2480.8,
+  "fav_ask": 0.99,
+  "liq": 0,
+  "uma": "[]",
+  "slug": "gtm-suc-com-2026-07-26-corners-total-11pt5"
+ },
+ {
+  "cat": "Sports",
+  "q": "CSD Suchitep\u00e9quez vs. Comunicaciones FC: O/U 12.5 Total Corners",
+  "end": "2026-07-26T23:00:00Z",
+  "hours_over": 2480.8,
+  "fav_ask": 0.99,
+  "liq": 0,
+  "uma": "[]",
+  "slug": "gtm-suc-com-2026-07-26-corners-total-12pt5"
+ },
+ {
+  "cat": "Sports",
+  "q": "CSD Suchitep\u00e9quez vs. Comunicaciones FC: O/U 13.5 Total Corners",
+  "end": "2026-07-26T23:00:00Z",
+  "hours_over": 2480.8,
+  "fav_ask": 0.99,
+  "liq": 0,
+  "uma": "[]",
+  "slug": "gtm-suc-com-2026-07-26-corners-total-13pt5"
+ },
+ {
+  "cat": "Sports",
+  "q": "Napirko Oleh vs. Haiseniuk Ruslan",
+  "end": "2026-07-30T03:59:00Z",
+  "hours_over": 2403.8,
+  "fav_ask": 0.99,
+  "liq": 0,
+  "uma": "[]",
+  "slug": "setkameua-napirko-ruslan-2026-07-22"
+ },
+ {
+  "cat": "Sports",
+  "q": "Capbatut Petru vs. Gribcov Dmitri",
+  "end": "2026-07-30T03:59:00Z",
+  "hours_over": 2403.8,
+  "fav_ask": 0.99,
+  "liq": 0,
+  "uma": "[]",
+  "slug": "setkamemd-petr-dmitri-2026-07-22"
+ },
+ {
+  "cat": "Sports",
+  "q": "Ljungskile SK vs. Sandvikens IF: Ljungskile SK O/U 2.5 Corners",
+  "end": "2026-07-26T13:00:00Z",
+  "hours_over": 2490.8,
+  "fav_ask": 0.99,
+  "liq": 0,
+  "uma": "[]",
+  "slug": "swe2-lsk-san-2026-07-26-corners-team-home-2pt5"
+ },
+ {
+  "cat": "Sports",
+  "q": "FC CSKA 1948 vs. POFC Botev Vratsa: O/U 13.5 Total Corners",
+  "end": "2026-07-25T16:00:00Z",
+  "hours_over": 2511.8,
+  "fav_ask": 0.99,
+  "liq": 0,
+  "uma": "[]",
+  "slug": "bul-csk-bvr-2026-07-25-corners-total-13pt5"
+ },
+ {
+  "cat": "Sports",
+  "q": "Mukono Super Smash T20: Kalagi vs Naggalama",
+  "end": "2026-08-06T07:00:00Z",
+  "hours_over": 2232.8,
+  "fav_ask": 0.99,
+  "liq": 0,
+  "uma": "[]",
+  "slug": "cricmukono-kal-nag-2026-07-30"
  }
 ]
