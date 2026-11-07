@@ -15,3 +15,7 @@ FILLS=${FILLS:-off} python3 "$here/collect.py" pm --commit-cmd "bash $here/push.
 python3 "$here/collect.py" results
 cp "$here/README.md" "$OUT/README.md" 2>/dev/null || true
 bash "$here/push.sh" "$sd"
+# Backfill not finished: chain the next run now instead of waiting for the 6-hourly cron.
+if grep -q "budget reached" "$OUT/last-run.log" && [ -n "${GH_TOKEN:-}" ]; then
+  gh workflow run market-history --ref main -R "$GITHUB_REPOSITORY" && echo "chained next backfill run"
+fi
