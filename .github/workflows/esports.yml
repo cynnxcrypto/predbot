@@ -1,0 +1,26 @@
+name: esports-research
+on:
+  push:
+    branches: ["claude/project-thread-hdudg2"]
+    paths: ["esports/*.py", "esports/run.txt", ".github/workflows/esports.yml"]
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - name: run
+        run: python esports/es.py $(cat esports/run.txt) 2>esports/err.log || true
+      - name: commit
+        run: |
+          mkdir -p esports/out && mv esports/err.log esports/out/stderr.log || true
+          git config user.name "survey-bot"; git config user.email "survey-bot@users.noreply.github.com"
+          git add esports/out
+          git commit -m "esports results [skip ci]" || exit 0
+          git pull --rebase origin "${GITHUB_REF_NAME}" || true
+          git push origin "HEAD:${GITHUB_REF_NAME}"
