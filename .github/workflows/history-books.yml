@@ -30,7 +30,7 @@ jobs:
           while [ $(date +%s) -lt $end ]; do
             t0=$(date +%s)
             OUT=sd/data/history timeout 300 python3 history/books.py || true
-            bash history/push.sh "$PWD/sd" || true
+            bash history/push.sh "$PWD/sd" data/history/books || true
             sleep $(( 600 - ($(date +%s) - t0) > 0 ? 600 - ($(date +%s) - t0) : 1 ))
           done
       - if: ${{ !cancelled() }}  # cancel the run to stop the loop
