@@ -194,24 +194,42 @@ def probe():
         except Exception as e:
             log("PROBE goldsky FAIL", repr(e)[:200], getattr(e, "read", lambda: b"")()[:200])
 
+HITS = ("crude-oil-cl-hit", "xauusd-hit-month", "xagusd-hit-month", "spy-hit-month", "sp-500-monthly-hit", "wti-crude-oil-hit-price-weekly",
+        "spy-hit-price-weekly", "gold-hit-price-weekly", "silver-hit-price-weekly", "what-will-gold-gc-hit", "will-silver-si-hit")
+
+def slim_row(x):
+    return {k: v for k, v in x.items() if isinstance(v, (int, float)) or (isinstance(v, str) and len(v) <= 12)}
+
 def trades():
+    spec = get("https://data-api.polymarket.com/v2/openapi.json", tries=2)
+    if isinstance(spec, dict):
+        tp = {k: v for k, v in spec.get("paths", {}).items() if "trade" in k}
+        with open(os.path.join(OUT, "dataapi_trades_spec.json"), "w") as f: json.dump({"paths": tp, "components": list((spec.get("components") or {}).get("schemas", {}).keys())}, f, indent=1)
     evs = load("events.json.gz") or []
     old = load("trades.json.gz") or {}
-    ms = [m for e in evs if e["closed"] and (e["series"] or ["-"])[0] in DAILY for m in e["markets"] if m.get("conditionId")]
+    old = {k: v for k, v in old.items() if v}
+    ms = [m for e in evs if e["closed"] and (e["series"] or ["-"])[0] in DAILY + HITS for m in e["markets"]
+          if m.get("conditionId") and float(m.get("volumeNum") or 0) >= 200]
+    first = {}
     def one(m):
         if m["id"] in old: return m["id"], old[m["id"]]
-        out, off = [], 0
-        while off <= 20000:
-            b = get("https://data-api.polymarket.com/trades", {"market": m["conditionId"], "limit": 500, "offset": off, "takerOnly": "true"}, tries=3)
-            if not isinstance(b, list) or not b: break
-            out += [[x.get("timestamp"), x.get("outcomeIndex"), x.get("side"), x.get("price"), x.get("size")] for x in b]
-            if len(b) < 500: break
-            off += 500
+        out, cur, n = [], None, 0
+        while n < 60:
+            pr = {"condition": m["conditionId"], "limit": 500}
+            if cur: pr["cursor"] = cur
+            b = get("https://data-api.polymarket.com/v2/trades", pr, tries=3)
+            if not isinstance(b, dict): break
+            rows = b.get("data") or []
+            if rows and not first: first["row"] = rows[0]
+            out += [slim_row(x) for x in rows]
+            cur = (b.get("pagination") or {}).get("next_cursor"); n += 1
+            if not cur or not rows: break
         return m["id"], out
     with ThreadPoolExecutor(10) as ex:
         for mid, t in ex.map(one, ms): old[mid] = t
+    log("trade row example:", json.dumps(first.get("row"))[:1500])
     dump("trades.json.gz", old)
-    log("trades markets:", len(old), "trades:", sum(len(v) for v in old.values()))
+    log("trades markets:", len(old), "with trades:", sum(1 for v in old.values() if v), "trades:", sum(len(v) for v in old.values()))
 
 YSYM = ["^GSPC", "^NDX", "^IXIC", "^DJI", "^RUT", "SPY", "QQQ", "IWM", "GC=F", "SI=F", "CL=F", "BZ=F", "NG=F", "HG=F", "ES=F", "NQ=F", "YM=F", "RTY=F",
         "^VIX", "^VIX9D", "^VIX1D", "^VXN", "^OVX", "^GVZ", "^N225", "^KS11", "^TNX", "GLD", "USO", "DX-Y.NYB"]
