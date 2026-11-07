@@ -348,3 +348,8 @@ PROBE FAIL https://data-api.polymarket.com/trades?market=0x3acda6875d6937735594c
 PROBE FAIL https://data-api.polymarket.com/trades?limit=3 <HTTPError 410: 'Gone'> b'{"error":"Data API v1 has been retired","migration":"https://data-api.polymarket.com/v2/","docs":"https://docs.polymarket.com/api-reference/data-api/overview"}'
 PROBE goldsky FAIL <HTTPError 429: 'Too Many Requests'> b'{"errors":[{"message":"This Polymarket subgraph endpoint is paused and deprecated following Polymarket\xe2\x80\x99s migration to V2 \xe2\x80\x94 the data is stale and incorrect. Stop using it. For activity, positions, '
 step probe 1s
+
+=== run 2026-11-07 09:50 UTC ['trades']
+trade row example: {"proxy_wallet": "0x6610e2c03c8d7866731ac10508a4bf7f6045ff9b", "side": "SELL", "token_id": "16145668585455101115570887028425114464578298882785777330407855552365131066274", "condition_id": "0x30437a52972e465f6a3c6c407d460f4302bbf50e231c179f2879cc5f3eccd6c0", "size": 1.57, "price": 0.999, "timestamp": 1793998972, "title": "Will S&P 500 (SPY) hit (HIGH) $785 Week of November 2 2026?", "slug": "will-spy-reach-785-by-november-2-2026", "icon": "https://polymarket-upload.s3.us-east-2.amazonaws.com/s-and-p-500-1e40af6979.png", "event_slug": "will-spy-hit-week-of-november-2-2026", "outcome": "No", "outcome_index": 1, "name": "LifeChangingOpportunity", "pseudonym": "Plush-Refusal", "bio": "The answer is yes.", "profile_image": "https://polymarket-upload.s3.us-east-2.amazonaws.com/profile-image-5184562-a5bc9a22-351b-44d6-96e8-399ebfa6ba8b.webp", "profile_image_optimized": "", "transaction_hash": "0xb5e3a54a60a49a821c0daa7e87b12d4c0d6dd4b6a04050be4b77a647fb8cf4e8"}
+trades markets: 7310 with trades: 6832 trades: 1661628
+step trades 530s

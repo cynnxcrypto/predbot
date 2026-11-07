@@ -1,0 +1,268 @@
+{
+ "paths": {
+  "/v2/trades": {
+   "get": {
+    "tags": [
+     "feeds"
+    ],
+    "summary": "List trades",
+    "description": "Keyset-paginated trade feed in the standard\n`{ data, pagination }` envelope.\n\nPass `?cursor=` from a prior response's `next_cursor` to fetch the next page;\nit carries both the page size and the `(block_timestamp, sequence_id)` seek\nanchor, so deep pages cost the same as shallow ones.\n\nA malformed `condition` id is a `400` naming the value; a\nwell-formed one that matches nothing serves an empty `data` array, which\nis the meaningful zero-state; absence means the market is not servable,\nand only that.",
+    "operationId": "get_trades",
+    "parameters": [
+     {
+      "name": "user",
+      "in": "query",
+      "description": "Address to filter by; omit for the market/event/global feed.",
+      "required": false,
+      "schema": {
+       "type": [
+        "string",
+        "null"
+       ]
+      }
+     },
+     {
+      "name": "limit",
+      "in": "query",
+      "description": "First-page size. Ignored when `cursor` is supplied (the cursor's size wins).",
+      "required": false,
+      "schema": {
+       "type": [
+        "integer",
+        "null"
+       ],
+       "format": "int32",
+       "maximum": 1000,
+       "minimum": 0
+      }
+     },
+     {
+      "name": "cursor",
+      "in": "query",
+      "description": "Opaque pagination cursor from a prior response's `next_cursor`.",
+      "required": false,
+      "schema": {
+       "type": [
+        "string",
+        "null"
+       ]
+      }
+     },
+     {
+      "name": "taker_only",
+      "in": "query",
+      "description": "Defaults to `true`: each fill is served once, on its taker side.\n`false` includes the maker rows too.",
+      "required": false,
+      "schema": {
+       "type": [
+        "boolean",
+        "null"
+       ]
+      }
+     },
+     {
+      "name": "filter_type",
+      "in": "query",
+      "description": "CASH or TOKENS; defaults to TOKENS.",
+      "required": false,
+      "schema": {
+       "type": [
+        "string",
+        "null"
+       ]
+      }
+     },
+     {
+      "name": "filter_amount",
+      "in": "query",
+      "description": "Minimum trade size; defaults to 0.01, and 0 means the same.",
+      "required": false,
+      "schema": {
+       "type": [
+        "number",
+        "null"
+       ],
+       "format": "double"
+      }
+     },
+     {
+      "name": "start",
+      "in": "query",
+      "description": "Window start on `block_timestamp`, epoch seconds (inclusive); honored\non the `user` shape only. Omitted or `0` floors to three years back;\n`start=1` asks for full history. The `condition`/`event_id` shapes\nserve a fixed three-year window and the bare feed the rolling\ncurrent-plus-previous month, ignoring both bounds.",
+      "required": false,
+      "schema": {
+       "type": [
+        "integer",
+        "null"
+       ],
+       "format": "int64"
+      }
+     },
+     {
+      "name": "end",
+      "in": "query",
+      "description": "Window end, epoch seconds (inclusive); honored on the `user` shape\nonly; omitted or `0` means now plus one day.",
+      "required": false,
+      "schema": {
+       "type": [
+        "integer",
+        "null"
+       ],
+       "format": "int64"
+      }
+     },
+     {
+      "name": "condition",
+      "in": "query",
+      "description": "Condition id(s), comma-separated (at most 20 distinct values).\n`condition_id` / `conditionId` are accepted aliases.",
+      "required": false,
+      "schema": {
+       "type": [
+        "string",
+        "null"
+       ]
+      }
+     },
+     {
+      "name": "event_id",
+      "in": "query",
+      "description": "Event id(s), comma-separated (at most 20 distinct values).",
+      "required": false,
+      "schema": {
+       "type": [
+        "string",
+        "null"
+       ]
+      }
+     },
+     {
+      "name": "side",
+      "in": "query",
+      "description": "BUY or SELL.",
+      "required": false,
+      "schema": {
+       "type": [
+        "string",
+        "null"
+       ]
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "A page of trades",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/TradesPage"
+        }
+       }
+      }
+     },
+     "400": {
+      "description": "Invalid query params or cursor, a malformed 'condition' id, or a 'user' that is a known protocol contract address",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorResponse"
+        }
+       }
+      }
+     },
+     "429": {
+      "description": "Service is at heavy-query capacity; retry after `Retry-After`",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorResponse"
+        }
+       }
+      }
+     },
+     "500": {
+      "description": "Internal server error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorResponse"
+        }
+       }
+      }
+     },
+     "503": {
+      "description": "Timed out (the request deadline, the datastore statement timeout, or the connection pool's acquire budget) or a serving dependency is unavailable; retry after `Retry-After`",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorResponse"
+        }
+       }
+      }
+     }
+    }
+   }
+  }
+ },
+ "components": [
+  "Activity",
+  "ActivityPage",
+  "ApprovalContract",
+  "Approvals",
+  "BiggestWinner",
+  "BiggestWinnersPage",
+  "BuilderStanding",
+  "BuilderVolumePoint",
+  "BuildersLeaderboardPage",
+  "ComboActivity",
+  "ComboActivityPage",
+  "ComboLeg",
+  "ComboLegEvent",
+  "ComboLegMarket",
+  "ComboPosition",
+  "ComboPositionsPage",
+  "ConditionVolume",
+  "CursorLag",
+  "Envelope_Approvals",
+  "Envelope_LiveVolume",
+  "Envelope_Option_LeaderboardUserEntry",
+  "Envelope_Option_UserStats",
+  "Envelope_PortfolioValue",
+  "Envelope_ServiceStatus",
+  "Envelope_UserPnlSeries",
+  "Envelope_UserVolume",
+  "Envelope_Vec_BuilderVolumePoint",
+  "Envelope_Vec_OpenInterest",
+  "Envelope_Vec_Resolution",
+  "Envelope_Vec_TokenRef",
+  "ErrorCode",
+  "ErrorResponse",
+  "Holder",
+  "HoldersPage",
+  "IngestionFreshness",
+  "LeaderboardEntry",
+  "LeaderboardPage",
+  "LeaderboardResponse",
+  "LeaderboardUserEntry",
+  "LiveVolume",
+  "MetaHolder",
+  "OpenInterest",
+  "Pagination",
+  "PortfolioValue",
+  "Position",
+  "PositionsPage",
+  "PricePoint",
+  "PricesHistoryPage",
+  "Resolution",
+  "ServiceStatus",
+  "ServingFreshness",
+  "ServingMechanism",
+  "TokenModule",
+  "TokenRef",
+  "Trade",
+  "TradesPage",
+  "UserPnlPoint",
+  "UserPnlSeries",
+  "UserStats",
+  "UserVolume"
+ ]
+}
