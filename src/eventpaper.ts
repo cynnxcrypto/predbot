@@ -130,6 +130,8 @@ type Match = {
   tEnd?: number | null;
   w?: number | null;
   evaluated?: boolean;
+  /** The map-1 price was seen undecided (5-95c), so a later decided run is a map end we watched, not one long over. */
+  sawLive?: boolean;
   note?: string;
 };
 type Maker = { rule: string; marketId: string; title: string; outcome: string; idx: number; token: string; bid: number; t: number; feeRate: number; ask: number };
@@ -141,6 +143,14 @@ type State = {
   signals: Signal[];
 };
 const state: State = { matches: {}, done: {}, makers: [], trades: [], signals: [], ...loadJson<Partial<State>>(STATE_FILE, {}) };
+// 7 Nov 2026 20:15 KST fix: the first run counted matches whose map 1 had ended before the logger started (map-1 price
+// already decided), so it "bought" mid-map-2 prices. Drop those esports rows once; later rows need sawLive.
+if (!state.done["fix:esports-sawlive"]) {
+  state.trades = state.trades.filter((t) => !(t.rule.startsWith("esports") && t.t < Date.UTC(2026, 10, 7, 11, 30)));
+  state.signals = state.signals.filter((x) => !(x.rule.startsWith("esports") && x.t < Date.UTC(2026, 10, 7, 11, 30)));
+  for (const m of Object.values(state.matches)) if (m.tEnd != null && !m.sawLive) m.evaluated = true;
+  state.done["fix:esports-sawlive"] = Date.now();
+}
 const save = () => saveJson(STATE_FILE, state);
 const feeOf = (rate: number, shares: number, p: number) => rate * shares * p * (1 - p);
 const log = (s: string) => console.log(`eventpaper: ${s}`);
@@ -262,8 +272,12 @@ async function esportsTick() {
       const mid = b?.mid ?? (b?.bestBid != null && b.bestBid >= 0.95 ? b.bestBid : b?.bestAsk != null && b.bestAsk <= 0.05 ? b.bestAsk : null);
       const side = mid == null ? null : mid >= 0.95 ? 0 : mid <= 0.05 ? 1 : null;
       if (side == null) {
+        if (b && b.bestBid != null && b.bestAsk != null && b.bestAsk - b.bestBid <= 0.1) m.sawLive = true;
         m.runSide = null;
         m.runFrom = null;
+      } else if (!m.sawLive) {
+        m.evaluated = true;
+        m.note = "map 1 already decided when first seen";
       } else if (m.runSide !== side) {
         m.runSide = side;
         m.runFrom = now;
