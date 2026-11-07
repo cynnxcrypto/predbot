@@ -74,14 +74,17 @@ def category(ev):
     return "Other"
 
 def page_events(params, cap=40000):
-    out, off = [], 0
+    out, off, seen = [], 0, set()
     while off < cap:
-        p = dict(params, limit=500, offset=off)
+        p = dict(params, limit=100, offset=off)
         b = get(GAMMA + "/events", p)
         if not b: break
-        out += b
-        if len(b) < 500: break
-        off += 500
+        new = [e for e in b if e.get("id") not in seen]
+        if not new: break
+        seen.update(e.get("id") for e in new)
+        out += new
+        if len(b) < 100: break
+        off += 100
     return out
 
 def q(xs, f):
@@ -181,7 +184,14 @@ def price_at(hist, t):
 
 def calib(days=120, min_vol=5000):
     since = (NOW - timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%SZ")
-    evs = page_events({"closed": "true", "end_date_min": since, "order": "endDate", "ascending": "false"}, cap=60000)
+    evs, seen = [], set()
+    for tag in ("sports", "politics", "geopolitics", "economy", "finance", "culture", "tech", "weather", "mentions", "elections", "world", "soccer", "nba", "nfl", "nhl", "tennis", "esports", "mlb", "ufc"):
+        got = page_events({"closed": "true", "end_date_min": since, "tag_slug": tag, "volume_min": min_vol, "order": "endDate", "ascending": "false"}, cap=15000)
+        n0 = len(evs)
+        for e in got:
+            if e.get("id") in seen: continue
+            seen.add(e.get("id")); evs.append(e)
+        say(f"  tag {tag}: {len(got)} events, {len(evs)-n0} new")
     say(f"## Calibration (closed events since {since[:10]}, vol>=${min_vol:,})", f"closed events fetched: {len(evs)}")
     jobs = []
     for ev in evs:
@@ -202,8 +212,12 @@ def calib(days=120, min_vol=5000):
                          "tags": [t.get("label") for t in ev.get("tags") or []][:6]})
     say(f"binary resolved markets: {len(jobs)}")
     def fetch(j):
-        h = get(CLOB + "/prices-history", {"market": j["tok"], "interval": "max", "fidelity": 10})
+        end = int(j["ref"] or NOW.timestamp())
+        h = get(CLOB + "/prices-history", {"market": j["tok"], "startTs": end - 8 * 86400, "endTs": end + 3600, "fidelity": 10}, tries=2)
         hist = (h or {}).get("history") if isinstance(h, dict) else None
+        if not hist:
+            h = get(CLOB + "/prices-history", {"market": j["tok"], "interval": "max", "fidelity": 60}, tries=2)
+            hist = (h or {}).get("history") if isinstance(h, dict) else None
         if not hist: return None
         hist.sort(key=lambda x: x["t"])
         j = dict(j)
@@ -218,7 +232,7 @@ def calib(days=120, min_vol=5000):
             j["p_pre6h"] = price_at(hist, j["game"] - 6 * 3600)
             j["p_open"] = hist[0]["p"]
         return j
-    with ThreadPoolExecutor(16) as ex:
+    with ThreadPoolExecutor(24) as ex:
         res = [r for r in ex.map(fetch, jobs) if r]
     json.dump(res, open(f"{OUT}/calib_raw.json", "w"))
     say(f"with price history: {len(res)}")
@@ -266,90 +280,97 @@ def ml_to_p(ml):
     if ml == 0: return None
     return 100 / (ml + 100) if ml > 0 else -ml / (-ml + 100)
 
+KSERIES = ["KXNFLGAME", "KXNBAGAME", "KXNHLGAME", "KXNCAAFGAME", "KXNCAAMBGAME", "KXMLBGAME", "KXEPLGAME", "KXUCLGAME", "KXLALIGAGAME",
+           "KXSERIEAGAME", "KXBUNDESLIGAGAME", "KXLIGUE1GAME", "KXMLSGAME", "KXATPMATCH", "KXWTAMATCH", "KXUFCFIGHT"]
+KAL = "https://api.elections.kalshi.com/trade-api/v2"
+
+def kprice(m, side):
+    v = m.get(f"yes_{side}_dollars")
+    if v not in (None, ""):
+        try: return float(v)
+        except Exception: pass
+    v = m.get(f"yes_{side}")
+    return float(v) / 100 if v not in (None, "") else None
+
 def sports():
-    say("## Sports: Polymarket vs ESPN-listed sportsbook moneylines")
-    games = []
-    for lg in ESPN_LEAGUES:
-        for d in range(0, 3):
-            day = (NOW + timedelta(days=d)).strftime("%Y%m%d")
-            b = get(f"https://site.api.espn.com/apis/site/v2/sports/{lg}/scoreboard", {"dates": day, "limit": 300})
-            if not isinstance(b, dict): continue
-            for e in b.get("events") or []:
-                comp = (e.get("competitions") or [{}])[0]
-                if (comp.get("status") or {}).get("type", {}).get("state") != "pre": continue
-                odds = (comp.get("odds") or [{}])
-                o = odds[0] if odds else {}
-                teams = {c.get("homeAway"): c.get("team", {}) for c in comp.get("competitors") or []}
-                hml = (o.get("homeTeamOdds") or {}).get("moneyLine"); aml = (o.get("awayTeamOdds") or {}).get("moneyLine")
-                ml = o.get("moneyline") or {}
-                if hml is None and ml:
-                    hml = ((ml.get("home") or {}).get("close") or {}).get("odds"); aml = ((ml.get("away") or {}).get("close") or {}).get("odds")
-                dml = None
-                if ml and ml.get("draw"):
-                    dml = ((ml.get("draw") or {}).get("close") or {}).get("odds")
-                if o.get("drawOdds"): dml = (o.get("drawOdds") or {}).get("moneyLine", dml)
-                games.append({"lg": lg, "date": e.get("date"), "name": e.get("name"), "provider": (o.get("provider") or {}).get("name"),
-                              "home": teams.get("home", {}), "away": teams.get("away", {}), "hml": hml, "aml": aml, "dml": dml})
-    say(f"ESPN pre-game events: {len(games)}, with moneylines: {sum(1 for g in games if g['hml'] is not None)}")
-    pm = page_events({"closed": "false", "active": "true", "tag_slug": "sports"}, cap=10000)
+    say("## Sports: Polymarket vs Kalshi on the same games (snapshot)")
+    km = []
+    for se in KSERIES:
+        cur, n = None, 0
+        while n < 10:
+            p = {"series_ticker": se, "status": "open", "limit": 1000}
+            if cur: p["cursor"] = cur
+            b = get(KAL + "/markets", p, tries=2)
+            if not isinstance(b, dict): break
+            km += [dict(m, _series=se) for m in b.get("markets") or []]
+            cur = b.get("cursor"); n += 1
+            if not cur: break
+    say(f"Kalshi open sports game markets: {len(km)}")
+    if km:
+        say("  sample keys: " + ",".join(sorted(km[0].keys()))[:600])
+        say("  sample: " + json.dumps({k: km[0].get(k) for k in ("ticker", "title", "yes_sub_title", "close_time", "expected_expiration_time", "yes_bid", "yes_ask", "yes_bid_dollars", "yes_ask_dollars", "volume", "open_interest")}, default=str)[:600])
+    pm = page_events({"closed": "false", "active": "true", "tag_slug": "sports", "end_date_max": (NOW + timedelta(days=5)).strftime("%Y-%m-%dT%H:%M:%SZ")}, cap=20000)
     pm_mk = []
     for ev in pm:
         for m in ev.get("markets") or []:
             if m.get("sportsMarketType") != "moneyline" or m.get("closed"): continue
             outs = jl(m.get("outcomes")) or []
-            pm_mk.append({"ev": ev.get("title"), "q": m.get("question"), "outs": outs, "bid": m.get("bestBid"), "ask": m.get("bestAsk"),
-                          "start": m.get("gameStartTime") or m.get("eventStartTime"), "liq": float(m.get("liquidityNum") or 0), "slug": m.get("slug"),
-                          "fee": m.get("feeSchedule")})
-    say(f"Polymarket open moneyline markets: {len(pm_mk)}")
-    def norm(s): return re.sub(r"[^a-z0-9 ]", "", (s or "").lower())
+            if len(outs) != 2 or m.get("bestBid") is None or m.get("bestAsk") is None: continue
+            label = outs[0]
+            if label.lower() == "yes":
+                mm = re.match(r"will (.+?) win", m.get("question") or "", re.I)
+                label = mm.group(1) if mm else None
+            if not label: continue
+            pm_mk.append({"ev": ev.get("title"), "q": m.get("question"), "label": label, "bid": float(m["bestBid"]), "ask": float(m["bestAsk"]),
+                          "start": m.get("gameStartTime") or m.get("eventStartTime"), "liq": float(m.get("liquidityNum") or 0),
+                          "vol24": float(m.get("volume24hr") or 0), "slug": m.get("slug")})
+    say(f"Polymarket open sports events ≤5d: {len(pm)}, binary moneyline markets: {len(pm_mk)}")
+    def norm(s): return re.sub(r"[^a-z0-9 ]", " ", (s or "").lower())
+    STOP = {"will", "win", "the", "team", "club", "city", "united", "real", "state", "saint", "san", "los", "new", "york", "game", "match"}
+    def words(s): return [w for w in norm(s).split() if len(w) >= 4 and w not in STOP]
     matches = []
-    for g in games:
-        if g["hml"] is None or g["aml"] is None: continue
-        gd = ts(g["date"])
-        hn = [norm(g["home"].get(k)) for k in ("shortDisplayName", "name", "displayName", "location") if g["home"].get(k)]
-        an = [norm(g["away"].get(k)) for k in ("shortDisplayName", "name", "displayName", "location") if g["away"].get(k)]
-        for m in pm_mk:
-            st_ = ts(m["start"])
-            if not st_ or not gd or abs((st_ - gd).total_seconds()) > 6 * 3600: continue
-            text = norm(m["ev"] + " " + m["q"] + " " + " ".join(m["outs"]))
-            if not (any(x and x in text for x in hn) and any(x and x in text for x in an)): continue
-            ph, pa = ml_to_p(g["hml"]), ml_to_p(g["aml"]); pd = ml_to_p(g["dml"]) if g["dml"] else 0
-            if not ph or not pa: continue
-            tot = ph + pa + (pd or 0)
-            # which team does YES (outcome 0) refer to?
-            o0 = norm(m["outs"][0]) if m["outs"] else ""
-            qn = norm(m["q"])
-            if len(m["outs"]) == 2 and o0 not in ("yes", "no"):
-                yes_home = any(x and (x in o0 or o0 in x) for x in hn)
-            else:
-                yes_home = any(x and x in qn for x in hn) and not any(x and x in qn for x in an)
-            book_p = (ph if yes_home else pa) / tot
-            if m["bid"] is None or m["ask"] is None: continue
-            mid = (float(m["bid"]) + float(m["ask"])) / 2
-            matches.append({"lg": g["lg"], "game": g["name"], "provider": g["provider"], "pm_q": m["q"], "yes_home": yes_home, "book_p": round(book_p, 4),
-                            "pm_bid": float(m["bid"]), "pm_ask": float(m["ask"]), "pm_mid": round(mid, 4), "diff_mid": round(mid - book_p, 4),
-                            "liq": round(m["liq"]), "start": m["start"], "overround": round(tot - 1, 4), "slug": m["slug"]})
-            break
-    say(f"matched games: {len(matches)}")
+    for m in pm_mk:
+        st_ = ts(m["start"])
+        lw = words(m["label"])
+        if not st_ or not lw: continue
+        evw = set(words(m["ev"])) - set(lw)
+        best = None
+        for k in km:
+            ct = ts(k.get("expected_expiration_time") or k.get("close_time"))
+            if not ct or not (-6 * 3600 <= (ct - st_).total_seconds() <= 3 * 86400): continue
+            ytxt = norm((k.get("yes_sub_title") or "") + " " + (k.get("rules_primary") or "")[:160])
+            ttxt = norm((k.get("title") or "") + " " + (k.get("rules_primary") or ""))
+            if not all(w in ytxt for w in lw[-1:]): continue
+            if evw and not any(w in ttxt for w in evw): continue
+            if "tie" in norm(k.get("yes_sub_title")) or "draw" in norm(k.get("yes_sub_title")): continue
+            best = k; break
+        if not best: continue
+        kb, ka = kprice(best, "bid"), kprice(best, "ask")
+        if kb is None or ka is None or ka <= 0: continue
+        pmid, kmid = (m["bid"] + m["ask"]) / 2, (kb + ka) / 2
+        matches.append({"series": best["_series"], "pm_ev": m["ev"], "label": m["label"], "k_ticker": best.get("ticker"), "k_yes": best.get("yes_sub_title"),
+                        "pm_bid": m["bid"], "pm_ask": m["ask"], "k_bid": kb, "k_ask": ka, "diff_mid": round(pmid - kmid, 4),
+                        "cross": round(max(kb - m["ask"], m["bid"] - ka), 4), "pm_liq": round(m["liq"]), "k_vol": best.get("volume"), "start": m["start"]})
+    say(f"matched PM↔Kalshi game sides: {len(matches)}")
     if matches:
         ds = [x["diff_mid"] for x in matches]
-        say(f"PM mid − de-vigged book prob: mean {100*st.mean(ds):+.2f}pts, median abs {100*st.median([abs(d) for d in ds]):.2f}pts, p90 abs {100*q([abs(d) for d in ds], .9):.2f}pts")
-        edge = [x for x in matches if x["book_p"] - x["pm_ask"] >= 0.03 or (1 - x["book_p"]) - (1 - x["pm_bid"]) >= 0.03]
-        say(f"games where buying on PM at the ask beats book fair by ≥3pts: {len(edge)}")
+        say(f"PM mid − Kalshi mid: mean {100*st.mean(ds):+.2f}pts, median |d| {100*st.median([abs(d) for d in ds]):.2f}pts, p90 |d| {100*q([abs(d) for d in ds], .9):.2f}pts")
+        cr = [x for x in matches if x["cross"] > 0]
+        say(f"sides where one venue's bid > other's ask (raw cross, before fees): {len(cr)}; ≥3c: {sum(1 for x in cr if x['cross'] >= 0.03)}")
         by = {}
-        for x in matches: by.setdefault(x["lg"], []).append(x["diff_mid"])
-        for lg, v in by.items():
+        for x in matches: by.setdefault(x["series"], []).append(x["diff_mid"])
+        for lg, v in sorted(by.items()):
             say(f"  {lg}: n={len(v)} mean {100*st.mean(v):+.2f} median|d| {100*st.median([abs(a) for a in v]):.2f}")
         for x in sorted(matches, key=lambda x: -abs(x["diff_mid"]))[:15]:
-            say(f"  {x['lg']} {x['game']} | {x['pm_q'][:50]} | book {x['book_p']:.3f} ({x['provider']}) PM {x['pm_bid']}/{x['pm_ask']} | liq ${x['liq']:,}")
-    json.dump({"games": games, "matches": matches}, open(f"{OUT}/sports.json", "w"), indent=1, default=str)
+            say(f"  {x['series']} {x['pm_ev'][:40]} | {x['label']} ~ {x['k_yes']} | PM {x['pm_bid']}/{x['pm_ask']} K {x['k_bid']}/{x['k_ask']} | PM liq ${x['pm_liq']:,}")
+    json.dump({"matches": matches, "kalshi_n": len(km), "pm_n": len(pm_mk)}, open(f"{OUT}/sports.json", "w"), indent=1, default=str)
 
 # ---------------------------------------------------------------- kalshi
 def kalshi():
     say("## Kalshi open markets")
     cur, rows, n = None, [], 0
     evs = []
-    while n < 40:
+    while n < 60:
         p = {"limit": 200, "status": "open", "with_nested_markets": "true"}
         if cur: p["cursor"] = cur
         b = get("https://api.elections.kalshi.com/trade-api/v2/events", p)
@@ -363,7 +384,7 @@ def kalshi():
         d = by.setdefault(c, [0, 0, 0.0])
         d[0] += 1
         for m in e.get("markets") or []:
-            d[1] += 1; d[2] += float(m.get("volume_24h") or 0)
+            d[1] += 1; d[2] += float(m.get("volume_24h") or m.get("volume_24h_fp") or m.get("volume") or 0)
     say(f"Kalshi open events fetched: {len(evs)}")
     for c, d in sorted(by.items(), key=lambda x: -x[1][2]):
         say(f"  {c}: {d[0]} ev / {d[1]} mkts, 24h contracts {d[2]:,.0f}")
