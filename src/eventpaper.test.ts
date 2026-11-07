@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { parseBook, slugDate, solveQ, walk, winMarketFor, zonedUtc } from "./eventpaper.js";
+import { parseBook, slugDate, solveQ, tennisTour, walk, winMarketFor, zonedUtc } from "./eventpaper.js";
 
 test("eventpaper helpers", () => {
   const q = solveQ(0.648);
@@ -22,4 +22,12 @@ test("football win market matching", () => {
   assert.equal(winMarketFor("Real Madrid", ms.filter((m) => !/draw/.test(m.question))), 0);
   assert.equal(winMarketFor("Valencia", [ms[0], ms[2]]), 1);
   assert.equal(winMarketFor("Atlético Madrid", [{ question: "Will Atletico Madrid win?" }, { question: "Will Sevilla win?" }]), 0);
+});
+
+test("tennis tour", () => {
+  assert.equal(tennisTour("WTA Linz: Swiatek vs Gauff"), "wta");
+  assert.equal(tennisTour("ATP Paris Masters: Sinner vs Alcaraz"), "atp");
+  assert.equal(tennisTour("ITF W35 Tokyo: A vs B"), "itf");
+  assert.equal(tennisTour("WTA Doubles: Kichenok/Ostapenko vs X/Y"), null);
+  assert.equal(tennisTour("Some exhibition"), null);
 });

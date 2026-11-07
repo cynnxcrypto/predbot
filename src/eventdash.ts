@@ -86,6 +86,18 @@ export const CATS: Record<string, Cat> = {
     ],
     plan: "Paper: weather-fav16 (16:00 local) and shadow weather-fav15, ~9 + ~18 trades/day; real only after 100+ fillable trades, >=50% won, positive net.",
   },
+  tennis: {
+    group: "tennis",
+    books: (m) => /tennis|wta|atp|itf/i.test(`${m.series ?? ""} ${m.question ?? ""}`),
+    collector: ["tennis"],
+    tags: ["tennis"],
+    research: [
+      "Pre-match and in-play prices are fair; nothing for real money.",
+      "One weak lead: WTA singles favourite at 90-95c, 10 min before start: 298 bets, 96.0% won vs 92.5c, +3.0c/share; ATP and ITF negative.",
+    ],
+    plan: "Paper: tennis-wta-fav90 plus shadows (ATP 90-95, WTA 85-90, ITF 90-95, any 95-99). ~9 main bets a week; real only after 100+ fillable at +3c/share.",
+    report: "reviews/tennis-thesis-2026-11-08.md",
+  },
   politics: {
     group: "politics",
     books: () => false,
@@ -105,11 +117,16 @@ export const CATS: Record<string, Cat> = {
       "Tennis: $9.7M ATP + $5M WTA a day, the biggest category with no research thread yet.",
       "Collector also stores cricket, UFC, F1, season futures and culture / economy markets.",
     ],
-    plan: "Tennis research next (offered). No rule running yet.",
+    plan: "Tennis now has its own tab. Nothing else running here yet.",
   },
 };
 export const RULE_NAMES: Record<string, string> = {
   "football-laliga-home": "La Liga home favourite 65-80c",
+  "tennis-wta-fav90": "WTA favourite 90-95c, 10 min before start",
+  "tennis-atp-fav90": "ATP favourite 90-95c",
+  "tennis-wta-fav85": "WTA favourite 85-90c",
+  "tennis-itf-fav90": "ITF favourite 90-95c",
+  "tennis-fav95": "Any tour favourite 95-99c",
   "weather-fav16": "Afternoon favourite bucket at 16:00 local, 50-85c",
   "weather-fav15": "Afternoon favourite at 15:00 local",
   "football-portugal-home": "Portugal home favourite 65-80c",
@@ -124,7 +141,7 @@ export const RULE_NAMES: Record<string, string> = {
   "election-lock-taker": "Election lock 97-99c, taker",
   "election-lock-maker": "Election lock 97-99c, maker 1c under",
 };
-const SHADOW = new Set(["weather-fav15", "football-portugal-home", "football-italy-away", "football-laliga-home55", "esports-fav-shadow", "esports-map1-dota", "spx-underdog", "spy-underdog"]);
+const SHADOW = new Set(["tennis-atp-fav90", "tennis-wta-fav85", "tennis-itf-fav90", "tennis-fav95", "weather-fav15", "football-portugal-home", "football-italy-away", "football-laliga-home55", "esports-fav-shadow", "esports-map1-dota", "spx-underdog", "spy-underdog"]);
 
 async function get(url: string, ms = 8000): Promise<Response> {
   const r = await fetch(url, { headers: { "user-agent": UA }, signal: AbortSignal.timeout(ms) });

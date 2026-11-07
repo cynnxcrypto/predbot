@@ -144,6 +144,7 @@ type Match = {
 type Side = { id: string; token: string; team: string; feeRate: number };
 type Fixture = { id: string; league: string; title: string; kickoff: number; home: Side; away: Side; done?: boolean; note?: string; homeAsk?: number | null; awayAsk?: number | null; pxAt?: number };
 type WxEvent = { id: string; title: string; station: string; tz: string; date: [number, number, number]; buckets: { id: string; token: string; label: string; feeRate: number }[] };
+type TennisMatch = { id: string; title: string; tour: string; start: number; tokens: string[]; outcomes: string[]; feeRate: number; done?: boolean; note?: string };
 type Maker = { rule: string; marketId: string; title: string; outcome: string; idx: number; token: string; bid: number; t: number; feeRate: number; ask: number };
 type State = {
   matches: Record<string, Match>;
@@ -153,8 +154,9 @@ type State = {
   signals: Signal[];
   fixtures: Record<string, Fixture>;
   wx: Record<string, WxEvent>;
+  tennis: Record<string, TennisMatch>;
 };
-const state: State = { matches: {}, done: {}, makers: [], trades: [], signals: [], fixtures: {}, wx: {}, ...loadJson<Partial<State>>(STATE_FILE, {}) };
+const state: State = { matches: {}, done: {}, makers: [], trades: [], signals: [], fixtures: {}, wx: {}, tennis: {}, ...loadJson<Partial<State>>(STATE_FILE, {}) };
 // 7 Nov 2026 20:15 KST fix: the first run counted matches whose map 1 had ended before the logger started (map-1 price
 // already decided), so it "bought" mid-map-2 prices. Drop those esports rows once; later rows need sawLive.
 if (!state.done["fix:esports-sawlive"]) {
@@ -568,6 +570,11 @@ const RULE_TEXT: Record<string, [string, string]> = {
   "football-laliga-home": ["football", "La Liga: buy the home team to win when its ask is 65-80c 10 minutes before kickoff; hold to the result. Ten seasons of bookmaker prices: +7.6c per $1 over 462 matches, 10 of 11 seasons positive; Polymarket 2024-26: 54 bets, 83% won, +9.4c/share."],
   "football-portugal-home": ["football", "Portugal Primeira Liga shadow: buy the home favourite at 65-80c 10 minutes before kickoff; bookmaker history +8.0c per $1 over 311 matches, Polymarket sample -5.9c (24)."],
   "football-italy-away": ["football", "Serie A shadow: buy the away favourite at 65-80c 10 minutes before kickoff; bookmaker history +9.4c per $1 over 189 matches."],
+  "tennis-wta-fav90": ["tennis", "WTA singles: 10 minutes before the scheduled start, buy the favourite when its mid is 90-95c and the ask is within 2c of mid (skip if the price moved over 5 pts in the last 10 minutes); hold to the result. Backtest: 298 bets, 96.0% won against an average 92.5c price, +3.0c/share after fee and 2c slip; ATP and ITF in the same band were negative."],
+  "tennis-atp-fav90": ["tennis", "ATP shadow of the WTA 90-95c favourite rule (negative in backtest)."],
+  "tennis-wta-fav85": ["tennis", "WTA 85-90c favourite shadow."],
+  "tennis-itf-fav90": ["tennis", "ITF 90-95c favourite shadow (negative in backtest)."],
+  "tennis-fav95": ["tennis", "Any tour, favourite at 95-99c, 10 minutes before the start (shadow)."],
   "weather-fav16": ["weather", "Highest-temperature city market: at 16:00 station local time buy the leading temperature bucket when its mid is 50-85c and the ask is within 2c of mid; hold to settlement (highest routine METAR reading of the local day). Backtest 43 days: 398 trades, 75.6% won, +3.7c/share after 2c slip and fees; positive 5 of 7 weeks."],
   "weather-fav15": ["weather", "Shadow of the afternoon-favourite weather rule at 15:00 local: backtest 785 trades, 72% won, +1.9c/share."],
   "football-laliga-home55": ["football", "La Liga control: buy the home team at 55-65c 10 minutes before kickoff; expected about break-even (+0.3c in bookmaker history)."],
@@ -673,6 +680,88 @@ async function weatherTick() {
   }
 }
 
+// ---------- tennis (thesis reviews/tennis-thesis-2026-11-08.md, 8 Nov 02:50 KST) ----------
+// Singles match moneylines. 10 min before gameStartTime (window -12..-8 min): favourite = higher mid; skip if the
+// favourite's price moved > 5 pts in the last 10 min (already live). Ask <= mid + 2c, $5 walking the book, hold.
+// MAIN tennis-wta-fav90: WTA, mid 90-95c (backtest 298 bets, 96.0% won vs 92.5c, +3.0c/share after fee + 2c).
+// Shadows: ATP 90-95c, WTA 85-90c, ITF 90-95c, any tour 95-99c.
+const TENNIS_RULES: { rule: string; tours: string[]; lo: number; hi: number }[] = [
+  { rule: "tennis-wta-fav90", tours: ["wta"], lo: 0.9, hi: 0.95 },
+  { rule: "tennis-atp-fav90", tours: ["atp"], lo: 0.9, hi: 0.95 },
+  { rule: "tennis-wta-fav85", tours: ["wta"], lo: 0.85, hi: 0.9 },
+  { rule: "tennis-itf-fav90", tours: ["itf"], lo: 0.9, hi: 0.95 },
+  { rule: "tennis-fav95", tours: ["wta", "atp", "itf"], lo: 0.95, hi: 0.99 },
+];
+export function tennisTour(text: string): string | null {
+  if (/doubles|\s\/\s|\w\/\w/i.test(text)) return null;
+  if (/\bITF\b/i.test(text)) return "itf";
+  if (/\bWTA\b|women/i.test(text)) return "wta";
+  if (/\bATP\b|challenger/i.test(text)) return "atp";
+  return null;
+}
+async function tennisRefresh() {
+  const now = Date.now();
+  let evs: GEvent[];
+  try {
+    evs = await pages(`${GAMMA}/events?tag_slug=tennis&closed=false&end_date_min=${new Date(now).toISOString()}&end_date_max=${new Date(now + 3 * 86400_000).toISOString()}`, 3000);
+  } catch (e) {
+    log(`tennis list failed: ${(e as Error).message}`);
+    return;
+  }
+  for (const e of evs) {
+    for (const m of e.markets ?? []) {
+      if (!m.id || state.tennis[m.id] || m.sportsMarketType !== "moneyline" || m.closed) continue;
+      const tour = tennisTour(`${e.title ?? ""} ${m.question ?? ""} ${e.slug ?? ""}`);
+      const toks = jl<string[]>(m.clobTokenIds, []);
+      const start = tsOf(m.gameStartTime) || tsOf(e.startTime);
+      if (!tour || toks.length !== 2 || !Number.isFinite(start) || start < now) continue;
+      state.tennis[m.id] = { id: m.id, title: m.question ?? e.title ?? m.id, tour, start, tokens: toks, outcomes: jl<string[]>(m.outcomes, ["A", "B"]), feeRate: Number(m.feeSchedule?.rate ?? 0.05) };
+    }
+  }
+  for (const [k, t] of Object.entries(state.tennis)) if (t.start < now - 2 * 86400_000) delete state.tennis[k];
+}
+async function tennisTick() {
+  const now = Date.now();
+  for (const t of Object.values(state.tennis)) {
+    if (t.done || now < t.start - 12 * 60_000) continue;
+    t.done = true;
+    if (now > t.start - 8 * 60_000) {
+      t.note = "missed the 12-8 min window";
+      continue;
+    }
+    const books = await Promise.all(t.tokens.map((k) => book(k).catch(() => null)));
+    if (!books[0]?.mid || !books[1]?.mid) {
+      t.note = "no book";
+      continue;
+    }
+    const i = books[0].mid >= books[1].mid ? 0 : 1;
+    const bk = books[i]!;
+    const mid = bk.mid!;
+    const ask = bk.bestAsk!;
+    const rules = TENNIS_RULES.filter((r) => r.tours.includes(t.tour) && mid >= r.lo - 1e-9 && mid < r.hi - 1e-9 + (r.hi === 0.99 ? 0.002 : 0));
+    if (!rules.length) continue;
+    let moved: number | null = null;
+    try {
+      const h = await getJson<{ history?: { t: number; p: number }[] }>(`${CLOB}/prices-history?market=${t.tokens[i]}&startTs=${Math.floor(now / 1000) - 600}&endTs=${Math.floor(now / 1000)}&fidelity=1`);
+      const ps = (h.history ?? []).map((x) => x.p);
+      if (ps.length) moved = Math.max(...ps, mid) - Math.min(...ps, mid);
+    } catch {
+      /* no history: judge on the book alone */
+    }
+    for (const r of rules) {
+      const extra: Record<string, unknown> = { tour: t.tour, start: t.start, mid, bid: bk.bestBid, ask, moved10m: moved, depth2c: bk.asks.filter((a) => a.price <= ask + 0.02 + 1e-9).reduce((x, a) => x + a.price * a.size, 0) };
+      const skip = moved != null && moved > 0.05 + 1e-9 ? `moved ${Math.round(moved * 100)} pts in 10 min (live?)` : ask > mid + 0.02 + 1e-9 ? `ask ${Math.round(ask * 100)}c over mid+2c` : null;
+      if (skip) {
+        extra.skip = skip;
+        signal(r.rule, t.title, false, extra);
+        continue;
+      }
+      const tr = enter(r.rule, { marketId: t.id, title: t.title, outcome: t.outcomes[i], idx: i, token: t.tokens[i], feeRate: t.feeRate }, bk, ask, extra);
+      signal(r.rule, t.title, Boolean(tr), extra);
+    }
+  }
+}
+
 // ---------- settlement and summary ----------
 async function settleTick() {
   const open = state.trades.filter((t) => t.pnl == null);
@@ -751,6 +840,7 @@ const GROUPS: Record<string, string[]> = {
   indices: ["gold-momentum", "spx-underdog", "spy-underdog"],
   politics: ["election-lock-taker", "election-lock-maker"],
   weather: ["weather-fav16", "weather-fav15"],
+  tennis: ["tennis-wta-fav90", "tennis-atp-fav90", "tennis-wta-fav85", "tennis-itf-fav90", "tennis-fav95"],
   football: ["football-laliga-home", "football-portugal-home", "football-italy-away", "football-laliga-home55"],
 };
 function summarize() {
@@ -796,8 +886,8 @@ function summarize() {
         .map((t) => ({ info: infoOf(t), jm: t.jev?.mult ?? null, jc: t.jev?.confidence ?? null, settledAt: t.settledAt ?? null, rule: t.rule, t: t.t, title: t.title, outcome: t.outcome, ask: t.ask, avg: t.avg == null ? null : Math.round(t.avg * 1000) / 1000, shares: Math.round(t.shares * 100) / 100, cost: Math.round(t.cost * 100) / 100, fillable: t.fillable, won: t.won ?? null, pnl: t.pnl == null ? null : Math.round(t.pnl * 100) / 100, jev: t.jev?.pick ?? (t.jev?.err ? `error: ${t.jev.err}` : t.jevPending ? "asking" : null) })),
       // Why matches ended without a trade (diagnostics: "map 1 already decided when first seen", "no P0", ...).
       notes: g === "esports" ? Object.values(state.matches).reduce<Record<string, number>>((o, m) => ((o[m.evaluated ? m.note ?? (m.tEnd != null ? "evaluated" : "done") : m.tEnd != null ? "map 1 over, waiting" : m.start <= Date.now() ? "live" : "upcoming"] = (o[m.evaluated ? m.note ?? (m.tEnd != null ? "evaluated" : "done") : m.tEnd != null ? "map 1 over, waiting" : m.start <= Date.now() ? "live" : "upcoming"] ?? 0) + 1), o), {}) : undefined,
-      skips: g === "football" || g === "weather" ? state.signals.filter((x) => rules.includes(x.rule) && x.extra.skip).slice(-15).reverse().map((x) => ({ rule: x.rule, t: x.t, title: x.title, why: x.extra.skip, ask: x.extra.ask })) : undefined,
-      upcoming: g === "football" ? Object.values(state.fixtures).filter((f) => !f.done).length : g === "weather" ? Object.keys(state.wx).length : undefined,
+      skips: g === "football" || g === "weather" || g === "tennis" ? state.signals.filter((x) => rules.includes(x.rule) && x.extra.skip).slice(-15).reverse().map((x) => ({ rule: x.rule, t: x.t, title: x.title, why: x.extra.skip, ask: x.extra.ask })) : undefined,
+      upcoming: g === "football" ? Object.values(state.fixtures).filter((f) => !f.done).length : g === "weather" ? Object.keys(state.wx).length : g === "tennis" ? Object.values(state.tennis).filter((t) => !t.done).length : undefined,
       watch: watchOf(g),
       watchAt: g === "politics" ? polWatchAt : undefined,
       sigs: state.signals
@@ -842,7 +932,7 @@ async function guard(name: string, f: () => Promise<void>) {
 }
 async function main() {
   log("started (paper only)");
-  let last = { esList: 0, idx: 0, pol: 0, mk: 0, settle: 0, fb: 0, wx: 0 };
+  let last = { esList: 0, idx: 0, pol: 0, mk: 0, settle: 0, fb: 0, wx: 0, tn: 0 };
   for (;;) {
     const now = Date.now();
     if (now - last.esList > 5 * 60_000) {
@@ -860,6 +950,11 @@ async function main() {
       await guard("weather list", weatherRefresh);
     }
     await guard("weather", weatherTick);
+    if (now - last.tn > 10 * 60_000) {
+      last.tn = now;
+      await guard("tennis list", tennisRefresh);
+    }
+    await guard("tennis", tennisTick);
     if (now - last.idx > 3 * 60_000) {
       last.idx = now;
       await guard("indices", indicesTick);
