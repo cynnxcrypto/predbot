@@ -1,0 +1,26 @@
+name: market-survey
+on:
+  push:
+    branches: ["claude/**"]
+    paths: ["survey/pm_survey.py", "survey/run.txt", ".github/workflows/survey.yml"]
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  survey:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - name: run
+        run: python survey/pm_survey.py $(cat survey/run.txt 2>/dev/null) 2>survey/out-stderr.log || true
+      - name: commit results
+        run: |
+          mkdir -p survey/out && mv survey/out-stderr.log survey/out/stderr.log || true
+          git config user.name "survey-bot"; git config user.email "survey-bot@users.noreply.github.com"
+          git add survey/out
+          git commit -m "survey results [skip ci]" || exit 0
+          git pull --rebase origin "${GITHUB_REF_NAME}" || true
+          git push origin "HEAD:${GITHUB_REF_NAME}"
