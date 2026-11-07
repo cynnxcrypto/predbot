@@ -1,1 +1,1 @@
-discover
+collect 80
