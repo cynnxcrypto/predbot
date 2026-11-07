@@ -1,5 +1,5 @@
 exec(open("an/common.py").read())
-from datetime import datetime
+from datetime import datetime,timezone
 rows=[]
 for eid,ms in ev.items():
     mm=[r for r in ms if r["smt"]=="moneyline" and "BO3" in r["q"].upper()]
@@ -17,7 +17,7 @@ for eid,ms in ev.items():
         if p is None: continue
         pw=p if w1==0 else 1-p; p0w=P0 if w1==0 else 1-P0
         model=1-(1-(q if w1==0 else 1-q))**2
-        rows.append(dict(lag=lag,age=a,game=M["game"],p0w=p0w,pw=pw,model=model,won=M["win"]==w1,r=M,mon=datetime.utcfromtimestamp(g).strftime("%Y-%m"),vol=M["vol"]))
+        rows.append(dict(lag=lag,age=a,game=M["game"],p0w=p0w,pw=pw,model=model,won=M["win"]==w1,r=M,mon=datetime.fromtimestamp(g,timezone.utc).strftime("%Y-%m"),vol=M["vol"]))
 def ev_(s,slip=.01): return mean((1 if x['won'] else 0)-(x['pw']+slip)-fee(x['r'],x['pw']+slip) for x in s)
 def show(lbl,s):
     if len(s)<10: print(f"  {lbl}: n={len(s)}"); return
