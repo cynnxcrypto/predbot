@@ -1,0 +1,230 @@
+{
+ "liquipedia_api_cs": {
+  "status": 406,
+  "bytes": 0,
+  "sec": 0.3,
+  "head": ""
+ },
+ "liquipedia_transfers_cs": {
+  "status": 403,
+  "bytes": 0,
+  "sec": 0.3,
+  "head": ""
+ },
+ "liquipedia_lol_matches": {
+  "status": 403,
+  "bytes": 0,
+  "sec": 0.3,
+  "head": ""
+ },
+ "hltv_results": {
+  "status": 200,
+  "bytes": 341118,
+  "sec": 0.3,
+  "head": "<!DOCTYPE html>\n<html lang=\"en\" data-client-country-iso=\"US-VA\" data-impression-tracking-endpoint=\"https://ncuxt.hltv.org\" data-ad-tag-allowed-cookies=\"mobile-bottom-ad,desktop-bottom-ad\" data-bc-cont"
+ },
+ "hltv_rss": {
+  "status": 200,
+  "bytes": 7153,
+  "sec": 0.1,
+  "head": "<?xml version=\"1.0\" encoding=\"UTF-8\" ?>\n<rss version=\"2.0\" xmlns:media=\"http://search.yahoo.com/mrss/\">\n<channel>\n  <title>HLTV.org - The home of competitive Counter-Strike</title>\n  <description>HLTV"
+ },
+ "bo3gg_api": {
+  "status": 200,
+  "bytes": 4695,
+  "sec": 0.1,
+  "head": "{\"total\":{\"count\":83197,\"pages\":16640,\"offset\":0,\"limit\":5},\"results\":[{\"id\":1,\"slug\":\"vitality-cs-go-vs-mousesports-cs-go-08-12-2020\",\"round_id\":1,\"team1_id\":667,\"team2_id\":765,\"winner_team_id\":667,\""
+ },
+ "opendota_pro": {
+  "status": 200,
+  "bytes": 31144,
+  "sec": 0.1,
+  "head": "[{\"match_id\":9078923915,\"duration\":2924,\"start_time\":1793988383,\"radiant_team_id\":10323560,\"radiant_name\":\"\u0432\u0435\u0442\u043c\u043e\",\"dire_team_id\":9104159,\"dire_name\":\"Party 2 play\",\"leagueid\":16251,\"league_name\":"
+ },
+ "opendota_teams": {
+  "status": 200,
+  "bytes": 253549,
+  "sec": 0.1,
+  "head": "[{\"team_id\":7119388,\"rating\":1591.77,\"wins\":974,\"losses\":651,\"last_match_time\":1793548190,\"delta\":15.5364,\"match_id\":9071885340,\"name\":\"Team Spirit\",\"tag\":\"TSpirit\",\"logo_url\":\"https://cdn.steamuserco"
+ },
+ "stratz": {
+  "status": 403,
+  "bytes": 0,
+  "sec": 0.2,
+  "head": ""
+ },
+ "lolesports_schedule": {
+  "status": 403,
+  "bytes": 0,
+  "sec": 0.4,
+  "head": ""
+ },
+ "gol_gg": {
+  "status": 200,
+  "bytes": 568902,
+  "sec": 0.8,
+  "head": "<!DOCTYPE html>\r\n<html lang=\"en\">\r\n<head>\r\n<title>Lol esport tournaments list - Games of legends</title>\r\n<base href=\"https://gol.gg/tournament/\" >\r\n  <meta name=\"description\" content=\"Lol esport tour"
+ },
+ "oracleselixir": {
+  "status": 403,
+  "bytes": 0,
+  "sec": 0.1,
+  "head": ""
+ },
+ "leaguepedia_cargo": {
+  "status": 200,
+  "bytes": 372,
+  "sec": 0.1,
+  "head": "{\"error\":{\"code\":\"ratelimited\",\"info\":\"You've exceeded your rate limit. Please wait some time and try again.\",\"*\":\"See https://lol.fandom.com/api.php for API usage. Subscribe to the mediawiki-api-anno"
+ },
+ "vlr_gg": {
+  "status": 200,
+  "bytes": 136319,
+  "sec": 0.1,
+  "head": "<!DOCTYPE html>\n<html lang=\"en\" data-theme=\"light\">\n\t<head>\n\t\t<meta charset=\"utf-8\">\n\t\t<title>\n\t\t\tValorant esports Match Results | VLR.gg\t\t</title>\n\n\t\t\t\t\t<meta name=\"description\" content=\"Match result"
+ },
+ "vlrggapi": {
+  "status": 402,
+  "bytes": 0,
+  "sec": 0.1,
+  "head": ""
+ },
+ "pandascore": {
+  "status": 403,
+  "bytes": 0,
+  "sec": 0.3,
+  "head": ""
+ },
+ "gosugamers": {
+  "status": 200,
+  "bytes": 283489,
+  "sec": 1.7,
+  "head": "<!DOCTYPE html><html lang=\"en\"><head><meta charSet=\"utf-8\"/><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"/><link rel=\"stylesheet\" href=\"/_next/static/css/86c484e83324b9bc.css\" da"
+ },
+ "steam_cs2_news": {
+  "status": 200,
+  "bytes": 8314,
+  "sec": 0.2,
+  "head": "{\"appnews\":{\"appid\":730,\"newsitems\":[{\"gid\":\"1848557880481353\",\"title\":\"Counter-Strike 2 Update\",\"url\":\"https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/18485578804813"
+ },
+ "steam_dota_news": {
+  "status": 200,
+  "bytes": 7417,
+  "sec": 0.1,
+  "head": "{\"appnews\":{\"appid\":570,\"newsitems\":[{\"gid\":\"1846018067925681\",\"title\":\"\u0412 Dota 2 \u0434\u043e\u0431\u0430\u0432\u0438\u043b\u0438 \u0441\u043e\u043a\u0440\u043e\u0432\u0438\u0449\u043d\u0438\u0446\u0443 Trove of Terror - \u043d\u043e\u0432\u0430\u044f \u0430\u0440\u043a\u0430\u043d\u0430 \u043d\u0430 Tidehunter \u0438 \u0432\u043e\u0437\u0432\u0440\u0430\u0449\ufffd"
+ },
+ "dota_patch": {
+  "status": 200,
+  "bytes": 9129,
+  "sec": 0.4,
+  "head": "{\"patches\":[{\"patch_number\":\"7.08\",\"patch_name\":\"7.08\",\"patch_timestamp\":1517472000},{\"patch_number\":\"7.09\",\"patch_name\":\"7.09\",\"patch_timestamp\":1518681600},{\"patch_number\":\"7.10\",\"patch_name\":\"7.10\""
+ },
+ "reddit_csgo": {
+  "status": 403,
+  "bytes": 0,
+  "sec": 0.0,
+  "head": ""
+ },
+ "reddit_lol_comp": {
+  "status": 403,
+  "bytes": 0,
+  "sec": 0.0,
+  "head": ""
+ },
+ "dust2_us_rss": {
+  "status": 200,
+  "bytes": 5038,
+  "sec": 0.5,
+  "head": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<rss xmlns:atom=\"http://www.w3.org/2005/Atom\" version=\"2.0\">\n   <channel>\n      <title>www.dust2.us</title>\n      <description>Dust2.us - CS2 Community and News<"
+ },
+ "dotabuff_esports": {
+  "status": 403,
+  "bytes": 0,
+  "sec": 0.0,
+  "head": ""
+ },
+ "datdota": {
+  "status": 403,
+  "bytes": 0,
+  "sec": 0.1,
+  "head": ""
+ },
+ "esportsearnings": {
+  "status": 200,
+  "bytes": 127771,
+  "sec": 0.2,
+  "head": "<!DOCTYPE html><html><head><script>var __ezHttpConsent={setByCat:function(src,tagType,attributes,category,force,customSetScriptFn=null){var setScript=function(){if(force||window.ezTcfConsent[category]"
+ },
+ "oddsportal_esports": {
+  "status": 200,
+  "bytes": 567547,
+  "sec": 2.3,
+  "head": "<!DOCTYPE html><html lang=\"en\" class=\"opensans_aaadb7a3-module__b9fGUa__variable montserrat_5d237d23-module__hkFSxG__variable\"><head><meta charSet=\"utf-8\"/><meta name=\"viewport\" content=\"width=device-"
+ },
+ "ggbet_api": {
+  "status": 403,
+  "bytes": 0,
+  "sec": 0.0,
+  "head": ""
+ },
+ "thunderpick": {
+  "status": 403,
+  "bytes": 0,
+  "sec": 0.2,
+  "head": ""
+ },
+ "pinnacle_guest": {
+  "status": 200,
+  "bytes": 479901,
+  "sec": 0.1,
+  "head": "[\n  {\n    \"ageLimit\": 0,\n    \"altTeaser\": false,\n    \"featureOrder\": -1,\n    \"hasAltSpread\": false,\n    \"hasAltTotal\": false,\n    \"hasBetshare\": false,\n    \"hasLive\": false,\n    \"hasMarkets\": true,\n  "
+ },
+ "betfair_esports": {
+  "status": 403,
+  "bytes": 0,
+  "sec": 0.0,
+  "head": ""
+ },
+ "google_news_cs2": {
+  "status": 200,
+  "bytes": 16632,
+  "sec": 0.3,
+  "head": "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><rss version=\"2.0\" xmlns:media=\"http://search.yahoo.com/mrss/\"><channel><generator>NFE/5.0</generator><title>\"CS2 roster stand-in\" - Google News<"
+ },
+ "twitch": {
+  "status": 200,
+  "bytes": 224768,
+  "sec": 0.2,
+  "head": "<!DOCTYPE html><html class=\"tw-root--hover\"><head><script>performance.mark(\"html:head\")</script><meta charset=\"utf-8\"><title>Twitch</title><meta property=\"og:type\" content=\"website\"/><meta property=\"a"
+ },
+ "grid_open": {
+  "status": 200,
+  "bytes": 142,
+  "sec": 0.3,
+  "head": "{\"errors\":[{\"message\":\"Requester unauthorized to make query\",\"path\":[\"queryValue\"],\"extensions\":{\"errorType\":\"UNAUTHENTICATED\"}}],\"data\":null}"
+ },
+ "abios": {
+  "status": 0,
+  "bytes": 0,
+  "sec": 0.0,
+  "head": ""
+ },
+ "cs_mapstats_hltv": {
+  "status": 403,
+  "bytes": 0,
+  "sec": 0.1,
+  "head": ""
+ },
+ "liquipedia_val": {
+  "status": 406,
+  "bytes": 0,
+  "sec": 0.3,
+  "head": ""
+ },
+ "liquipedia_dota": {
+  "status": 406,
+  "bytes": 0,
+  "sec": 0.3,
+  "head": ""
+ }
+}
