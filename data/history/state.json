@@ -1,5 +1,1790 @@
 {
 "days": {
+"2026-07-07": {
+"at": "2026-11-07T14:03:40+00:00",
+"pass": "final",
+"stats": {
+"esports": {
+"dropped_props": 563,
+"events": 58,
+"fills": 0,
+"markets": 260,
+"points": 0,
+"points_1m": 28687,
+"with_prices": 128
+},
+"football": {
+"dropped_props": 1158,
+"events": 102,
+"fills": 0,
+"markets": 742,
+"points": 0,
+"points_1m": 26052,
+"with_prices": 417
+},
+"other_sports": {
+"dropped_props": 295,
+"events": 183,
+"fills": 0,
+"markets": 799,
+"points": 0,
+"points_1m": 1080,
+"with_prices": 726
+},
+"politics": {
+"dropped_props": 0,
+"events": 5,
+"fills": 0,
+"markets": 49,
+"points": 0,
+"points_1m": 0,
+"with_prices": 44
+},
+"sports_futures": {
+"dropped_props": 0,
+"events": 5,
+"fills": 0,
+"markets": 115,
+"points": 0,
+"points_1m": 0,
+"with_prices": 102
+},
+"tennis": {
+"dropped_props": 2625,
+"events": 206,
+"fills": 0,
+"markets": 231,
+"points": 0,
+"points_1m": 19607,
+"with_prices": 112
+},
+"us_sports": {
+"dropped_props": 701,
+"events": 62,
+"fills": 0,
+"markets": 299,
+"points": 323,
+"points_1m": 15207,
+"with_prices": 142
+}
+}
+},
+"2026-07-08": {
+"at": "2026-11-07T14:02:51+00:00",
+"pass": "final",
+"stats": {
+"esports": {
+"dropped_props": 761,
+"events": 67,
+"fills": 0,
+"markets": 282,
+"points": 0,
+"points_1m": 39217,
+"with_prices": 161
+},
+"football": {
+"dropped_props": 275,
+"events": 48,
+"fills": 0,
+"markets": 221,
+"points": 0,
+"points_1m": 11548,
+"with_prices": 108
+},
+"other_sports": {
+"dropped_props": 240,
+"events": 167,
+"fills": 0,
+"markets": 718,
+"points": 0,
+"points_1m": 2849,
+"with_prices": 687
+},
+"politics": {
+"dropped_props": 0,
+"events": 5,
+"fills": 0,
+"markets": 97,
+"points": 0,
+"points_1m": 0,
+"with_prices": 76
+},
+"sports_futures": {
+"dropped_props": 0,
+"events": 2,
+"fills": 0,
+"markets": 256,
+"points": 0,
+"points_1m": 0,
+"with_prices": 55
+},
+"tennis": {
+"dropped_props": 5497,
+"events": 396,
+"fills": 0,
+"markets": 587,
+"points": 0,
+"points_1m": 40852,
+"with_prices": 255
+},
+"us_sports": {
+"dropped_props": 810,
+"events": 62,
+"fills": 0,
+"markets": 330,
+"points": 0,
+"points_1m": 16182,
+"with_prices": 124
+}
+}
+},
+"2026-07-09": {
+"at": "2026-11-07T14:02:02+00:00",
+"pass": "final",
+"stats": {
+"esports": {
+"dropped_props": 924,
+"events": 82,
+"fills": 0,
+"markets": 378,
+"points": 0,
+"points_1m": 45367,
+"with_prices": 190
+},
+"football": {
+"dropped_props": 1338,
+"events": 175,
+"fills": 0,
+"markets": 732,
+"points": 0,
+"points_1m": 34451,
+"with_prices": 391
+},
+"other": {
+"dropped_props": 0,
+"events": 4,
+"fills": 0,
+"markets": 12,
+"points": 0,
+"points_1m": 0,
+"with_prices": 12
+},
+"other_sports": {
+"dropped_props": 153,
+"events": 138,
+"fills": 0,
+"markets": 671,
+"points": 0,
+"points_1m": 3582,
+"with_prices": 644
+},
+"politics": {
+"dropped_props": 0,
+"events": 1,
+"fills": 0,
+"markets": 35,
+"points": 0,
+"points_1m": 0,
+"with_prices": 34
+},
+"sports_futures": {
+"dropped_props": 0,
+"events": 2,
+"fills": 0,
+"markets": 155,
+"points": 0,
+"points_1m": 0,
+"with_prices": 50
+},
+"tennis": {
+"dropped_props": 3949,
+"events": 285,
+"fills": 0,
+"markets": 417,
+"points": 0,
+"points_1m": 25168,
+"with_prices": 185
+},
+"us_sports": {
+"dropped_props": 640,
+"events": 70,
+"fills": 0,
+"markets": 248,
+"points": 0,
+"points_1m": 20960,
+"with_prices": 127
+}
+}
+},
+"2026-07-10": {
+"at": "2026-11-07T14:01:10+00:00",
+"pass": "final",
+"stats": {
+"esports": {
+"dropped_props": 964,
+"events": 80,
+"fills": 0,
+"markets": 387,
+"points": 0,
+"points_1m": 49759,
+"with_prices": 203
+},
+"football": {
+"dropped_props": 436,
+"events": 44,
+"fills": 0,
+"markets": 313,
+"points": 0,
+"points_1m": 11024,
+"with_prices": 163
+},
+"other": {
+"dropped_props": 0,
+"events": 3,
+"fills": 0,
+"markets": 25,
+"points": 0,
+"points_1m": 0,
+"with_prices": 24
+},
+"other_sports": {
+"dropped_props": 604,
+"events": 231,
+"fills": 0,
+"markets": 1081,
+"points": 0,
+"points_1m": 5397,
+"with_prices": 898
+},
+"politics": {
+"dropped_props": 0,
+"events": 2,
+"fills": 0,
+"markets": 7,
+"points": 0,
+"points_1m": 0,
+"with_prices": 7
+},
+"sports_futures": {
+"dropped_props": 0,
+"events": 2,
+"fills": 0,
+"markets": 153,
+"points": 0,
+"points_1m": 0,
+"with_prices": 93
+},
+"tennis": {
+"dropped_props": 2216,
+"events": 160,
+"fills": 0,
+"markets": 319,
+"points": 0,
+"points_1m": 21999,
+"with_prices": 143
+},
+"us_sports": {
+"dropped_props": 659,
+"events": 74,
+"fills": 0,
+"markets": 249,
+"points": 0,
+"points_1m": 21519,
+"with_prices": 138
+},
+"weather_other": {
+"dropped_props": 0,
+"events": 1,
+"fills": 0,
+"markets": 6,
+"points": 0,
+"points_1m": 0,
+"with_prices": 6
+}
+}
+},
+"2026-07-11": {
+"at": "2026-11-07T14:00:17+00:00",
+"pass": "final",
+"stats": {
+"esports": {
+"dropped_props": 645,
+"events": 55,
+"fills": 0,
+"markets": 266,
+"points": 0,
+"points_1m": 34277,
+"with_prices": 147
+},
+"football": {
+"dropped_props": 817,
+"events": 110,
+"fills": 0,
+"markets": 592,
+"points": 0,
+"points_1m": 25179,
+"with_prices": 277
+},
+"other_sports": {
+"dropped_props": 881,
+"events": 110,
+"fills": 0,
+"markets": 831,
+"points": 0,
+"points_1m": 4323,
+"with_prices": 605
+},
+"politics": {
+"dropped_props": 0,
+"events": 2,
+"fills": 0,
+"markets": 28,
+"points": 0,
+"points_1m": 0,
+"with_prices": 9
+},
+"sports_futures": {
+"dropped_props": 0,
+"events": 5,
+"fills": 0,
+"markets": 184,
+"points": 0,
+"points_1m": 0,
+"with_prices": 132
+},
+"tennis": {
+"dropped_props": 2305,
+"events": 160,
+"fills": 0,
+"markets": 235,
+"points": 0,
+"points_1m": 14189,
+"with_prices": 78
+},
+"us_sports": {
+"dropped_props": 921,
+"events": 80,
+"fills": 0,
+"markets": 294,
+"points": 0,
+"points_1m": 20420,
+"with_prices": 157
+}
+}
+},
+"2026-07-12": {
+"at": "2026-11-07T13:59:36+00:00",
+"pass": "final",
+"stats": {
+"esports": {
+"dropped_props": 656,
+"events": 62,
+"fills": 0,
+"markets": 352,
+"points": 0,
+"points_1m": 36588,
+"with_prices": 165
+},
+"football": {
+"dropped_props": 875,
+"events": 134,
+"fills": 0,
+"markets": 769,
+"points": 0,
+"points_1m": 28401,
+"with_prices": 348
+},
+"other_sports": {
+"dropped_props": 1076,
+"events": 180,
+"fills": 0,
+"markets": 968,
+"points": 0,
+"points_1m": 13472,
+"with_prices": 631
+},
+"politics": {
+"dropped_props": 0,
+"events": 5,
+"fills": 0,
+"markets": 73,
+"points": 0,
+"points_1m": 0,
+"with_prices": 65
+},
+"sports_futures": {
+"dropped_props": 0,
+"events": 53,
+"fills": 0,
+"markets": 1131,
+"points": 0,
+"points_1m": 0,
+"with_prices": 474
+},
+"tennis": {
+"dropped_props": 786,
+"events": 59,
+"fills": 0,
+"markets": 151,
+"points": 0,
+"points_1m": 10595,
+"with_prices": 72
+},
+"us_sports": {
+"dropped_props": 947,
+"events": 93,
+"fills": 0,
+"markets": 396,
+"points": 0,
+"points_1m": 31408,
+"with_prices": 210
+},
+"weather_other": {
+"dropped_props": 0,
+"events": 2,
+"fills": 0,
+"markets": 15,
+"points": 0,
+"points_1m": 0,
+"with_prices": 15
+}
+}
+},
+"2026-07-13": {
+"at": "2026-11-07T13:58:38+00:00",
+"pass": "final",
+"stats": {
+"esports": {
+"dropped_props": 412,
+"events": 42,
+"fills": 0,
+"markets": 204,
+"points": 0,
+"points_1m": 23969,
+"with_prices": 100
+},
+"football": {
+"dropped_props": 63,
+"events": 18,
+"fills": 0,
+"markets": 123,
+"points": 0,
+"points_1m": 6104,
+"with_prices": 42
+},
+"other": {
+"dropped_props": 0,
+"events": 5,
+"fills": 0,
+"markets": 25,
+"points": 0,
+"points_1m": 0,
+"with_prices": 25
+},
+"other_sports": {
+"dropped_props": 183,
+"events": 126,
+"fills": 0,
+"markets": 589,
+"points": 0,
+"points_1m": 2913,
+"with_prices": 528
+},
+"politics": {
+"dropped_props": 0,
+"events": 3,
+"fills": 0,
+"markets": 48,
+"points": 0,
+"points_1m": 0,
+"with_prices": 22
+},
+"sports_futures": {
+"dropped_props": 0,
+"events": 12,
+"fills": 0,
+"markets": 109,
+"points": 0,
+"points_1m": 0,
+"with_prices": 96
+},
+"tennis": {
+"dropped_props": 1850,
+"events": 128,
+"fills": 0,
+"markets": 231,
+"points": 0,
+"points_1m": 19447,
+"with_prices": 100
+},
+"us_sports": {
+"dropped_props": 95,
+"events": 26,
+"fills": 0,
+"markets": 140,
+"points": 0,
+"points_1m": 13630,
+"with_prices": 88
+}
+}
+},
+"2026-07-14": {
+"at": "2026-11-07T13:58:05+00:00",
+"pass": "final",
+"stats": {
+"esports": {
+"dropped_props": 405,
+"events": 42,
+"fills": 0,
+"markets": 201,
+"points": 0,
+"points_1m": 22726,
+"with_prices": 91
+},
+"football": {
+"dropped_props": 669,
+"events": 94,
+"fills": 0,
+"markets": 554,
+"points": 0,
+"points_1m": 20009,
+"with_prices": 286
+},
+"other": {
+"dropped_props": 0,
+"events": 16,
+"fills": 0,
+"markets": 81,
+"points": 0,
+"points_1m": 0,
+"with_prices": 80
+},
+"other_sports": {
+"dropped_props": 183,
+"events": 132,
+"fills": 0,
+"markets": 680,
+"points": 0,
+"points_1m": 3145,
+"with_prices": 608
+},
+"politics": {
+"dropped_props": 0,
+"events": 2,
+"fills": 0,
+"markets": 2,
+"points": 0,
+"points_1m": 0,
+"with_prices": 2
+},
+"sports_futures": {
+"dropped_props": 0,
+"events": 21,
+"fills": 0,
+"markets": 369,
+"points": 0,
+"points_1m": 0,
+"with_prices": 117
+},
+"tennis": {
+"dropped_props": 4636,
+"events": 333,
+"fills": 0,
+"markets": 450,
+"points": 0,
+"points_1m": 36696,
+"with_prices": 209
+},
+"us_sports": {
+"dropped_props": 194,
+"events": 34,
+"fills": 0,
+"markets": 245,
+"points": 0,
+"points_1m": 17054,
+"with_prices": 145
+}
+}
+},
+"2026-07-15": {
+"at": "2026-11-07T13:57:20+00:00",
+"pass": "final",
+"stats": {
+"esports": {
+"dropped_props": 777,
+"events": 63,
+"fills": 0,
+"markets": 290,
+"points": 0,
+"points_1m": 37082,
+"with_prices": 170
+},
+"football": {
+"dropped_props": 545,
+"events": 69,
+"fills": 0,
+"markets": 458,
+"points": 0,
+"points_1m": 14501,
+"with_prices": 223
+},
+"other": {
+"dropped_props": 0,
+"events": 21,
+"fills": 0,
+"markets": 101,
+"points": 0,
+"points_1m": 0,
+"with_prices": 101
+},
+"other_sports": {
+"dropped_props": 248,
+"events": 183,
+"fills": 0,
+"markets": 658,
+"points": 0,
+"points_1m": 6846,
+"with_prices": 569
+},
+"politics": {
+"dropped_props": 0,
+"events": 4,
+"fills": 0,
+"markets": 44,
+"points": 0,
+"points_1m": 0,
+"with_prices": 39
+},
+"sports_futures": {
+"dropped_props": 0,
+"events": 17,
+"fills": 0,
+"markets": 189,
+"points": 0,
+"points_1m": 0,
+"with_prices": 45
+},
+"tennis": {
+"dropped_props": 5190,
+"events": 372,
+"fills": 0,
+"markets": 488,
+"points": 0,
+"points_1m": 46877,
+"with_prices": 278
+},
+"us_sports": {
+"dropped_props": 214,
+"events": 34,
+"fills": 0,
+"markets": 295,
+"points": 0,
+"points_1m": 19012,
+"with_prices": 149
+}
+}
+},
+"2026-07-16": {
+"at": "2026-11-07T13:56:31+00:00",
+"pass": "final",
+"stats": {
+"esports": {
+"dropped_props": 704,
+"events": 59,
+"fills": 0,
+"markets": 268,
+"points": 0,
+"points_1m": 31708,
+"with_prices": 149
+},
+"football": {
+"dropped_props": 1332,
+"events": 214,
+"fills": 0,
+"markets": 846,
+"points": 0,
+"points_1m": 42831,
+"with_prices": 428
+},
+"other": {
+"dropped_props": 0,
+"events": 19,
+"fills": 0,
+"markets": 103,
+"points": 0,
+"points_1m": 0,
+"with_prices": 87
+},
+"other_sports": {
+"dropped_props": 173,
+"events": 157,
+"fills": 0,
+"markets": 662,
+"points": 0,
+"points_1m": 4007,
+"with_prices": 579
+},
+"politics": {
+"dropped_props": 0,
+"events": 5,
+"fills": 0,
+"markets": 48,
+"points": 0,
+"points_1m": 0,
+"with_prices": 26
+},
+"sports_futures": {
+"dropped_props": 0,
+"events": 1,
+"fills": 0,
+"markets": 15,
+"points": 0,
+"points_1m": 0,
+"with_prices": 4
+},
+"tennis": {
+"dropped_props": 3676,
+"events": 266,
+"fills": 0,
+"markets": 316,
+"points": 0,
+"points_1m": 29792,
+"with_prices": 174
+},
+"us_sports": {
+"dropped_props": 192,
+"events": 28,
+"fills": 0,
+"markets": 257,
+"points": 0,
+"points_1m": 16305,
+"with_prices": 132
+}
+}
+},
+"2026-07-17": {
+"at": "2026-11-07T13:55:41+00:00",
+"pass": "final",
+"stats": {
+"esports": {
+"dropped_props": 931,
+"events": 76,
+"fills": 0,
+"markets": 376,
+"points": 0,
+"points_1m": 45196,
+"with_prices": 198
+},
+"football": {
+"dropped_props": 693,
+"events": 141,
+"fills": 0,
+"markets": 738,
+"points": 0,
+"points_1m": 37565,
+"with_prices": 316
+},
+"other": {
+"dropped_props": 0,
+"events": 5,
+"fills": 0,
+"markets": 13,
+"points": 0,
+"points_1m": 0,
+"with_prices": 13
+},
+"other_sports": {
+"dropped_props": 642,
+"events": 227,
+"fills": 0,
+"markets": 1010,
+"points": 0,
+"points_1m": 9555,
+"with_prices": 827
+},
+"politics": {
+"dropped_props": 0,
+"events": 5,
+"fills": 0,
+"markets": 35,
+"points": 0,
+"points_1m": 0,
+"with_prices": 35
+},
+"sports_futures": {
+"dropped_props": 0,
+"events": 2,
+"fills": 0,
+"markets": 51,
+"points": 0,
+"points_1m": 0,
+"with_prices": 20
+},
+"tennis": {
+"dropped_props": 1231,
+"events": 101,
+"fills": 0,
+"markets": 163,
+"points": 0,
+"points_1m": 16609,
+"with_prices": 80
+},
+"us_sports": {
+"dropped_props": 432,
+"events": 42,
+"fills": 0,
+"markets": 245,
+"points": 0,
+"points_1m": 13495,
+"with_prices": 119
+},
+"weather_other": {
+"dropped_props": 0,
+"events": 1,
+"fills": 0,
+"markets": 7,
+"points": 0,
+"points_1m": 0,
+"with_prices": 7
+}
+}
+},
+"2026-07-18": {
+"at": "2026-11-07T13:54:50+00:00",
+"pass": "final",
+"stats": {
+"esports": {
+"dropped_props": 737,
+"events": 74,
+"fills": 0,
+"markets": 406,
+"points": 0,
+"points_1m": 37800,
+"with_prices": 182
+},
+"football": {
+"dropped_props": 1630,
+"events": 242,
+"fills": 0,
+"markets": 1180,
+"points": 0,
+"points_1m": 59350,
+"with_prices": 606
+},
+"other_sports": {
+"dropped_props": 622,
+"events": 123,
+"fills": 0,
+"markets": 990,
+"points": 0,
+"points_1m": 4346,
+"with_prices": 787
+},
+"politics": {
+"dropped_props": 0,
+"events": 1,
+"fills": 0,
+"markets": 6,
+"points": 0,
+"points_1m": 0,
+"with_prices": 6
+},
+"sports_futures": {
+"dropped_props": 0,
+"events": 8,
+"fills": 0,
+"markets": 174,
+"points": 0,
+"points_1m": 0,
+"with_prices": 136
+},
+"tennis": {
+"dropped_props": 1642,
+"events": 119,
+"fills": 0,
+"markets": 202,
+"points": 0,
+"points_1m": 21064,
+"with_prices": 107
+},
+"us_sports": {
+"dropped_props": 971,
+"events": 70,
+"fills": 0,
+"markets": 298,
+"points": 0,
+"points_1m": 15367,
+"with_prices": 161
+}
+}
+},
+"2026-07-19": {
+"at": "2026-11-07T13:53:59+00:00",
+"pass": "final",
+"stats": {
+"esports": {
+"dropped_props": 692,
+"events": 60,
+"fills": 0,
+"markets": 357,
+"points": 0,
+"points_1m": 35731,
+"with_prices": 168
+},
+"football": {
+"dropped_props": 630,
+"events": 98,
+"fills": 0,
+"markets": 656,
+"points": 0,
+"points_1m": 28720,
+"with_prices": 320
+},
+"other": {
+"dropped_props": 0,
+"events": 4,
+"fills": 0,
+"markets": 28,
+"points": 0,
+"points_1m": 0,
+"with_prices": 10
+},
+"other_sports": {
+"dropped_props": 792,
+"events": 171,
+"fills": 0,
+"markets": 1066,
+"points": 0,
+"points_1m": 11205,
+"with_prices": 816
+},
+"politics": {
+"dropped_props": 0,
+"events": 6,
+"fills": 0,
+"markets": 140,
+"points": 0,
+"points_1m": 0,
+"with_prices": 71
+},
+"sports_futures": {
+"dropped_props": 0,
+"events": 95,
+"fills": 0,
+"markets": 1518,
+"points": 0,
+"points_1m": 0,
+"with_prices": 1161
+},
+"tennis": {
+"dropped_props": 979,
+"events": 74,
+"fills": 0,
+"markets": 141,
+"points": 0,
+"points_1m": 15126,
+"with_prices": 79
+},
+"us_sports": {
+"dropped_props": 1012,
+"events": 73,
+"fills": 0,
+"markets": 348,
+"points": 0,
+"points_1m": 18777,
+"with_prices": 176
+},
+"weather_other": {
+"dropped_props": 0,
+"events": 2,
+"fills": 0,
+"markets": 15,
+"points": 0,
+"points_1m": 0,
+"with_prices": 15
+}
+}
+},
+"2026-07-20": {
+"at": "2026-11-07T13:52:55+00:00",
+"pass": "final",
+"stats": {
+"esports": {
+"dropped_props": 420,
+"events": 41,
+"fills": 0,
+"markets": 174,
+"points": 0,
+"points_1m": 26390,
+"with_prices": 100
+},
+"football": {
+"dropped_props": 162,
+"events": 42,
+"fills": 0,
+"markets": 272,
+"points": 0,
+"points_1m": 11113,
+"with_prices": 104
+},
+"other": {
+"dropped_props": 0,
+"events": 3,
+"fills": 0,
+"markets": 20,
+"points": 0,
+"points_1m": 0,
+"with_prices": 2
+},
+"other_sports": {
+"dropped_props": 195,
+"events": 134,
+"fills": 0,
+"markets": 612,
+"points": 0,
+"points_1m": 2160,
+"with_prices": 530
+},
+"politics": {
+"dropped_props": 0,
+"events": 7,
+"fills": 0,
+"markets": 87,
+"points": 0,
+"points_1m": 0,
+"with_prices": 39
+},
+"sports_futures": {
+"dropped_props": 0,
+"events": 72,
+"fills": 0,
+"markets": 1138,
+"points": 0,
+"points_1m": 0,
+"with_prices": 808
+},
+"tennis": {
+"dropped_props": 1834,
+"events": 138,
+"fills": 0,
+"markets": 323,
+"points": 0,
+"points_1m": 35345,
+"with_prices": 159
+},
+"us_sports": {
+"dropped_props": 358,
+"events": 21,
+"fills": 0,
+"markets": 55,
+"points": 0,
+"points_1m": 1750,
+"with_prices": 19
+},
+"weather_other": {
+"dropped_props": 0,
+"events": 4,
+"fills": 0,
+"markets": 16,
+"points": 0,
+"points_1m": 0,
+"with_prices": 16
+}
+}
+},
+"2026-07-21": {
+"at": "2026-11-07T13:52:07+00:00",
+"pass": "final",
+"stats": {
+"esports": {
+"dropped_props": 645,
+"events": 71,
+"fills": 0,
+"markets": 296,
+"points": 0,
+"points_1m": 39514,
+"with_prices": 159
+},
+"football": {
+"dropped_props": 747,
+"events": 142,
+"fills": 0,
+"markets": 675,
+"points": 0,
+"points_1m": 33640,
+"with_prices": 303
+},
+"other": {
+"dropped_props": 0,
+"events": 12,
+"fills": 0,
+"markets": 37,
+"points": 0,
+"points_1m": 0,
+"with_prices": 35
+},
+"other_sports": {
+"dropped_props": 202,
+"events": 141,
+"fills": 0,
+"markets": 691,
+"points": 0,
+"points_1m": 2520,
+"with_prices": 595
+},
+"politics": {
+"dropped_props": 0,
+"events": 13,
+"fills": 0,
+"markets": 157,
+"points": 0,
+"points_1m": 0,
+"with_prices": 47
+},
+"sports_futures": {
+"dropped_props": 0,
+"events": 1,
+"fills": 0,
+"markets": 56,
+"points": 0,
+"points_1m": 0,
+"with_prices": 11
+},
+"tennis": {
+"dropped_props": 4698,
+"events": 333,
+"fills": 0,
+"markets": 404,
+"points": 0,
+"points_1m": 45447,
+"with_prices": 228
+},
+"us_sports": {
+"dropped_props": 697,
+"events": 47,
+"fills": 0,
+"markets": 90,
+"points": 0,
+"points_1m": 5960,
+"with_prices": 41
+},
+"weather_other": {
+"dropped_props": 0,
+"events": 4,
+"fills": 0,
+"markets": 16,
+"points": 0,
+"points_1m": 0,
+"with_prices": 16
+}
+}
+},
+"2026-07-22": {
+"at": "2026-11-07T13:51:20+00:00",
+"pass": "final",
+"stats": {
+"esports": {
+"dropped_props": 826,
+"events": 82,
+"fills": 0,
+"markets": 332,
+"points": 1657,
+"points_1m": 46406,
+"with_prices": 186
+},
+"football": {
+"dropped_props": 1330,
+"events": 234,
+"fills": 0,
+"markets": 946,
+"points": 0,
+"points_1m": 41424,
+"with_prices": 400
+},
+"other": {
+"dropped_props": 0,
+"events": 17,
+"fills": 0,
+"markets": 70,
+"points": 0,
+"points_1m": 0,
+"with_prices": 67
+},
+"other_sports": {
+"dropped_props": 208,
+"events": 151,
+"fills": 0,
+"markets": 636,
+"points": 0,
+"points_1m": 3238,
+"with_prices": 548
+},
+"politics": {
+"dropped_props": 0,
+"events": 2,
+"fills": 0,
+"markets": 51,
+"points": 0,
+"points_1m": 0,
+"with_prices": 44
+},
+"sports_futures": {
+"dropped_props": 0,
+"events": 2,
+"fills": 0,
+"markets": 28,
+"points": 0,
+"points_1m": 0,
+"with_prices": 23
+},
+"tennis": {
+"dropped_props": 5746,
+"events": 410,
+"fills": 0,
+"markets": 574,
+"points": 0,
+"points_1m": 61064,
+"with_prices": 312
+},
+"us_sports": {
+"dropped_props": 868,
+"events": 57,
+"fills": 0,
+"markets": 130,
+"points": 0,
+"points_1m": 6077,
+"with_prices": 57
+}
+}
+},
+"2026-07-23": {
+"at": "2026-11-07T13:50:25+00:00",
+"pass": "final",
+"stats": {
+"esports": {
+"dropped_props": 892,
+"events": 79,
+"fills": 0,
+"markets": 378,
+"points": 0,
+"points_1m": 44896,
+"with_prices": 197
+},
+"football": {
+"dropped_props": 3101,
+"events": 458,
+"fills": 0,
+"markets": 1737,
+"points": 0,
+"points_1m": 91485,
+"with_prices": 800
+},
+"other": {
+"dropped_props": 0,
+"events": 36,
+"fills": 0,
+"markets": 113,
+"points": 0,
+"points_1m": 0,
+"with_prices": 112
+},
+"other_sports": {
+"dropped_props": 154,
+"events": 128,
+"fills": 0,
+"markets": 609,
+"points": 0,
+"points_1m": 1080,
+"with_prices": 515
+},
+"politics": {
+"dropped_props": 0,
+"events": 2,
+"fills": 0,
+"markets": 50,
+"points": 0,
+"points_1m": 0,
+"with_prices": 43
+},
+"sports_futures": {
+"dropped_props": 0,
+"events": 1,
+"fills": 0,
+"markets": 15,
+"points": 0,
+"points_1m": 0,
+"with_prices": 1
+},
+"tennis": {
+"dropped_props": 4346,
+"events": 310,
+"fills": 0,
+"markets": 411,
+"points": 0,
+"points_1m": 32245,
+"with_prices": 214
+},
+"us_sports": {
+"dropped_props": 328,
+"events": 32,
+"fills": 0,
+"markets": 83,
+"points": 0,
+"points_1m": 5731,
+"with_prices": 45
+}
+}
+},
+"2026-07-24": {
+"at": "2026-11-07T13:49:21+00:00",
+"pass": "final",
+"stats": {
+"esports": {
+"dropped_props": 877,
+"events": 68,
+"fills": 0,
+"markets": 395,
+"points": 0,
+"points_1m": 46269,
+"with_prices": 195
+},
+"football": {
+"dropped_props": 2545,
+"events": 312,
+"fills": 0,
+"markets": 898,
+"points": 0,
+"points_1m": 29253,
+"with_prices": 337
+},
+"other": {
+"dropped_props": 0,
+"events": 8,
+"fills": 0,
+"markets": 40,
+"points": 0,
+"points_1m": 0,
+"with_prices": 38
+},
+"other_sports": {
+"dropped_props": 531,
+"events": 202,
+"fills": 0,
+"markets": 1037,
+"points": 0,
+"points_1m": 1800,
+"with_prices": 848
+},
+"politics": {
+"dropped_props": 0,
+"events": 8,
+"fills": 0,
+"markets": 65,
+"points": 0,
+"points_1m": 0,
+"with_prices": 65
+},
+"sports_futures": {
+"dropped_props": 0,
+"events": 10,
+"fills": 0,
+"markets": 149,
+"points": 0,
+"points_1m": 0,
+"with_prices": 24
+},
+"tennis": {
+"dropped_props": 2659,
+"events": 190,
+"fills": 0,
+"markets": 306,
+"points": 0,
+"points_1m": 33727,
+"with_prices": 161
+},
+"us_sports": {
+"dropped_props": 516,
+"events": 40,
+"fills": 0,
+"markets": 119,
+"points": 0,
+"points_1m": 5984,
+"with_prices": 49
+},
+"weather_other": {
+"dropped_props": 0,
+"events": 1,
+"fills": 0,
+"markets": 7,
+"points": 0,
+"points_1m": 0,
+"with_prices": 7
+}
+}
+},
+"2026-07-25": {
+"at": "2026-11-07T13:48:27+00:00",
+"pass": "final",
+"stats": {
+"esports": {
+"dropped_props": 954,
+"events": 69,
+"fills": 0,
+"markets": 399,
+"points": 0,
+"points_1m": 49299,
+"with_prices": 218
+},
+"football": {
+"dropped_props": 9122,
+"events": 1075,
+"fills": 0,
+"markets": 2938,
+"points": 0,
+"points_1m": 86214,
+"with_prices": 954
+},
+"other_sports": {
+"dropped_props": 612,
+"events": 108,
+"fills": 0,
+"markets": 642,
+"points": 0,
+"points_1m": 2160,
+"with_prices": 530
+},
+"politics": {
+"dropped_props": 0,
+"events": 1,
+"fills": 0,
+"markets": 6,
+"points": 0,
+"points_1m": 0,
+"with_prices": 6
+},
+"sports_futures": {
+"dropped_props": 0,
+"events": 9,
+"fills": 0,
+"markets": 243,
+"points": 0,
+"points_1m": 0,
+"with_prices": 25
+},
+"tennis": {
+"dropped_props": 1743,
+"events": 126,
+"fills": 0,
+"markets": 212,
+"points": 0,
+"points_1m": 25337,
+"with_prices": 118
+},
+"us_sports": {
+"dropped_props": 950,
+"events": 75,
+"fills": 0,
+"markets": 360,
+"points": 0,
+"points_1m": 18221,
+"with_prices": 139
+}
+}
+},
+"2026-07-26": {
+"at": "2026-11-07T13:47:13+00:00",
+"pass": "final",
+"stats": {
+"esports": {
+"dropped_props": 810,
+"events": 61,
+"fills": 0,
+"markets": 400,
+"points": 0,
+"points_1m": 49122,
+"with_prices": 213
+},
+"football": {
+"dropped_props": 8652,
+"events": 1018,
+"fills": 0,
+"markets": 2756,
+"points": 0,
+"points_1m": 90360,
+"with_prices": 938
+},
+"other_sports": {
+"dropped_props": 660,
+"events": 113,
+"fills": 0,
+"markets": 798,
+"points": 0,
+"points_1m": 8107,
+"with_prices": 593
+},
+"politics": {
+"dropped_props": 0,
+"events": 5,
+"fills": 0,
+"markets": 87,
+"points": 0,
+"points_1m": 0,
+"with_prices": 78
+},
+"sports_futures": {
+"dropped_props": 0,
+"events": 11,
+"fills": 0,
+"markets": 327,
+"points": 0,
+"points_1m": 0,
+"with_prices": 89
+},
+"tennis": {
+"dropped_props": 930,
+"events": 71,
+"fills": 0,
+"markets": 155,
+"points": 0,
+"points_1m": 15416,
+"with_prices": 79
+},
+"us_sports": {
+"dropped_props": 742,
+"events": 65,
+"fills": 0,
+"markets": 326,
+"points": 0,
+"points_1m": 16009,
+"with_prices": 155
+},
+"weather_other": {
+"dropped_props": 0,
+"events": 2,
+"fills": 0,
+"markets": 15,
+"points": 0,
+"points_1m": 0,
+"with_prices": 15
+}
+}
+},
+"2026-07-27": {
+"at": "2026-11-07T13:45:58+00:00",
+"pass": "final",
+"stats": {
+"esports": {
+"dropped_props": 714,
+"events": 70,
+"fills": 0,
+"markets": 294,
+"points": 0,
+"points_1m": 39310,
+"with_prices": 157
+},
+"football": {
+"dropped_props": 1566,
+"events": 206,
+"fills": 0,
+"markets": 614,
+"points": 0,
+"points_1m": 31984,
+"with_prices": 283
+},
+"other": {
+"dropped_props": 0,
+"events": 4,
+"fills": 0,
+"markets": 8,
+"points": 0,
+"points_1m": 0,
+"with_prices": 8
+},
+"other_sports": {
+"dropped_props": 119,
+"events": 120,
+"fills": 0,
+"markets": 629,
+"points": 0,
+"points_1m": 720,
+"with_prices": 535
+},
+"politics": {
+"dropped_props": 0,
+"events": 2,
+"fills": 0,
+"markets": 44,
+"points": 0,
+"points_1m": 0,
+"with_prices": 41
+},
+"tennis": {
+"dropped_props": 1507,
+"events": 123,
+"fills": 0,
+"markets": 386,
+"points": 0,
+"points_1m": 26678,
+"with_prices": 130
+},
+"us_sports": {
+"dropped_props": 420,
+"events": 34,
+"fills": 0,
+"markets": 164,
+"points": 0,
+"points_1m": 7245,
+"with_prices": 66
+}
+}
+},
+"2026-07-28": {
+"at": "2026-11-07T13:45:14+00:00",
+"pass": "final",
+"stats": {
+"esports": {
+"dropped_props": 859,
+"events": 78,
+"fills": 0,
+"markets": 327,
+"points": 0,
+"points_1m": 41315,
+"with_prices": 181
+},
+"football": {
+"dropped_props": 958,
+"events": 155,
+"fills": 0,
+"markets": 529,
+"points": 0,
+"points_1m": 29841,
+"with_prices": 232
+},
+"other": {
+"dropped_props": 0,
+"events": 24,
+"fills": 0,
+"markets": 64,
+"points": 0,
+"points_1m": 0,
+"with_prices": 59
+},
+"other_sports": {
+"dropped_props": 163,
+"events": 127,
+"fills": 0,
+"markets": 693,
+"points": 0,
+"points_1m": 1080,
+"with_prices": 560
+},
+"politics": {
+"dropped_props": 0,
+"events": 7,
+"fills": 0,
+"markets": 77,
+"points": 0,
+"points_1m": 0,
+"with_prices": 73
+},
+"sports_futures": {
+"dropped_props": 0,
+"events": 1,
+"fills": 0,
+"markets": 1,
+"points": 0,
+"points_1m": 0,
+"with_prices": 1
+},
+"tennis": {
+"dropped_props": 3848,
+"events": 271,
+"fills": 0,
+"markets": 370,
+"points": 0,
+"points_1m": 29077,
+"with_prices": 178
+},
+"us_sports": {
+"dropped_props": 708,
+"events": 55,
+"fills": 0,
+"markets": 262,
+"points": 0,
+"points_1m": 15684,
+"with_prices": 136
+}
+}
+},
+"2026-07-29": {
+"at": "2026-11-07T13:44:29+00:00",
+"pass": "final",
+"stats": {
+"esports": {
+"dropped_props": 1071,
+"events": 107,
+"fills": 0,
+"markets": 392,
+"points": 626,
+"points_1m": 48966,
+"with_prices": 211
+},
+"football": {
+"dropped_props": 2066,
+"events": 282,
+"fills": 0,
+"markets": 1099,
+"points": 0,
+"points_1m": 46571,
+"with_prices": 482
+},
+"other": {
+"dropped_props": 0,
+"events": 45,
+"fills": 0,
+"markets": 162,
+"points": 0,
+"points_1m": 0,
+"with_prices": 129
+},
+"other_sports": {
+"dropped_props": 181,
+"events": 140,
+"fills": 0,
+"markets": 626,
+"points": 0,
+"points_1m": 1440,
+"with_prices": 532
+},
+"politics": {
+"dropped_props": 0,
+"events": 8,
+"fills": 0,
+"markets": 155,
+"points": 0,
+"points_1m": 0,
+"with_prices": 87
+},
+"tennis": {
+"dropped_props": 4554,
+"events": 323,
+"fills": 0,
+"markets": 470,
+"points": 0,
+"points_1m": 58747,
+"with_prices": 272
+},
+"us_sports": {
+"dropped_props": 946,
+"events": 72,
+"fills": 0,
+"markets": 396,
+"points": 0,
+"points_1m": 23153,
+"with_prices": 196
+}
+}
+},
 "2026-07-30": {
 "at": "2026-11-07T13:43:20+00:00",
 "pass": "final",
