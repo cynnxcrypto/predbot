@@ -1,0 +1,24 @@
+name: other-survey
+# Research only (other Polymarket categories survey). Never touches the bot or deploy/live-rules.json.
+on:
+  push:
+    branches: ["claude/project-thread-9rx26z"]
+    paths: ["research/other/run.txt"]
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency: { group: other-survey, cancel-in-progress: false }
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 340
+    steps:
+      - uses: actions/checkout@v4
+        with: { ref: "claude/project-thread-9rx26z" }
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: pip install -q pyarrow
+      - name: pull
+        run: |
+          git config user.name "predbot-research"; git config user.email "research@users.noreply.github.com"
+          python research/other/$(head -1 research/other/run.txt)
