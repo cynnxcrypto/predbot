@@ -17,7 +17,7 @@ from concurrent.futures import ThreadPoolExecutor
 KEY = os.environ.get("TYPESAFE_AI_API_KEY", "").strip()
 OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "out", "jev_la_liga.json")
 MODEL = os.environ.get("JEV_MODEL", "jev-latest")
-MAXC = int(sys.argv[1]) if len(sys.argv) > 1 else 1000
+MAXC = int(sys.argv[1]) if len(sys.argv) > 1 and sys.argv[1].isdigit() else 1000
 
 def fetch(url):
     req = urllib.request.Request(url, headers={"User-Agent": "predbot-research/1.0"})
@@ -106,7 +106,19 @@ def ask(state):
             time.sleep(2 * (i + 1))
     return {"error": "fail"}
 
+def dump_states():
+    rows = load()
+    out = []
+    for i, m in enumerate(rows):
+        if m["season"] == "2425": continue
+        out.append({"date": m["date"].strftime("%Y-%m-%d"), "home": m["home"], "away": m["away"], "ftr": m["ftr"], "state": facts(rows, i)})
+    p = os.path.join(os.path.dirname(OUT), "jev_states.json")
+    json.dump({"model": MODEL, "questions": QUESTIONS, "endpoint": "https://api.typesafe.ai/v1/systemone", "matches": out}, open(p, "w"), indent=0)
+    print(f"wrote {len(out)} states to {p}")
+
 def main():
+    if len(sys.argv) > 1 and sys.argv[1] == "--states":
+        return dump_states()
     if not KEY: sys.exit("set TYPESAFE_AI_API_KEY")
     rows = load()
     done = {}

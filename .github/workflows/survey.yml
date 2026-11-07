@@ -2,7 +2,7 @@ name: market-survey
 on:
   push:
     branches: ["claude/**"]
-    paths: ["survey/pm_survey.py", "survey/run.txt", ".github/workflows/survey.yml"]
+    paths: ["survey/pm_survey.py", "survey/jev_backtest.py", "survey/run.txt", ".github/workflows/survey.yml"]
   workflow_dispatch:
 permissions:
   contents: write
@@ -16,6 +16,8 @@ jobs:
         with: { python-version: "3.12" }
       - name: run
         run: python survey/pm_survey.py $(cat survey/run.txt 2>/dev/null) 2>survey/out-stderr.log || true
+      - name: jev states (no key needed)
+        run: grep -q jevstates survey/run.txt && python3 survey/jev_backtest.py --states || true
       - name: commit results
         run: |
           mkdir -p survey/out && mv survey/out-stderr.log survey/out/stderr.log || true
