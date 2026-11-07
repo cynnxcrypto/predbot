@@ -1,0 +1,28 @@
+name: market-history
+on:
+  push:
+    branches: ["claude/project-thread-0qs39w"]
+    paths: ["history/**", ".github/workflows/history.yml"]
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - name: run
+        run: |
+          mkdir -p history/out
+          cmd=$(cat history/run.txt)
+          echo "running: $cmd"
+          eval "$cmd" > history/out/stdout.log 2> history/out/stderr.log || true
+      - name: commit logs
+        run: |
+          git config user.name "history-bot"; git config user.email "history-bot@users.noreply.github.com"
+          git add -f history/out
+          git commit -m "history run logs [skip ci]" || exit 0
+          for i in 1 2 3 4; do git pull --rebase origin "${GITHUB_REF_NAME}" && git push origin "HEAD:${GITHUB_REF_NAME}" && break; sleep 5; done
