@@ -211,8 +211,8 @@ GAME_FAMS = ("football", "us_sports", "esports", "tennis", "other_sports")
 
 
 def keep_market(fam, r):
-    """Game events carry dozens of near-empty prop markets (exact scores, corners); keep main lines and anything with $100+ volume."""
-    return fam not in GAME_FAMS or r["volume"] >= 100 or r["smt"] in ("moneyline", "totals", "spreads", "child_moneyline")
+    """Game events carry dozens of near-empty prop markets (exact scores, corners); keep main lines and anything with $500+ volume."""
+    return fam not in GAME_FAMS or r["volume"] >= 500 or r["smt"] in ("moneyline", "totals", "spreads", "child_moneyline")
 
 
 def price_min_vol(fam):
@@ -226,22 +226,23 @@ def fetch_prices(row):
     r = get(CLOB + "/prices-history", {"market": toks[0], "interval": "max", "fidelity": 10})
     h = (r or {}).get("history") or []
     end = tsec(row["closed_time"]) or tsec(row["end_date"]) or (h[-1]["t"] if h else 0)
-    pts, last_hour = [], None
+    pts, last_b = [], None
     for x in h:
         t = int(x["t"])
-        if t < end - 7 * 86400:  # thin out to hourly far from the end
-            hr = t // 3600
-            if hr == last_hour:
+        age = end - t
+        step = 600 if age <= 2 * 86400 else (3600 if age <= 14 * 86400 else 6 * 3600)  # 10-min last 48 h, hourly to 14 d, then 6-hourly
+        if step > 600:
+            b = (step, t // step)
+            if b == last_b:
                 continue
-            last_hour = hr
+            last_b = b
         pts.append((t, float(x["p"])))
     one = []
     gs = tsec(row["game_start"])
-    big = (row["smt"] in ("moneyline", "child_moneyline") and row["volume"] >= 2000) or (row["smt"] in ("totals", "spreads") and row["volume"] >= 10000)
+    big = (row["smt"] in ("moneyline", "child_moneyline") and row["volume"] >= 5000) or (row["smt"] in ("totals", "spreads") and row["volume"] >= 25000)
     if gs and big:
-        for a, b in ((gs - 6 * 3600, gs - 1), (gs, gs + 5 * 3600)):  # CLOB caps a 1-min window; two halves
-            r = get(CLOB + "/prices-history", {"market": toks[0], "startTs": a, "endTs": b, "fidelity": 1})
-            one += [(int(x["t"]), float(x["p"])) for x in (r or {}).get("history") or []]
+        r = get(CLOB + "/prices-history", {"market": toks[0], "startTs": gs - 2 * 3600, "endTs": gs + 4 * 3600, "fidelity": 1})
+        one = [(int(x["t"]), float(x["p"])) for x in (r or {}).get("history") or []]
     return row["market_id"], pts, one
 
 
@@ -293,7 +294,10 @@ def write_csv_gz(path, rows):
 
 def write_pq(path, cols):
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    pq.write_table(pa.table(cols), path, compression="zstd")
+    t = pa.table(cols)
+    ints = [c for c in t.column_names if pa.types.is_integer(t.schema.field(c).type)]
+    pq.write_table(t, path, compression="zstd", compression_level=19, use_dictionary=[c for c in t.column_names if c not in ints],
+                   column_encoding={c: "DELTA_BINARY_PACKED" for c in ints} or None)
 
 
 def do_day(d, pool):
@@ -325,7 +329,7 @@ def do_day(d, pool):
                 P["market_id"].append(mid); P["t"].append(t); P["p"].append(p)
             for t, p in one:
                 O["market_id"].append(mid); O["t"].append(t); O["p"].append(p)
-        sch = lambda c: {"market_id": pa.array(c["market_id"], pa.int64()), "t": pa.array(c["t"], pa.int64()), "p": pa.array(c["p"], pa.float32())}
+        sch = lambda c: {"market_id": pa.array(c["market_id"], pa.int64()), "t": pa.array(c["t"], pa.int64()), "p": pa.array(c["p"], pa.float32())}  # rows sorted by market, time
         if P["t"]:
             write_pq(base + ".prices.parquet", sch(P))
         if O["t"]:
@@ -524,7 +528,7 @@ def res_temperature(R):
             if fn.endswith(".markets.csv.gz"):
                 for r in csv.DictReader(io.StringIO(gzip.decompress(open(os.path.join(root, fn), "rb").read()).decode())):
                     if r.get("station"):
-                        s = stations.setdefault(r["station"], [r["day"], r["day"], r["series"]])
+                        s = stations.setdefault(r["station"], [r["day"], r["day"], r["family"]])
                         s[0], s[1] = min(s[0], r["day"]), max(s[1], r["day"])
     os.makedirs(f"{R}/temperature", exist_ok=True)
     json.dump(stations, open(f"{R}/temperature/stations.json", "w"), indent=1, sort_keys=True)
