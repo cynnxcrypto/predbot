@@ -3,6 +3,7 @@
 2) Live Polymarket tennis order books (spread / depth snapshot).
 """
 import json, os, time, urllib.request, sys
+SKIP_BOOKS = "nobooks" in open("tennis/run.txt").read()
 OUT = "tennis/out"; os.makedirs(OUT, exist_ok=True)
 UA = {"User-Agent": "Mozilla/5.0 (research)"}
 def get(url, t=60):
@@ -11,13 +12,16 @@ def get(url, t=60):
 log = []
 for yr in (2024, 2025, 2026):
     for tour, path in (("atp", f"{yr}/{yr}.xlsx"), ("wta", f"{yr}w/{yr}.xlsx")):
-        for base in ("http://www.tennis-data.co.uk/", "https://www.tennis-data.co.uk/"):
+        for ext in ("xlsx", "xls"):
+          if os.path.exists(f"{OUT}/{tour}{yr}.xlsx") or os.path.exists(f"{OUT}/{tour}{yr}.xls"): break
+          for base in ("http://www.tennis-data.co.uk/", "https://www.tennis-data.co.uk/", "http://tennis-data.co.uk/"):
             try:
-                b = get(base + path); open(f"{OUT}/{tour}{yr}.xlsx", "wb").write(b)
+                b = get(base + path.replace(".xlsx", "." + ext)); open(f"{OUT}/{tour}{yr}.{ext}", "wb").write(b)
                 log.append(f"ok {tour}{yr} {len(b)}"); break
-            except Exception as e: log.append(f"fail {base}{path} {e}")
+            except Exception as e: log.append(f"fail {base}{path} {ext} {e}")
 # live books
 try:
+    if SKIP_BOOKS: raise RuntimeError("skipped")
     evs = []
     for off in range(0, 1000, 100):
         j = json.loads(get(f"https://gamma-api.polymarket.com/events?tag_slug=tennis&active=true&closed=false&limit=100&offset={off}"))
@@ -38,4 +42,4 @@ try:
     json.dump({"t": time.time(), "rows": rows}, open(f"{OUT}/books_{int(time.time())}.json", "w"))
     log.append(f"books {len(evs)} events {len(rows)} tokens")
 except Exception as e: log.append(f"books fail {e}")
-open(f"{OUT}/fetch.log", "w").write("\n".join(log)); print("\n".join(log))
+open(f"{OUT}/fetch-log.txt", "w").write("\n".join(log)); print("\n".join(log))
