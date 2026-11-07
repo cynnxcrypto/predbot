@@ -463,6 +463,8 @@ function summarize() {
         .slice(-25)
         .reverse()
         .map((t) => ({ rule: t.rule, t: t.t, title: t.title, outcome: t.outcome, ask: t.ask, cost: Math.round(t.cost * 100) / 100, fillable: t.fillable, won: t.won ?? null, pnl: t.pnl == null ? null : Math.round(t.pnl * 100) / 100 })),
+      // Why matches ended without a trade (diagnostics: "map 1 already decided when first seen", "no P0", ...).
+      notes: g === "esports" ? Object.values(state.matches).reduce<Record<string, number>>((o, m) => ((o[m.evaluated ? m.note ?? (m.tEnd != null ? "evaluated" : "done") : m.tEnd != null ? "map 1 over, waiting" : m.start <= Date.now() ? "live" : "upcoming"] = (o[m.evaluated ? m.note ?? (m.tEnd != null ? "evaluated" : "done") : m.tEnd != null ? "map 1 over, waiting" : m.start <= Date.now() ? "live" : "upcoming"] ?? 0) + 1), o), {}) : undefined,
       watching: g === "esports" ? Object.values(state.matches).filter((m) => !m.evaluated && m.start < Date.now() + 86400_000).length : g === "politics" ? state.makers.length : undefined,
     };
   }
