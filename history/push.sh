@@ -1,5 +1,7 @@
 #!/bin/bash
-# Publish data/history from the server-data checkout ($1) on top of the latest server-data tip.
+# Publish files under ${2:-data/history} from the server-data checkout ($1) on top of the latest server-data tip.
+# Each job passes only the folder it owns, so stale copies of other files in its checkout are never pushed.
+sub="${2:-data/history}"
 # Builds the commit with plumbing (no rebase), so the bot's own status commits never conflict with ours.
 cd "$1" || exit 0
 for i in 1 2 3 4 5 6; do
@@ -8,7 +10,7 @@ for i in 1 2 3 4 5 6; do
   rm -f "$GIT_INDEX_FILE"
   git read-tree origin/server-data
   # --no-all: never stage deletions (each job only has part of data/history checked out)
-  git add -f --no-all --sparse data/history 2>/dev/null || git add -f --no-all data/history
+  git add -f --no-all --sparse "$sub" 2>/dev/null || git add -f --no-all "$sub"
   tree=$(git write-tree)
   if [ "$tree" = "$(git rev-parse origin/server-data^{tree})" ]; then unset GIT_INDEX_FILE; echo "nothing to push"; exit 0; fi
   c=$(git -c user.name="history-bot" -c user.email="history-bot@users.noreply.github.com" commit-tree "$tree" -p origin/server-data -m "history: data update [skip ci]")
