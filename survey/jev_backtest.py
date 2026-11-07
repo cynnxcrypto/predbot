@@ -137,11 +137,14 @@ def main():
         except Exception:
             rec["err"] = str(a)[:300]
         return rec
-    with ThreadPoolExecutor(6) as ex:
-        res = list(ex.map(one, todo))
-    for r in res: done[(r["date"], r["home"], r["away"])] = r
     os.makedirs(os.path.dirname(OUT), exist_ok=True)
-    json.dump(sorted(done.values(), key=lambda r: r["date"]), open(OUT, "w"), indent=0)
+    res = []
+    with ThreadPoolExecutor(6) as ex:
+        for n, r in enumerate(ex.map(one, todo), 1):
+            res.append(r); done[(r["date"], r["home"], r["away"])] = r
+            if n % 25 == 0 or n == len(todo):   # save as we go so an interrupted run resumes
+                json.dump(sorted(done.values(), key=lambda r: r["date"]), open(OUT, "w"), indent=0)
+                print(f"  {n}/{len(todo)} saved", flush=True)
     ok = [r for r in done.values() if "p" in r]
     import math
     ll = -sum(math.log(max(1e-4, r["p"][r["ftr"]])) for r in ok) / max(1, len(ok))
