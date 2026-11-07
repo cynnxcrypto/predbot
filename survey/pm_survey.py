@@ -481,7 +481,10 @@ def feeds():
 
 # ---------------------------------------------------------------- football: Polymarket vs Pinnacle closing (football-data.co.uk)
 import csv, io, difflib
-FD_LEAGUES = {"SP1": ["la-liga", "spain"], "SP2": ["la-liga-2", "segunda-division"]}   # Spain first (enrique, 7 Nov); expand later
+FD_LEAGUES = {"SP1": ["la-liga", "spain"], "SP2": ["la-liga-2", "segunda-division"],   # Spain first (enrique, 7 Nov), expanded 7 Nov 17:05
+              "E0": ["premier-league", "epl"], "E1": ["championship", "efl-championship"], "D1": ["bundesliga"], "I1": ["serie-a"],
+              "F1": ["ligue-1"], "N1": ["eredivisie"], "P1": ["primeira-liga", "liga-portugal"], "T1": ["super-lig"], "B1": ["belgian-pro-league", "jupiler-pro-league"]}
+FOOT_OK = []
 def fd_rows():
     rows = []
     for season in ("2425", "2526", "2627"):
@@ -581,6 +584,7 @@ def football():
         res = list(ex.map(fetch, jobs))
     json.dump(res, open(f"{OUT}/football.json", "w"), default=str)
     ok = [r for r in res if all(r.get(k, {}).get("k10") is not None for k in "HDA")]
+    FOOT_OK[:] = ok
     say(f"with kickoff prices for H/D/A: {len(ok)}")
     if not ok: return
     # 1) PM calibration at kickoff
@@ -646,6 +650,10 @@ def football():
         rule(f"buy side priced {int(lo*100)}c+", lambda k, p, r, lo=lo: p >= lo)
     rule("buy every draw", lambda k, p, r: k == "D")
     rule("buy draw 28c+", lambda k, p, r: k == "D" and p >= 0.28)
+    for lo, hi in ((0.55, 0.65), (0.65, 0.80)):
+        for side in "HA":
+            for lg in sorted(set(r["lg"] for r in ok)):
+                rule(f"{lg} {side} fav {int(lo*100)}-{int(hi*100)}c", lambda k, p, r, lo=lo, hi=hi, side=side, lg=lg: k == side and r["lg"] == lg and lo <= p < hi)
     rule("buy home 40-55c", lambda k, p, r: k == "H" and 0.40 <= p < 0.55)
     rule("buy away 40-55c", lambda k, p, r: k == "A" and 0.40 <= p < 0.55)
     rule("buy home any", lambda k, p, r: k == "H")
@@ -695,7 +703,7 @@ def football():
 
 def favhist():
     say("## Long history: buy favourites at the bookmakers' fair closing price (football-data.co.uk)")
-    for code in ("SP1", "SP2", "E0", "D1", "I1", "F1"):
+    for code in ("SP1", "SP2", "E0", "E1", "D1", "D2", "I1", "I2", "F1", "N1", "P1", "B1", "T1", "G1", "SC0"):
         res = {}
         for y in range(15, 26):
             season = f"{y:02d}{y+1:02d}"
@@ -721,6 +729,75 @@ def favhist():
                     se = 100 * math.sqrt(0.2 / len(allv))
                     say(f"  {k} fav {band}%: n={len(allv)} {100*st.mean(allv):+.2f}c/share vs fair (±{2*se:.1f}) | " + " ".join(per))
 
+
+def news_headlines(a, b, day):
+    d0 = (day - timedelta(days=4)).strftime("%Y-%m-%d"); d1 = day.strftime("%Y-%m-%d")
+    qy = f'"{a}" "{b}" after:{d0} before:{d1}'
+    url = "https://news.google.com/rss/search?" + urllib.parse.urlencode({"q": qy, "hl": "en-US", "gl": "US", "ceid": "US:en"})
+    b_ = get(url, tries=2)
+    if not isinstance(b_, str): return []
+    out = []
+    for it in re.findall(r"<item>(.*?)</item>", b_, re.S)[:12]:
+        t = re.search(r"<title>(.*?)</title>", it, re.S); pd = re.search(r"<pubDate>(.*?)</pubDate>", it)
+        if t:
+            title = re.sub(r"<!\[CDATA\[|\]\]>", "", t.group(1)).replace("&amp;", "&").replace("&#39;", "'").replace("&quot;", '"')
+            out.append(f"{pd.group(1)[5:16] if pd else ''} | {title}")
+    return out
+
+def jevstates2():
+    say("## Jev states v2 (context + market prices + news) for matched Polymarket football matches")
+    import jev_backtest as jb
+    if not FOOT_OK: football()
+    # facts from football-data history per league
+    hist = {}
+    for code in sorted(set(r["lg"] for r in FOOT_OK)):
+        rows = []
+        for season in ("2425", "2526", "2627"):
+            b = get(f"https://www.football-data.co.uk/mmz4281/{season}/{code}.csv", tries=2)
+            if not isinstance(b, str): continue
+            for r in csv.DictReader(io.StringIO(b.lstrip("\ufeff"))):
+                try:
+                    d = datetime.strptime(r["Date"], "%d/%m/%Y" if len(r["Date"]) == 10 else "%d/%m/%y")
+                    rows.append({"season": season, "date": d, "home": r["HomeTeam"], "away": r["AwayTeam"], "hg": int(r["FTHG"]), "ag": int(r["FTAG"]), "ftr": r["FTR"]})
+                except Exception: pass
+        rows.sort(key=lambda x: x["date"]); hist[code] = rows
+    LGN = {"SP1": "Spanish La Liga", "SP2": "Spanish Segunda Division", "E0": "English Premier League", "E1": "English Championship", "D1": "German Bundesliga",
+           "I1": "Italian Serie A", "F1": "French Ligue 1", "N1": "Dutch Eredivisie", "P1": "Portuguese Primeira Liga", "T1": "Turkish Super Lig", "B1": "Belgian Pro League"}
+    out, nnews = [], 0
+    for r in sorted(FOOT_OK, key=lambda r: r["start"]):
+        rows = hist.get(r["lg"], [])
+        day = datetime.fromtimestamp(r["start"], timezone.utc)
+        idx = next((i for i, m in enumerate(rows) if m["home"] == r["fdH"] and m["away"] == r["fdA"] and abs((m["date"].date() - day.date()).days) <= 1), None)
+        if idx is None: continue
+        f = jb.facts(rows, idx)
+        f["competition"] = LGN.get(r["lg"], r["lg"]) + " (full-time result incl. stoppage time)"
+        f["home_team"], f["away_team"] = r["A"], r["B"]
+        f.pop("league_base_rates", None)
+        tot = sum(r[k]["k10"] for k in "HDA"); tot24 = sum((r[k]["k24h"] or r[k]["k10"]) for k in "HDA")
+        f["prediction_market_prices_10min_before_kickoff"] = {"home_win": round(r["H"]["k10"], 3), "draw": round(r["D"]["k10"], 3), "away_win": round(r["A"]["k10"], 3)}
+        f["prediction_market_prices_24h_before_kickoff"] = {"home_win": round(r["H"]["k24h"] or 0, 3), "draw": round(r["D"]["k24h"] or 0, 3), "away_win": round(r["A"]["k24h"] or 0, 3)}
+        if r.get("avg"): f["bookmaker_consensus_fair_probabilities"] = {"home_win": round(r["avg"][0], 3), "draw": round(r["avg"][1], 3), "away_win": round(r["avg"][2], 3)}
+        if nnews < 2500:
+            f["news_headlines_last_4_days_before_match_day"] = news_headlines(r["A"], r["B"], day.date()) or "none found"
+            nnews += 1; time.sleep(0.4)
+        f["context"] = ("You advise a bettor who can buy any outcome on a prediction market at the listed 10-minute price plus ~1-2% in costs. "
+                        "Prices are crowd probabilities and are usually well calibrated, so only call a side underpriced when your judgement "
+                        "(team news, injuries, suspensions, rotation, motivation, schedule congestion, form, matchup) clearly disagrees with it.")
+        out.append({"date": day.strftime("%Y-%m-%d"), "lg": r["lg"], "home": r["A"], "away": r["B"], "fdH": r["fdH"], "fdA": r["fdA"], "ftr": r["ftr"],
+                    "pm": {k: r[k]["k10"] for k in "HDA"}, "state": f})
+    questions = {
+        "result": {"type": "choice", "instructions": "Using all the context, what are the true probabilities of the full-time result? Be calibrated.",
+                   "criteria": {"home": "The home team wins", "draw": "The match ends in a draw", "away": "The away team wins"}},
+        "value": {"type": "choice", "instructions": "Is any outcome clearly underpriced by the prediction market (10-minute prices), enough to beat ~2% costs?",
+                  "criteria": {"home": "The home win is clearly underpriced", "draw": "The draw is clearly underpriced", "away": "The away win is clearly underpriced",
+                               "none": "No outcome is clearly underpriced; the market looks fair"}},
+    }
+    json.dump({"model": "jev-latest", "endpoint": "https://api.typesafe.ai/v1/systemone", "questions": questions, "matches": out}, open(f"{OUT}/jev_states_v2.json", "w"))
+    by = {}
+    for m in out: by[m["lg"]] = by.get(m["lg"], 0) + 1
+    say(f"wrote {len(out)} states {by}; with news: {sum(1 for m in out if isinstance(m['state'].get('news_headlines_last_4_days_before_match_day'), list))}")
+    if out: say("sample state: " + json.dumps(out[-1]["state"])[:1500])
+
 if __name__ == "__main__":
     steps = sys.argv[1:] or ["feeds", "landscape", "sports", "kalshi", "calib"]
     evs = None
@@ -734,6 +811,7 @@ if __name__ == "__main__":
             elif s == "feeds": feeds()
             elif s == "football": football()
             elif s == "favhist": favhist()
+            elif s == "jevstates2": jevstates2()
         except Exception as e:
             import traceback; traceback.print_exc(); say(f"STEP {s} FAILED: {e!r}")
         say(f"({s} took {time.time()-t0:.0f}s)")
