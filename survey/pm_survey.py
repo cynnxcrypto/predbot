@@ -481,7 +481,7 @@ def feeds():
 
 # ---------------------------------------------------------------- football: Polymarket vs Pinnacle closing (football-data.co.uk)
 import csv, io, difflib
-FD_LEAGUES = {"SP1": ["la-liga", "laliga", "spain", "la-liga-2"]}   # Spain first (enrique, 7 Nov); expand later
+FD_LEAGUES = {"SP1": ["la-liga", "spain"], "SP2": ["la-liga-2", "segunda-division"]}   # Spain first (enrique, 7 Nov); expand later
 def fd_rows():
     rows = []
     for season in ("2425", "2526", "2627"):
@@ -562,11 +562,10 @@ def football():
         cands = by_date.get(start.date(), []) + by_date.get((start - timedelta(hours=12)).date(), [])
         best, bs = None, 0
         for r in cands:
-            if r["_lg"] != code: continue
             sc = sim(r["HomeTeam"], A) + sim(r["AwayTeam"], B)
             if sc > bs: best, bs = r, sc
         if not best or bs < 1.2: continue
-        jobs.append({"lg": code, "A": A, "B": B, "fdH": best["HomeTeam"], "fdA": best["AwayTeam"], "ftr": best.get("FTR"), "start": start.timestamp(),
+        jobs.append({"lg": best["_lg"], "A": A, "B": B, "fdH": best["HomeTeam"], "fdA": best["AwayTeam"], "ftr": best.get("FTR"), "start": start.timestamp(),
                      "mk": {k: (v[0], v[1]) for k, v in mk.items()}, "vol": float(e.get("volume") or 0),
                      "pin": odds3(best, "PSC") or odds3(best, "PS"), "avg": odds3(best, "AvgC") or odds3(best, "Avg"), "b365": odds3(best, "B365C")})
     say(f"PM match events: {len(pm_ev)}, matched to football-data with 3 markets: {len(jobs)}")
@@ -597,6 +596,27 @@ def football():
         dr = [(r["D"][key], 1 if r["D"]["won"] else 0) for r in rows if r["D"].get(key)]
         if dr: say(f"  draws only: n={len(dr)} avg {100*sum(p for p,_ in dr)/len(dr):.1f}c won {100*sum(w for _,w in dr)/len(dr):.1f}%")
     cal(ok, "k10", "10 min pre-kickoff")
+    for lg in sorted(set(r["lg"] for r in ok)):
+        cal([r for r in ok if r["lg"] == lg], "k10", f"{lg} 10 min pre-kickoff")
+    # simple rules at the 10-min price, taker cost = price + 1c slip + fee
+    def rule(name, pick):
+        v = []
+        for r in ok:
+            for k in "HDA":
+                p = r[k]["k10"]
+                if p is None or not pick(k, p, r): continue
+                v.append((1 if r[k]["won"] else 0) - (p + 0.01 + 0.05 * p * (1 - p)))
+        if v: say(f"  RULE {name}: n={len(v)} won {100*sum(1 for x in v if x>0)/len(v):.0f}% {100*st.mean(v):+.2f}c/share, total {sum(v):+.2f} per 1-share bets")
+    say("### simple rules (taker at 10-min price +1c slip + 5% sports fee)")
+    for lo in (0.5, 0.55, 0.6, 0.65, 0.7):
+        rule(f"buy side priced {int(lo*100)}c+", lambda k, p, r, lo=lo: p >= lo)
+    rule("buy every draw", lambda k, p, r: k == "D")
+    rule("buy draw 28c+", lambda k, p, r: k == "D" and p >= 0.28)
+    rule("buy home 40-55c", lambda k, p, r: k == "H" and 0.40 <= p < 0.55)
+    rule("buy away 40-55c", lambda k, p, r: k == "A" and 0.40 <= p < 0.55)
+    rule("buy home any", lambda k, p, r: k == "H")
+    rule("buy away any", lambda k, p, r: k == "A")
+    rule("buy NO-side proxy: skip; longshot <20c", lambda k, p, r: p < 0.20)
     cal(ok, "k24h", "24 h pre-kickoff")
     # 2) PM vs Pinnacle closing
     for ref in ("pin", "avg"):
