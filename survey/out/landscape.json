@@ -1,0 +1,206 @@
+{
+ "rows": [
+  {
+   "cat": "Politics",
+   "events": 56,
+   "markets": 592,
+   "vol24_usd": 7142787,
+   "liquidity_usd": 155808316,
+   "mkts_liq1k": 279,
+   "spread_med_c": 0.1,
+   "spread_p90_c": 3.0,
+   "days_left_med": 730.7,
+   "share_ending_7d": 0.13,
+   "fee_mkts": 553
+  },
+  {
+   "cat": "Economy",
+   "events": 5,
+   "markets": 25,
+   "vol24_usd": 41866,
+   "liquidity_usd": 3343613,
+   "mkts_liq1k": 25,
+   "spread_med_c": 0.2,
+   "spread_p90_c": 1.0,
+   "days_left_med": 54.9,
+   "share_ending_7d": 0.0,
+   "fee_mkts": 25
+  },
+  {
+   "cat": "Sports",
+   "events": 6,
+   "markets": 15,
+   "vol24_usd": 19663,
+   "liquidity_usd": 322663,
+   "mkts_liq1k": 14,
+   "spread_med_c": 2.8,
+   "spread_p90_c": 24.7,
+   "days_left_med": 54.7,
+   "share_ending_7d": 0.0,
+   "fee_mkts": 9
+  },
+  {
+   "cat": "Tech",
+   "events": 4,
+   "markets": 4,
+   "vol24_usd": 8840,
+   "liquidity_usd": 54175,
+   "mkts_liq1k": 3,
+   "spread_med_c": 1.0,
+   "spread_p90_c": 2.0,
+   "days_left_med": 54.9,
+   "share_ending_7d": 0.0,
+   "fee_mkts": 4
+  },
+  {
+   "cat": "Crypto",
+   "events": 20,
+   "markets": 60,
+   "vol24_usd": 8267,
+   "liquidity_usd": 728757,
+   "mkts_liq1k": 44,
+   "spread_med_c": 2.0,
+   "spread_p90_c": 4.0,
+   "days_left_med": 54.9,
+   "share_ending_7d": 0.02,
+   "fee_mkts": 59
+  },
+  {
+   "cat": "Geopolitics",
+   "events": 6,
+   "markets": 9,
+   "vol24_usd": 6834,
+   "liquidity_usd": 386021,
+   "mkts_liq1k": 8,
+   "spread_med_c": 2.4,
+   "spread_p90_c": 4.0,
+   "days_left_med": 54.9,
+   "share_ending_7d": 0.11,
+   "fee_mkts": 1
+  },
+  {
+   "cat": "Culture",
+   "events": 1,
+   "markets": 1,
+   "vol24_usd": 100,
+   "liquidity_usd": 627,
+   "mkts_liq1k": 0,
+   "spread_med_c": 0,
+   "spread_p90_c": 0,
+   "days_left_med": 54.9,
+   "share_ending_7d": 0.0,
+   "fee_mkts": 1
+  },
+  {
+   "cat": "Other",
+   "events": 2,
+   "markets": 3,
+   "vol24_usd": 0,
+   "liquidity_usd": 15755,
+   "mkts_liq1k": 3,
+   "spread_med_c": 2.0,
+   "spread_p90_c": 4.0,
+   "days_left_med": 54.9,
+   "share_ending_7d": 0.0,
+   "fee_mkts": 2
+  }
+ ],
+ "fees": [
+  [
+   "Crypto",
+   "finance_prices_fees",
+   "{\"exponent\": 1, \"rate\": 0.04, \"rebateRate\": 0.25, \"takerOnly\": true}",
+   4
+  ],
+  [
+   "Politics",
+   "politics_fees",
+   "{\"exponent\": 1, \"rate\": 0.04, \"rebateRate\": 0.25, \"takerOnly\": true}",
+   549
+  ],
+  [
+   "Other",
+   "politics_fees",
+   "{\"exponent\": 1, \"rate\": 0.04, \"rebateRate\": 0.25, \"takerOnly\": true}",
+   2
+  ],
+  [
+   "Culture",
+   "culture_fees",
+   "{\"exponent\": 1, \"rate\": 0.05, \"rebateRate\": 0.25, \"takerOnly\": true}",
+   1
+  ],
+  [
+   "Tech",
+   "tech_fees",
+   "{\"exponent\": 1, \"rate\": 0.04, \"rebateRate\": 0.25, \"takerOnly\": true}",
+   4
+  ],
+  [
+   "Crypto",
+   "crypto_fees_v2",
+   "{\"exponent\": 1, \"rate\": 0.07, \"rebateRate\": 0.2, \"takerOnly\": true}",
+   54
+  ],
+  [
+   "Geopolitics",
+   "politics_fees",
+   "{\"exponent\": 1, \"rate\": 0.04, \"rebateRate\": 0.25, \"takerOnly\": true}",
+   1
+  ],
+  [
+   "Economy",
+   "finance_prices_fees",
+   "{\"exponent\": 1, \"rate\": 0.04, \"rebateRate\": 0.25, \"takerOnly\": true}",
+   7
+  ],
+  [
+   "Economy",
+   "economics_fees",
+   "{\"exponent\": 1, \"rate\": 0.05, \"rebateRate\": 0.25, \"takerOnly\": true}",
+   14
+  ],
+  [
+   "Economy",
+   "tech_fees",
+   "{\"exponent\": 1, \"rate\": 0.04, \"rebateRate\": 0.25, \"takerOnly\": true}",
+   4
+  ],
+  [
+   "Crypto",
+   "tech_fees",
+   "{\"exponent\": 1, \"rate\": 0.04, \"rebateRate\": 0.25, \"takerOnly\": true}",
+   1
+  ],
+  [
+   "Politics",
+   "economics_fees",
+   "{\"exponent\": 1, \"rate\": 0.05, \"rebateRate\": 0.25, \"takerOnly\": true}",
+   1
+  ],
+  [
+   "Sports",
+   "finance_prices_fees",
+   "{\"exponent\": 1, \"rate\": 0.04, \"rebateRate\": 0.25, \"takerOnly\": true}",
+   1
+  ],
+  [
+   "Politics",
+   "crypto_fees_v2",
+   "{\"exponent\": 1, \"rate\": 0.07, \"rebateRate\": 0.2, \"takerOnly\": true}",
+   2
+  ],
+  [
+   "Sports",
+   "general_fees",
+   "{\"exponent\": 1, \"rate\": 0.05, \"rebateRate\": 0.25, \"takerOnly\": true}",
+   8
+  ],
+  [
+   "Politics",
+   "culture_fees",
+   "{\"exponent\": 1, \"rate\": 0.05, \"rebateRate\": 0.25, \"takerOnly\": true}",
+   1
+  ]
+ ]
+}

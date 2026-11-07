@@ -1,0 +1,52 @@
+[
+ {
+  "cat": "Politics",
+  "q": "Will Mary Peltola win the Alaska Senate race in 2026?",
+  "end": "2026-11-04T04:59:00Z",
+  "hours_over": 74.6,
+  "fav_ask": 0.981,
+  "liq": 218992,
+  "uma": "[]",
+  "slug": "will-mary-peltola-win-the-alaska-senate-race-in-2026"
+ },
+ {
+  "cat": "Politics",
+  "q": "Will Dan Sullivan win the Alaska Senate race in 2026?",
+  "end": "2026-11-04T04:59:00Z",
+  "hours_over": 74.6,
+  "fav_ask": 0.981,
+  "liq": 138833,
+  "uma": "[]",
+  "slug": "will-dan-sullivan-win-the-alaska-senate-race-in-2026"
+ },
+ {
+  "cat": "Politics",
+  "q": "Will the Republicans win the Mississippi Senate race in 2026?",
+  "end": "2026-11-04T04:59:00Z",
+  "hours_over": 74.6,
+  "fav_ask": 0.994,
+  "liq": 135194,
+  "uma": "[]",
+  "slug": "will-the-republicans-win-the-mississippi-senate-race-in-2026"
+ },
+ {
+  "cat": "Politics",
+  "q": "Will the Democrats win the Mississippi Senate race in 2026?",
+  "end": "2026-11-04T04:59:00Z",
+  "hours_over": 74.6,
+  "fav_ask": 0.994,
+  "liq": 112982,
+  "uma": "[]",
+  "slug": "will-the-democrats-win-the-mississippi-senate-race-in-2026"
+ },
+ {
+  "cat": "Politics",
+  "q": "Will the Republicans win the Kansas governor race in 2026?",
+  "end": "2026-11-04T04:59:00Z",
+  "hours_over": 74.6,
+  "fav_ask": 0.995,
+  "liq": 50205,
+  "uma": "[]",
+  "slug": "will-the-republicans-win-the-kansas-governor-race-in-2026"
+ }
+]
