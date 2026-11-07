@@ -46,13 +46,13 @@
         {
           "variant": "ahead5-cheap60-15m-first3",
           "size": 3,
-          "haltAfterLosses": 4,
-          "familyHaltLosses": 3,
-          "maxLossPerDay": 9,
+          "haltAfterLosses": 8,
+          "maxLossPerDay": 12,
           "cap": 0.6,
           "bidUnderC": 1,
           "bidSec": 60,
-          "resumeFrom": "2026-11-07T06:25:00Z"
+          "resumeFrom": "2026-11-07T06:25:00Z",
+          "maxOpen": 3
         }
       ]
     },
@@ -73,13 +73,13 @@
         {
           "variant": "ahead5-cheap60-15m-first3",
           "size": 3,
-          "haltAfterLosses": 4,
-          "familyHaltLosses": 3,
-          "maxLossPerDay": 9,
+          "haltAfterLosses": 8,
+          "maxLossPerDay": 12,
           "cap": 0.6,
           "bidUnderC": 1,
           "bidSec": 60,
-          "resumeFrom": "2026-11-07T06:25:00Z"
+          "resumeFrom": "2026-11-07T06:25:00Z",
+          "maxOpen": 3
         }
       ]
     },
@@ -95,13 +95,13 @@
         {
           "variant": "ahead5-cheap60-15m-first3",
           "size": 3,
-          "haltAfterLosses": 4,
-          "familyHaltLosses": 3,
-          "maxLossPerDay": 9,
+          "haltAfterLosses": 8,
+          "maxLossPerDay": 12,
           "cap": 0.6,
           "bidUnderC": 1,
           "bidSec": 60,
-          "resumeFrom": "2026-11-07T06:25:00Z"
+          "resumeFrom": "2026-11-07T06:25:00Z",
+          "maxOpen": 3
         }
       ]
     },
@@ -112,13 +112,13 @@
         {
           "variant": "ahead5-cheap60-15m-first3",
           "size": 3,
-          "haltAfterLosses": 4,
-          "familyHaltLosses": 3,
-          "maxLossPerDay": 9,
+          "haltAfterLosses": 8,
+          "maxLossPerDay": 12,
           "cap": 0.6,
           "bidUnderC": 1,
           "bidSec": 60,
-          "resumeFrom": "2026-11-07T06:25:00Z"
+          "resumeFrom": "2026-11-07T06:25:00Z",
+          "maxOpen": 3
         }
       ]
     },
@@ -139,13 +139,13 @@
         {
           "variant": "ahead5-cheap60-15m-first3",
           "size": 3,
-          "haltAfterLosses": 4,
-          "familyHaltLosses": 3,
-          "maxLossPerDay": 9,
+          "haltAfterLosses": 8,
+          "maxLossPerDay": 12,
           "cap": 0.6,
           "bidUnderC": 1,
           "bidSec": 60,
-          "resumeFrom": "2026-11-07T06:25:00Z"
+          "resumeFrom": "2026-11-07T06:25:00Z",
+          "maxOpen": 3
         }
       ]
     },
@@ -156,13 +156,13 @@
         {
           "variant": "ahead5-cheap60-15m-first3",
           "size": 3,
-          "haltAfterLosses": 4,
-          "familyHaltLosses": 3,
-          "maxLossPerDay": 9,
+          "haltAfterLosses": 8,
+          "maxLossPerDay": 12,
           "cap": 0.6,
           "bidUnderC": 1,
           "bidSec": 60,
-          "resumeFrom": "2026-11-07T06:25:00Z"
+          "resumeFrom": "2026-11-07T06:25:00Z",
+          "maxOpen": 3
         }
       ]
     },
@@ -173,13 +173,13 @@
         {
           "variant": "ahead5-cheap60-15m-first3",
           "size": 3,
-          "haltAfterLosses": 4,
-          "familyHaltLosses": 3,
-          "maxLossPerDay": 9,
+          "haltAfterLosses": 8,
+          "maxLossPerDay": 12,
           "cap": 0.6,
           "bidUnderC": 1,
           "bidSec": 60,
-          "resumeFrom": "2026-11-07T06:25:00Z"
+          "resumeFrom": "2026-11-07T06:25:00Z",
+          "maxOpen": 3
         }
       ]
     }
