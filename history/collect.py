@@ -49,8 +49,8 @@ def get(url, params=None, tries=5, raw=False, data=None, timeout=40):
                     b = gzip.decompress(b)
                 return b if raw else json.loads(b)
         except urllib.error.HTTPError as e:
-            if e.code in (400, 401, 403, 404, 410) or i == tries - 1:
-                if e.code not in (400, 404):
+            if e.code in (400, 401, 403, 404, 410, 422) or i == tries - 1:
+                if e.code not in (400, 404, 422):
                     log("GET fail", e.code, url[:160])
                 return None
             time.sleep(min(60, 3 * 2 ** i) if e.code == 429 else 1.5 * (i + 1))
@@ -123,32 +123,58 @@ def classify(ev):
     return "other", ser or ",".join(sorted(tg))[:60], ser
 
 
-QUERY_TAGS = ["games", "sports", "esports", "soccer", "daily-temperature", "weather", "finance", "stocks", "commodities", "up-or-down",
-              "politics", "elections", "geopolitics", "economy"]
+QUERY_TAGS = ["games", "sports", "esports", "soccer", "daily-temperature", "weather", "finance", "finance-updown", "daily-close", "stocks",
+              "commodities", "indicies", "politics", "elections", "geopolitics", "economy"]  # not "up-or-down": it is mostly crypto 5m
 MAIN_SMT = {"moneyline", "totals", "spreads", "child_moneyline", "map_winner", "soccer_halftime_result", None}
 
 
+def window_events(tag, a, b, seen, depth=0):
+    """All closed events with endDate in [a, b); splits the window when Gamma refuses a deep offset (422)."""
+    off = 0
+    while True:
+        r = get(GAMMA + "/events", {"tag_slug": tag, "closed": "true", "end_date_min": a.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                                    "end_date_max": b.strftime("%Y-%m-%dT%H:%M:%SZ"), "limit": 100, "offset": off})
+        if r is None:
+            if off > 0 and depth < 6 and (b - a).total_seconds() > 900:
+                mid = a + (b - a) / 2
+                window_events(tag, a, mid, seen, depth + 1)
+                window_events(tag, mid, b, seen, depth + 1)
+            elif off > 0:
+                log("gamma: gave up deeper pages", tag, a, b, off)
+            return
+        for e in r:
+            seen.setdefault(e.get("id"), e)
+        if len(r) < 100:
+            return
+        off += 100
+
+
 def day_events(d):
-    d0, d1 = f"{d}T00:00:00Z", f"{d + timedelta(days=1)}T00:00:00Z"
+    a = datetime(d.year, d.month, d.day, tzinfo=timezone.utc)
     seen = {}
     for tag in QUERY_TAGS:
-        off = 0
-        while off < 5000:
-            b = get(GAMMA + "/events", {"tag_slug": tag, "closed": "true", "end_date_min": d0, "end_date_max": d1, "limit": 100, "offset": off})
-            if not isinstance(b, list) or not b:
-                break
-            for e in b:
-                seen.setdefault(e.get("id"), e)
-            if len(b) < 100:
-                break
-            off += 100
+        window_events(tag, a, a + timedelta(days=1), seen)
     return list(seen.values())
 
 
 STATION = re.compile(r"/([A-Z]{4})(?:[/?&\"\s]|$)|ids=([A-Z]{4})|\(([A-Z]{4})\)")
 
 
-def market_row(d, fam, sub, ser, ev, m):
+def event_row(d, fam, sub, ser, ev):
+    return {
+        "day": str(d), "family": fam, "sub": sub, "series": ser, "event_id": ev.get("id"), "event_slug": ev.get("slug"),
+        "event_title": ev.get("title"), "tags": "|".join(t.get("slug") or "" for t in ev.get("tags") or []),
+        "teams": "|".join(t.get("name") or "" for t in ev.get("teams") or []) if isinstance(ev.get("teams"), list) else "",
+        "event_start": ev.get("startTime") or ev.get("eventDate") or "", "event_end": ev.get("endDate") or "",
+        "event_score": ev.get("score") or "", "event_period": ev.get("period") or "", "game_id": ev.get("gameId") or "",
+        "event_volume": round(float(ev.get("volume") or 0), 2), "open_interest": ev.get("openInterest"),
+        "neg_risk": int(bool(ev.get("negRisk"))), "n_markets": len(ev.get("markets") or []),
+        "resolution_source": (ev.get("resolutionSource") or "")[:200],
+        "description": "" if fam in ("football", "us_sports", "esports", "other_sports") else (ev.get("description") or "")[:600],
+    }
+
+
+def market_row(d, fam, ev, m):
     outs, toks, prices = jl(m.get("outcomes"), []), jl(m.get("clobTokenIds"), []), jl(m.get("outcomePrices"), [])
     win = ""
     try:
@@ -158,30 +184,33 @@ def market_row(d, fam, sub, ser, ev, m):
     except Exception:
         pass
     fs = m.get("feeSchedule") or {}
-    desc = (m.get("description") or ev.get("description") or "")
+    desc = m.get("description") or ev.get("description") or ""
     rs = m.get("resolutionSource") or ev.get("resolutionSource") or ""
     st = ""
     if fam in ("temperature", "weather_other"):
         mm = STATION.search(rs) or STATION.search(desc)
         st = next((g for g in mm.groups() if g), "") if mm else ""
     return {
-        "day": str(d), "family": fam, "sub": sub, "series": ser, "event_id": ev.get("id"), "event_slug": ev.get("slug"),
-        "event_title": ev.get("title"), "tags": "|".join(t.get("slug") or "" for t in ev.get("tags") or []),
-        "teams": "|".join(t.get("name") or "" for t in ev.get("teams") or []) if isinstance(ev.get("teams"), list) else "",
-        "event_start": ev.get("startTime") or ev.get("eventDate") or "", "game_start": m.get("gameStartTime") or "",
-        "event_score": ev.get("score") or "", "event_period": ev.get("period") or "",
-        "market_id": m.get("id"), "condition_id": m.get("conditionId"), "question": m.get("question"),
-        "group_item": m.get("groupItemTitle") or "", "smt": m.get("sportsMarketType") or "", "line": m.get("line") if m.get("line") is not None else "",
+        "day": str(d), "family": fam, "event_id": ev.get("id"), "market_id": m.get("id"), "condition_id": m.get("conditionId"),
+        "question": m.get("question"), "group_item": m.get("groupItemTitle") or "", "smt": m.get("sportsMarketType") or "",
+        "line": m.get("line") if m.get("line") is not None else "", "game_start": m.get("gameStartTime") or "",
         "outcomes": json.dumps(outs), "token_ids": json.dumps(toks), "final_prices": json.dumps(prices), "winner_idx": win,
         "uma_status": m.get("umaResolutionStatus") or "", "last_trade": m.get("lastTradePrice"), "best_bid": m.get("bestBid"),
-        "best_ask": m.get("bestAsk"), "spread": m.get("spread"), "volume": round(float(m.get("volumeNum") or 0), 2),
-        "volume_clob": round(float(m.get("volumeClob") or 0), 2), "liquidity": round(float(m.get("liquidityNum") or 0), 2),
-        "event_volume": round(float(ev.get("volume") or 0), 2), "open_interest": ev.get("openInterest"),
-        "created_at": m.get("createdAt") or "", "start_date": m.get("startDate") or "", "end_date": m.get("endDate") or "",
-        "closed_time": m.get("closedTime") or "", "neg_risk": int(bool(m.get("negRisk"))), "fees_enabled": int(bool(m.get("feesEnabled"))),
-        "fee_rate": fs.get("rate", ""), "fee_exp": fs.get("exponent", ""), "tick": m.get("orderPriceMinTickSize"),
-        "station": st, "resolution_source": rs[:200], "description": "" if fam in ("football", "us_sports", "esports") else desc[:600],
+        "best_ask": m.get("bestAsk"), "volume": round(float(m.get("volumeNum") or 0), 2), "volume_clob": round(float(m.get("volumeClob") or 0), 2),
+        "liquidity": round(float(m.get("liquidityNum") or 0), 2), "created_at": m.get("createdAt") or "", "start_date": m.get("startDate") or "",
+        "end_date": m.get("endDate") or "", "closed_time": m.get("closedTime") or "", "neg_risk": int(bool(m.get("negRisk"))),
+        "fees_enabled": int(bool(m.get("feesEnabled"))), "fee_rate": fs.get("rate", ""), "fee_exp": fs.get("exponent", ""),
+        "tick": m.get("orderPriceMinTickSize"), "station": st,
+        "description": "" if fam in ("football", "us_sports", "esports", "other_sports") or desc == (ev.get("description") or "") else desc[:400],
     }
+
+
+GAME_FAMS = ("football", "us_sports", "esports", "other_sports")
+
+
+def keep_market(fam, r):
+    """Game events carry dozens of near-empty prop markets (exact scores, corners); keep main lines and anything with $100+ volume."""
+    return fam not in GAME_FAMS or r["volume"] >= 100 or r["smt"] in ("moneyline", "totals", "spreads", "child_moneyline")
 
 
 def price_min_vol(fam):
@@ -213,7 +242,7 @@ def fetch_prices(row):
 
 
 EXCH = {"0x4bfb41d5b3570defd03c39a9a4d8de6bd8b8982e", "0xc5d563a36ae78145c45a50134d48a1215220f80a"}
-GS_STATE = {"ok": True, "fails": 0}
+GS_STATE = {"ok": os.environ.get("FILLS", "goldsky") == "goldsky", "fails": 0}
 
 
 def fetch_fills(row):
@@ -265,18 +294,24 @@ def write_pq(path, cols):
 
 def do_day(d, pool):
     evs = day_events(d)
-    by = {}
+    by, evrows, dropped = {}, {}, {}
     for ev in evs:
         fam, sub, ser = classify(ev)
         if not fam:
             continue
+        evrows.setdefault(fam, []).append(event_row(d, fam, sub, ser, ev))
         for m in ev.get("markets") or []:
             if not m.get("closed"):
                 continue
-            by.setdefault(fam, []).append(market_row(d, fam, sub, ser, ev, m))
+            r = market_row(d, fam, ev, m)
+            if keep_market(fam, r):
+                by.setdefault(fam, []).append(r)
+            else:
+                dropped[fam] = dropped.get(fam, 0) + 1
     stats = {}
     for fam, rows in by.items():
         base = f"{OUT}/pm/{fam}/{d.year}/{d}"
+        write_csv_gz(base + ".events.csv.gz", evrows[fam])
         write_csv_gz(base + ".markets.csv.gz", rows)
         want = [r for r in rows if r["volume"] >= price_min_vol(fam)]
         P, O = {"market_id": [], "t": [], "p": []}, {"market_id": [], "t": [], "p": []}
@@ -303,7 +338,7 @@ def do_day(d, pool):
                 write_pq(base + ".fills.parquet", F)
             nf = len(F["t"])
         stats[fam] = {"markets": len(rows), "with_prices": len(want), "points": len(P["t"]), "points_1m": len(O["t"]), "fills": nf,
-                      "events": len({r["event_id"] for r in rows})}
+                      "events": len(evrows[fam]), "dropped_props": dropped.get(fam, 0)}
     return stats
 
 
@@ -531,7 +566,7 @@ if __name__ == "__main__":
     ap.add_argument("cmd", choices=["pm", "results"])
     ap.add_argument("--start", default="2025-01-01")
     ap.add_argument("--budget-min", type=float, default=240)
-    ap.add_argument("--threads", type=int, default=8)
+    ap.add_argument("--threads", type=int, default=12)
     ap.add_argument("--commit-cmd", default="")
     ap.add_argument("--commit-every", type=float, default=30)
     a = ap.parse_args()

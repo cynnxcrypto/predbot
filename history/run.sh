@@ -11,7 +11,7 @@ export OUT="$sd/data/history"
 mkdir -p "$OUT"
 exec > >(tee "$OUT/last-run.log") 2>&1
 echo "run start $(date -u +%FT%TZ) args: $*"
-python3 "$here/collect.py" pm --commit-cmd "bash $here/push.sh $sd" "$@"
+FILLS=${FILLS:-off} python3 "$here/collect.py" pm --commit-cmd "bash $here/push.sh $sd" "$@"
 python3 "$here/collect.py" results
 cp "$here/README.md" "$OUT/README.md" 2>/dev/null || true
 bash "$here/push.sh" "$sd"
