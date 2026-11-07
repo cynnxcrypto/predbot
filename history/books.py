@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Order-book snapshots (fillability check): daily index/commodity series during US hours, and every game moneyline/total/spread
 starting within the next 95 minutes,
-plus esports match/map moneylines in play (up to 5 h after start).
+plus esports match/map moneylines in play (up to 5 h after start), plus every open daily-temperature bucket (YES token)
+resolving within 36 h, every ~30 min.
 Writes OUT/books/<YYYY-MM-DD>/<HHMM>.json.gz: {"t": unix, "markets": [{series, event_slug, market_id, question, group_item,
 token_ids, outcomes, books: [{bids:[[p,size]..], asks:[[p,size]..], ts}] (top 5 levels per token)}]}."""
 import gzip, json, os, sys, time, urllib.parse
@@ -49,6 +50,27 @@ def soon_games(now):
     return out
 
 
+def temp_markets(now):
+    """Open daily highest-temperature buckets resolving within ~36 h (YES token only)."""
+    out = []
+    a = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now))
+    b = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now + 36 * 3600))
+    for off in range(0, 1000, 100):
+        r = get(GAMMA + "/events", {"tag_slug": "daily-temperature", "closed": "false", "end_date_min": a, "end_date_max": b, "limit": 100, "offset": off})
+        if not r:
+            break
+        for e in r:
+            for m in e.get("markets") or []:
+                if m.get("closed"):
+                    continue
+                out.append({"series": e.get("seriesSlug") or "", "family": "temperature", "event_slug": e.get("slug"), "end": e.get("endDate"),
+                            "market_id": m.get("id"), "question": m.get("question"), "group_item": m.get("groupItemTitle") or "",
+                            "token_ids": jl(m.get("clobTokenIds"), [])[:1], "outcomes": jl(m.get("outcomes"), [])[:1]})
+        if len(r) < 100:
+            break
+    return out
+
+
 def open_markets():
     out = []
     for s in SERIES:
@@ -74,6 +96,8 @@ if __name__ == "__main__":
     wd, hr = time.gmtime(t).tm_wday, time.gmtime(t).tm_hour
     ms = open_markets() if wd < 5 and 13 <= hr <= 21 else []
     ms += soon_games(t)
+    if (time.gmtime(t).tm_min // 10) % 3 == 0:  # temperature buckets every ~30 min
+        ms += temp_markets(t)
     with ThreadPoolExecutor(8) as p:
         for m in ms:
             m["books"] = list(p.map(book, m["token_ids"]))

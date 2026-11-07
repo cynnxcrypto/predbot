@@ -64,7 +64,7 @@ Every ~10 minutes (GitHub cron; runs can slip 5-15 min): `{"t": unix, "markets":
 smt, question, group_item, token_ids, outcomes, books: [{bids: [[price, size], …], asks: [[price, size], …], ts}, …]}]}`, top 5 levels
 per token. Covers (a) every game moneyline (plus totals/spreads with $1k+ volume) starting within the next 95 minutes, all sports and
 esports, plus esports markets in play (up to 5 h after start),
-and (b) the daily index/commodity series (SPX, SPY close, NDX, Dow, Russell, WTI, NG, gold, SPY open) on weekdays 13-21 UTC.
+(b) every open daily-temperature bucket (YES token only) resolving within 36 h, every ~30 min, and (c) the daily index/commodity series (SPX, SPY close, NDX, Dow, Russell, WTI, NG, gold, SPY open) on weekdays 13-21 UTC.
 Use it to check whether a backtested price was really on offer.
 
 ## Independent results (`results/`)
