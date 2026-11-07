@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { parseBook, slugDate, solveQ, walk, zonedUtc } from "./eventpaper.js";
+import { parseBook, slugDate, solveQ, walk, winMarketFor, zonedUtc } from "./eventpaper.js";
 
 test("eventpaper helpers", () => {
   const q = solveQ(0.648);
@@ -15,4 +15,11 @@ test("eventpaper helpers", () => {
   assert.deepEqual(slugDate("xauusd-up-or-down-on-november-9-2026"), [2026, 11, 9]);
   assert.equal(new Date(zonedUtc(2026, 11, 9, 17, "America/New_York")).toISOString(), "2026-11-09T22:00:00.000Z");
   assert.equal(new Date(zonedUtc(2026, 7, 9, 16, "America/New_York")).toISOString(), "2026-07-09T20:00:00.000Z");
+});
+
+test("football win market matching", () => {
+  const ms = [{ question: "Will Real Madrid CF win on 2026-11-08?" }, { question: "Will Valencia CF vs. Real Madrid CF end in a draw?" }, { question: "Will Valencia CF win on 2026-11-08?" }];
+  assert.equal(winMarketFor("Real Madrid", ms.filter((m) => !/draw/.test(m.question))), 0);
+  assert.equal(winMarketFor("Valencia", [ms[0], ms[2]]), 1);
+  assert.equal(winMarketFor("Atlético Madrid", [{ question: "Will Atletico Madrid win?" }, { question: "Will Sevilla win?" }]), 0);
 });

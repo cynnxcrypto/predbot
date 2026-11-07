@@ -134,6 +134,8 @@ type Match = {
   sawLive?: boolean;
   note?: string;
 };
+type Side = { id: string; token: string; team: string; feeRate: number };
+type Fixture = { id: string; league: string; title: string; kickoff: number; home: Side; away: Side; done?: boolean; note?: string };
 type Maker = { rule: string; marketId: string; title: string; outcome: string; idx: number; token: string; bid: number; t: number; feeRate: number; ask: number };
 type State = {
   matches: Record<string, Match>;
@@ -141,8 +143,9 @@ type State = {
   makers: Maker[];
   trades: PaperTrade[];
   signals: Signal[];
+  fixtures: Record<string, Fixture>;
 };
-const state: State = { matches: {}, done: {}, makers: [], trades: [], signals: [], ...loadJson<Partial<State>>(STATE_FILE, {}) };
+const state: State = { matches: {}, done: {}, makers: [], trades: [], signals: [], fixtures: {}, ...loadJson<Partial<State>>(STATE_FILE, {}) };
 // 7 Nov 2026 20:15 KST fix: the first run counted matches whose map 1 had ended before the logger started (map-1 price
 // already decided), so it "bought" mid-map-2 prices. Drop those esports rows once; later rows need sawLive.
 if (!state.done["fix:esports-sawlive"]) {
@@ -176,7 +179,7 @@ const ESPORTS: { id: number; game: string; shadow?: boolean }[] = [
   { id: 10369, game: "val" },
   { id: 10309, game: "dota2", shadow: true },
 ];
-type GMarket = { id?: string; question?: string; sportsMarketType?: string; outcomes?: string; clobTokenIds?: string; gameStartTime?: string; closed?: boolean; outcomePrices?: string; volumeNum?: number; feeSchedule?: { rate?: number } | null; bestAsk?: number; acceptingOrders?: boolean; endDate?: string; liquidityNum?: number; conditionId?: string };
+type GMarket = { id?: string; question?: string; groupItemTitle?: string; eventStartTime?: string; sportsMarketType?: string; outcomes?: string; clobTokenIds?: string; gameStartTime?: string; closed?: boolean; outcomePrices?: string; volumeNum?: number; feeSchedule?: { rate?: number } | null; bestAsk?: number; acceptingOrders?: boolean; endDate?: string; liquidityNum?: number; conditionId?: string };
 type GEvent = { id?: string; title?: string; slug?: string; startTime?: string; endDate?: string; markets?: GMarket[] };
 const tsOf = (s?: string) => {
   if (!s) return NaN;
@@ -408,6 +411,98 @@ async function makersTick() {
   state.makers = keep;
 }
 
+// ---------- football ----------
+// Spec from the football thread (7 Nov 2026 22:22 KST, reviews/la-liga-thesis-2026-11-07.md "Update 22:30 KST"): one look
+// per match 12-8 min before kickoff at the home-win and away-win YES books. MAIN: La Liga home favourite, home ask 65-80c.
+// Shadows: Portugal home favourite 65-80c, Italy away favourite 65-80c, La Liga home 55-65c (control, expected ~0).
+// Skip (and log why) when the spread is over 3c or less than $5 sits at <= ask+1c. $5 walking the book, fee 0.05 x p(1-p).
+const FOOTBALL: { tag: string; league: string }[] = [
+  { tag: "la-liga", league: "laliga" },
+  { tag: "primeira-liga", league: "portugal" },
+  { tag: "serie-a", league: "italy" },
+];
+const norm = (x: string) => x.toLowerCase().normalize("NFD").replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ").trim();
+/** Pick the "Will <team> win" market for a team named in the event title (exact name first, then first word). */
+export function winMarketFor(team: string, ms: { question?: string; groupItemTitle?: string }[]): number {
+  const t = norm(team);
+  const qs = ms.map((m) => norm(`${m.groupItemTitle ?? ""} ${m.question ?? ""}`));
+  let i = qs.findIndex((q) => q.includes(t));
+  if (i < 0) {
+    const w = t.split(" ").sort((a, b) => b.length - a.length)[0];
+    if (w && w.length >= 4) {
+      const hits = qs.map((q, k) => (q.includes(w) ? k : -1)).filter((k) => k >= 0);
+      if (hits.length === 1) i = hits[0];
+    }
+  }
+  return i;
+}
+async function footballRefresh() {
+  const now = Date.now();
+  for (const L of FOOTBALL) {
+    let evs: GEvent[];
+    try {
+      evs = await pages(`${GAMMA}/events?tag_slug=${L.tag}&closed=false&end_date_min=${new Date(now).toISOString()}&end_date_max=${new Date(now + 4 * 86400_000).toISOString()}`);
+    } catch (e) {
+      log(`football ${L.tag} failed: ${(e as Error).message}`);
+      continue;
+    }
+    for (const e of evs) {
+      if (!e.id || state.fixtures[e.id]) continue;
+      const tm = /^(.+?)\s+vs\.?\s+(.+?)$/i.exec((e.title ?? "").replace(/\s*[-:|(].*$/, "").trim());
+      if (!tm) continue;
+      const wins = (e.markets ?? []).filter((m) => /\bwin\b/i.test(m.question ?? "") && !/draw/i.test(m.question ?? "") && !m.closed);
+      if (wins.length < 2) continue;
+      const hi = winMarketFor(tm[1], wins);
+      const ai = winMarketFor(tm[2], wins);
+      if (hi < 0 || ai < 0 || hi === ai) continue;
+      const side = (m: GMarket, team: string): Side | null => {
+        const toks = jl<string[]>(m.clobTokenIds, []);
+        const outs = jl<string[]>(m.outcomes, []);
+        const yes = outs.findIndex((o) => /^yes$/i.test(o));
+        return m.id && toks.length === 2 && yes >= 0 ? { id: m.id, token: toks[yes], team, feeRate: Number(m.feeSchedule?.rate ?? 0.05) } : null;
+      };
+      const home = side(wins[hi], tm[1]);
+      const away = side(wins[ai], tm[2]);
+      const kickoff = tsOf(wins[hi].gameStartTime) || tsOf(wins[hi].eventStartTime) || tsOf(e.startTime);
+      if (!home || !away || !Number.isFinite(kickoff) || kickoff < now) continue;
+      state.fixtures[e.id] = { id: e.id, league: L.league, title: e.title ?? `${tm[1]} vs. ${tm[2]}`, kickoff, home, away };
+    }
+  }
+  for (const [k, f] of Object.entries(state.fixtures)) if (f.kickoff < now - 3 * 86400_000) delete state.fixtures[k];
+}
+async function footballTick() {
+  const now = Date.now();
+  for (const f of Object.values(state.fixtures)) {
+    if (f.done || now < f.kickoff - 12 * 60_000) continue;
+    f.done = true;
+    if (now > f.kickoff - 8 * 60_000) {
+      f.note = "missed the 12-8 min window";
+      continue;
+    }
+    const [hb, ab] = await Promise.all([book(f.home.token).catch(() => null), book(f.away.token).catch(() => null)]);
+    const look = (rule: string, sd: Side, bk: Book | null, lo: number, hi: number) => {
+      const ask = bk?.bestAsk;
+      if (!bk || ask == null || ask < lo - 1e-9 || ask > hi + 1e-9) return;
+      const depth = bk.asks.filter((a) => a.price <= ask + 0.01 + 1e-9).reduce((s, a) => s + a.price * a.size, 0);
+      const spread = bk.bestBid != null ? ask - bk.bestBid : null;
+      const extra: Record<string, unknown> = { league: f.league, kickoff: f.kickoff, team: sd.team, bid: bk.bestBid, ask, spread, depth1c: depth, homeAsk: hb?.bestAsk ?? null, awayAsk: ab?.bestAsk ?? null };
+      const skip = spread == null || spread > 0.03 + 1e-9 ? `spread ${spread == null ? "no bid" : Math.round(spread * 100) + "c"}` : depth < STAKE ? `depth $${depth.toFixed(2)} at ask+1c` : null;
+      if (skip) {
+        extra.skip = skip;
+        signal(rule, f.title, false, extra);
+        return;
+      }
+      const tr = enter(rule, { marketId: sd.id, title: f.title, outcome: sd.team, idx: 0, token: sd.token, feeRate: sd.feeRate }, bk, ask + 0.01, extra);
+      signal(rule, f.title, Boolean(tr), extra);
+    };
+    if (f.league === "laliga") {
+      look("football-laliga-home", f.home, hb, 0.65, 0.8);
+      if (hb?.bestAsk != null && hb.bestAsk < 0.65 - 1e-9) look("football-laliga-home55", f.home, hb, 0.55, 0.65);
+    } else if (f.league === "portugal") look("football-portugal-home", f.home, hb, 0.65, 0.8);
+    else if (f.league === "italy") look("football-italy-away", f.away, ab, 0.65, 0.8);
+  }
+}
+
 // ---------- settlement and summary ----------
 async function settleTick() {
   const open = state.trades.filter((t) => t.pnl == null);
@@ -436,6 +531,7 @@ const GROUPS: Record<string, string[]> = {
   esports: ["esports-map1", "esports-fav-shadow", "esports-map1-dota"],
   indices: ["gold-momentum", "spx-underdog", "spy-underdog"],
   politics: ["election-lock-taker", "election-lock-maker"],
+  football: ["football-laliga-home", "football-portugal-home", "football-italy-away", "football-laliga-home55"],
 };
 function summarize() {
   const out: Record<string, unknown> = { at: Date.now() };
@@ -462,9 +558,11 @@ function summarize() {
         .filter((t) => rules.includes(t.rule))
         .slice(-25)
         .reverse()
-        .map((t) => ({ rule: t.rule, t: t.t, title: t.title, outcome: t.outcome, ask: t.ask, cost: Math.round(t.cost * 100) / 100, fillable: t.fillable, won: t.won ?? null, pnl: t.pnl == null ? null : Math.round(t.pnl * 100) / 100 })),
+        .map((t) => ({ rule: t.rule, t: t.t, title: t.title, outcome: t.outcome, ask: t.ask, avg: t.avg == null ? null : Math.round(t.avg * 1000) / 1000, shares: Math.round(t.shares * 100) / 100, cost: Math.round(t.cost * 100) / 100, fillable: t.fillable, won: t.won ?? null, pnl: t.pnl == null ? null : Math.round(t.pnl * 100) / 100 })),
       // Why matches ended without a trade (diagnostics: "map 1 already decided when first seen", "no P0", ...).
       notes: g === "esports" ? Object.values(state.matches).reduce<Record<string, number>>((o, m) => ((o[m.evaluated ? m.note ?? (m.tEnd != null ? "evaluated" : "done") : m.tEnd != null ? "map 1 over, waiting" : m.start <= Date.now() ? "live" : "upcoming"] = (o[m.evaluated ? m.note ?? (m.tEnd != null ? "evaluated" : "done") : m.tEnd != null ? "map 1 over, waiting" : m.start <= Date.now() ? "live" : "upcoming"] ?? 0) + 1), o), {}) : undefined,
+      skips: g === "football" ? state.signals.filter((x) => rules.includes(x.rule) && x.extra.skip).slice(-15).reverse().map((x) => ({ rule: x.rule, t: x.t, title: x.title, why: x.extra.skip, ask: x.extra.ask })) : undefined,
+      upcoming: g === "football" ? Object.values(state.fixtures).filter((f) => !f.done).length : undefined,
       watching: g === "esports" ? Object.values(state.matches).filter((m) => !m.evaluated && m.start < Date.now() + 86400_000).length : g === "politics" ? state.makers.length : undefined,
     };
   }
@@ -481,7 +579,7 @@ async function guard(name: string, f: () => Promise<void>) {
 }
 async function main() {
   log("started (paper only)");
-  let last = { esList: 0, idx: 0, pol: 0, mk: 0, settle: 0 };
+  let last = { esList: 0, idx: 0, pol: 0, mk: 0, settle: 0, fb: 0 };
   for (;;) {
     const now = Date.now();
     if (now - last.esList > 5 * 60_000) {
@@ -489,6 +587,11 @@ async function main() {
       await guard("esports list", esportsRefresh);
     }
     await guard("esports", esportsTick);
+    if (now - last.fb > 15 * 60_000) {
+      last.fb = now;
+      await guard("football list", footballRefresh);
+    }
+    await guard("football", footballTick);
     if (now - last.idx > 3 * 60_000) {
       last.idx = now;
       await guard("indices", indicesTick);
