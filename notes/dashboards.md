@@ -12,6 +12,7 @@ The dashboard (src/status.ts) is one shell with several top-level dashboards: Cr
 - Old `#15m`-style links still open that crypto tab. With no hash the last dashboard and tab are remembered (localStorage `wsec`, `wtab`).
 
 ## Adding or filling a dashboard
-1. Add `{ id, label, soon }` to `SECTIONS` in src/status.ts. It gets a tab, a deep link and a placeholder section showing `soon`.
+1. Add `{ id, label, soon }` to `SECTIONS` in src/status.ts. It gets a tab, a deep link and a placeholder section showing `soon` (with a SOON badge).
+   Add `paper: true` once the category has a paper logger (src/eventpaper.ts): the badge and placeholder go, the paper lab panel shows instead.
 2. To give it real content: drop `soon`, add its own `<section class="sec hide" id="sec-<id>">…</section>` in PAGE, and serve its data from its own endpoint (`/api/<id>/status`) so it never touches the crypto status or the crypto trader.
 3. Its JS renders only when `SEC === "<id>"`; keep the same panel/table classes so it looks the same.
