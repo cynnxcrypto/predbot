@@ -341,3 +341,10 @@ fomc.html 166346
 bls_schedule.html 55389
 bls_empsit.html 55395
 step underlying 20s
+
+=== run 2026-11-07 09:40 UTC ['probe']
+PROBE FAIL https://data-api.polymarket.com/trades?market=0x3acda6875d6937735594cd4aecbfa999d5a7dfd6eae7fbf4fdb2304f97471edd&limit=5 <HTTPError 410: 'Gone'> b'{"error":"Data API v1 has been retired","migration":"https://data-api.polymarket.com/v2/","docs":"https://docs.polymarket.com/api-reference/data-api/overview"}'
+PROBE FAIL https://data-api.polymarket.com/trades?market=0x3acda6875d6937735594cd4aecbfa999d5a7dfd6eae7fbf4fdb2304f97471edd&limit=5 <HTTPError 410: 'Gone'> b'{"error":"Data API v1 has been retired","migration":"https://data-api.polymarket.com/v2/","docs":"https://docs.polymarket.com/api-reference/data-api/overview"}'
+PROBE FAIL https://data-api.polymarket.com/trades?limit=3 <HTTPError 410: 'Gone'> b'{"error":"Data API v1 has been retired","migration":"https://data-api.polymarket.com/v2/","docs":"https://docs.polymarket.com/api-reference/data-api/overview"}'
+PROBE goldsky FAIL <HTTPError 429: 'Too Many Requests'> b'{"errors":[{"message":"This Polymarket subgraph endpoint is paused and deprecated following Polymarket\xe2\x80\x99s migration to V2 \xe2\x80\x94 the data is stale and incorrect. Stop using it. For activity, positions, '
+step probe 1s
