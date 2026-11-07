@@ -13,7 +13,7 @@ Read any file with pandas: `pd.read_csv(path)` (gzip is detected) or `pd.read_pa
 pm/<family>/<YYYY>/<YYYY-MM-DD>.events.csv.gz     one row per event whose endDate is that UTC day (teams, score, series)
 pm/<family>/<YYYY>/<YYYY-MM-DD>.markets.csv.gz    resolved markets of those events (join on event_id)
 pm/<family>/<YYYY>/<YYYY-MM-DD>.prices.parquet    price path of outcome 0 (token_ids[0])
-pm/<family>/<YYYY>/<YYYY-MM-DD>.prices1m.parquet  1-minute path, game start -3 h .. +3 h (main game markets)
+pm/<family>/<YYYY>/<YYYY-MM-DD>.prices1m.parquet  1-minute path, game start -6 h .. +5 h (main game markets)
 books/<YYYY-MM-DD>/<HHMM>.json.gz                 live order-book snapshots, from 7 Nov 2026 on (below)
 results/...                                       independent outcome sources (below)
 state.json                                        days done (a day is pulled at D+2, re-pulled once at D+8)
@@ -25,7 +25,8 @@ state.json                                        days done (a day is pulled at 
 | `football` | soccer games: moneyline (one Yes/No market per side + draw), totals, spreads, exact score, halftime, corners… | series slug, e.g. `la-liga-2025`, `premier-league-2025` |
 | `us_sports` | NBA / NFL / NHL / MLB / college games: moneyline, spreads, totals, props | league |
 | `esports` | CS2 / LoL / Dota 2 / Valorant matches and per-map markets | `cs2`, `lol`, `dota2`, `valorant` |
-| `other_sports` | tennis, cricket, UFC, F1 and other single games | series slug |
+| `tennis` | ATP / WTA / challenger matches (match + set markets) | `atp`, `wta`, … |
+| `other_sports` | cricket, UFC, F1 and other single games | series slug |
 | `sports_futures` | season/tournament winners, awards, transfers | series slug |
 | `temperature` | daily highest temperature by city (bracket markets, one per bracket) | series, e.g. `nyc-daily-weather` |
 | `weather_other` | monthly precipitation, global temperature index, etc. | series |
@@ -56,7 +57,7 @@ corner lines) are counted in `coverage.json` as `dropped_props` but not stored.
 Source: CLOB `prices-history`. These are Polymarket's sampled prices (midpoint / last trade), **not** order-book asks:
 add slippage. `prices`: ~10-minute points over the market's life, thinned to hourly when more than 7 days before the end.
 Only markets with volume ≥ $1,000 (games) or ≥ $200 (other families) get price files; thinner ones have the markets row only.
-`prices1m`: moneyline / totals / spreads with a game start and volume ≥ $5,000.
+`prices1m`: 1-minute points from game start −6 h to +5 h for moneylines with $2k+ volume and totals/spreads with $10k+ volume.
 
 ### books/ (order-book snapshots, forward only)
 Every ~10 minutes (GitHub cron; runs can slip 5-15 min): `{"t": unix, "markets": [{series, family, event_slug, game_start, market_id,

@@ -107,6 +107,8 @@ def classify(ev):
         if u:
             lg = next((x for x in ("nba", "nfl", "nhl", "mlb", "wnba", "cfb", "college-football", "ncaab", "cbb") if x in tg), sorted(u)[0])
             return "us_sports", lg, ser
+        if "tennis" in tg or any(x in tg for x in ("atp", "wta")):
+            return "tennis", next((x for x in ("atp", "wta", "itf", "challenger") if x in tg), ser or "tennis"), ser
         return "other_sports", ser or (ev.get("sport") or "games"), ser
     if "daily-temperature" in tg or "highest-temperature" in tg or ser.endswith("daily-weather"):
         return "temperature", ser, ser
@@ -170,7 +172,7 @@ def event_row(d, fam, sub, ser, ev):
         "event_volume": round(float(ev.get("volume") or 0), 2), "open_interest": ev.get("openInterest"),
         "neg_risk": int(bool(ev.get("negRisk"))), "n_markets": len(ev.get("markets") or []),
         "resolution_source": (ev.get("resolutionSource") or "")[:200],
-        "description": "" if fam in ("football", "us_sports", "esports", "other_sports") else (ev.get("description") or "")[:600],
+        "description": "" if fam in GAME_FAMS else (ev.get("description") or "")[:600],
     }
 
 
@@ -201,11 +203,11 @@ def market_row(d, fam, ev, m):
         "end_date": m.get("endDate") or "", "closed_time": m.get("closedTime") or "", "neg_risk": int(bool(m.get("negRisk"))),
         "fees_enabled": int(bool(m.get("feesEnabled"))), "fee_rate": fs.get("rate", ""), "fee_exp": fs.get("exponent", ""),
         "tick": m.get("orderPriceMinTickSize"), "station": st,
-        "description": "" if fam in ("football", "us_sports", "esports", "other_sports") or desc == (ev.get("description") or "") else desc[:400],
+        "description": "" if fam in GAME_FAMS or desc == (ev.get("description") or "") else desc[:400],
     }
 
 
-GAME_FAMS = ("football", "us_sports", "esports", "other_sports")
+GAME_FAMS = ("football", "us_sports", "esports", "tennis", "other_sports")
 
 
 def keep_market(fam, r):
@@ -214,7 +216,7 @@ def keep_market(fam, r):
 
 
 def price_min_vol(fam):
-    return 1000 if fam in ("football", "us_sports", "other_sports", "esports") else 200
+    return 1000 if fam in GAME_FAMS else 200
 
 
 def fetch_prices(row):
@@ -235,9 +237,11 @@ def fetch_prices(row):
         pts.append((t, float(x["p"])))
     one = []
     gs = tsec(row["game_start"])
-    if gs and row["smt"] in ("moneyline", "totals", "spreads", "child_moneyline") and row["volume"] >= 5000:
-        r = get(CLOB + "/prices-history", {"market": toks[0], "startTs": gs - 3 * 3600, "endTs": gs + 3 * 3600, "fidelity": 1})
-        one = [(int(x["t"]), float(x["p"])) for x in (r or {}).get("history") or []]
+    big = (row["smt"] in ("moneyline", "child_moneyline") and row["volume"] >= 2000) or (row["smt"] in ("totals", "spreads") and row["volume"] >= 10000)
+    if gs and big:
+        for a, b in ((gs - 6 * 3600, gs - 1), (gs, gs + 5 * 3600)):  # CLOB caps a 1-min window; two halves
+            r = get(CLOB + "/prices-history", {"market": toks[0], "startTs": a, "endTs": b, "fidelity": 1})
+            one += [(int(x["t"]), float(x["p"])) for x in (r or {}).get("history") or []]
     return row["market_id"], pts, one
 
 
@@ -568,6 +572,6 @@ if __name__ == "__main__":
     ap.add_argument("--budget-min", type=float, default=240)
     ap.add_argument("--threads", type=int, default=12)
     ap.add_argument("--commit-cmd", default="")
-    ap.add_argument("--commit-every", type=float, default=30)
+    ap.add_argument("--commit-every", type=float, default=20)
     a = ap.parse_args()
     {"pm": cmd_pm, "results": cmd_results}[a.cmd](a)
