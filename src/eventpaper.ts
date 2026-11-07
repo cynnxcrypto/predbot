@@ -708,7 +708,7 @@ async function tennisRefresh() {
   const now = Date.now();
   let evs: GEvent[];
   try {
-    evs = await pages(`${GAMMA}/events?tag_slug=tennis&closed=false&end_date_min=${new Date(now).toISOString()}&end_date_max=${new Date(now + 3 * 86400_000).toISOString()}`, 3000);
+    evs = await pages(`${GAMMA}/events?tag_slug=tennis&closed=false&end_date_min=${new Date(now).toISOString()}&end_date_max=${new Date(now + 11 * 86400_000).toISOString()}`, 5000);
   } catch (e) {
     log(`tennis list failed: ${(e as Error).message}`);
     return;
@@ -775,7 +775,7 @@ async function cricketRefresh() {
   const now = Date.now();
   let evs: GEvent[];
   try {
-    evs = await pages(`${GAMMA}/events?tag_slug=cricket&closed=false&end_date_min=${new Date(now).toISOString()}&end_date_max=${new Date(now + 4 * 86400_000).toISOString()}`, 2000);
+    evs = await pages(`${GAMMA}/events?tag_slug=cricket&closed=false&end_date_min=${new Date(now).toISOString()}&end_date_max=${new Date(now + 12 * 86400_000).toISOString()}`, 3000);
   } catch (e) {
     log(`cricket list failed: ${(e as Error).message}`);
     return;
