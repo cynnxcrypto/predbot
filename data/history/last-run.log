@@ -1,0 +1,5 @@
+run start 2026-11-07T10:27:14Z args: --budget-min 8 --commit-every 3 --start 2025-01-01
+pm: 674 days to do (0 re-pulls)
+2026-11-05 first esports:323/147/0 finance_daily:294/164/0 football:2716/1198/0 other:100/95/0 other_sports:509/7/0 politics:45/37/0 sports_futures:68/39/0 temperature:1034/623/0 tennis:492/270/0 us_sports:1906/846/0 weather_other:79/10/0 87s
+2026-11-04 first esports:377/176/0 finance_daily:294/117/0 football:1897/893/0 other:108/87/0 other_sports:437/9/0 politics:5054/1307/0 sports_futures:110/0/0 temperature:1034/620/0 tennis:587/233/0 us_sports:722/319/0 weather_other:48/9/0 176s
+2026-11-03 first esports:344/160/0 finance_daily:294/122/0 football:2663/1125/0 other:79/66/0 other_sports:434/10/0 politics:678/351/0 sports_futures:1553/49/0 temperature:1034/569/0 tennis:896/393/0 us_sports:2125/919/0 weather_other:41/0/0 271s
