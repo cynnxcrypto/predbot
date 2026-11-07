@@ -113,7 +113,7 @@
           "variant": "ahead5-cheap60-15m-first3",
           "size": 3,
           "haltAfterLosses": 8,
-          "maxLossPerDay": 24,
+          "maxLossPerDay": 12,
           "cap": 0.6,
           "bidUnderC": 1,
           "bidSec": 60,
