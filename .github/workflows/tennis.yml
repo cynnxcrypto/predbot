@@ -2,20 +2,22 @@ name: tennis-research
 on:
   push:
     branches: ["claude/**"]
-    paths: ["tennis/fetch.py", "tennis/run.txt", ".github/workflows/tennis.yml"]
+    paths: ["tennis/fetch.py", "tennis/fetch2.py", "tennis/run.txt", ".github/workflows/tennis.yml"]
   workflow_dispatch:
 permissions:
   contents: write
 jobs:
   pull:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 75
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: { python-version: "3.12" }
       - name: run
-        run: timeout 40m python tennis/fetch.py || true
+        run: |
+          timeout 15m python tennis/fetch.py || true
+          grep -q prices tennis/run.txt && BUDGET=2100 timeout 40m python tennis/fetch2.py || true
       - name: commit results
         run: |
           git config user.name "tennis-bot"; git config user.email "tennis-bot@users.noreply.github.com"
