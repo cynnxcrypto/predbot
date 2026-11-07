@@ -110,14 +110,17 @@ export const CATS: Record<string, Cat> = {
     report: "reviews/politics-thesis-2026-11-07.md",
   },
   other: {
+    group: "cricket",
     books: (m) => m.family === "games" && !US.test(m.series ?? ""),
     collector: ["tennis", "other_sports", "sports_futures", "other"],
     tags: ["tennis", "ufc", "cricket"],
     research: [
       "Tennis: $9.7M ATP + $5M WTA a day, the biggest category with no research thread yet.",
       "Collector also stores cricket, UFC, F1, season futures and culture / economy markets.",
+      "Cricket (8 Nov scan): favourite 65-95c 10 min before start, real buy fills: 386 matches, 85.5% won, +5.1c/share; underdogs -6.5c.",
     ],
-    plan: "Tennis now has its own tab. Nothing else running here yet.",
+    plan: "Paper: cricket-fav10 (favourite 65-95c, 10 min before start) + shadows cricket-fav60 and cricket-dog-control. ~2 bets/day; real only after 100+ fillable at +3c/share and 50%+ won.",
+    report: "reviews/other-categories-2026-11-08.md",
   },
 };
 export const RULE_NAMES: Record<string, string> = {
@@ -127,6 +130,9 @@ export const RULE_NAMES: Record<string, string> = {
   "tennis-wta-fav85": "WTA favourite 85-90c",
   "tennis-itf-fav90": "ITF favourite 90-95c",
   "tennis-fav95": "Any tour favourite 95-99c",
+  "cricket-fav10": "Cricket favourite 65-95c, 10 min before start",
+  "cricket-fav60": "Cricket favourite, 60 min before start",
+  "cricket-dog-control": "Cricket underdog 20-35c (control)",
   "weather-fav16": "Afternoon favourite bucket at 16:00 local, 50-85c",
   "weather-fav15": "Afternoon favourite at 15:00 local",
   "football-portugal-home": "Portugal home favourite 65-80c",
@@ -141,7 +147,7 @@ export const RULE_NAMES: Record<string, string> = {
   "election-lock-taker": "Election lock 97-99c, taker",
   "election-lock-maker": "Election lock 97-99c, maker 1c under",
 };
-const SHADOW = new Set(["tennis-atp-fav90", "tennis-wta-fav85", "tennis-itf-fav90", "tennis-fav95", "weather-fav15", "football-portugal-home", "football-italy-away", "football-laliga-home55", "esports-fav-shadow", "esports-map1-dota", "spx-underdog", "spy-underdog"]);
+const SHADOW = new Set(["cricket-fav60", "cricket-dog-control", "tennis-atp-fav90", "tennis-wta-fav85", "tennis-itf-fav90", "tennis-fav95", "weather-fav15", "football-portugal-home", "football-italy-away", "football-laliga-home55", "esports-fav-shadow", "esports-map1-dota", "spx-underdog", "spy-underdog"]);
 
 async function get(url: string, ms = 8000): Promise<Response> {
   const r = await fetch(url, { headers: { "user-agent": UA }, signal: AbortSignal.timeout(ms) });

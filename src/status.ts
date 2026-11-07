@@ -342,7 +342,7 @@ const SECTIONS: { id: string; label: string; soon?: string; paper?: boolean }[] 
   { id: "tennis", paper: true, label: "Tennis", soon: "Polymarket tennis match markets." },
   { id: "weather", paper: true, label: "Weather", soon: "Polymarket daily city temperature markets will live here with their own panels and paper lab." },
   { id: "politics", paper: true, label: "Politics", soon: "Polymarket politics and election markets will live here with their own panels and paper lab." },
-  { id: "other", label: "Other", soon: "Event markets that fit no other tab will live here." },
+  { id: "other", paper: true, label: "Other", soon: "Event markets that fit no other tab will live here." },
 ];
 const hx = (x: string) => x.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
 const SEC_NAV = '<nav class="secs" id="secs">' + SECTIONS.map((x) => `<button class="sb" data-s="${x.id}">${hx(x.label)}${x.soon && !x.paper && !CATS[x.id] ? '<span class="soon">soon</span>' : ""}</button>`).join("") + "</nav>";

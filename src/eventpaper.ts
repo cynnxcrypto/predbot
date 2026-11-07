@@ -145,6 +145,7 @@ type Side = { id: string; token: string; team: string; feeRate: number };
 type Fixture = { id: string; league: string; title: string; kickoff: number; home: Side; away: Side; done?: boolean; note?: string; homeAsk?: number | null; awayAsk?: number | null; pxAt?: number };
 type WxEvent = { id: string; title: string; station: string; tz: string; date: [number, number, number]; buckets: { id: string; token: string; label: string; feeRate: number }[] };
 type TennisMatch = { id: string; title: string; tour: string; start: number; tokens: string[]; outcomes: string[]; feeRate: number; done?: boolean; note?: string };
+type CricketMatch = { id: string; title: string; start: number; tokens: string[]; outcomes: string[]; feeRate: number; done10?: boolean; done60?: boolean; note?: string };
 type Maker = { rule: string; marketId: string; title: string; outcome: string; idx: number; token: string; bid: number; t: number; feeRate: number; ask: number };
 type State = {
   matches: Record<string, Match>;
@@ -155,8 +156,9 @@ type State = {
   fixtures: Record<string, Fixture>;
   wx: Record<string, WxEvent>;
   tennis: Record<string, TennisMatch>;
+  cricket: Record<string, CricketMatch>;
 };
-const state: State = { matches: {}, done: {}, makers: [], trades: [], signals: [], fixtures: {}, wx: {}, tennis: {}, ...loadJson<Partial<State>>(STATE_FILE, {}) };
+const state: State = { matches: {}, done: {}, makers: [], trades: [], signals: [], fixtures: {}, wx: {}, tennis: {}, cricket: {}, ...loadJson<Partial<State>>(STATE_FILE, {}) };
 // 7 Nov 2026 20:15 KST fix: the first run counted matches whose map 1 had ended before the logger started (map-1 price
 // already decided), so it "bought" mid-map-2 prices. Drop those esports rows once; later rows need sawLive.
 if (!state.done["fix:esports-sawlive"]) {
@@ -574,6 +576,9 @@ const RULE_TEXT: Record<string, [string, string]> = {
   "tennis-atp-fav90": ["tennis", "ATP shadow of the WTA 90-95c favourite rule (negative in backtest)."],
   "tennis-wta-fav85": ["tennis", "WTA 85-90c favourite shadow."],
   "tennis-itf-fav90": ["tennis", "ITF 90-95c favourite shadow (negative in backtest)."],
+  "cricket-fav10": ["cricket", "Cricket match winner (2-way moneyline, any competition): 10 minutes before the scheduled start, buy the favourite whose best ask is 65-95c, $5 walking the book up to 2c over the best ask; hold to the result. Backtest on real buy fills May 2025-Nov 2026: 386 matches, 85.5% won, +5.1c/share; underdogs are overpriced (longshot bias)."],
+  "cricket-fav60": ["cricket", "Cricket favourite 65-95c, 60 minutes before the start (shadow; backtest +3.8c over 276)."],
+  "cricket-dog-control": ["cricket", "Cricket underdog control: buy the underdog asking 20-35c 10 minutes before the start (backtest -6c, expected to lose)."],
   "tennis-fav95": ["tennis", "Any tour, favourite at 95-99c, 10 minutes before the start (shadow)."],
   "weather-fav16": ["weather", "Highest-temperature city market: at 16:00 station local time buy the leading temperature bucket when its mid is 50-85c and the ask is within 2c of mid; hold to settlement (highest routine METAR reading of the local day). Backtest 43 days: 398 trades, 75.6% won, +3.7c/share after 2c slip and fees; positive 5 of 7 weeks."],
   "weather-fav15": ["weather", "Shadow of the afternoon-favourite weather rule at 15:00 local: backtest 785 trades, 72% won, +1.9c/share."],
@@ -762,6 +767,73 @@ async function tennisTick() {
   }
 }
 
+// ---------- cricket (spec reviews/cricket-paper-spec.md, 8 Nov 03:30 KST) ----------
+// 2-way match moneylines (tag cricket). MAIN cricket-fav10: at T-10 min (window 15..5 min before gameStartTime) buy
+// the side whose best ask is 65-95c, $5 walking up to best ask + 2c; skip if < $5 offered within 2c. Shadows:
+// cricket-fav60 (same at T-60, window 65..55 min) and cricket-dog-control (underdog asking 20-35c at T-10).
+async function cricketRefresh() {
+  const now = Date.now();
+  let evs: GEvent[];
+  try {
+    evs = await pages(`${GAMMA}/events?tag_slug=cricket&closed=false&end_date_min=${new Date(now).toISOString()}&end_date_max=${new Date(now + 4 * 86400_000).toISOString()}`, 2000);
+  } catch (e) {
+    log(`cricket list failed: ${(e as Error).message}`);
+    return;
+  }
+  for (const e of evs) {
+    for (const m of e.markets ?? []) {
+      if (!m.id || state.cricket[m.id] || m.sportsMarketType !== "moneyline" || m.closed) continue;
+      const toks = jl<string[]>(m.clobTokenIds, []);
+      const outs = jl<string[]>(m.outcomes, []);
+      const start = tsOf(m.gameStartTime) || tsOf(e.startTime);
+      if (toks.length !== 2 || outs.length !== 2 || outs.some((o) => /draw|tie/i.test(o)) || !Number.isFinite(start) || start < now) continue;
+      state.cricket[m.id] = { id: m.id, title: m.question ?? e.title ?? m.id, start, tokens: toks, outcomes: outs, feeRate: Number(m.feeSchedule?.rate ?? 0.05) };
+    }
+  }
+  for (const [k, c] of Object.entries(state.cricket)) if (c.start < now - 3 * 86400_000) delete state.cricket[k];
+}
+async function cricketCheck(c: CricketMatch, phase: 10 | 60) {
+  const books = await Promise.all(c.tokens.map((k) => book(k).catch(() => null)));
+  if (books[0]?.bestAsk == null || books[1]?.bestAsk == null) {
+    c.note = "no book";
+    return;
+  }
+  const fav = books[0].bestAsk >= books[1].bestAsk ? 0 : 1; // higher ask = favourite
+  const picks: { rule: string; i: number }[] = [];
+  const favAsk = books[fav]!.bestAsk!;
+  if (favAsk >= 0.65 - 1e-9 && favAsk <= 0.95 + 1e-9) picks.push({ rule: phase === 10 ? "cricket-fav10" : "cricket-fav60", i: fav });
+  const dogAsk = books[1 - fav]!.bestAsk!;
+  if (phase === 10 && dogAsk >= 0.2 - 1e-9 && dogAsk <= 0.35 + 1e-9) picks.push({ rule: "cricket-dog-control", i: 1 - fav });
+  for (const p of picks) {
+    const bk = books[p.i]!;
+    const ask = bk.bestAsk!;
+    const depth2c = bk.asks.filter((a) => a.price <= ask + 0.02 + 1e-9).reduce((x, a) => x + a.price * a.size, 0);
+    const extra: Record<string, unknown> = { start: c.start, phase, mid: bk.mid, bid: bk.bestBid, ask, otherAsk: books[1 - p.i]!.bestAsk, depth2c };
+    if (depth2c < STAKE - 1e-9) {
+      extra.skip = `only $${depth2c.toFixed(2)} within 2c of the ask`;
+      signal(p.rule, c.title, false, extra);
+      continue;
+    }
+    const tr = enter(p.rule, { marketId: c.id, title: c.title, outcome: c.outcomes[p.i], idx: p.i, token: c.tokens[p.i], feeRate: c.feeRate }, bk, ask + 0.02, extra);
+    signal(p.rule, c.title, Boolean(tr), extra);
+  }
+}
+async function cricketTick() {
+  const now = Date.now();
+  for (const c of Object.values(state.cricket)) {
+    const left = c.start - now;
+    if (!c.done60 && left <= 65 * 60_000) {
+      c.done60 = true;
+      if (left >= 55 * 60_000) await cricketCheck(c, 60);
+    }
+    if (!c.done10 && left <= 15 * 60_000) {
+      c.done10 = true;
+      if (left >= 5 * 60_000) await cricketCheck(c, 10);
+      else c.note = "missed the 15-5 min window";
+    }
+  }
+}
+
 // ---------- settlement and summary ----------
 async function settleTick() {
   const open = state.trades.filter((t) => t.pnl == null);
@@ -841,6 +913,7 @@ const GROUPS: Record<string, string[]> = {
   politics: ["election-lock-taker", "election-lock-maker"],
   weather: ["weather-fav16", "weather-fav15"],
   tennis: ["tennis-wta-fav90", "tennis-atp-fav90", "tennis-wta-fav85", "tennis-itf-fav90", "tennis-fav95"],
+  cricket: ["cricket-fav10", "cricket-fav60", "cricket-dog-control"],
   football: ["football-laliga-home", "football-portugal-home", "football-italy-away", "football-laliga-home55"],
 };
 function summarize() {
@@ -886,8 +959,8 @@ function summarize() {
         .map((t) => ({ info: infoOf(t), jm: t.jev?.mult ?? null, jc: t.jev?.confidence ?? null, settledAt: t.settledAt ?? null, rule: t.rule, t: t.t, title: t.title, outcome: t.outcome, ask: t.ask, avg: t.avg == null ? null : Math.round(t.avg * 1000) / 1000, shares: Math.round(t.shares * 100) / 100, cost: Math.round(t.cost * 100) / 100, fillable: t.fillable, won: t.won ?? null, pnl: t.pnl == null ? null : Math.round(t.pnl * 100) / 100, jev: t.jev?.pick ?? (t.jev?.err ? `error: ${t.jev.err}` : t.jevPending ? "asking" : null) })),
       // Why matches ended without a trade (diagnostics: "map 1 already decided when first seen", "no P0", ...).
       notes: g === "esports" ? Object.values(state.matches).reduce<Record<string, number>>((o, m) => ((o[m.evaluated ? m.note ?? (m.tEnd != null ? "evaluated" : "done") : m.tEnd != null ? "map 1 over, waiting" : m.start <= Date.now() ? "live" : "upcoming"] = (o[m.evaluated ? m.note ?? (m.tEnd != null ? "evaluated" : "done") : m.tEnd != null ? "map 1 over, waiting" : m.start <= Date.now() ? "live" : "upcoming"] ?? 0) + 1), o), {}) : undefined,
-      skips: g === "football" || g === "weather" || g === "tennis" ? state.signals.filter((x) => rules.includes(x.rule) && x.extra.skip).slice(-15).reverse().map((x) => ({ rule: x.rule, t: x.t, title: x.title, why: x.extra.skip, ask: x.extra.ask })) : undefined,
-      upcoming: g === "football" ? Object.values(state.fixtures).filter((f) => !f.done).length : g === "weather" ? Object.keys(state.wx).length : g === "tennis" ? Object.values(state.tennis).filter((t) => !t.done).length : undefined,
+      skips: g === "football" || g === "weather" || g === "tennis" || g === "cricket" ? state.signals.filter((x) => rules.includes(x.rule) && x.extra.skip).slice(-15).reverse().map((x) => ({ rule: x.rule, t: x.t, title: x.title, why: x.extra.skip, ask: x.extra.ask })) : undefined,
+      upcoming: g === "football" ? Object.values(state.fixtures).filter((f) => !f.done).length : g === "weather" ? Object.keys(state.wx).length : g === "tennis" ? Object.values(state.tennis).filter((t) => !t.done).length : g === "cricket" ? Object.values(state.cricket).filter((c) => !c.done10).length : undefined,
       watch: watchOf(g),
       watchAt: g === "politics" ? polWatchAt : undefined,
       sigs: state.signals
@@ -932,7 +1005,7 @@ async function guard(name: string, f: () => Promise<void>) {
 }
 async function main() {
   log("started (paper only)");
-  let last = { esList: 0, idx: 0, pol: 0, mk: 0, settle: 0, fb: 0, wx: 0, tn: 0 };
+  let last = { esList: 0, idx: 0, pol: 0, mk: 0, settle: 0, fb: 0, wx: 0, tn: 0, ck: 0 };
   for (;;) {
     const now = Date.now();
     if (now - last.esList > 5 * 60_000) {
@@ -955,6 +1028,11 @@ async function main() {
       await guard("tennis list", tennisRefresh);
     }
     await guard("tennis", tennisTick);
+    if (now - last.ck > 10 * 60_000) {
+      last.ck = now;
+      await guard("cricket list", cricketRefresh);
+    }
+    await guard("cricket", cricketTick);
     if (now - last.idx > 3 * 60_000) {
       last.idx = now;
       await guard("indices", indicesTick);
