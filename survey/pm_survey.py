@@ -607,6 +607,40 @@ def football():
                 if p is None or not pick(k, p, r): continue
                 v.append((1 if r[k]["won"] else 0) - (p + 0.01 + 0.05 * p * (1 - p)))
         if v: say(f"  RULE {name}: n={len(v)} won {100*sum(1 for x in v if x>0)/len(v):.0f}% {100*st.mean(v):+.2f}c/share, total {sum(v):+.2f} per 1-share bets")
+    say("### favourite rule split (buy side priced 55c+ at 10 min, +1c slip + fee)")
+    def season(r):
+        d = datetime.fromtimestamp(r["start"], timezone.utc)
+        return "2024-25" if d < datetime(2025, 7, 1, tzinfo=timezone.utc) else "2025-26" if d < datetime(2026, 7, 1, tzinfo=timezone.utc) else "2026-27"
+    for name, f in [("season " + s_, lambda r, s_=s_: season(r) == s_) for s_ in ("2024-25", "2025-26", "2026-27")] + \
+                   [("league " + l_, lambda r, l_=l_: r["lg"] == l_) for l_ in ("SP1", "SP2")] + \
+                   [("side H", None), ("side A", None)]:
+        v = []
+        for r in ok:
+            if f and not f(r): continue
+            for k in "HDA":
+                if name == "side H" and k != "H": continue
+                if name == "side A" and k != "A": continue
+                p = r[k]["k10"]
+                if p is None or p < 0.55: continue
+                v.append((1 if r[k]["won"] else 0) - (p + 0.01 + 0.05 * p * (1 - p)))
+        if v: say(f"  {name}: n={len(v)} won {100*sum(1 for x in v if x>0)/len(v):.0f}% {100*st.mean(v):+.2f}c/share")
+    for ref in ("pin", "avg"):
+        v = []
+        for r in ok:
+            if not r.get(ref): continue
+            for i, k in enumerate("HDA"):
+                fp = r[ref][i]
+                if fp >= 0.55: v.append((1 if r[k]["won"] else 0) - fp)
+        if v: say(f"  same idea at {ref} fair (no vig): n={len(v)} won {100*sum(1 for x in v if x>0)/len(v):.0f}% {100*st.mean(v):+.2f}c/share")
+    # monthly
+    mon = {}
+    for r in ok:
+        for k in "HDA":
+            p = r[k]["k10"]
+            if p is None or p < 0.55: continue
+            m_ = datetime.fromtimestamp(r["start"], timezone.utc).strftime("%Y-%m")
+            mon.setdefault(m_, []).append((1 if r[k]["won"] else 0) - (p + 0.01 + 0.05 * p * (1 - p)))
+    say("  by month: " + ", ".join(f"{m_} {len(v)}/{100*st.mean(v):+.0f}c" for m_, v in sorted(mon.items())))
     say("### simple rules (taker at 10-min price +1c slip + 5% sports fee)")
     for lo in (0.5, 0.55, 0.6, 0.65, 0.7):
         rule(f"buy side priced {int(lo*100)}c+", lambda k, p, r, lo=lo: p >= lo)
