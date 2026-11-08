@@ -114,11 +114,17 @@ export function familyHalted(variant: string, now: number = Date.now()): boolean
 export function familyOpen(variant: string): number {
   let n = 0;
   const now = Date.now();
-  for (const s of SERIES)
+  for (const s of SERIES) {
     for (const t of loadJson<{ variant?: string; window?: number; dry?: boolean; ok?: boolean; pnl?: number | null }[]>(`${prefixOf(s)}live-open.json`, []))
       // 8 Nov 2026: a fill whose window closed 3+ hours ago is a leftover (settlement gives up within about an hour),
       // so it must not hold a maxOpen slot forever.
       if (t.variant === variant && !t.dry && t.ok !== false && t.pnl == null && !(t.window != null && (t.window + s.windowSec) * 1000 < now - 3 * 3600_000)) n++;
+    // Review 34 (9 Nov 2026): a maker bid that is still resting counts too. Until now only FILLS counted, and a fill is
+    // written down when its 60 s rest ends, so bids sent within the same minute on several coins all rested together:
+    // since Review 31 4 of 17 windows carried 2-3 live tickets (03:30 KST 9 Nov: SOL, DOGE and HYPE). The paper
+    // one-per-window twins count placements, so this makes live match them.
+    for (const r of loadJson<{ variant?: string; until?: number }[]>(`${prefixOf(s)}live-resting.json`, [])) if (r.variant === variant && (r.until ?? 0) > now) n++;
+  }
   return n;
 }
 export function familyStreak(variant: string): number {
@@ -1107,6 +1113,7 @@ export class LiveTrader {
       row.orderId = res.orderID;
       row.status = "resting";
       row.error = null;
+      saveJson(`${this.prefix}live-resting.json`, [{ variant: trade.variant, window: trade.window, side: trade.side, until: phaseEnd + 5000 }]);
       console.log(`live ${this.series.label}: resting ${shares} ${trade.side} at ${Math.round(limit * 100)}c for ${Math.round((phaseEnd - Date.now()) / 1000)}s`);
       const read = async () => {
         const o = await this.client!.getOrder(res.orderID);
@@ -1141,9 +1148,11 @@ export class LiveTrader {
         row.error = "no fill while resting";
         console.log(`live ${this.series.label}: resting order cancelled, nothing filled`);
       }
+      saveJson(`${this.prefix}live-resting.json`, []);
     } catch (error) {
       row.error = error instanceof Error ? error.message : String(error);
       console.log(`live ${this.series.label}: chase failed (${row.error})`);
+      saveJson(`${this.prefix}live-resting.json`, []);
     }
   }
 

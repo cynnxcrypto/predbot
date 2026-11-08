@@ -169,20 +169,8 @@
     {
       "series": "hype15m",
       "maxLossPerDay": 15,
-      "variants": [
-        {
-          "variant": "ahead5-cheap60-15m-first3",
-          "size": 3,
-          "haltAfterLosses": 8,
-          "maxLossPerDay": 12,
-          "cap": 0.6,
-          "bidUnderC": 1,
-          "bidSec": 60,
-          "resumeFrom": "2026-11-07T06:25:00Z",
-          "maxOpen": 1,
-          "familyHaltLosses": 3
-        }
-      ]
+      "variants": [],
+      "note": "Review 34 (9 Nov 2026 04:45 KST): maker back to paper on HYPE: real 22 fills 9 won -$19.70 vs the other six coins 51 fills 30 won +$8.50 since go-live; paper copy keeps running."
     }
   ],
   "lossCap": {
