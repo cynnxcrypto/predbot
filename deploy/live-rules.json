@@ -52,7 +52,7 @@
           "bidUnderC": 1,
           "bidSec": 60,
           "resumeFrom": "2026-11-07T06:25:00Z",
-          "maxOpen": 3
+          "maxOpen": 1
         }
       ]
     },
@@ -79,7 +79,7 @@
           "bidUnderC": 1,
           "bidSec": 60,
           "resumeFrom": "2026-11-07T06:25:00Z",
-          "maxOpen": 3
+          "maxOpen": 1
         }
       ]
     },
@@ -101,7 +101,7 @@
           "bidUnderC": 1,
           "bidSec": 60,
           "resumeFrom": "2026-11-07T06:25:00Z",
-          "maxOpen": 3
+          "maxOpen": 1
         }
       ]
     },
@@ -118,7 +118,7 @@
           "bidUnderC": 1,
           "bidSec": 60,
           "resumeFrom": "2026-11-07T06:25:00Z",
-          "maxOpen": 3
+          "maxOpen": 1
         }
       ]
     },
@@ -145,7 +145,7 @@
           "bidUnderC": 1,
           "bidSec": 60,
           "resumeFrom": "2026-11-07T06:25:00Z",
-          "maxOpen": 3
+          "maxOpen": 1
         }
       ]
     },
@@ -162,7 +162,7 @@
           "bidUnderC": 1,
           "bidSec": 60,
           "resumeFrom": "2026-11-07T06:25:00Z",
-          "maxOpen": 3
+          "maxOpen": 1
         }
       ]
     },
@@ -179,7 +179,7 @@
           "bidUnderC": 1,
           "bidSec": 60,
           "resumeFrom": "2026-11-07T06:25:00Z",
-          "maxOpen": 3
+          "maxOpen": 1
         }
       ]
     }
