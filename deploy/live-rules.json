@@ -34,16 +34,6 @@
       "maxLossPerDay": 20,
       "variants": [
         {
-          "variant": "ahead5-cheap60-15m-big3-down-one",
-          "size": 3,
-          "haltAfterLosses": 4,
-          "familyHaltLosses": 3,
-          "maxLossPerDay": 9,
-          "cap": 0.6,
-          "skipOnFall": false,
-          "resumeFrom": "2026-11-07T06:25:00Z"
-        },
-        {
           "variant": "ahead5-cheap60-15m-first3",
           "size": 3,
           "haltAfterLosses": 8,
@@ -60,16 +50,6 @@
       "series": "btc15m",
       "maxLossPerDay": 20,
       "variants": [
-        {
-          "variant": "ahead5-cheap60-15m-big3-down-one",
-          "size": 3,
-          "haltAfterLosses": 4,
-          "familyHaltLosses": 3,
-          "maxLossPerDay": 9,
-          "cap": 0.6,
-          "skipOnFall": false,
-          "resumeFrom": "2026-11-07T06:25:00Z"
-        },
         {
           "variant": "ahead5-cheap60-15m-first3",
           "size": 3,
@@ -126,16 +106,6 @@
       "series": "sol15m",
       "maxLossPerDay": 15,
       "variants": [
-        {
-          "variant": "ahead5-cheap60-15m-big3-down-one",
-          "size": 3,
-          "haltAfterLosses": 4,
-          "familyHaltLosses": 3,
-          "maxLossPerDay": 9,
-          "cap": 0.6,
-          "skipOnFall": false,
-          "resumeFrom": "2026-11-07T06:25:00Z"
-        },
         {
           "variant": "ahead5-cheap60-15m-first3",
           "size": 3,
