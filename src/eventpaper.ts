@@ -140,6 +140,8 @@ type Match = {
   note?: string;
   /** Gamma best ask of outcome 0 at the last list refresh (dashboard only). */
   px0?: number | null;
+  /** Pre-match favourite rule (esports-lol-fav90 / esports-cs2-fav90) already checked once for this match. */
+  preFav?: boolean;
 };
 type Side = { id: string; token: string; team: string; feeRate: number };
 type Fixture = { id: string; league: string; title: string; kickoff: number; home: Side; away: Side; done?: boolean; note?: string; homeAsk?: number | null; awayAsk?: number | null; pxAt?: number };
@@ -222,11 +224,13 @@ async function esportsRefresh() {
     }
     for (const e of evs) {
       const ms = e.markets ?? [];
-      const match = ms.find((m) => m.sportsMarketType === "moneyline" && (m.question ?? "").toUpperCase().includes("BO3"));
-      const map1 = ms.find((m) => m.sportsMarketType === "child_moneyline" && /(Map|Game) 1 Winner/i.test(m.question ?? ""));
-      if (!match?.id || !map1?.id) continue;
+      // 8 Nov 2026: any match moneyline is kept (the pre-match favourite rules need no map-1 market); the map-1 rules
+      // still need a Bo3 with a "Map 1 Winner" child whose outcomes match.
+      const match = ms.find((m) => m.sportsMarketType === "moneyline" && (m.question ?? "").toUpperCase().includes("BO3")) ?? ms.find((m) => m.sportsMarketType === "moneyline");
+      let map1 = ms.find((m) => m.sportsMarketType === "child_moneyline" && /(Map|Game) 1 Winner/i.test(m.question ?? ""));
+      if (!match?.id) continue;
       const outs = jl<string[]>(match.outcomes, []);
-      if (JSON.stringify(outs) !== JSON.stringify(jl<string[]>(map1.outcomes, []))) continue;
+      if (map1 && JSON.stringify(outs) !== JSON.stringify(jl<string[]>(map1.outcomes, []))) map1 = undefined;
       const start = tsOf(match.gameStartTime) || tsOf(e.startTime);
       if (!Number.isFinite(start) || start > now + 2 * 86400_000 || start < now - 8 * 3600_000) continue;
       const cur = state.matches[match.id];
@@ -242,8 +246,8 @@ async function esportsRefresh() {
         start,
         tokens: jl<string[]>(match.clobTokenIds, []),
         outcomes: outs,
-        map1Id: map1.id,
-        map1Tokens: jl<string[]>(map1.clobTokenIds, []),
+        map1Id: map1?.id ?? "",
+        map1Tokens: map1 ? jl<string[]>(map1.clobTokenIds, []) : [],
         feeRate: Number(match.feeSchedule?.rate ?? 0.05),
         volume: match.volumeNum ?? null,
         px0: match.bestAsk ?? null,
@@ -268,9 +272,37 @@ async function p0For(m: Match): Promise<number | null> {
   }
   return null;
 }
+// esports-lol-fav90 (high win-rate thread, 8 Nov 2026, reviews/high-winrate-2026-11-08.md): LoL match moneyline, 60-10 min
+// before the start, buy the favourite asking 90-98c when the spread is <= 3c and >= $25 rests at the ask; one bet per
+// match, hold to settlement. Backtest 324 matches 96.6% won +4.0c/share on mids (decaying: Aug +0.5c, Sep +2.4c, Oct
+// -1.5c). esports-cs2-fav90 is the same rule on CS2 as a shadow (+1.4c over 324).
+async function esportsPreFav(m: Match) {
+  const rule = m.game === "lol" ? "esports-lol-fav90" : m.game === "cs2" ? "esports-cs2-fav90" : null;
+  if (!rule) return;
+  const books = await Promise.all(m.tokens.map((k) => book(k).catch(() => null)));
+  if (books[0]?.bestAsk == null || books[1]?.bestAsk == null) return;
+  const fav = books[0].bestAsk >= books[1].bestAsk ? 0 : 1;
+  const bk = books[fav]!;
+  const ask = bk.bestAsk!;
+  if (ask < 0.9 - 1e-9 || ask > 0.98 + 1e-9) return;
+  const spread = bk.bestBid != null ? ask - bk.bestBid : null;
+  const atAsk = bk.asks.filter((a) => a.price <= ask + 1e-9).reduce((x, a) => x + a.price * a.size, 0);
+  const extra: Record<string, unknown> = { start: m.start, minsToStart: Math.round((m.start - Date.now()) / 60_000), mid: bk.mid, bid: bk.bestBid, ask, spread, atAsk, otherAsk: books[1 - fav]!.bestAsk };
+  if (spread == null || spread > 0.03 + 1e-9 || atAsk < 25 - 1e-9) {
+    extra.skip = spread == null ? "no bid" : spread > 0.03 + 1e-9 ? `spread ${Math.round(spread * 100)}c` : `only $${atAsk.toFixed(0)} at the ask`;
+    signal(rule, m.title, false, extra);
+    return;
+  }
+  const tr = enter(rule, { marketId: m.id, title: m.title, outcome: m.outcomes[fav], idx: fav, token: m.tokens[fav], feeRate: m.feeRate }, bk, ask, extra);
+  signal(rule, m.title, Boolean(tr), extra);
+}
 async function esportsTick() {
   const now = Date.now();
   for (const m of Object.values(state.matches)) {
+    if (!m.preFav && m.tokens.length === 2 && now >= m.start - 60 * 60_000 && now <= m.start - 10 * 60_000) {
+      m.preFav = true;
+      await esportsPreFav(m);
+    }
     if (m.evaluated || m.tokens.length !== 2 || m.map1Tokens.length !== 2) continue;
     if (now < m.start - 600_000) continue;
     if (m.p0 === undefined) {
@@ -563,6 +595,8 @@ async function footballTick() {
 const RULE_TEXT: Record<string, [string, string]> = {
   "esports-map1": ["esports", "Bo3 CS2/LoL/Valorant match: after map 1, buy the map-1 winner's match share when its ask is 8+ pts under a map-strength model (pre-match price -> per-map chance q; model = 1-(1-q)^2), 60-120 s after map 1 ends; hold to the match result. Backtest: +3.1c/share out of sample over 171 matches."],
   "esports-fav-shadow": ["esports", "Bo3 esports shadow: the pre-match favourite won map 1 but its match price rose under 5 pts and is under 90c; buy it, hold to the match result."],
+  "esports-lol-fav90": ["esports", "LoL match favourite 90-98c, 60-10 min before the start: $5 at the ask when the spread is 3c or less and $25+ rests at the ask; one bet per match, hold to settlement. Backtest 324 matches 96.6% won +4.0c/share on mids (Aug +0.5c, Sep +2.4c, Oct -1.5c)."],
+  "esports-cs2-fav90": ["esports", "CS2 match favourite 90-98c, same rule as esports-lol-fav90 (shadow; backtest 324 matches +1.4c, 2c spread)."],
   "esports-map1-dota": ["esports", "Dota 2 Bo3 shadow of the map-1 under-reaction rule (buy the map-1 winner when the match ask is 8+ pts under the map model)."],
   "gold-momentum": ["indices", "Gold daily up/down: the first time a side asks 55-70c with 4+ hours to the 17:00 New York close, buy the higher-priced side; hold to settlement. Backtest: 69% won, +8.1c/share over 142 days."],
   "spx-underdog": ["indices", "S&P 500 daily up/down control: the first time a side asks 30-45c with 4+ hours to the 16:00 New York close, buy the cheaper side; expected about break-even."],
@@ -912,7 +946,7 @@ function watchOf(g: string): unknown[] {
   return [];
 }
 const GROUPS: Record<string, string[]> = {
-  esports: ["esports-map1", "esports-fav-shadow", "esports-map1-dota"],
+  esports: ["esports-map1", "esports-fav-shadow", "esports-map1-dota", "esports-lol-fav90", "esports-cs2-fav90"],
   indices: ["gold-momentum", "spx-underdog", "spy-underdog"],
   politics: ["election-lock-taker", "election-lock-maker"],
   weather: ["weather-fav16", "weather-fav15", "weather-fav16-wide"],

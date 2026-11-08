@@ -142,13 +142,15 @@ export const RULE_NAMES: Record<string, string> = {
   "esports-map1": "Map-1 under-reaction (CS2/LoL/Val)",
   "esports-fav-shadow": "Favourite won map 1, price stuck",
   "esports-map1-dota": "Map-1 under-reaction, Dota 2",
+  "esports-lol-fav90": "LoL match favourite 90-98c, pre-match",
+  "esports-cs2-fav90": "CS2 match favourite 90-98c, pre-match",
   "gold-momentum": "Gold daily momentum 55-70c",
   "spx-underdog": "SPX underdog 30-45c (control)",
   "spy-underdog": "SPY underdog 30-45c (control)",
   "election-lock-taker": "Election lock 97-99c, taker",
   "election-lock-maker": "Election lock 97-99c, maker 1c under",
 };
-const SHADOW = new Set(["cricket-fav60", "cricket-dog-control", "tennis-atp-fav90", "tennis-wta-fav85", "tennis-itf-fav90", "tennis-fav95", "weather-fav15", "weather-fav16-wide", "football-portugal-home", "football-italy-away", "football-laliga-home55", "esports-fav-shadow", "esports-map1-dota", "spx-underdog", "spy-underdog"]);
+const SHADOW = new Set(["esports-cs2-fav90", "cricket-fav60", "cricket-dog-control", "tennis-atp-fav90", "tennis-wta-fav85", "tennis-itf-fav90", "tennis-fav95", "weather-fav15", "weather-fav16-wide", "football-portugal-home", "football-italy-away", "football-laliga-home55", "esports-fav-shadow", "esports-map1-dota", "spx-underdog", "spy-underdog"]);
 
 async function get(url: string, ms = 8000): Promise<Response> {
   const r = await fetch(url, { headers: { "user-agent": UA }, signal: AbortSignal.timeout(ms) });
