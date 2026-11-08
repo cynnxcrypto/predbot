@@ -113,9 +113,12 @@ export function familyHalted(variant: string, now: number = Date.now()): boolean
  *  went in at 12:15 KST before earlier losses had landed; each open fill now counts as a possible loss. */
 export function familyOpen(variant: string): number {
   let n = 0;
+  const now = Date.now();
   for (const s of SERIES)
-    for (const t of loadJson<{ variant?: string; dry?: boolean; ok?: boolean; pnl?: number | null }[]>(`${prefixOf(s)}live-open.json`, []))
-      if (t.variant === variant && !t.dry && t.ok !== false && t.pnl == null) n++;
+    for (const t of loadJson<{ variant?: string; window?: number; dry?: boolean; ok?: boolean; pnl?: number | null }[]>(`${prefixOf(s)}live-open.json`, []))
+      // 8 Nov 2026: a fill whose window closed 3+ hours ago is a leftover (settlement gives up within about an hour),
+      // so it must not hold a maxOpen slot forever.
+      if (t.variant === variant && !t.dry && t.ok !== false && t.pnl == null && !(t.window != null && (t.window + s.windowSec) * 1000 < now - 3 * 3600_000)) n++;
   return n;
 }
 export function familyStreak(variant: string): number {
@@ -565,6 +568,16 @@ export class LiveTrader {
   private likely = new Map<number, boolean>();
   lastError: string | null = null;
   lastOrderAt: number | null = null;
+  /** The last signal of a live rule that sent no order, and why (8 Nov 2026: "why no trades for so long" could not be
+   *  answered from the report, because skips before an order is built leave no row anywhere). */
+  lastSkip: { at: number; variant: string; window: number; side: string; reason: string } | null = null;
+  skipsToday: Record<string, number> = {};
+  private skip(trade: PaperTrade, reason: string) {
+    this.lastSkip = { at: Date.now(), variant: trade.variant, window: trade.window, side: trade.side, reason };
+    const key = `${kstDay()}|${reason.replace(/[$\d.]+/g, "#")}`;
+    for (const k of Object.keys(this.skipsToday)) if (!k.startsWith(kstDay())) delete this.skipsToday[k];
+    this.skipsToday[key] = (this.skipsToday[key] ?? 0) + 1;
+  }
   wallet: string | null = null;
   balance: number | null = null;
   ready = false;
@@ -872,37 +885,37 @@ export class LiveTrader {
     // Halts are read from the file before every order, so editing data/<prefix>live-halts.json takes effect at once.
     this.halts = loadJson<Record<string, Halt>>(`${this.prefix}live-halts.json`, this.halts);
     this.liftResumedHalt(trade.variant, rule);
-    if (this.halts[trade.variant]?.halted || this.halts[trade.variant]?.paused) return;
-    if (rule.familyHaltLosses && familyHalted(trade.variant)) return;
+    if (this.halts[trade.variant]?.halted || this.halts[trade.variant]?.paused) return this.skip(trade, "rule halted or paused");
+    if (rule.familyHaltLosses && familyHalted(trade.variant)) return this.skip(trade, "cross-coin day stop");
     // "maxOpen": at most N unsettled real fills of this rule across every market (7 Nov 2026: kept when the maker's
     // 3-loss stop was dropped; it used to come with familyHaltLosses).
     if (rule.maxOpen && this.config.mode === "live" && familyOpen(trade.variant) >= rule.maxOpen) {
       console.log(`live ${this.series.label}: ${trade.variant} skipped window ${trade.window}, ${rule.maxOpen} fills already open across markets`);
-      return;
+      return this.skip(trade, `max ${rule.maxOpen} open fill(s) across coins reached`);
     }
     if (rule.coinDayHaltLosses) {
       const h = this.halts[trade.variant];
-      if (h?.dayHalt === kstDay()) return;
+      if (h?.dayHalt === kstDay()) return this.skip(trade, "coin day stop");
       const pending = this.pendingLosses(trade.variant) + this.open.filter((t) => t.variant === trade.variant && !t.dry && t.pnl == null && t.shares > 0).length;
       if (pending && (h?.dayStreak ?? 0) + pending >= rule.coinDayHaltLosses) {
         console.log(`live ${this.series.label}: ${trade.variant} skipped window ${trade.window}, unsettled fills here could trip the coin day stop`);
-        return;
+        return this.skip(trade, "unsettled fills could trip the coin day stop");
       }
     }
     if (rule.familyHaltLosses) {
       const open = familyOpen(trade.variant);
       if (open && familyStreak(trade.variant) + open >= rule.familyHaltLosses) {
         console.log(`live ${this.series.label}: ${trade.variant} skipped window ${trade.window}, ${open} unsettled fill(s) across markets could trip the day-halt`);
-        return;
+        return this.skip(trade, "unsettled fills could trip the cross-coin day stop");
       }
     }
-    if (this.open.some((t) => t.window === trade.window && t.variant === trade.variant)) return;
+    if (this.open.some((t) => t.window === trade.window && t.variant === trade.variant)) return this.skip(trade, "already holds this window");
     // Settlement lags the close by minutes: a loss our own feed can already see counts toward the halt now.
     if (rule.haltAfterLosses > 0) {
       const pending = this.pendingLosses(trade.variant);
       if (pending && (this.halts[trade.variant]?.streak ?? 0) + pending >= rule.haltAfterLosses) {
         console.log(`live ${this.series.label}: ${trade.variant} skipped window ${trade.window}, ${pending} unsettled trade(s) look lost and would trip the halt`);
-        return;
+        return this.skip(trade, "unsettled trades look lost and would trip the halt");
       }
     }
     const { size, mult } = this.sizeFor(rule);
@@ -910,7 +923,7 @@ export class LiveTrader {
       const key = `${kstDay()}|${trade.variant}`;
       if (!this.dayStopped.has(key)) console.log(`live ${this.series.label}: ${trade.variant} reached its daily loss stop (-$${this.ruleLoss(trade.variant).toFixed(2)} of $${this.ruleStop(rule, mult)}), no more orders from it today`);
       this.dayStopped.add(key);
-      return;
+      return this.skip(trade, "rule daily loss stop");
     }
     // A new Korean day (or a raised stop) lifts the limit: drop the stale notice so the dashboard stops showing it.
     if (this.lastError === "daily loss limit reached") this.lastError = null;
@@ -919,18 +932,18 @@ export class LiveTrader {
       const msg = `paused: balance $${this.balance.toFixed(2)}${claims > 0 ? ` + $${claims.toFixed(2)} to claim` : ""} is under the $${this.config.minBalance} floor`;
       if (this.lastError !== msg) console.log(`live ${this.series.label}: ${msg}`);
       this.lastError = msg;
-      return;
+      return this.skip(trade, "wallet under the balance floor");
     }
     if (this.lastError && this.lastError.startsWith("paused: balance")) this.lastError = null;
     const capMsg = this.config.mode === "live" ? capBlocks(this.config.lossCap, size) : null;
     if (capMsg) {
       if (this.lastError !== capMsg) console.log(`live ${this.series.label}: ${capMsg}, no order`);
       this.lastError = capMsg;
-      return;
+      return this.skip(trade, "real-loss cap");
     }
     if (this.config.mode === "live" && this.config.lossCap) capReserve(size);
     if (!this.ready) await this.start();
-    if (!this.ready || !this.client) return;
+    if (!this.ready || !this.client) return this.skip(trade, "wallet not ready");
     const token = trade.side === "UP" ? market.upToken : market.downToken;
     // Fill rule from the recorded books (62 paper windows, 16-19 Oct): the fill-or-kill at ask+2c filled the
     // windows where the ask had fallen since the snapshot (76% won) and missed the ones where it had jumped
@@ -1625,6 +1638,10 @@ export class LiveTrader {
       net: Math.round(shown.net * 100) / 100,
       todayNet: Math.round(shown.today * 100) / 100,
       open: this.open.length,
+      // Unsettled real fills (no token or order id: the report is public).
+      openFills: this.open.map((t) => ({ t: t.t, window: t.window, variant: t.variant, side: t.side, cost: t.cost, status: t.status, won: t.won })),
+      lastSkip: this.lastSkip,
+      skipsToday: this.skipsToday,
       // Rules taken out of live.json: their trades stay in the files and the wallet, but off the panel.
       hidden: { trades: 0, net: 0, open: 0 },
       lastError: this.lastError,

@@ -80,7 +80,7 @@ def summary():
             "feeds": [{"name": f.get("name"), "healthy": f.get("healthy"), "errors": f.get("errors")} for f in x.get("feeds") or []],
             "papers": [{k: p.get(k) for k in ("name", "size", "trades", "won", "net", "fillable", "open", "discarded")} | {"days": (p.get("days") or [])[:7]}
                        for p in x.get("papers") or [] if p.get("trades")],
-            "live": {k: live.get(k) for k in ("mode", "variants", "maxLossPerDay", "realByVariant", "ready", "trades", "won", "net", "todayNet", "lastError", "lastOrderAt")} if live else None,
+            "live": {k: live.get(k) for k in ("mode", "variants", "maxLossPerDay", "realByVariant", "ready", "trades", "won", "net", "todayNet", "lastError", "lastOrderAt", "open", "openFills", "lastSkip", "skipsToday")} if live else None,
         })
     try:
         lat = json.load(open(os.path.join(DATA, "latency.json")))
