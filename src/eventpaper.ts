@@ -526,6 +526,8 @@ async function footballRefresh() {
     }
     for (const e of evs) {
       if (!e.id) continue;
+      // 9 Nov 2026: "X vs. Y - Second Half Result" events were listed as fixtures of their own (half-time win markets).
+      if (/\b(first|second|1st|2nd)[ -]half\b/i.test(e.title ?? "")) continue;
       const tm = /^(.+?)\s+vs\.?\s+(.+?)$/i.exec((e.title ?? "").replace(/\s*[-:|(].*$/, "").trim());
       if (!tm) continue;
       const wins = (e.markets ?? []).filter((m) => /\bwin\b/i.test(m.question ?? "") && !/draw/i.test(m.question ?? "") && !PROP.test(m.question ?? "") && !m.closed);
