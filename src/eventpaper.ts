@@ -581,6 +581,7 @@ const RULE_TEXT: Record<string, [string, string]> = {
   "cricket-dog-control": ["cricket", "Cricket underdog control: buy the underdog asking 20-35c 10 minutes before the start (backtest -6c, expected to lose)."],
   "tennis-fav95": ["tennis", "Any tour, favourite at 95-99c, 10 minutes before the start (shadow)."],
   "weather-fav16": ["weather", "Highest-temperature city market: at 16:00 station local time buy the leading temperature bucket when its mid is 50-85c and the ask is within 2c of mid; hold to settlement (highest routine METAR reading of the local day). Backtest 43 days: 398 trades, 75.6% won, +3.7c/share after 2c slip and fees; positive 5 of 7 weeks."],
+  "weather-fav16-wide": ["weather", "Shadow of the 16:00 afternoon-favourite weather rule that accepts an ask up to 5c over the mid (the main rule needs 2c and skipped every signal in its first two days)."],
   "weather-fav15": ["weather", "Shadow of the afternoon-favourite weather rule at 15:00 local: backtest 785 trades, 72% won, +1.9c/share."],
   "football-laliga-home55": ["football", "La Liga control: buy the home team at 55-65c 10 minutes before kickoff; expected about break-even (+0.3c in bookmaker history)."],
 };
@@ -619,9 +620,12 @@ async function jevTick() {
 // 0.05 x p(1-p)), hold to settlement. Hong Kong excluded (resolves on the HK Observatory, not METAR). Backtest 16:00:
 // 398 trades, 75.6% won, +3.7c/share after 2c slip + fee, 43 days.
 const WX_TZ: Record<string, string> = { CYYZ: "America/Toronto", EDDM: "Europe/Berlin", EFHK: "Europe/Helsinki", EGLC: "Europe/London", EHAM: "Europe/Amsterdam", EPWA: "Europe/Warsaw", FACT: "Africa/Johannesburg", KATL: "America/New_York", KAUS: "America/Chicago", KDAL: "America/Chicago", KDEN: "America/Denver", KHOU: "America/Chicago", KLAX: "America/Los_Angeles", KLGA: "America/New_York", KMIA: "America/New_York", KORD: "America/Chicago", KSEA: "America/Los_Angeles", KSFO: "America/Los_Angeles", LEMD: "Europe/Madrid", LFPB: "Europe/Paris", LIMC: "Europe/Rome", LLBG: "Asia/Jerusalem", LTAC: "Europe/Istanbul", LTFM: "Europe/Istanbul", MMMX: "America/Mexico_City", MPMG: "America/Panama", NZWN: "Pacific/Auckland", OEJN: "Asia/Riyadh", OPKC: "Asia/Karachi", RCSS: "Asia/Taipei", RJTT: "Asia/Tokyo", RKPK: "Asia/Seoul", RKSI: "Asia/Seoul", RPLL: "Asia/Manila", SAEZ: "America/Argentina/Buenos_Aires", SBGR: "America/Sao_Paulo", UUWW: "Europe/Moscow", VILK: "Asia/Kolkata", WMKK: "Asia/Kuala_Lumpur", WSSS: "Asia/Singapore", ZBAA: "Asia/Shanghai", ZGGG: "Asia/Shanghai", ZGSZ: "Asia/Shanghai", ZHHH: "Asia/Shanghai", ZSPD: "Asia/Shanghai", ZSQD: "Asia/Shanghai", ZUCK: "Asia/Shanghai", ZUUU: "Asia/Shanghai" };
-const WX_RULES: { rule: string; hour: number }[] = [
+// 8 Nov 2026 15:10 KST: in two days the 2c rule skipped all 7 signals (asks 68-95c, spreads over 4c), so a shadow at
+// 16:00 accepts an ask up to 5c over mid, walking the book to that ask, to measure what the spread filter costs.
+const WX_RULES: { rule: string; hour: number; slip?: number }[] = [
   { rule: "weather-fav16", hour: 16 },
   { rule: "weather-fav15", hour: 15 },
+  { rule: "weather-fav16-wide", hour: 16, slip: 0.05 },
 ];
 type GEventWx = GEvent & { description?: string };
 async function weatherRefresh() {
@@ -655,7 +659,7 @@ async function weatherRefresh() {
 async function weatherTick() {
   const now = Date.now();
   for (const ev of Object.values(state.wx)) {
-    for (const { rule, hour } of WX_RULES) {
+    for (const { rule, hour, slip = 0.02 } of WX_RULES) {
       const key = `${rule}|${ev.id}`;
       if (state.done[key]) continue;
       const at = zonedUtc(ev.date[0], ev.date[1], ev.date[2], hour, ev.tz);
@@ -674,8 +678,8 @@ async function weatherTick() {
       const ask = bk.bestAsk!;
       const extra: Record<string, unknown> = { station: ev.station, localHour: hour, bucket: bu.label, mid, bid: bk.bestBid, ask, spread: ask - (bk.bestBid ?? ask), depth2c: bk.asks.filter((a) => a.price <= ask + 0.02 + 1e-9).reduce((x, a) => x + a.price * a.size, 0), mids: books.map((b) => b?.mid ?? null) };
       if (mid < 0.5 - 1e-9 || mid > 0.85 + 1e-9) continue;
-      if (ask > mid + 0.02 + 1e-9) {
-        extra.skip = `ask ${Math.round(ask * 100)}c over mid+2c`;
+      if (ask > mid + slip + 1e-9) {
+        extra.skip = `ask ${Math.round(ask * 100)}c over mid+${Math.round(slip * 100)}c`;
         signal(rule, ev.title, false, extra);
         continue;
       }
@@ -911,7 +915,7 @@ const GROUPS: Record<string, string[]> = {
   esports: ["esports-map1", "esports-fav-shadow", "esports-map1-dota"],
   indices: ["gold-momentum", "spx-underdog", "spy-underdog"],
   politics: ["election-lock-taker", "election-lock-maker"],
-  weather: ["weather-fav16", "weather-fav15"],
+  weather: ["weather-fav16", "weather-fav15", "weather-fav16-wide"],
   tennis: ["tennis-wta-fav90", "tennis-atp-fav90", "tennis-wta-fav85", "tennis-itf-fav90", "tennis-fav95"],
   cricket: ["cricket-fav10", "cricket-fav60", "cricket-dog-control"],
   football: ["football-laliga-home", "football-portugal-home", "football-italy-away", "football-laliga-home55"],

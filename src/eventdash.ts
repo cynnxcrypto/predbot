@@ -135,6 +135,7 @@ export const RULE_NAMES: Record<string, string> = {
   "cricket-dog-control": "Cricket underdog 20-35c (control)",
   "weather-fav16": "Afternoon favourite bucket at 16:00 local, 50-85c",
   "weather-fav15": "Afternoon favourite at 15:00 local",
+  "weather-fav16-wide": "16:00 favourite, ask up to mid+5c",
   "football-portugal-home": "Portugal home favourite 65-80c",
   "football-italy-away": "Italy away favourite 65-80c",
   "football-laliga-home55": "La Liga home 55-65c (control)",
@@ -147,7 +148,7 @@ export const RULE_NAMES: Record<string, string> = {
   "election-lock-taker": "Election lock 97-99c, taker",
   "election-lock-maker": "Election lock 97-99c, maker 1c under",
 };
-const SHADOW = new Set(["cricket-fav60", "cricket-dog-control", "tennis-atp-fav90", "tennis-wta-fav85", "tennis-itf-fav90", "tennis-fav95", "weather-fav15", "football-portugal-home", "football-italy-away", "football-laliga-home55", "esports-fav-shadow", "esports-map1-dota", "spx-underdog", "spy-underdog"]);
+const SHADOW = new Set(["cricket-fav60", "cricket-dog-control", "tennis-atp-fav90", "tennis-wta-fav85", "tennis-itf-fav90", "tennis-fav95", "weather-fav15", "weather-fav16-wide", "football-portugal-home", "football-italy-away", "football-laliga-home55", "esports-fav-shadow", "esports-map1-dota", "spx-underdog", "spy-underdog"]);
 
 async function get(url: string, ms = 8000): Promise<Response> {
   const r = await fetch(url, { headers: { "user-agent": UA }, signal: AbortSignal.timeout(ms) });
