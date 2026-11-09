@@ -35,14 +35,38 @@
     {
       "series": "eth15m",
       "maxLossPerDay": 20,
-      "variants": [],
-      "note": "Review 35 (9 Nov 2026 10:45 KST): maker back to paper. Real since go-live 7 Nov: 85 fills 43 won (50.6%) -$26.78, red all 3 days (7 Nov -$5.27, 8 Nov -$4.54, 9 Nov -$16.98 by 10:30); paper copies red on the fresh days too. Since Friday -$116.71 with $14.47 of the $70 cap left. Nothing meets the promotion bar; a review re-promotes with resumeFrom."
+      "variants": [
+        {
+          "variant": "ahead5-cheap60-15m-90to180-big3",
+          "size": 3,
+          "haltAfterLosses": 4,
+          "maxLossPerDay": 6,
+          "cap": 0.6,
+          "bidUnderC": 4,
+          "bidSec": 30,
+          "maxOpen": 1,
+          "familyHaltLosses": 2
+        }
+      ],
+      "note": "Review 36 (9 Nov 2026 16:45 KST): first rule to meet the promotion bar since the maker came off: ETH/SOL/BTC early move 90-180 s into the 15m window, 4c-under bid for 30 s (paper mk-early-90to180-r4-30-touch-big3: 129 fillable 57.4% +$33.9, green 7, 8 and 9 Nov; real 1c-maker fills 2-3 min in went 13/16 +$20.11 vs first-2-min 26/57 -$31.31). $3, max 1 open, 2 straight losses across coins stops the day, $6/day per market. Cap left $16.55 of $70; the cross-coin stop limits a bad day to about -$6."
     },
     {
       "series": "btc15m",
       "maxLossPerDay": 20,
-      "variants": [],
-      "note": "Review 35 (9 Nov 2026 10:45 KST): maker back to paper. Real since go-live 7 Nov: 85 fills 43 won (50.6%) -$26.78, red all 3 days (7 Nov -$5.27, 8 Nov -$4.54, 9 Nov -$16.98 by 10:30); paper copies red on the fresh days too. Since Friday -$116.71 with $14.47 of the $70 cap left. Nothing meets the promotion bar; a review re-promotes with resumeFrom."
+      "variants": [
+        {
+          "variant": "ahead5-cheap60-15m-90to180-big3",
+          "size": 3,
+          "haltAfterLosses": 4,
+          "maxLossPerDay": 6,
+          "cap": 0.6,
+          "bidUnderC": 4,
+          "bidSec": 30,
+          "maxOpen": 1,
+          "familyHaltLosses": 2
+        }
+      ],
+      "note": "Review 36 (9 Nov 2026 16:45 KST): first rule to meet the promotion bar since the maker came off: ETH/SOL/BTC early move 90-180 s into the 15m window, 4c-under bid for 30 s (paper mk-early-90to180-r4-30-touch-big3: 129 fillable 57.4% +$33.9, green 7, 8 and 9 Nov; real 1c-maker fills 2-3 min in went 13/16 +$20.11 vs first-2-min 26/57 -$31.31). $3, max 1 open, 2 straight losses across coins stops the day, $6/day per market. Cap left $16.55 of $70; the cross-coin stop limits a bad day to about -$6."
     },
     {
       "series": "hype5m",
@@ -64,8 +88,20 @@
     {
       "series": "sol15m",
       "maxLossPerDay": 15,
-      "variants": [],
-      "note": "Review 35 (9 Nov 2026 10:45 KST): maker back to paper. Real since go-live 7 Nov: 85 fills 43 won (50.6%) -$26.78, red all 3 days (7 Nov -$5.27, 8 Nov -$4.54, 9 Nov -$16.98 by 10:30); paper copies red on the fresh days too. Since Friday -$116.71 with $14.47 of the $70 cap left. Nothing meets the promotion bar; a review re-promotes with resumeFrom."
+      "variants": [
+        {
+          "variant": "ahead5-cheap60-15m-90to180-big3",
+          "size": 3,
+          "haltAfterLosses": 4,
+          "maxLossPerDay": 6,
+          "cap": 0.6,
+          "bidUnderC": 4,
+          "bidSec": 30,
+          "maxOpen": 1,
+          "familyHaltLosses": 2
+        }
+      ],
+      "note": "Review 36 (9 Nov 2026 16:45 KST): first rule to meet the promotion bar since the maker came off: ETH/SOL/BTC early move 90-180 s into the 15m window, 4c-under bid for 30 s (paper mk-early-90to180-r4-30-touch-big3: 129 fillable 57.4% +$33.9, green 7, 8 and 9 Nov; real 1c-maker fills 2-3 min in went 13/16 +$20.11 vs first-2-min 26/57 -$31.31). $3, max 1 open, 2 straight losses across coins stops the day, $6/day per market. Cap left $16.55 of $70; the cross-coin stop limits a bad day to about -$6."
     },
     {
       "series": "doge15m",
