@@ -1103,17 +1103,20 @@ export class LiveTrader {
       if (!this.client || phaseEnd - Date.now() < 3000) return;
       // Rest at the cap. Polymarket wants at least 5 shares and $1; `size` dollars at the cap is 8.8 shares for $1.50 at 17c.
       const shares = Math.floor((size / limit) * 100) / 100;
+      // Review 35 (9 Nov 2026): the resting record goes down BEFORE the order is posted. Written after, four coins that
+      // signalled in the same second (07:45 KST 9 Nov) each saw no record and all four bid at once.
+      saveJson(`${this.prefix}live-resting.json`, [{ variant: trade.variant, window: trade.window, side: trade.side, until: phaseEnd + 5000 }]);
       const order = await this.client.createOrder({ tokenID: token, price: limit, side: Side.BUY, size: shares }, { tickSize: "0.01", negRisk: false });
       const res = await this.client.postOrder(order, OrderType.GTC);
       this.lastOrderAt = Date.now();
       if (!res?.success || !res.orderID) {
         row.error = res?.errorMsg || "resting order rejected";
+        saveJson(`${this.prefix}live-resting.json`, []);
         return;
       }
       row.orderId = res.orderID;
       row.status = "resting";
       row.error = null;
-      saveJson(`${this.prefix}live-resting.json`, [{ variant: trade.variant, window: trade.window, side: trade.side, until: phaseEnd + 5000 }]);
       console.log(`live ${this.series.label}: resting ${shares} ${trade.side} at ${Math.round(limit * 100)}c for ${Math.round((phaseEnd - Date.now()) / 1000)}s`);
       const read = async () => {
         const o = await this.client!.getOrder(res.orderID);

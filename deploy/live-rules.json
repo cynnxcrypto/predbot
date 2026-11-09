@@ -35,38 +35,14 @@
     {
       "series": "eth15m",
       "maxLossPerDay": 20,
-      "variants": [
-        {
-          "variant": "ahead5-cheap60-15m-first3",
-          "size": 3,
-          "haltAfterLosses": 8,
-          "maxLossPerDay": 12,
-          "cap": 0.6,
-          "bidUnderC": 1,
-          "bidSec": 60,
-          "resumeFrom": "2026-11-07T06:25:00Z",
-          "maxOpen": 1,
-          "familyHaltLosses": 3
-        }
-      ]
+      "variants": [],
+      "note": "Review 35 (9 Nov 2026 10:45 KST): maker back to paper. Real since go-live 7 Nov: 85 fills 43 won (50.6%) -$26.78, red all 3 days (7 Nov -$5.27, 8 Nov -$4.54, 9 Nov -$16.98 by 10:30); paper copies red on the fresh days too. Since Friday -$116.71 with $14.47 of the $70 cap left. Nothing meets the promotion bar; a review re-promotes with resumeFrom."
     },
     {
       "series": "btc15m",
       "maxLossPerDay": 20,
-      "variants": [
-        {
-          "variant": "ahead5-cheap60-15m-first3",
-          "size": 3,
-          "haltAfterLosses": 8,
-          "maxLossPerDay": 12,
-          "cap": 0.6,
-          "bidUnderC": 1,
-          "bidSec": 60,
-          "resumeFrom": "2026-11-07T06:25:00Z",
-          "maxOpen": 1,
-          "familyHaltLosses": 3
-        }
-      ]
+      "variants": [],
+      "note": "Review 35 (9 Nov 2026 10:45 KST): maker back to paper. Real since go-live 7 Nov: 85 fills 43 won (50.6%) -$26.78, red all 3 days (7 Nov -$5.27, 8 Nov -$4.54, 9 Nov -$16.98 by 10:30); paper copies red on the fresh days too. Since Friday -$116.71 with $14.47 of the $70 cap left. Nothing meets the promotion bar; a review re-promotes with resumeFrom."
     },
     {
       "series": "hype5m",
@@ -76,74 +52,26 @@
     {
       "series": "bnb15m",
       "maxLossPerDay": 20,
-      "variants": [
-        {
-          "variant": "ahead5-cheap60-15m-first3",
-          "size": 3,
-          "haltAfterLosses": 8,
-          "maxLossPerDay": 12,
-          "cap": 0.6,
-          "bidUnderC": 1,
-          "bidSec": 60,
-          "resumeFrom": "2026-11-07T06:25:00Z",
-          "maxOpen": 1,
-          "familyHaltLosses": 3
-        }
-      ]
+      "variants": [],
+      "note": "Review 35 (9 Nov 2026 10:45 KST): maker back to paper. Real since go-live 7 Nov: 85 fills 43 won (50.6%) -$26.78, red all 3 days (7 Nov -$5.27, 8 Nov -$4.54, 9 Nov -$16.98 by 10:30); paper copies red on the fresh days too. Since Friday -$116.71 with $14.47 of the $70 cap left. Nothing meets the promotion bar; a review re-promotes with resumeFrom."
     },
     {
       "series": "xrp15m",
       "maxLossPerDay": 20,
-      "variants": [
-        {
-          "variant": "ahead5-cheap60-15m-first3",
-          "size": 3,
-          "haltAfterLosses": 8,
-          "maxLossPerDay": 12,
-          "cap": 0.6,
-          "bidUnderC": 1,
-          "bidSec": 60,
-          "resumeFrom": "2026-11-07T06:25:00Z",
-          "maxOpen": 1,
-          "familyHaltLosses": 3
-        }
-      ]
+      "variants": [],
+      "note": "Review 35 (9 Nov 2026 10:45 KST): maker back to paper. Real since go-live 7 Nov: 85 fills 43 won (50.6%) -$26.78, red all 3 days (7 Nov -$5.27, 8 Nov -$4.54, 9 Nov -$16.98 by 10:30); paper copies red on the fresh days too. Since Friday -$116.71 with $14.47 of the $70 cap left. Nothing meets the promotion bar; a review re-promotes with resumeFrom."
     },
     {
       "series": "sol15m",
       "maxLossPerDay": 15,
-      "variants": [
-        {
-          "variant": "ahead5-cheap60-15m-first3",
-          "size": 3,
-          "haltAfterLosses": 8,
-          "maxLossPerDay": 12,
-          "cap": 0.6,
-          "bidUnderC": 1,
-          "bidSec": 60,
-          "resumeFrom": "2026-11-07T06:25:00Z",
-          "maxOpen": 1,
-          "familyHaltLosses": 3
-        }
-      ]
+      "variants": [],
+      "note": "Review 35 (9 Nov 2026 10:45 KST): maker back to paper. Real since go-live 7 Nov: 85 fills 43 won (50.6%) -$26.78, red all 3 days (7 Nov -$5.27, 8 Nov -$4.54, 9 Nov -$16.98 by 10:30); paper copies red on the fresh days too. Since Friday -$116.71 with $14.47 of the $70 cap left. Nothing meets the promotion bar; a review re-promotes with resumeFrom."
     },
     {
       "series": "doge15m",
       "maxLossPerDay": 15,
-      "variants": [
-        {
-          "variant": "ahead5-cheap60-15m-first3",
-          "size": 3,
-          "haltAfterLosses": 8,
-          "maxLossPerDay": 12,
-          "cap": 0.6,
-          "bidUnderC": 1,
-          "bidSec": 60,
-          "resumeFrom": "2026-11-07T06:25:00Z",
-          "maxOpen": 1,
-          "familyHaltLosses": 3
-        }
-      ]
+      "variants": [],
+      "note": "Review 35 (9 Nov 2026 10:45 KST): maker back to paper. Real since go-live 7 Nov: 85 fills 43 won (50.6%) -$26.78, red all 3 days (7 Nov -$5.27, 8 Nov -$4.54, 9 Nov -$16.98 by 10:30); paper copies red on the fresh days too. Since Friday -$116.71 with $14.47 of the $70 cap left. Nothing meets the promotion bar; a review re-promotes with resumeFrom."
     },
     {
       "series": "hype15m",
