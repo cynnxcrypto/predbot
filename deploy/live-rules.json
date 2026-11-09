@@ -12,41 +12,20 @@
     {
       "series": "sol5m",
       "maxLossPerDay": 20,
-      "variants": [
-        {
-          "variant": "fav90-bigmove-5m",
-          "size": 3,
-          "haltAfterLosses": 2,
-          "maxLossPerDay": 6,
-          "cap": 0.97
-        }
-      ]
+      "variants": [],
+      "note": "Round 296 (9 Nov 2026 10:15 KST): fav90-bigmove-5m back to paper after it hit its 2-loss halt on SOL and XRP: 25 real orders 18 won -$17.54 (72% won, break-even ~93%); 09:16 all three coins bought UP at 96-97c and lost together, 09:21 two more. Paper twin 48 fillable 40 won -$26.96. Policy: a halted rule stays on paper until a review re-promotes it."
     },
     {
       "series": "xrp5m",
       "maxLossPerDay": 20,
-      "variants": [
-        {
-          "variant": "fav90-bigmove-5m",
-          "size": 3,
-          "haltAfterLosses": 2,
-          "maxLossPerDay": 6,
-          "cap": 0.97
-        }
-      ]
+      "variants": [],
+      "note": "Round 296 (9 Nov 2026 10:15 KST): fav90-bigmove-5m back to paper after it hit its 2-loss halt on SOL and XRP: 25 real orders 18 won -$17.54 (72% won, break-even ~93%); 09:16 all three coins bought UP at 96-97c and lost together, 09:21 two more. Paper twin 48 fillable 40 won -$26.96. Policy: a halted rule stays on paper until a review re-promotes it."
     },
     {
       "series": "doge5m",
       "maxLossPerDay": 20,
-      "variants": [
-        {
-          "variant": "fav90-bigmove-5m",
-          "size": 3,
-          "haltAfterLosses": 2,
-          "maxLossPerDay": 6,
-          "cap": 0.97
-        }
-      ]
+      "variants": [],
+      "note": "Round 296 (9 Nov 2026 10:15 KST): fav90-bigmove-5m back to paper after it hit its 2-loss halt on SOL and XRP: 25 real orders 18 won -$17.54 (72% won, break-even ~93%); 09:16 all three coins bought UP at 96-97c and lost together, 09:21 two more. Paper twin 48 fillable 40 won -$26.96. Policy: a halted rule stays on paper until a review re-promotes it."
     },
     {
       "series": "bnb5m",
