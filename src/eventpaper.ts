@@ -619,6 +619,7 @@ const RULE_TEXT: Record<string, [string, string]> = {
   "weather-fav16": ["weather", "Highest-temperature city market: at 16:00 station local time buy the leading temperature bucket when its mid is 50-85c and the ask is within 2c of mid; hold to settlement (highest routine METAR reading of the local day). Backtest 43 days: 398 trades, 75.6% won, +3.7c/share after 2c slip and fees; positive 5 of 7 weeks."],
   "weather-fav16-wide": ["weather", "Shadow of the 16:00 afternoon-favourite weather rule that accepts an ask up to 5c over the mid (the main rule needs 2c and skipped every signal in its first two days)."],
   "weather-fav15": ["weather", "Shadow of the afternoon-favourite weather rule at 15:00 local: backtest 785 trades, 72% won, +1.9c/share."],
+  "weather-fav16-mid": ["weather", "Round 307 (9 Nov 2026 21:15 KST): maker shadow of the 16:00 rule. In three days the taker rules saw 21 signals and took none (asks 65-91c, 4c+ over mid; the mid+5c copy also took none), so this one rests a $5 bid AT the mid of the leading bucket for up to 6 h and books the trade only if the ask comes down to it. Measures whether a patient bid can trade the weather edge at all, and what it wins when it does."],
   "football-laliga-home55": ["football", "La Liga control: buy the home team at 55-65c 10 minutes before kickoff; expected about break-even (+0.3c in bookmaker history)."],
 };
 function record(rule: string): string {
@@ -714,6 +715,8 @@ async function weatherTick() {
       const ask = bk.bestAsk!;
       const extra: Record<string, unknown> = { station: ev.station, localHour: hour, bucket: bu.label, mid, bid: bk.bestBid, ask, spread: ask - (bk.bestBid ?? ask), depth2c: bk.asks.filter((a) => a.price <= ask + 0.02 + 1e-9).reduce((x, a) => x + a.price * a.size, 0), mids: books.map((b) => b?.mid ?? null) };
       if (mid < 0.5 - 1e-9 || mid > 0.85 + 1e-9) continue;
+      // Round 307 (9 Nov 2026): maker shadow, once per event at 16:00: rest a bid at the mid for up to 6 h (makersTick).
+      if (rule === "weather-fav16" && !state.makers.some((mk) => mk.rule === "weather-fav16-mid" && mk.marketId === bu.id)) state.makers.push({ rule: "weather-fav16-mid", marketId: bu.id, title: ev.title, outcome: bu.label, idx: 0, token: bu.token, bid: Math.round(mid * 100) / 100, t: now, feeRate: bu.feeRate, ask });
       if (ask > mid + slip + 1e-9) {
         extra.skip = `ask ${Math.round(ask * 100)}c over mid+${Math.round(slip * 100)}c`;
         signal(rule, ev.title, false, extra);
@@ -951,7 +954,7 @@ const GROUPS: Record<string, string[]> = {
   esports: ["esports-map1", "esports-fav-shadow", "esports-map1-dota", "esports-lol-fav90", "esports-cs2-fav90"],
   indices: ["gold-momentum", "spx-underdog", "spy-underdog"],
   politics: ["election-lock-taker", "election-lock-maker"],
-  weather: ["weather-fav16", "weather-fav15", "weather-fav16-wide"],
+  weather: ["weather-fav16", "weather-fav15", "weather-fav16-wide", "weather-fav16-mid"],
   tennis: ["tennis-wta-fav90", "tennis-atp-fav90", "tennis-wta-fav85", "tennis-itf-fav90", "tennis-fav95"],
   cricket: ["cricket-fav10", "cricket-fav60", "cricket-dog-control"],
   football: ["football-laliga-home", "football-portugal-home", "football-italy-away", "football-laliga-home55"],
