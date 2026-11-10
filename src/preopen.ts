@@ -8,7 +8,8 @@
  *
  * Fills are counted honestly, on recorded trades only: when the bid is placed we note how many shares already rest at
  * 49c (the queue ahead of us); a fill needs a trade print where the taker SOLD at 49c or lower (or any print under 49c),
- * and only the shares left after the queue ahead has traded are ours. Orders ahead that cancel are not credited, so this
+ * and only the shares left after the queue ahead has traded are ours. A taker BUY of the other outcome at 51c or
+ * higher is the same trade seen from the other token and counts the same way. Orders ahead that cancel are not credited, so this
  * undercounts a little. Bar: 100 fills, 51.5%+ won.
  *
  * It also records the pre-open book (spread and size) every 30 s to data/<series>-preopen/<day>.jsonl, fill or not.
@@ -68,12 +69,17 @@ function onTrade(p: TradePrint) {
   for (const [key, slot] of slots) {
     const m = slot.market;
     if (!m || slot.done) continue;
-    const which = p.tokenId === m.upToken ? "UP" : p.tokenId === m.downToken ? "DOWN" : null;
-    if (!which) continue;
-    const side = which === "UP" ? slot.up : slot.down;
-    if (!side) return;
-    const got = applyPrint(side, p);
-    if (got > 0) {
+    const printUp = p.tokenId === m.upToken;
+    if (!printUp && p.tokenId !== m.downToken) continue;
+    // One trade prints on one token only (checked on the first prints, 10 Nov 2026): a taker BUY of Down at 0.51 is the
+    // same trade as a taker SELL of Up at 0.49, so each print is applied to its own side and, mirrored, to the other.
+    for (const which of ["UP", "DOWN"] as const) {
+      const side = which === "UP" ? slot.up : slot.down;
+      if (!side) continue;
+      const own = (which === "UP") === printUp;
+      if (!own && p.side !== "BUY") continue;
+      const got = applyPrint(side, own ? p : { price: Math.round((1 - p.price) * 100) / 100, size: p.size, side: "SELL", t: p.t });
+      if (got <= 0) continue;
       const t = state.trades.find((x) => x.series === key && x.start === slot.start && x.side === which);
       if (t) {
         t.shares += got;
