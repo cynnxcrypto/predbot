@@ -9,6 +9,7 @@ import { startLatencyProbe } from "./latency.js";
 import { startServerReport } from "./serverReport.js";
 import { installSshKeys } from "./sshkeys.js";
 import { startPreopen } from "./preopen.js";
+import { startPairlock } from "./pairlock.js";
 
 function build() {
   try {
@@ -79,6 +80,7 @@ const server = await serveStatus(recorder, build(), recorders.slice(1));
 for (const r of recorders) r.start();
 const latencyTimer = startLatencyProbe();
 const reportTimer = startServerReport();
+const pairlockTimer = startPairlock(); // paper only: two-sided pair locking on BTC/ETH/SOL 15m (src/pairlock.ts)
 const preopenTimer = startPreopen(); // paper only: 49c bids on both sides of the next 15m window (src/preopen.ts)
 console.log(`Pred bot recorder ${build()}. Status: http://127.0.0.1:${STATUS_PORT}. Recording ${recorders.map((r) => r.series.label).join(", ")}.`);
 
@@ -145,6 +147,7 @@ function stop() {
   clearInterval(historyEvery);
   clearInterval(latencyTimer);
   if (preopenTimer) clearInterval(preopenTimer);
+  if (pairlockTimer) clearInterval(pairlockTimer);
   if (reportTimer) clearInterval(reportTimer);
   history?.kill("SIGTERM");
   for (const r of recorders) r.stop();

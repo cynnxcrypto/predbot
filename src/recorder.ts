@@ -76,6 +76,9 @@ type Pending = { window: number; row: WindowRow; tries: number; nextAt: number }
  */
 /** The current window's tokens per series, so the one shared socket watches all of them. */
 const watchedTokens = new Map<string, string[]>();
+const currentMarkets = new Map<string, { start: number; upToken: string; downToken: string }>();
+/** The market a series is recording right now (paper studies read it; null until the first window is found). */
+export const currentMarket = (key: string) => currentMarkets.get(key) ?? null;
 /** Extra tokens to stream besides each series' current window (paper studies, e.g. the next window before it opens); null removes them. */
 export function watchExtra(key: string, tokens: string[] | null) {
   if (tokens) watchedTokens.set(key, tokens);
@@ -246,6 +249,7 @@ export class Recorder {
           if (this.market && this.listedAt == null) this.listedAt = Date.now();
           if (this.market) {
             watchedTokens.set(this.series.key, [this.market.upToken, this.market.downToken]);
+            currentMarkets.set(this.series.key, this.market);
             bookFeed.watch([...watchedTokens.values()].flat());
             this.live?.prepare(this.market);
           }
