@@ -1,5 +1,5 @@
 import { execSync, spawn, type ChildProcess } from "node:child_process";
-import { existsSync, openSync } from "node:fs";
+import { closeSync, existsSync, openSync } from "node:fs";
 import { join } from "node:path";
 import { createServer } from "node:net";
 import { ROOT, SERIES, STATUS_PORT } from "./config.js";
@@ -116,19 +116,23 @@ eventPaperTimer = setTimeout(runEventPaper, 30_000);
  * tap into"). research/trader-collector.py is read-only on Polymarket's public APIs and publishes to the server-data
  * branch. Started once, 3 minutes in, only on the server (it needs ~/.predbot-github-token), detached so bot restarts
  * do not kill it; the script holds a lock (a second copy exits), is niced and memory-capped, and writes
- * data/traders/DONE when finished so it never starts again. TRADERS=off disables it.
+ * data/traders/DONE-v2 when finished so it never starts again. TRADERS=off disables it.
  */
-setTimeout(() => {
+// Tried 3 minutes in and again every 10 minutes: an older copy may still hold the lock (the new one then exits at once).
+const startTraders = () => {
   try {
     const home = process.env.HOME ?? "";
-    if (process.env.TRADERS === "off" || !home || !existsSync(join(home, ".predbot-github-token")) || existsSync(join(ROOT, "data", "traders", "DONE"))) return;
+    if (process.env.TRADERS === "off" || !home || !existsSync(join(home, ".predbot-github-token")) || existsSync(join(ROOT, "data", "traders", "DONE-v2"))) return;
     const out = openSync(join(home, "trader-collector.log"), "a");
     spawn("python3", [join(ROOT, "research", "trader-collector.py")], { cwd: ROOT, detached: true, stdio: ["ignore", out, out] }).unref();
-    console.log("trader collector started (research, read-only)");
+    closeSync(out);
+    console.log("trader collector started or already running (research, read-only)");
   } catch (e) {
     console.log(`trader collector not started: ${(e as Error).message}`);
   }
-}, 180_000).unref();
+};
+setTimeout(startTraders, 180_000).unref();
+setInterval(startTraders, 600_000).unref();
 const historyTimer = setTimeout(runHistory, 300_000);
 const historyEvery = setInterval(runHistory, 6 * 3600_000);
 

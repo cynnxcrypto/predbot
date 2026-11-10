@@ -14,7 +14,8 @@ It publishes to the server-data branch under server/traders/ as it goes (same to
   tape/<group>.json.gz          every fill (both sides, maker/taker flag) of a sample of resolved markets
   tapestats/<group>.json.gz     per-wallet profit over that sample
   wallets/<address>.json.gz     the selected wallets' own trades (30 days) plus redeems, merges, rewards
-Stdlib only. Safe to re-run: finished pieces are skipped (state in ~/predbot/data/traders/)."""
+Stdlib only. Safe to re-run: finished pieces are skipped (state in ~/predbot/data/traders/v2/; marker DONE-v2).
+Uses the Data API v2 routes (v1 answers 410 Gone since 2 Nov 2026)."""
 import base64, fcntl, gzip, json, os, resource, sys, time, urllib.request, urllib.error, urllib.parse, collections
 
 REPO, BRANCH = "cynnxcrypto/predbot", "server-data"
@@ -68,6 +69,23 @@ def get(url, tries=4):
     return None
 
 
+def pages(url, cap=20000):
+    """Data API v2 (v1 answers 410 since 2 Nov 2026): rows sit in `data`, paging follows pagination.next_cursor."""
+    rows, cur = [], None
+    while len(rows) < cap:
+        page = get(url + ("&cursor=" + urllib.parse.quote(cur) if cur else ""))
+        if not isinstance(page, dict):
+            break
+        data = page.get("data")
+        if not isinstance(data, list) or not data:
+            break
+        rows += data
+        cur = (page.get("pagination") or {}).get("next_cursor")
+        if not cur:
+            break
+    return rows
+
+
 def gh(method, path, body=None):
     req = urllib.request.Request(f"https://api.github.com/repos/{REPO}/{path}", method=method,
                                  data=json.dumps(body).encode() if body is not None else None,
@@ -87,7 +105,7 @@ def publish(name, obj, gz=True):
     blob = json.dumps(obj, separators=(",", ":")).encode()
     if gz:
         blob = gzip.compress(blob, 6)
-    local = os.path.join(OUT, name)
+    local = os.path.join(OUT, "v2", name)
     os.makedirs(os.path.dirname(local), exist_ok=True)
     open(local, "wb").write(blob)
     path = f"server/traders/{name}"
@@ -113,25 +131,18 @@ def step(msg):
 
 
 def done(name):
-    return os.path.exists(os.path.join(OUT, name))
+    return os.path.exists(os.path.join(OUT, "v2", name))
 
 
 # ---------- 1. leaderboards ----------
 def leaderboards():
     if done("leaderboards.json.gz"):
-        return json.loads(gzip.decompress(open(os.path.join(OUT, "leaderboards.json.gz"), "rb").read()))
+        return json.loads(gzip.decompress(open(os.path.join(OUT, "v2", "leaderboards.json.gz"), "rb").read()))
     out = {}
-    for cat in ["OVERALL", "CRYPTO", "SPORTS", "WEATHER", "POLITICS", "ECONOMICS", "FINANCE", "TECH", "CULTURE", "MENTIONS"]:
+    for cat in ["OVERALL", "CRYPTO", "SPORTS", "ESPORTS", "WEATHER", "POLITICS", "ECONOMICS", "ECONOMY", "FINANCE", "TECH", "CULTURE", "MENTIONS"]:
         for per in ["WEEK", "MONTH", "ALL"]:
-            rows = []
-            for off in (0, 50):
-                page = get(f"{DATA}/v1/leaderboard?category={cat}&timePeriod={per}&orderBy=PNL&limit=50&offset={off}")
-                if not isinstance(page, list) or not page:
-                    break
-                rows += [[r.get("rank"), (r.get("proxyWallet") or "").lower(), r.get("userName"), round(float(r.get("vol") or 0)), round(float(r.get("pnl") or 0))] for r in page]
-                if len(page) < 50:
-                    break
-            out[f"{cat}/{per}"] = rows
+            rows = pages(f"{DATA}/v2/leaderboard?category={cat.lower()}&time_period={per.lower()}&sort_by=PNL&limit=100", cap=100)
+            out[f"{cat}/{per}"] = [[r.get("rank"), (r.get("user_id") or "").lower(), r.get("user_name"), round(float(r.get("volume") or 0)), round(float(r.get("pnl") or 0))] for r in rows]
             log("leaderboard", cat, per, len(rows))
     publish("leaderboards.json.gz", out)
     return out
@@ -139,31 +150,18 @@ def leaderboards():
 
 # ---------- 2. market tape ----------
 def market_trades(cid, taker_only):
-    """All fills of one market, newest first, until the API stops paging."""
-    rows, off, lim = [], 0, 1000
-    while off <= 20000:
-        page = get(f"{DATA}/trades?market={cid}&limit={lim}&offset={off}&takerOnly={'true' if taker_only else 'false'}")
-        if not isinstance(page, list) or not page:
-            if page is None and off:
-                PROGRESS["limits"]["market_trades_offset"] = min(off, PROGRESS["limits"].get("market_trades_offset", 10 ** 9))
-            break
-        rows += page
-        if off == 0 and len(page) < lim and len(page) in (100, 500):
-            lim = len(page)  # the API capped the page size; keep paging at that size
-        elif len(page) < lim:
-            break
-        off += lim
-    return rows
+    """All fills of one market (up to 20,000), newest first."""
+    return pages(f"{DATA}/v2/trades?condition={cid}&limit=1000&taker_only={'true' if taker_only else 'false'}")
 
 
 def tkey(t):
-    return (t.get("transactionHash"), t.get("asset"), t.get("proxyWallet"), str(t.get("size")), str(t.get("price")))
+    return (t.get("transaction_hash"), t.get("token_id"), t.get("proxy_wallet"), str(t.get("size")), str(t.get("price")))
 
 
 def tape_group(name, markets):
     """markets: [{slug, cid, title, start, end, outcomes, prices, vol}]. Writes tape/<name> and tapestats/<name>."""
     if done(f"tapestats/{name}.json.gz"):
-        return json.loads(gzip.decompress(open(os.path.join(OUT, f"tapestats/{name}.json.gz"), "rb").read()))
+        return json.loads(gzip.decompress(open(os.path.join(OUT, "v2", f"tapestats/{name}.json.gz"), "rb").read()))
     widx, wallets, names, trades, mk = {}, [], {}, [], []
     stat = collections.defaultdict(lambda: {"m": set(), "n": 0, "nt": 0, "buy": 0.0, "sell": 0.0, "pay": 0.0, "wonm": 0, "pnl_m": collections.defaultdict(float)})
     for mi, m in enumerate(markets):
@@ -172,13 +170,13 @@ def tape_group(name, markets):
         mk.append({**m, "fills": len(allr), "takerFills": len(tk)})
         pos = collections.defaultdict(lambda: [0.0, 0.0])  # wallet -> shares per outcome
         for t in allr:
-            w = (t.get("proxyWallet") or "").lower()
+            w = (t.get("proxy_wallet") or "").lower()
             if not w or (OWN and w == OWN):
                 continue
             if w not in widx:
                 widx[w] = len(wallets); wallets.append(w)
                 if t.get("name"): names[w] = t.get("name")
-            oi = int(t.get("outcomeIndex") or 0)
+            oi = int(t.get("outcome_index") or 0)
             p, s, buy = float(t.get("price") or 0), float(t.get("size") or 0), t.get("side") == "BUY"
             tak = 1 if tkey(t) in tk else 0
             ts = int(float(t.get("timestamp") or 0)); ts = ts // 1000 if ts > 1e12 else ts
@@ -254,7 +252,9 @@ def tag_markets(tag, days_back, top, min_vol, per_event=2):
     out = []
     for ev in evs:
         ms = [mrow(ev, m) for m in ev.get("markets") or [] if m.get("conditionId")]
-        ms = [m for m in ms if m["vol"] >= min_vol and len(m["prices"]) >= 2 and max(m["prices"]) >= 0.5]
+        ms = [m for m in ms if m["vol"] >= min_vol and len(m["prices"]) >= 2 and max(m["prices"]) >= 0.5 and str(m.get("closedTime") or "9")[:19].replace(" ", "T") >= lo[:19]]
+        if any(m.get("type") == "moneyline" for m in ms):
+            ms = [m for m in ms if m.get("type") == "moneyline"]
         ms.sort(key=lambda m: -m["vol"])
         out += ms[:per_event]
     out.sort(key=lambda m: -m["vol"])
@@ -268,53 +268,31 @@ def wallet_pull(w, why):
     if done(name):
         return
     since = NOW - 30 * 86400
-    # a) every activity row (trades, redeems, merges, splits, rewards), walking back in time
-    acts, end, seen = [], NOW + 60, set()
-    while len(acts) < 30000:
-        page = get(f"{DATA}/activity?user={w}&limit=500&end={end}&sortBy=TIMESTAMP&sortDirection=DESC")
-        if not isinstance(page, list) or not page:
-            break
-        new = 0
-        for a in page:
-            k = (a.get("transactionHash"), a.get("asset"), a.get("type"), str(a.get("size")), str(a.get("price")), a.get("side"))
-            if k in seen:
-                continue
-            seen.add(k); new += 1; acts.append(a)
-        last = int(float(page[-1].get("timestamp") or 0))
-        if last < since or len(page) < 500 or new == 0 and last >= end:
-            break
-        end = last if last < end else end - 1
+    # a) every activity row of the last 30 days (trades, redeems, merges, splits, rewards, rebates), newest first
+    acts = pages(f"{DATA}/v2/activity?user={w}&limit=1000&start={since}", cap=40000)
     # b) taker-only trades, to mark which fills crossed the spread
-    tk, off, lim, deepest = set(), 0, 1000, None
-    while off <= 15000:
-        page = get(f"{DATA}/trades?user={w}&limit={lim}&offset={off}&takerOnly=true")
-        if not isinstance(page, list) or not page:
-            break
-        for t in page:
-            tk.add((t.get("transactionHash"), t.get("asset"), str(t.get("size")), str(t.get("price"))))
-        deepest = int(float(page[-1].get("timestamp") or 0))
-        if off == 0 and len(page) < lim and len(page) in (100, 500):
-            lim = len(page)
-        elif len(page) < lim:
-            break
-        off += lim
+    tk_rows = pages(f"{DATA}/v2/trades?user={w}&limit=1000&taker_only=true&start={since}", cap=40000)
+    tk = set((t.get("transaction_hash"), t.get("token_id"), str(t.get("size")), str(t.get("price"))) for t in tk_rows)
+    deepest = min((int(float(t.get("timestamp") or 0)) for t in tk_rows), default=None)
     trades, other = [], []
     for a in acts:
         ts = int(float(a.get("timestamp") or 0))
         if a.get("type") == "TRADE":
-            tak = 1 if (a.get("transactionHash"), a.get("asset"), str(a.get("size")), str(a.get("price"))) in tk else 0
-            trades.append([ts, 1 if a.get("side") == "BUY" else -1, int(a.get("outcomeIndex") or 0), round(float(a.get("price") or 0), 4), round(float(a.get("size") or 0), 2),
-                           round(float(a.get("usdcSize") or 0), 2), a.get("slug"), a.get("eventSlug"), a.get("outcome"), tak, (a.get("conditionId") or "")[:12]])
+            tak = 1 if (a.get("transaction_hash"), a.get("token_id"), str(a.get("size")), str(a.get("price"))) in tk else 0
+            trades.append([ts, 1 if a.get("side") == "BUY" else -1, int(a.get("outcome_index") or 0), round(float(a.get("price") or 0), 4), round(float(a.get("size") or 0), 2),
+                           round(float(a.get("usdc_size") or 0), 2), a.get("slug"), a.get("event_slug"), a.get("outcome"), tak, (a.get("condition_id") or "")[:12]])
         else:
-            other.append([ts, a.get("type"), round(float(a.get("usdcSize") or 0), 2), round(float(a.get("size") or 0), 2), a.get("slug")])
-    pos = get(f"{DATA}/positions?user={w}&limit=200&sortBy=CURRENT&sortDirection=DESC") or []
-    val = get(f"{DATA}/value?user={w}")
+            other.append([ts, a.get("type"), round(float(a.get("usdc_size") or 0), 2), round(float(a.get("size") or 0), 2), a.get("slug")])
+    pos = pages(f"{DATA}/v2/positions?user={w}&limit=200", cap=200)
+    val = get(f"{DATA}/v2/value?user={w}")
+    stats = get(f"{DATA}/v2/user-stats?user={w}")
+    pnl = get(f"{DATA}/v2/user-pnl?user={w}&interval=1m&fidelity=1d")
     publish(name, {"wallet": w, "why": why, "name": next((a.get("name") for a in acts if a.get("name")), None), "pulled": NOW,
                    "tradeCols": ["ts", "side", "outcomeIndex", "price", "size", "usdc", "slug", "eventSlug", "outcome", "taker", "cid"], "trades": trades,
                    "otherCols": ["ts", "type", "usdc", "size", "slug"], "other": other,
                    "oldestActivity": min((int(float(a.get("timestamp") or 0)) for a in acts), default=None), "takerMarkedBackTo": deepest, "takerRows": len(tk),
-                   "openPositions": [[p.get("slug"), p.get("outcome"), round(float(p.get("size") or 0), 1), round(float(p.get("avgPrice") or 0), 3), round(float(p.get("currentValue") or 0), 1)] for p in pos if isinstance(p, dict)][:200],
-                   "value": val})
+                   "openPositions": [[p.get("slug"), p.get("outcome"), p.get("size"), p.get("avg_price"), p.get("current_value")] for p in pos if isinstance(p, dict)][:200],
+                   "value": val, "stats": stats, "pnl30d": pnl})
 
 
 def pick(stats, n, min_markets):
@@ -367,7 +345,7 @@ def main():
         add([r[1] for r in lb.get(f"{cat}/MONTH", [])[:12]], f"lb-{cat.lower()}")
     pull_all("all")
     step("DONE")
-    open(os.path.join(OUT, "DONE"), "w").write(str(int(time.time())))
+    open(os.path.join(OUT, "DONE-v2"), "w").write(str(int(time.time())))
 
 
 if __name__ == "__main__":
