@@ -8,6 +8,7 @@ import { serveStatus } from "./status.js";
 import { startLatencyProbe } from "./latency.js";
 import { startServerReport } from "./serverReport.js";
 import { installSshKeys } from "./sshkeys.js";
+import { startPreopen } from "./preopen.js";
 
 function build() {
   try {
@@ -78,6 +79,7 @@ const server = await serveStatus(recorder, build(), recorders.slice(1));
 for (const r of recorders) r.start();
 const latencyTimer = startLatencyProbe();
 const reportTimer = startServerReport();
+const preopenTimer = startPreopen(); // paper only: 49c bids on both sides of the next 15m window (src/preopen.ts)
 console.log(`Pred bot recorder ${build()}. Status: http://127.0.0.1:${STATUS_PORT}. Recording ${recorders.map((r) => r.series.label).join(", ")}.`);
 
 /**
@@ -138,6 +140,7 @@ function stop() {
   eventPaper?.kill("SIGTERM");
   clearInterval(historyEvery);
   clearInterval(latencyTimer);
+  if (preopenTimer) clearInterval(preopenTimer);
   if (reportTimer) clearInterval(reportTimer);
   history?.kill("SIGTERM");
   for (const r of recorders) r.stop();

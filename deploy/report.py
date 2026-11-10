@@ -98,7 +98,8 @@ def summary():
                 continue
             rows.append({"series": "btc5m" if series == "live" else series} | {k: t.get(k) for k in ("t", "window", "left", "variant", "side", "ask", "limit", "freshAsk", "dry", "ok", "status", "error", "cost", "shares", "fee", "ms", "won", "pnl")})
     out["eventPaper"] = s.get("eventPaper")  # 7 Nov 2026: esports/indices/politics paper loggers (src/eventpaper.ts)
-    out["budgets"] = s.get("budgets")  # 10 Nov 2026: budget, lost, open and left per real-money category
+    out["budgets"] = s.get("budgets")
+    out["preopen"] = s.get("preopen")  # 10 Nov 2026: budget, lost, open and left per real-money category
     out["realTrades"] = sorted(rows, key=lambda r: r.get("t") or 0)[-200:]
     return out
 

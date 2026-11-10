@@ -76,6 +76,12 @@ type Pending = { window: number; row: WindowRow; tries: number; nextAt: number }
  */
 /** The current window's tokens per series, so the one shared socket watches all of them. */
 const watchedTokens = new Map<string, string[]>();
+/** Extra tokens to stream besides each series' current window (paper studies, e.g. the next window before it opens); null removes them. */
+export function watchExtra(key: string, tokens: string[] | null) {
+  if (tokens) watchedTokens.set(key, tokens);
+  else if (!watchedTokens.delete(key)) return;
+  bookFeed.watch([...watchedTokens.values()].flat());
+}
 
 export class Recorder {
   readonly series: Series;
