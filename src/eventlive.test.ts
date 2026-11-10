@@ -36,7 +36,10 @@ test("event live guards: rule list, mode, fillable, ask, depth, one bet per matc
   assert.match(ok([lost("a", NOW - 3600_000), lost("b", NOW - 60_000)])!, /2 losses today/);
   // yesterday's losses (KST) do not stop today, but three losses end the test
   assert.equal(ok([lost("a", NOW - 30 * 3600_000), lost("b", NOW - 60_000)]), null);
-  assert.match(ok([lost("a", NOW - 80 * 3600_000), lost("b", NOW - 50 * 3600_000), lost("c", NOW - 30 * 3600_000)])!, /test stopped/);
+  assert.match(ok([lost("a", NOW - 80 * 3600_000), lost("b", NOW - 50 * 3600_000), lost("c", NOW - 30 * 3600_000)])!, /budget used up/);
+  // open stakes count against the budget: $3 lost + $3 open + $3 fits $9, $6 lost + $3 open + $3 does not
+  assert.equal(ok([lost("a", NOW - 80 * 3600_000), row({ marketId: "b" })]), null);
+  assert.match(ok([lost("a", NOW - 80 * 3600_000), lost("b", NOW - 50 * 3600_000), row({ marketId: "c" })])!, /would pass \$9/);
 });
 
 test("deploy/live-rules.json: the tennis test stays inside enrique's limits", () => {
@@ -45,5 +48,4 @@ test("deploy/live-rules.json: the tennis test stays inside enrique's limits", ()
   if (!g) return;
   assert.ok(g.size <= 5 && g.size * g.maxOpen <= 20 && g.maxLoss <= 20);
   assert.ok(g.rules.every((r) => r.startsWith("tennis-")));
-  assert.ok(cfg.lossCap && cfg.lossCap.maxLoss <= 70);
 });

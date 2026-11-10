@@ -90,13 +90,39 @@ export function capUsed(since: number): { settled: number; open: number } {
     for (const t of loadJson<{ t: number; dry?: boolean; ok?: boolean; shares?: number; cost?: number; pnl?: number | null }[]>(`${prefixOf(s)}live-open.json`, []))
       if (!t.dry && t.t >= since && t.pnl == null && (t.shares ?? 0) > 0) open += t.cost ?? 0;
   }
-  // 10 Nov 2026: real event bets (src/eventlive.ts, tennis) share the cap. A row whose order reply was lost counts as open.
-  for (const t of loadJson<{ t: number; cost?: number; shares?: number; status?: string | null; pnl?: number | null }[]>("eventlive.json", [])) {
-    if (!(t.t >= since)) continue;
-    if (t.pnl != null) settled += t.pnl;
-    else if ((t.shares ?? 0) > 0 || t.status === "unknown") open += t.cost ?? 0;
-  }
+  // 10 Nov 2026 17:46 KST (enrique: "tennis should have its own little budget"): event bets (src/eventlive.ts) are NOT
+  // counted here. Each category has its own budget; this cap is the crypto budget.
   return { settled, open };
+}
+/** Budget, used and left per real-money category, for the dashboard and the status file (no ids or addresses). */
+export function budgets(): { name: string; budget: number; lost: number; open: number; left: number }[] {
+  const out: { name: string; budget: number; lost: number; open: number; left: number }[] = [];
+  const r2 = (x: number) => Math.round(x * 100) / 100;
+  try {
+    const repo = JSON.parse(readFileSync(join(ROOT, "deploy", "live-rules.json"), "utf8")) as { lossCap?: { since?: unknown; maxLoss?: unknown }; events?: Record<string, { maxLoss?: unknown; rules?: unknown[] }> };
+    const since = typeof repo.lossCap?.since === "number" ? repo.lossCap.since : Date.parse(String(repo.lossCap?.since ?? ""));
+    const max = Number(repo.lossCap?.maxLoss);
+    if (Number.isFinite(since) && Number.isFinite(max)) {
+      const u = capUsed(since);
+      out.push({ name: "crypto", budget: max, lost: r2(Math.max(0, -u.settled)), open: r2(u.open), left: r2(max + Math.min(0, u.settled) - u.open) });
+    }
+    const rows = loadJson<{ group?: string; cost?: number; shares?: number; status?: string | null; pnl?: number | null }[]>("eventlive.json", []);
+    for (const [g, v] of Object.entries(repo.events ?? {})) {
+      const b = Number(v?.maxLoss);
+      if (!Number.isFinite(b) || !Array.isArray(v?.rules)) continue;
+      let net = 0;
+      let open = 0;
+      for (const t of Array.isArray(rows) ? rows : []) {
+        if (t.group !== g) continue;
+        if (t.pnl != null) net += t.pnl;
+        else if ((t.shares ?? 0) > 0 || t.status === "unknown") open += t.cost ?? 0;
+      }
+      out.push({ name: g, budget: b, lost: r2(Math.max(0, -net)), open: r2(open), left: r2(b + Math.min(0, net) - open) });
+    }
+  } catch {
+    /* no rules file: nothing to show */
+  }
+  return out;
 }
 /** Orders sent in the last 90 s, held against the cap until their fill lands in live-open.json (series fire together). */
 let capReserved = 0;

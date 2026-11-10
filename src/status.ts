@@ -5,7 +5,7 @@ import type { Recorder } from "./recorder.js";
 import { LOGOS } from "./logos.js";
 import { CATS, EV_CSS, EV_JS, eventsStatus, evSectionHtml } from "./eventdash.js";
 import { VARIANTS, discarded, setDiscarded } from "./paperlive.js";
-import { addLiveRule, liveConfig, MIN_SIZE, removeLiveRule, setLiveMaxLoss, setLiveRuleSize, setLiveRuleHalt } from "./live.js";
+import { addLiveRule, budgets, liveConfig, MIN_SIZE, removeLiveRule, setLiveMaxLoss, setLiveRuleSize, setLiveRuleHalt } from "./live.js";
 
 /**
  * A one-page status view on 127.0.0.1 so you can see the recorder is alive without reading logs.
@@ -297,7 +297,7 @@ export function serveStatus(recorder: Recorder, build: string, others: Recorder[
     }
     if (req.url === "/api/status") {
       res.writeHead(200, { "content-type": "application/json" });
-      res.end(JSON.stringify({ build, ...recorder.status(), series: others.map((r) => r.status()), eventPaper: loadJson<unknown>("eventpaper-summary.json", null) }));
+      res.end(JSON.stringify({ build, ...recorder.status(), series: others.map((r) => r.status()), eventPaper: loadJson<unknown>("eventpaper-summary.json", null), budgets: budgets() }));
       return;
     }
     if (req.url === "/favicon.svg" || req.url === "/favicon.ico") {
@@ -515,6 +515,7 @@ ${SEC_NAV}
 
 <div class="panel" style="margin-bottom:14px" data-tabs="overview"><div class="ph"><div class="k">wallet since the start <span class="tag real">real</span><span class="rng" id="wrng" title="range shown; start, top-ups and net follow it"><button class="btn on" data-r="all">all</button><button class="btn" data-r="30d">30d</button><button class="btn" data-r="7d">7d</button><button class="btn" data-r="3d">3d</button><button class="btn" data-r="24h">24h</button><button class="btn" data-r="6h">6h</button><button class="btn" data-r="1h">1h</button></span></div><div class="mut" id="wsub"></div></div>
 <div id="wallet" class="wallet"></div></div>
+<div class="panel" style="margin-bottom:14px" data-tabs="overview"><div class="ph"><div class="k">budgets by category <span class="tag real">real</span></div></div><div id="budgets" style="padding:10px 14px"></div></div>
 
 <div class="panel" style="margin-bottom:14px" data-tabs="overview"><div class="ph"><div class="k">by window length</div><div class="mut">real money per window length · best paper rule on those markets at $5 a trade</div></div>
 <table class="ov"><thead><tr><th>window</th><th class="r">markets</th><th class="r">real rules on</th><th class="r">today</th><th class="r">all time</th><th class="r">trades</th><th class="r">won</th><th>best paper rule</th></tr></thead><tbody id="ov"></tbody></table></div>
@@ -572,7 +573,7 @@ async function editHalt(series,variant,cur){var v=prompt("Stop "+variant+" after
 async function editMaxLoss(series,cur,variant){var v=prompt(variant?"Daily loss stop in $ for "+variant+" on this market (5 to 500). This rule stops for the rest of the KST day once its own loss today reaches it; the other rules keep going.":"Default daily loss stop in $ for each rule on this market (5 to 500). Every rule stops on its own for the rest of the KST day once its loss today reaches it; a rule with its own stop keeps that.",cur);if(v==null)return;var n=Number(v);if(!(n>=5&&n<=500)){alert("Daily stop must be $5 to $500");return}var r=await fetch("/api/maxloss",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({series:series,maxLoss:n,variant:variant||""})});var j=await r.json();if(!r.ok)alert(j.error||"failed");else poll()}
 async function pauseRule(series,variant,on){var r=await fetch("/api/pause",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({series:series,variant:variant,on:on})});var j=await r.json();if(!r.ok)alert(j.error||"failed");else poll()}
 async function discard(name,restore){if(!restore&&!confirm("Discard "+name+" for good? It stops simulating on every market."))return;var r=await fetch("/api/discard",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({name:name,restore:restore})});var j=await r.json();if(!r.ok)alert(j.error||"failed");else poll()}
-async function poll(){try{var s=await (await fetch("/api/status")).json();var prevV=snapV();
+async function poll(){try{var s=await (await fetch("/api/status")).json();try{var bg=el("budgets");if(bg)bg.innerHTML=(s.budgets||[]).length?'<table style="width:100%"><tr><th style="text-align:left">category</th><th>budget</th><th>lost</th><th>open bets</th><th>left</th></tr>'+s.budgets.map(function(b){return '<tr><td>'+esc(b.name)+'</td><td style="text-align:center">'+money(b.budget)+'</td><td style="text-align:center">'+money(b.lost)+'</td><td style="text-align:center">'+money(b.open)+'</td><td style="text-align:center"><b>'+money(b.left)+'</b></td></tr>'}).join("")+'</table>':'<span class="mut">no budgets set</span>'}catch(e){}var prevV=snapV();
 var b=s.lastBook||{};var L=s.live||{mode:"off"};
 var hasRules=function(l){return !!l&&l.mode!=="off"&&l.mode!=="dry"&&(((l.variants&&l.variants.length)?l.variants:(l.variant?[l]:[])).length>0)};var hasHistory=function(l){return !!l&&((l.trades||0)>0||(l.days||[]).length>0||(l.open||0)>0)};var OL=(s.series||[]).map(function(r){return r.live}).filter(function(l){return hasRules(l)||hasHistory(l)});
 var RS={};RS[L.label||"BTC 5m"]=s;(s.series||[]).forEach(function(r){RS[r.label]=r});var ALL=[L].concat(OL);var sum=function(k){return ALL.reduce(function(a,l){return a+(l[k]||0)},0)};var inTab=function(lb){return TAB==="overview"||WOF(lb||"BTC 5m")===TAB};var ALLV=ALL.filter(function(l){return inTab(l.label||"BTC 5m")});var sumV=function(k){return ALLV.reduce(function(a,l){return a+(l[k]||0)},0)};var NM={};[s].concat(s.series||[]).forEach(function(r){var w=WOF(r.label||"BTC 5m");NM[w]=(NM[w]||0)+1});var tabsChanged=JSON.stringify(NM)!==JSON.stringify(NMARK);NMARK=NM;var TI={};ALL.forEach(function(l){var w=WOF(l.label||"BTC 5m");var o=TI[w]||(TI[w]={rules:0,today:0,tr:0});if(l.mode!=="off")((l.variants&&l.variants.length)?l.variants:(l.variant?[{variant:l.variant}]:[])).forEach(function(v){if(!v.paused&&!v.halted&&!v.manual)o.rules++});o.today+=l.todayNet||0;o.tr+=l.trades||0});WINS.forEach(function(w){var e=el("n"+w);if(!e)return;var o=TI[w];e.innerHTML=o&&(o.rules||o.tr)?'<span title="real rules on">'+o.rules+'</span> <span class="'+cls(o.today)+'" title="real net today">'+signed(o.today)+'</span>':(NM[w]?'<span class="mut" title="markets recorded, paper only">'+NM[w]+' paper</span>':'')});if(tabsChanged)showTab(TAB);var WNAME={"5m":"5-min","15m":"15-min","1h":"1-hour","4h":"4-hour","24h":"24-hour"};var fmtLeft=function(x){var h=Math.floor(x/3600),m=Math.floor(x%3600/60),sc=x%60;return (h?h+":"+String(m).padStart(2,"0"):String(m))+":"+String(sc).padStart(2,"0")};

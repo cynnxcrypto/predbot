@@ -14,10 +14,10 @@
  *   minDepth   dollars that must rest within 2c of the ask (the paper "fillable" test)
  *   dayLosses  after this many settled losses in one KST day the group stops until the next KST day
  *   maxOpen    unsettled real bets allowed at once
- *   maxLoss    the group stops for good once its settled real net is this many dollars down (a review restarts it)
+ *   maxLoss    the group's own BUDGET: dollars lost so far + open stakes + the new bet must stay inside it; once it is
+ *              lost the group stops until enrique or a review gives it more. Separate from the crypto "lossCap".
  *
- * Also in force: the global "mode" (repo and the server's local kill switch), the wallet floor "minBalance" and the
- * hard "lossCap" shared with the crypto rules (src/live.ts counts the rows of data/eventlive.json toward it).
+ * Also in force: the global "mode" (repo and the server's local kill switch) and the wallet floor "minBalance".
  * Orders are fill-and-kill buys limited to the ask the paper rule saw; nothing rests on the book.
  * data/eventlive.json is written only by this process; wins are claimed by the BTC 5m trader (src/live.ts redeemEvents).
  */
@@ -26,7 +26,7 @@ import { join } from "node:path";
 import { Wallet } from "@ethersproject/wallet";
 import { AssetType, Chain, ClobClient, OrderType, Side } from "@polymarket/clob-client-v2";
 import { ROOT, kstDay } from "./config.js";
-import { capBlocks, capReserve, type LossCap } from "./live.js";
+import type { LossCap } from "./live.js";
 import { loadJson, saveJson } from "./store.js";
 
 const HOST = "https://clob.polymarket.com";
@@ -108,7 +108,11 @@ export function eventLiveBlock(cfg: EventLiveConfig, group: string, rule: string
   if (open.length >= g.maxOpen) return `${open.length} real bets open (max ${g.maxOpen})`;
   const settled = mine.filter((r) => r.pnl != null);
   const net = settled.reduce((s, r) => s + (r.pnl ?? 0), 0);
-  if (net <= -g.maxLoss + 1e-9) return `test stopped: $${(-net).toFixed(2)} lost (limit $${g.maxLoss})`;
+  // The group's own budget (10 Nov 2026, enrique: "tennis should have its own little budget"): money lost so far plus
+  // every open stake plus this bet must fit inside maxLoss. Wins do not raise the budget.
+  const lost = Math.max(0, -net);
+  const staked = open.reduce((s, r) => s + r.cost, 0);
+  if (lost + staked + g.size > g.maxLoss + 1e-9) return lost >= g.maxLoss - 1e-9 ? `budget used up: $${lost.toFixed(2)} lost of $${g.maxLoss}` : `budget: $${lost.toFixed(2)} lost + $${staked.toFixed(2)} open + $${g.size} would pass $${g.maxLoss}`;
   const today = kstDay(now);
   const lostToday = settled.filter((r) => r.won === false && kstDay(r.settledAt ?? r.t) === today).length;
   if (lostToday >= g.dayLosses) return `${lostToday} losses today: stopped until the next KST day`;
@@ -151,8 +155,6 @@ export async function eventLiveBuy(group: string, p: { rule: string; marketId: s
     if (why) return why;
     if (p.negRisk) return "neg-risk market (claims not supported)";
     if (!p.conditionId) return "no condition id";
-    const cap = capBlocks(cfg.lossCap, g.size);
-    if (cap) return cap;
     const funder = String(loadJson<{ funder?: string }>("live.json", {}).funder ?? "").trim();
     const c = await getClient(funder);
     const bal = Number((await timed(c.getBalanceAllowance({ asset_type: AssetType.COLLATERAL }), "reading the balance")).balance) / 1e6;
@@ -166,7 +168,6 @@ export async function eventLiveBuy(group: string, p: { rule: string; marketId: s
     // slot and the cap stay held instead of the order being repeated.
     rows.push(row);
     saveJson(EVENT_LIVE_FILE, rows);
-    capReserve(g.size);
     try {
       const res = await timed(c.postOrder(order, OrderType.FAK), "sending the order", 30_000);
       row.ok = Boolean(res?.success);
