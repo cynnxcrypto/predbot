@@ -18,7 +18,8 @@
  *    every open window + the worst case of the bids resting and the bid about to be placed must be at or under it.
  *    The worst case of a resting bid is that it fills and its pair never comes, so the budget cannot be overshot;
  *  - at most $5 an order (17-83c at 6 shares), `maxPairs` pairs a window, never more than one clip unpaired;
- *  - the wallet floor `minBalance`; 20 API errors in a KST day stop it for the day; every error pauses 20 s;
+ *  - the wallet floor `minBalance`; 20 API errors in a KST day stop it for the day; every error pauses 20 s (nothing
+ *    new is placed; resting bids stay);
  *  - when the budget or wallet guard trips, bids that would start a new pair are cancelled; a bid that completes a pair
  *    already begun is kept (it can only lower the risk). Switched off, restarting or 20 errors: everything is cancelled;
  *  - orders are kept in data/pairfastlive.json and read back from the exchange after a restart.
@@ -272,6 +273,15 @@ function guard(cfg: FastConfig, now: number): string | null {
   return null;
 }
 
+/**
+ * The short pause after a refused order or an API error: nothing new is placed and nothing is cancelled (a part-filled
+ * bid pulled here would leave shares that can never be paired); what rests stays as it is until 15 s before the close.
+ */
+export function paused(w: Win, now: number): { U: Want | null; D: Want | null } {
+  const rest = (o: Ord | null): Want | null => (o && w.start + S.windowSec - now > 15 ? { price: o.price, size: r2(o.size - o.matched) } : null);
+  return { U: rest(w.orders.U), D: rest(w.orders.D) };
+}
+
 /** The decision from what we know right now, without asking the exchange. */
 function decide(cfg: FastConfig, nowMs: number): { w: Win; want: { U: Want | null; D: Want | null }; live: { upToken: string; downToken: string } | null } | null {
   const w = state.cur;
@@ -284,8 +294,8 @@ function decide(cfg: FastConfig, nowMs: number): { w: Win; want: { U: Want | nul
   blocked = guard(cfg, nowMs);
   // Off, restarting, too many errors or the pause after an error: nothing rests. Budget or wallet: no NEW pair, but a
   // pair already begun may still be completed (that only lowers the risk).
-  const hard = !cfg.on || quiet || nowMs < pauseUntil || /errors/.test(blocked ?? "");
-  const want = hard ? { U: null, D: null } : desired(w, up, down, now, cfg, blocked == null, roomNow(cfg));
+  const hard = !cfg.on || quiet || /errors/.test(blocked ?? "");
+  const want = hard ? { U: null, D: null } : nowMs < pauseUntil ? paused(w, now) : desired(w, up, down, now, cfg, blocked == null, roomNow(cfg));
   return { w, want, live };
 }
 

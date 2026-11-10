@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { HARD_MAX_LOSS, desired, exposure, lostSoFar, newWin, parseFast, worstCase, type FastConfig, type Win } from "./pairfastlive.js";
+import { HARD_MAX_LOSS, paused, desired, exposure, lostSoFar, newWin, parseFast, worstCase, type FastConfig, type Win } from "./pairfastlive.js";
 import type { Book } from "./polymarket.js";
 
 const book = (bid: number): Book => ({ bids: [{ price: bid, size: 100 }], asks: [{ price: bid + 0.01, size: 10 }], bestBid: bid, bestAsk: bid + 0.01, bidDepth: 0, askDepth: 0 });
@@ -127,4 +127,11 @@ test("pairfastlive: a part-filled bid keeps resting for the rest of its clip and
   // also when the guards say no and in the last 2 minutes; pulled 15 s before the close
   assert.deepEqual(desired(w, book(0.47), book(0.52), T + 200, cfg, false, 0), { U: { price: 0.48, size: 2.37 }, D: null });
   assert.deepEqual(desired(w, book(0.47), book(0.52), T + 290, cfg, true, 15), { U: null, D: null });
+});
+
+test("pairfastlive: the pause after a refused order places nothing and cancels nothing, until 15 s before the close", () => {
+  const w = newWin(T);
+  w.orders = { U: ord(0.48, 6, 3.63), D: null };
+  assert.deepEqual(paused(w, T + 60), { U: { price: 0.48, size: 2.37 }, D: null });
+  assert.deepEqual(paused(w, T + 286), { U: null, D: null });
 });
