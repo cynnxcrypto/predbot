@@ -5,7 +5,7 @@ import { budgetUsed, desired, newWin, parsePairs, worstCase, type PairConfig } f
 import type { Book } from "./polymarket.js";
 
 const book = (bid: number): Book => ({ bids: [{ price: bid, size: 100 }], asks: [{ price: bid + 0.01, size: 10 }], bestBid: bid, bestAsk: bid + 0.01, bidDepth: 0, askDepth: 0 });
-const cfg: PairConfig = { on: true, series: ["eth15m"], clip: 6, maxLoss: 35, maxPairs: 3, dayMaxLoss: 20, minBalance: 235 };
+const cfg: PairConfig = { on: true, series: ["eth15m"], clip: 6, maxLoss: 35, maxPairs: 3, dayMaxLoss: 20, minBalance: 235, completeCap: 0.99 };
 
 test("pairlive: quotes both sides only inside the rule, completes a lone clip under $1, never over $5 an order", () => {
   const w = newWin("eth15m", 900);
@@ -21,6 +21,12 @@ test("pairlive: quotes both sides only inside the rule, completes a lone clip un
   assert.deepEqual(desired(w, book(0.45), book(0.54), 1001, 900, cfg, true), { U: null, D: { price: 0.51, size: 6 } });
   assert.deepEqual(desired(w, book(0.55), book(0.44), 1001, 900, cfg, true), { U: null, D: { price: 0.44, size: 6 } });
   assert.deepEqual(desired(w, book(0.55), book(0.44), 1785, 900, cfg, true), { U: null, D: null }); // last 20 s
+  // with the cap at 1.10 the Down bid may follow the best bid up to 62c; above 83c the order shrinks to stay under $5
+  assert.deepEqual(desired(w, book(0.45), book(0.54), 1001, 900, { ...cfg, completeCap: 1.1 }, true), { U: null, D: { price: 0.54, size: 6 } });
+  assert.deepEqual(desired(w, book(0.3), book(0.69), 1001, 900, { ...cfg, completeCap: 1.1 }, true), { U: null, D: { price: 0.62, size: 6 } });
+  w.up.last = 0.2;
+  assert.deepEqual(desired(w, book(0.1), book(0.89), 1001, 900, { ...cfg, completeCap: 1.1 }, true), { U: null, D: { price: 0.89, size: 5.61 } });
+  w.up.last = 0.48;
   assert.equal(worstCase(w), 2.88);
   // pair done: worst case is a sure gain, counted as zero; three pairs is the cap for a window
   w.down = { shares: 6, cost: 3.06, last: 0.51 };

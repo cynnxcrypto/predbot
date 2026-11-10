@@ -34,7 +34,7 @@ const FILE = "pairlive.json";
 export const PAIR_LO = 0.17;
 export const PAIR_HI = 0.83;
 
-export type PairConfig = { on: boolean; series: string[]; clip: number; maxLoss: number; maxPairs: number; dayMaxLoss: number; minBalance: number };
+export type PairConfig = { on: boolean; series: string[]; clip: number; maxLoss: number; maxPairs: number; dayMaxLoss: number; minBalance: number; completeCap: number };
 type Ord = { id: string; price: number; size: number; matched: number; at: number };
 type Leg = { shares: number; cost: number; last: number };
 export type Win = { key: string; start: number; up: Leg; down: Leg; orders: { U: Ord | null; D: Ord | null }; orderCount: number; errors: number };
@@ -49,9 +49,9 @@ const r2 = (x: number) => Math.round(x * 100) / 100;
 
 /** Parse the repo rules and the server's local switch. Anything malformed means off. Hard limits are applied here. */
 export function parsePairs(repoText: string, local: { mode?: string; funder?: string }): PairConfig {
-  const off: PairConfig = { on: false, series: [], clip: 6, maxLoss: 0, maxPairs: 0, dayMaxLoss: 0, minBalance: 0 };
+  const off: PairConfig = { on: false, series: [], clip: 6, maxLoss: 0, maxPairs: 0, dayMaxLoss: 0, minBalance: 0, completeCap: 0.99 };
   try {
-    const repo = JSON.parse(repoText) as { mode?: string; minBalance?: unknown; pairs?: { on?: unknown; series?: unknown; clip?: unknown; maxLoss?: unknown; maxPairs?: unknown; dayMaxLoss?: unknown } };
+    const repo = JSON.parse(repoText) as { mode?: string; minBalance?: unknown; pairs?: { on?: unknown; series?: unknown; clip?: unknown; maxLoss?: unknown; maxPairs?: unknown; dayMaxLoss?: unknown; completeCap?: unknown } };
     const p = repo?.pairs;
     if (!p || p.on !== true || repo.mode !== "live" || local.mode === "off" || !String(local.funder ?? "").trim()) return off;
     // 15-minute series by their key, and "btc5m" for BTC 5m (whose key is the empty string).
@@ -59,7 +59,7 @@ export function parsePairs(repoText: string, local: { mode?: string; funder?: st
     const clip = Math.min(6, Math.max(5, num(p.clip, 6))); // 6 shares at 83c is $4.98: the $5 a trade limit
     const maxLoss = Math.min(35, Math.max(0, num(p.maxLoss, 0))); // enrique's word covers $35, no more
     if (!series.length || !(maxLoss > 0)) return off;
-    return { on: true, series, clip, maxLoss, maxPairs: Math.min(6, Math.max(1, Math.floor(num(p.maxPairs, 2)))), dayMaxLoss: Math.min(maxLoss, Math.max(1, num(p.dayMaxLoss, 20))), minBalance: Math.max(0, num(repo.minBalance, 0)) };
+    return { on: true, series, clip, maxLoss, maxPairs: Math.min(6, Math.max(1, Math.floor(num(p.maxPairs, 2)))), dayMaxLoss: Math.min(maxLoss, Math.max(1, num(p.dayMaxLoss, 20))), minBalance: Math.max(0, num(repo.minBalance, 0)), completeCap: Math.min(1.1, Math.max(0.9, num(p.completeCap, 0.99))) };
   } catch {
     return off;
   }
@@ -96,7 +96,10 @@ export function desired(w: Win, up: Book | null, down: Book | null, now: number,
   if (Math.abs(un) >= 5) {
     const heavy = un > 0 ? w.up : w.down;
     const light = un > 0 ? down : up;
-    const cap = Math.floor((0.99 - heavy.last) * 100 + 1e-6) / 100;
+    // 11 Nov 2026 01:30 KST: the completion bid may make the pair cost up to `completeCap` (1.10), still post-only at
+    // the best bid. First real hour: every lone clip lost about $2.60, while the best pair wallets pay over $1 for a
+    // third to half of their pairs and leave under 2% unpaired (top-traders report, update 01:25 KST).
+    const cap = Math.floor((cfg.completeCap - heavy.last) * 100 + 1e-6) / 100;
     const price = r2(Math.min(light.bestBid!, cap));
     if (!(price >= 0.01) || !(heavy.last > 0)) return none;
     const size = Math.min(Math.floor(Math.abs(un) * 100) / 100, Math.floor((5 / price) * 100) / 100);

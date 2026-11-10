@@ -19,7 +19,7 @@
     }
   },
   "pairs": {
-    "note": "REAL two-sided pair test (src/pairlive.ts). enrique 11 Nov 2026 00:02-00:04 KST: 'go trade it for real', 'its okay to start and build up', 'we can risk 35usd on this'. Post-only bids of 6 shares on Up and Down of ETH 15m at the best bid while they add to 99c or less (17-83c); after one fills, the other is bid so the pair costs under $1. Own budget $35 = settled losses + worst case of open windows. ETH only to start (replay ETH +$27.59, SOL +$8.84, BTC -$7.62); reviews add coins. At most $20 lost per KST day. Wallet floor lowered 270 -> 235 for this budget. 11 Nov 00:16 KST enrique: 'lets try btc5min too' -> BTC 5m added, same $35 budget and limits.",
+    "note": "REAL two-sided pair test (src/pairlive.ts). enrique 11 Nov 2026 00:02-00:04 KST: 'go trade it for real', 'its okay to start and build up', 'we can risk 35usd on this'. Post-only bids of 6 shares on Up and Down of ETH 15m at the best bid while they add to 99c or less (17-83c); after one fills, the other is bid so the pair costs under $1. Own budget $35 = settled losses + worst case of open windows. ETH only to start (replay ETH +$27.59, SOL +$8.84, BTC -$7.62); reviews add coins. At most $20 lost per KST day. Wallet floor lowered 270 -> 235 for this budget. 11 Nov 00:16 KST enrique: 'lets try btc5min too' -> BTC 5m added, same $35 budget and limits. 11 Nov 01:30 KST: completion bid may take the pair cost to 1.10 (was 0.99), still post-only; guard: if lone clips stay above 6% of first fills over the next 30 windows, back to 0.99 or paper.",
     "on": true,
     "series": [
       "eth15m",
@@ -28,7 +28,8 @@
     "clip": 6,
     "maxLoss": 35,
     "maxPairs": 3,
-    "dayMaxLoss": 20
+    "dayMaxLoss": 20,
+    "completeCap": 1.1
   },
   "maxLossPerDay": 15,
   "variants": [],
