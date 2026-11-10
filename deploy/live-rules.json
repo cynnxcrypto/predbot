@@ -44,12 +44,12 @@
           "cap": 0.6,
           "bidUnderC": 2,
           "bidSec": 30,
-          "maxOpen": 1,
+          "maxOpen": 2,
           "familyHaltLosses": 2,
           "familyHaltMin": 30
         }
       ],
-      "note": "Review 39 (10 Nov 2026 10:45 KST): the 2-loss cross-coin stop is now a 30-MINUTE PAUSE instead of the rest of the KST day (familyHaltMin 30; same $3, 2c under, max 1 open, 60c cap, $6/day per market). Evidence: the day stop tripped 03:01 KST on 10 Nov after SOL+ETH lost; over the next 7 hours the no-stop 2c paper twin went 9 fills 7 won +$18 and the 30-minute-pause twin 12/10 +$29.6, while live sat out; research P3 replay (31 Oct-8 Nov) +$111 for the pause vs -$32 for the day-stop shape; Round 309 found the same. Review 37 (9 Nov 22:45): bid 4c -> 2c (2c twin 21/15 +$29.39 over six hours vs 4c real 8 fills 7 won +$16.19, 42% filled)."
+      "note": "10 Nov 2026 12:50 KST (enrique: still no trades): maxOpen 1 -> 2, so two of the three coins may hold a bid or fill at once. The paper cell that met the bar (4c twin 167 fillable 99 won +$74.5) and the 2c twin (47/31 +$40.9) have no one-at-a-time limit; the one-at-a-time 2c twin took about half the fills (25/16 +$16.5) at a similar result per fill. Today 43 signals on the three coins, 17 of them in windows where another coin had already signalled. The 2-loss pause already refuses a third open ticket. Review 39 (10 Nov 2026 10:45 KST): the 2-loss cross-coin stop is now a 30-MINUTE PAUSE instead of the rest of the KST day (familyHaltMin 30; same $3, 2c under, max 1 open, 60c cap, $6/day per market). Evidence: the day stop tripped 03:01 KST on 10 Nov after SOL+ETH lost; over the next 7 hours the no-stop 2c paper twin went 9 fills 7 won +$18 and the 30-minute-pause twin 12/10 +$29.6, while live sat out; research P3 replay (31 Oct-8 Nov) +$111 for the pause vs -$32 for the day-stop shape; Round 309 found the same. Review 37 (9 Nov 22:45): bid 4c -> 2c (2c twin 21/15 +$29.39 over six hours vs 4c real 8 fills 7 won +$16.19, 42% filled)."
     },
     {
       "series": "btc15m",
@@ -63,12 +63,12 @@
           "cap": 0.6,
           "bidUnderC": 2,
           "bidSec": 30,
-          "maxOpen": 1,
+          "maxOpen": 2,
           "familyHaltLosses": 2,
           "familyHaltMin": 30
         }
       ],
-      "note": "Review 39 (10 Nov 2026 10:45 KST): the 2-loss cross-coin stop is now a 30-MINUTE PAUSE instead of the rest of the KST day (familyHaltMin 30; same $3, 2c under, max 1 open, 60c cap, $6/day per market). Evidence: the day stop tripped 03:01 KST on 10 Nov after SOL+ETH lost; over the next 7 hours the no-stop 2c paper twin went 9 fills 7 won +$18 and the 30-minute-pause twin 12/10 +$29.6, while live sat out; research P3 replay (31 Oct-8 Nov) +$111 for the pause vs -$32 for the day-stop shape; Round 309 found the same. Review 37 (9 Nov 22:45): bid 4c -> 2c (2c twin 21/15 +$29.39 over six hours vs 4c real 8 fills 7 won +$16.19, 42% filled)."
+      "note": "10 Nov 2026 12:50 KST (enrique: still no trades): maxOpen 1 -> 2, so two of the three coins may hold a bid or fill at once. The paper cell that met the bar (4c twin 167 fillable 99 won +$74.5) and the 2c twin (47/31 +$40.9) have no one-at-a-time limit; the one-at-a-time 2c twin took about half the fills (25/16 +$16.5) at a similar result per fill. Today 43 signals on the three coins, 17 of them in windows where another coin had already signalled. The 2-loss pause already refuses a third open ticket. Review 39 (10 Nov 2026 10:45 KST): the 2-loss cross-coin stop is now a 30-MINUTE PAUSE instead of the rest of the KST day (familyHaltMin 30; same $3, 2c under, max 1 open, 60c cap, $6/day per market). Evidence: the day stop tripped 03:01 KST on 10 Nov after SOL+ETH lost; over the next 7 hours the no-stop 2c paper twin went 9 fills 7 won +$18 and the 30-minute-pause twin 12/10 +$29.6, while live sat out; research P3 replay (31 Oct-8 Nov) +$111 for the pause vs -$32 for the day-stop shape; Round 309 found the same. Review 37 (9 Nov 22:45): bid 4c -> 2c (2c twin 21/15 +$29.39 over six hours vs 4c real 8 fills 7 won +$16.19, 42% filled)."
     },
     {
       "series": "hype5m",
@@ -99,12 +99,12 @@
           "cap": 0.6,
           "bidUnderC": 2,
           "bidSec": 30,
-          "maxOpen": 1,
+          "maxOpen": 2,
           "familyHaltLosses": 2,
           "familyHaltMin": 30
         }
       ],
-      "note": "Review 39 (10 Nov 2026 10:45 KST): the 2-loss cross-coin stop is now a 30-MINUTE PAUSE instead of the rest of the KST day (familyHaltMin 30; same $3, 2c under, max 1 open, 60c cap, $6/day per market). Evidence: the day stop tripped 03:01 KST on 10 Nov after SOL+ETH lost; over the next 7 hours the no-stop 2c paper twin went 9 fills 7 won +$18 and the 30-minute-pause twin 12/10 +$29.6, while live sat out; research P3 replay (31 Oct-8 Nov) +$111 for the pause vs -$32 for the day-stop shape; Round 309 found the same. Review 37 (9 Nov 22:45): bid 4c -> 2c (2c twin 21/15 +$29.39 over six hours vs 4c real 8 fills 7 won +$16.19, 42% filled)."
+      "note": "10 Nov 2026 12:50 KST (enrique: still no trades): maxOpen 1 -> 2, so two of the three coins may hold a bid or fill at once. The paper cell that met the bar (4c twin 167 fillable 99 won +$74.5) and the 2c twin (47/31 +$40.9) have no one-at-a-time limit; the one-at-a-time 2c twin took about half the fills (25/16 +$16.5) at a similar result per fill. Today 43 signals on the three coins, 17 of them in windows where another coin had already signalled. The 2-loss pause already refuses a third open ticket. Review 39 (10 Nov 2026 10:45 KST): the 2-loss cross-coin stop is now a 30-MINUTE PAUSE instead of the rest of the KST day (familyHaltMin 30; same $3, 2c under, max 1 open, 60c cap, $6/day per market). Evidence: the day stop tripped 03:01 KST on 10 Nov after SOL+ETH lost; over the next 7 hours the no-stop 2c paper twin went 9 fills 7 won +$18 and the 30-minute-pause twin 12/10 +$29.6, while live sat out; research P3 replay (31 Oct-8 Nov) +$111 for the pause vs -$32 for the day-stop shape; Round 309 found the same. Review 37 (9 Nov 22:45): bid 4c -> 2c (2c twin 21/15 +$29.39 over six hours vs 4c real 8 fills 7 won +$16.19, 42% filled)."
     },
     {
       "series": "doge15m",
