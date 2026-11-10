@@ -16,6 +16,7 @@
  * Every rule is $5 at the real ask (walking the book), taker fee rate x p x (1-p) per share, held to settlement.
  */
 import { loadJson, saveJson } from "./store.js";
+import { eventLiveBuy, eventLiveConfig, eventLiveRows, eventLiveSettle, eventLiveSummary } from "./eventlive.js";
 import { JEV_CONTEXT, headlines, jevKey, jevStake, type JevStake } from "./jev.js";
 
 const GAMMA = "https://gamma-api.polymarket.com";
@@ -806,6 +807,8 @@ function midBid(rule: string, m: { id: string; title: string; start: number; tok
   state.makers.push({ rule, marketId: m.id, title: m.title, outcome: m.outcomes[i], idx: i, token: m.tokens[i], bid, t: now, feeRate: m.feeRate, ask: bk.bestAsk, mid: bk.mid, until: m.start });
   log(`${rule} ${m.title} bid ${Math.round(bid * 1000) / 10}c resting until the start`);
 }
+/** What the real-money copy did with each tennis paper trade (bought, or the guard that held it back); not saved. */
+const realNotes: { t: number; title: string; why: string }[] = [];
 async function tennisTick() {
   const now = Date.now();
   for (const t of Object.values(state.tennis)) {
@@ -853,6 +856,21 @@ async function tennisTick() {
       }
       const tr = enter(r.rule, { marketId: t.id, title: t.title, outcome: t.outcomes[i], idx: i, token: t.tokens[i], feeRate: t.feeRate }, bk, ask, extra);
       signal(r.rule, t.title, Boolean(tr), extra);
+      // 10 Nov 2026 (enrique: "start tennis"): rules listed under "events".tennis in deploy/live-rules.json are copied
+      // with real money through src/eventlive.ts, which holds every guard. A failure here never touches the paper side.
+      if (tr && eventLiveConfig().groups.tennis?.rules.includes(r.rule)) {
+        try {
+          const gm = await getJson<{ conditionId?: string; negRisk?: boolean }>(`${GAMMA}/markets/${t.id}`);
+          const real = await eventLiveBuy("tennis", { rule: r.rule, marketId: t.id, title: t.title, outcome: t.outcomes[i], idx: i, token: t.tokens[i], ask, depth: Number(extra.depth2c) || 0, fillable: tr.fillable, feeRate: t.feeRate, conditionId: gm.conditionId ?? null, negRisk: Boolean(gm.negRisk) });
+          if (real) {
+            log(`${r.rule} ${t.title}: ${real}`);
+            realNotes.push({ t: Date.now(), title: t.title, why: real });
+            if (realNotes.length > 50) realNotes.splice(0, realNotes.length - 50);
+          }
+        } catch (e) {
+          log(`${r.rule} ${t.title}: real order skipped (${(e as Error).message})`);
+        }
+      }
     }
   }
 }
@@ -1013,7 +1031,7 @@ async function cricketTick() {
 // ---------- settlement and summary ----------
 async function settleTick() {
   const open = state.trades.filter((t) => t.pnl == null);
-  const ids = [...new Set(open.map((t) => t.marketId))];
+  const ids = [...new Set([...open.map((t) => t.marketId), ...eventLiveRows().filter((r) => r.pnl == null).map((r) => r.marketId)])];
   for (const id of ids) {
     let m: GMarket;
     try {
@@ -1024,6 +1042,11 @@ async function settleTick() {
     if (!m.closed) continue;
     const px = jl<string[]>(m.outcomePrices, []).map(Number);
     if (px.length !== 2 || !px.every((x) => Number.isFinite(x))) continue;
+    try {
+      eventLiveSettle(id, px);
+    } catch (e) {
+      log(`real settle failed: ${(e as Error).message}`);
+    }
     for (const t of open.filter((x) => x.marketId === id)) {
       const pay = px[t.idx];
       if (!(pay === 1 || pay === 0 || pay === 0.5)) continue;
@@ -1138,6 +1161,7 @@ function summarize() {
       notes: g === "esports" ? Object.values(state.matches).reduce<Record<string, number>>((o, m) => ((o[m.evaluated ? m.note ?? (m.tEnd != null ? "evaluated" : "done") : m.tEnd != null ? "map 1 over, waiting" : m.start <= Date.now() ? "live" : "upcoming"] = (o[m.evaluated ? m.note ?? (m.tEnd != null ? "evaluated" : "done") : m.tEnd != null ? "map 1 over, waiting" : m.start <= Date.now() ? "live" : "upcoming"] ?? 0) + 1), o), {}) : undefined,
       skips: g === "football" || g === "weather" || g === "tennis" || g === "cricket" || g === "usports" ? state.signals.filter((x) => rules.includes(x.rule) && x.extra.skip).slice(-15).reverse().map((x) => ({ rule: x.rule, t: x.t, title: x.title, why: x.extra.skip, ask: x.extra.ask })) : undefined,
       upcoming: g === "football" ? Object.values(state.fixtures).filter((f) => !f.done).length : g === "weather" ? Object.keys(state.wx).length : g === "tennis" ? Object.values(state.tennis).filter((t) => !t.done).length : g === "usports" ? Object.values(state.usports).filter((m) => !m.done).length : g === "cricket" ? Object.values(state.cricket).filter((c) => !c.done10).length : undefined,
+      real: g === "tennis" ? { ...eventLiveSummary("tennis"), notes: realNotes.slice(-10).reverse() } : undefined,
       watch: watchOf(g),
       watchAt: g === "politics" ? polWatchAt : undefined,
       sigs: state.signals

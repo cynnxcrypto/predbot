@@ -90,6 +90,12 @@ export function capUsed(since: number): { settled: number; open: number } {
     for (const t of loadJson<{ t: number; dry?: boolean; ok?: boolean; shares?: number; cost?: number; pnl?: number | null }[]>(`${prefixOf(s)}live-open.json`, []))
       if (!t.dry && t.t >= since && t.pnl == null && (t.shares ?? 0) > 0) open += t.cost ?? 0;
   }
+  // 10 Nov 2026: real event bets (src/eventlive.ts, tennis) share the cap. A row whose order reply was lost counts as open.
+  for (const t of loadJson<{ t: number; cost?: number; shares?: number; status?: string | null; pnl?: number | null }[]>("eventlive.json", [])) {
+    if (!(t.t >= since)) continue;
+    if (t.pnl != null) settled += t.pnl;
+    else if ((t.shares ?? 0) > 0 || t.status === "unknown") open += t.cost ?? 0;
+  }
   return { settled, open };
 }
 /** Orders sent in the last 90 s, held against the cap until their fill lands in live-open.json (series fire together). */
@@ -1417,9 +1423,61 @@ export class LiveTrader {
    * transaction (redeem each market, then wrap the USDC.e that comes out into pUSD), at most once every
    * `claimEveryMin` minutes, because the relayer's daily quota ran out at ~65 transactions on 23 Oct 2026.
    */
+  /**
+   * Claim won real event bets (src/eventlive.ts, tennis since 10 Nov 2026). Kept apart from the crypto batch on purpose:
+   * one unresolved condition reverts a whole relayer batch, and that must never hold up the crypto claims. At most one
+   * transaction every 3 hours, rows settled 30+ minutes ago, 8 per batch, 5 tries each; no wrap here: the USDC.e that
+   * comes out is wrapped into pUSD by the next crypto claim. data/eventlive-claims.json is written only by this process.
+   */
+  private async redeemEvents(): Promise<boolean> {
+    const now = Date.now();
+    const done = loadJson<Record<string, { at: number; tx: string | null; tries: number; nextAt: number; error: string | null }>>("eventlive-claims.json", {});
+    const last = Math.max(0, ...Object.values(done).map((d) => d.at ?? 0));
+    if (now - last < 3 * 3600_000) return false;
+    const rows = loadJson<{ conditionId?: string | null; shares?: number; pay?: number | null; settledAt?: number | null }[]>("eventlive.json", []);
+    const byCond = new Map<string, number>();
+    for (const r of Array.isArray(rows) ? rows : []) {
+      if (!r.conditionId || !/^0x[0-9a-fA-F]{64}$/.test(r.conditionId) || !((r.shares ?? 0) > 0) || !((r.pay ?? 0) > 0) || !(r.settledAt != null && r.settledAt < now - 30 * 60_000)) continue;
+      const d = done[r.conditionId];
+      if (d && (d.tx || d.tries >= 5 || d.nextAt > now)) continue;
+      byCond.set(r.conditionId, (byCond.get(r.conditionId) ?? 0) + (r.shares ?? 0) * (r.pay ?? 0));
+    }
+    const batch = [...byCond.entries()].slice(0, 8);
+    if (!batch.length) return false;
+    this.redeeming = true;
+    relayBusy = true;
+    try {
+      const relay = this.relay();
+      const calls: { target: string; value: string; data: string }[] = [];
+      for (const [cond] of batch) for (const collateral of COLLATERALS) calls.push({ target: CTF, value: "0", data: ctfAbi.encodeFunctionData("redeemPositions", [collateral, ZERO32, cond, [1, 2]]) });
+      noteRelayCall();
+      const sent = await relay.executeDepositWalletBatch(calls, this.config.funder, String(Math.floor(Date.now() / 1000) + 600));
+      const fin = await sent.wait();
+      const hash = fin?.transactionHash || sent.transactionHash || null;
+      if (!hash) throw new Error(`relayer did not confirm (state ${fin?.state ?? sent.state ?? "unknown"})`);
+      for (const [cond] of batch) done[cond] = { at: Date.now(), tx: hash, tries: (done[cond]?.tries ?? 0) + 1, nextAt: 0, error: null };
+      console.log(`live: claimed ${batch.reduce((s, [, v]) => s + v, 0).toFixed(2)} event shares from ${batch.length} market(s) (${hash})`);
+      await this.refreshBalance();
+    } catch (error) {
+      const text = noteRelayError(error);
+      for (const [cond] of batch) {
+        const tries = (done[cond]?.tries ?? 0) + 1;
+        done[cond] = { at: Date.now(), tx: null, tries, nextAt: Math.max(relayerBlockedUntil, Date.now() + 3 * 3600_000), error: text };
+        if (tries >= 5) console.log(`live: giving up on claiming event market ${cond.slice(0, 10)} after 5 tries (${text}); claim it on polymarket.com`);
+      }
+      console.log(`live: event claim not done (${text})`);
+    } finally {
+      saveJson("eventlive-claims.json", done);
+      this.redeeming = false;
+      relayBusy = false;
+    }
+    return true;
+  }
+
   async redeemPending() {
     if (this.series.key || this.redeeming || relayBusy) return;
     if (relayerBlocked()) return this.verifyClaims();
+    if (await this.redeemEvents()) return;
     const now = Date.now();
     const due: { trader: LiveTrader; redeem: Redeem }[] = [];
     for (const trader of traders) for (const r of trader.redeems) if (r.nextAt <= now) due.push({ trader, redeem: r });

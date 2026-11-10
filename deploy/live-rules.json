@@ -1,6 +1,18 @@
 {
   "mode": "live",
-  "minBalance": 300,
+  "minBalance": 270,
+  "events": {
+    "tennis": {
+      "note": "10 Nov 2026 17:28 KST, enrique: start tennis. Real copy of the paper tennis favourite rules (mid 90-95c, 10 min before the start, ask within 2c of mid). $3 a bet, Jev sizing off, only when $25+ rests within 2c of the ask. Guards: 2 losses in a KST day stop it until the next day, 4 bets open at most, the test ends at $9 lost until a review restarts it, and it shares the $70 cap. Code src/eventlive.ts.",
+      "rules": ["tennis-wta-fav90", "tennis-atp-fav90", "tennis-itf-fav90"],
+      "size": 3,
+      "maxAsk": 0.96,
+      "minDepth": 25,
+      "dayLosses": 2,
+      "maxOpen": 4,
+      "maxLoss": 9
+    }
+  },
   "maxLossPerDay": 15,
   "variants": [],
   "markets": [
