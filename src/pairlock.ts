@@ -69,6 +69,11 @@ export const PAIRLOCK: Spec[] = [
   // taker fee counted), scored on its own (flips / flipNet). The price paid by then is the open question.
   { name: "pairlock-1s-flip30", every: 1, chase: false, keys: BIG3, flip: 30 },
   { name: "pairlock-1s-5m-flip30", every: 1, chase: false, keys: [BTC5M], from: 20, stop: 60, flip: 30 },
+  // Round 339 (11 Nov 2026 05:15 KST): first hour of the flip twins: BTC 5m other-side buys won 9 of 11 at an average
+  // 70c (+$6.70); 15m won 5 of 11 at 50c (-$3.89). Eleven bets prove nothing; these copies move the wait on BTC 5m to
+  // 10 s (cheaper price, weaker signal?) and 60 s (dearer price, stronger signal?) to see where the price catches up.
+  { name: "pairlock-1s-5m-flip10", every: 1, chase: false, keys: [BTC5M], from: 20, stop: 60, flip: 10 },
+  { name: "pairlock-1s-5m-flip60", every: 1, chase: false, keys: [BTC5M], from: 20, stop: 60, flip: 60 },
   { name: "pairlock-1s-cut10", every: 1, chase: false, keys: BIG3, cut: 0.1 },
   { name: "pairlock-1s-cut5", every: 1, chase: false, keys: BIG3, cut: 0.05 },
   { name: "pairlock-1s-5m-cut10", every: 1, chase: false, keys: [BTC5M], from: 20, stop: 60, cut: 0.1 },
