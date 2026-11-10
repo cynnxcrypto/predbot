@@ -26,7 +26,7 @@ import { append, loadJson, saveJson } from "./store.js";
 
 export const CLIP = 6;
 const FILE = "pairlock.json";
-type Spec = { name: string; every: number; chase: boolean; keys: string[]; from?: number; stop?: number; cut?: number; cap?: number };
+type Spec = { name: string; every: number; chase: boolean; keys: string[]; from?: number; stop?: number; cut?: number; cap?: number; deep?: number };
 const BIG3 = ["btc15m", "eth15m", "sol15m"];
 const BTC5M = SERIES[0].key; // the first series is BTC 5m
 const USED = [...BIG3, BTC5M];
@@ -47,6 +47,13 @@ export const PAIRLOCK: Spec[] = [
   // +$29, lone clips 4.4% vs 15.7%. Real runs this from 01:30 KST; these are its paper twins.
   { name: "pairlock-1s-cap110", every: 1, chase: false, keys: BIG3, cap: 1.1 },
   { name: "pairlock-1s-5m-cap110", every: 1, chase: false, keys: [BTC5M], from: 20, stop: 60, cap: 1.1 },
+  // Round 336 (11 Nov 2026 02:15 KST): two real hours of the pair test: 23 windows, 13 won, -$14.64. At the best bid a
+  // full pair earns about 6c and a lone clip loses about $2.60 (6 of 23 windows); with the completion cap at 1.10 the
+  // lone clips stopped but the pairs cost $1.03-1.07. Every paper twin is red (-$12 to -$55). The entry is the leak:
+  // the bid at the front is hit by whoever knows the price is falling. These twins enter 2c UNDER the best bid on both
+  // sides (a pair then costs about 95c, 30c a pair instead of 6c), so each lone clip is paid for by fewer pairs.
+  { name: "pairlock-1s-deep2", every: 1, chase: false, keys: BIG3, deep: 0.02 },
+  { name: "pairlock-1s-5m-deep2", every: 1, chase: false, keys: [BTC5M], from: 20, stop: 60, deep: 0.02 },
   { name: "pairlock-1s-cut10", every: 1, chase: false, keys: BIG3, cut: 0.1 },
   { name: "pairlock-1s-cut5", every: 1, chase: false, keys: BIG3, cut: 0.05 },
   { name: "pairlock-1s-5m-cut10", every: 1, chase: false, keys: [BTC5M], from: 20, stop: 60, cut: 0.1 },
@@ -70,7 +77,7 @@ export function join(cur: Order | null, bids: { price: number; size: number }[],
 }
 
 /** One second of quoting for one sim. `now` and `left` in seconds. */
-export function quote(sim: Sim, up: Book | null, down: Book | null, now: number, left: number, chase: boolean, from = 30, stop = 180, cut = 0, capAt = 0.99) {
+export function quote(sim: Sim, up: Book | null, down: Book | null, now: number, left: number, chase: boolean, from = 30, stop = 180, cut = 0, capAt = 0.99, deep = 0) {
   const elapsed = now - sim.start;
   if (!up || !down || up.bestBid == null || down.bestBid == null) {
     sim.up = sim.down = null;
@@ -83,8 +90,8 @@ export function quote(sim: Sim, up: Book | null, down: Book | null, now: number,
       return;
     }
     sim.active = true;
-    sim.up = join(sim.up, up.bids, up.bestBid);
-    sim.down = join(sim.down, down.bids, down.bestBid);
+    sim.up = join(sim.up, up.bids, cent(up.bestBid - deep));
+    sim.down = join(sim.down, down.bids, cent(down.bestBid - deep));
     return;
   }
   const own = sim.held.side === "U" ? up : down;
@@ -190,7 +197,7 @@ function tick() {
         sim = undefined;
       }
       if (!sim) sims.set(id, (sim = newSim(start)));
-      if (now % spec.every === 0) quote(sim, up, down, now, start + s.windowSec - now, spec.chase, spec.from, spec.stop, spec.cut, spec.cap);
+      if (now % spec.every === 0) quote(sim, up, down, now, start + s.windowSec - now, spec.chase, spec.from, spec.stop, spec.cut, spec.cap, spec.deep);
     }
   }
   if (dirty) saveJson(FILE, state);
