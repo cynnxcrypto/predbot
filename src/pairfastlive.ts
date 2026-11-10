@@ -150,12 +150,22 @@ export function desired(w: Win, up: Book | null, down: Book | null, now: number,
   const paired = Math.min(w.up.shares, w.down.shares);
   const band = (x: number) => x >= LO - EPS && x <= HI + EPS;
   const start = ok && now - w.start >= FROM && left >= STOP && paired < cfg.maxPairs * cfg.clip - 0.01 && up.bestBid + down.bestBid <= 0.99 + EPS && band(up.bestBid) && band(down.bestBid);
+  // A bid that is part filled keeps resting for the rest of its clip, whatever else is decided: cancelling it leaves a
+  // few shares that can never be paired (under the 5-share order minimum). First real hour, 11 Nov 2026: 3.63 Up
+  // filled, the rest was cancelled, Down filled 6, a second Up clip filled: 9.63 Up against 6 Down, -$2.30.
+  const part = (side: Sd): Want | null => {
+    const o = w.orders[side];
+    return o && o.matched > 0.01 && o.size - o.matched >= 0.01 ? { price: o.price, size: r2(o.size - o.matched) } : null;
+  };
+  out.U = part("U");
+  out.D = part("D");
   if (!start) return out;
-  // A part fill can leave a few shares unpaired (under the 5-share order minimum): never add to the heavier side.
-  let U = un > 0.01 ? null : keep("U", up.bestBid, cfg.clip);
-  let D = un < -0.01 ? null : keep("D", down.bestBid, cfg.clip);
+  // Never a NEW bid on the side that is ahead by a few shares; the other side gets a full clip.
+  let U = out.U ?? (un > 0.01 ? null : keep("U", up.bestBid, cfg.clip));
+  let D = out.D ?? (un < -0.01 ? null : keep("D", down.bestBid, cfg.clip));
   if (U && D && U.price + D.price > 0.99 + EPS) {
     // Two resting bids may never add to more than 99c: drop to fresh best bids (they add to 99c or less, checked above).
+    if (out.U || out.D) return out; // one of them is part filled: leave it, start nothing new
     U = { price: up.bestBid, size: cfg.clip };
     D = { price: down.bestBid, size: cfg.clip };
   }
