@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { eventLiveBlock, parseEventLive, type EventLiveRow } from "./eventlive.js";
 
-const repo = JSON.stringify({ mode: "live", minBalance: 270, lossCap: { since: "2026-10-31T07:11:00Z", maxLoss: 70 }, events: { tennis: { rules: ["tennis-atp-fav90"], size: 3, maxAsk: 0.96, minDepth: 25, dayLosses: 2, maxOpen: 2, maxLoss: 9 } } });
+const repo = JSON.stringify({ mode: "live", minBalance: 270, lossCap: { since: "2026-10-31T07:11:00Z", maxLoss: 70 }, events: { tennis: { rules: ["tennis-atp-fav90"], size: 3, maxAsk: 0.96, minDepth: 25, dayLosses: 2, maxOpen: 2, maxLoss: 9 } } }); // test fixture, not the live amount
 const row = (o: Partial<EventLiveRow>): EventLiveRow => ({ t: 0, group: "tennis", rule: "tennis-atp-fav90", marketId: "m", conditionId: null, title: "", outcome: "", idx: 0, ask: 0.93, size: 3, cost: 3, shares: 3.2, fee: 0, ok: true, status: "matched", error: null, ...o });
 const NOW = Date.parse("2026-11-10T09:00:00Z");
 
