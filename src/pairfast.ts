@@ -37,18 +37,21 @@ const MAX_SIDE = 60; // most shares bought on one side in one window
 const FILE = "pairfast.json";
 const EPS = 1e-9;
 
-export type Spec = { name: string; key: string; offs: number[]; slack: number; maxImb: number; lock?: boolean; from: number; stop: number };
+export type Spec = { name: string; key: string; offs: number[]; slack: number; maxImb: number; lock?: boolean; from: number; stop: number; band?: [number, number]; maxPairs?: number };
 const ETH = "eth15m";
 const BTC5M = SERIES[0].key; // the first series is BTC 5m
-const base = (name: string, offs: number[], slack: number, maxImb: number, lock = false): Spec[] => [
-  { name, key: ETH, offs, slack, maxImb, lock, from: 20, stop: 120 },
-  { name: `${name}-5m`, key: BTC5M, offs, slack, maxImb, lock, from: 10, stop: 60 },
+const base = (name: string, offs: number[], slack: number, maxImb: number, lock = false, more: Partial<Spec> = {}): Spec[] => [
+  { name, key: ETH, offs, slack, maxImb, lock, from: 20, stop: 120, ...more },
+  { name: `${name}-5m`, key: BTC5M, offs, slack, maxImb, lock, from: 10, stop: 120, ...more },
 ];
 export const PAIRFAST: Spec[] = [
   // Control: the old method (one bid a side, re-joined whenever the best bid moves) under the strict fill model.
   ...base("pairfast-requote", [0], 0, 1),
   // One resting bid a side at the best bid, left alone until it is 3c behind.
   ...base("pairfast-top", [0], 3, 1),
+  // The paper twin of the REAL rule (src/pairfastlive.ts, BTC 5m): one resting bid a side, a pair never over 99c, new
+  // pairs only while both best bids are 17-83c, one pair a window. Compare `pairfast-top-lock-5m` with real fill by fill.
+  ...base("pairfast-top-lock", [0], 3, 1, true, { band: [0.17, 0.83], maxPairs: 1 }),
   // Three resting levels a side: best bid, 1c and 2c under.
   ...base("pairfast-lad3", [0, 1, 2], 2, 3),
   // Same, but the side that is behind never bids more than 99c minus the average paid on the other side.
@@ -177,7 +180,13 @@ export function quote(sim: Sim, spec: Spec, up: Book | null, down: Book | null, 
     if (!b || b.bestBid == null) continue; // no view: resting orders stay in the book
     const bid = b.bestBid;
     const imb = sim.inv[side] - sim.inv[other(side)];
-    const open = elapsed >= spec.from && bid >= 0.05 - EPS && bid <= 0.95 + EPS && sim.inv[side] < MAX_SIDE;
+    let open = elapsed >= spec.from && bid >= 0.05 - EPS && bid <= 0.95 + EPS && sim.inv[side] < MAX_SIDE;
+    if (imb >= 0 && open) {
+      // Starting a new pair (not completing one): the optional limits of the real rule.
+      const ob = (side === "U" ? down : up)?.bestBid;
+      if (spec.band && (ob == null || [bid, ob].some((x) => x < spec.band![0] - EPS || x > spec.band![1] + EPS))) open = false;
+      if (spec.maxPairs && Math.min(sim.inv.U, sim.inv.D) >= spec.maxPairs * CLIP - 0.01) open = false;
+    }
     // Before `stop`: rest up to maxImb clips beyond the other side. After it: only what completes pairs already begun.
     let allowed = !open ? 0 : left >= spec.stop ? spec.maxImb * CLIP - Math.max(0, imb) : Math.max(0, -imb);
     allowed = Math.min(allowed, MAX_SIDE - sim.inv[side]);
