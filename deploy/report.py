@@ -178,7 +178,10 @@ def upload_history(budget_s=600):
     for d in dirs:
         prefix = os.path.basename(d).removesuffix("book")  # "" for the first series (btc5m), else "eth15m-"
         series = prefix.rstrip("-") or "btc5m"
-        if not (series.endswith("5m") or series.endswith("15m")) or series.endswith("-"):
+        # 10 Nov 2026 (fair-value research): 1h, 4h and 24h books are published too, thinned so the upload stays small:
+        # one row every 5 s for 1h, every 15 s for 4h and 24h (5m and 15m keep every second).
+        step = 1 if (series.endswith("5m") or series.endswith("15m")) else 5 if series.endswith("1h") else 15 if (series.endswith("4h") or series.endswith("24h")) else 0
+        if not step or series.endswith("-"):
             continue
         for src in sorted(glob.glob(os.path.join(d, "*.jsonl"))):
             day = os.path.basename(src)[:-6]
@@ -205,7 +208,7 @@ def upload_history(budget_s=600):
                     except ValueError:
                         continue
                     k = (r.get("window"), r.get("left"))
-                    if k != key and last is not None:
+                    if k != key and last is not None and (step == 1 or (last[2] or 0) % step == 0):
                         out.append(json.dumps(last, separators=(",", ":")))
                     key = k
                     last = [int((r.get("t") or 0) // 1000), r.get("window"), r.get("left"), r.get("upAsk"), r.get("upBid"),
@@ -214,7 +217,7 @@ def upload_history(budget_s=600):
                             _sz(r.get("upBids"), 3), _sz(r.get("downAsks"), 3), _sz(r.get("downBids"), 3),
                             r.get("upAskDepth"), r.get("downAskDepth"), r.get("chainlink"), r.get("binance"),
                             r.get("coinbase"), r.get("futures"), r.get("open")]
-            if last is not None:
+            if last is not None and (step == 1 or (last[2] or 0) % step == 0):
                 out.append(json.dumps(last, separators=(",", ":")))
             wins = {}
             wsrc = os.path.join(DATA, f"{prefix}windows", f"{day}.jsonl")
