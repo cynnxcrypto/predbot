@@ -32,3 +32,12 @@ test("daily windows run noon to noon New York time and are named by the end day"
   // after the clocks change (1 Nov 2026) noon is 17:00 UTC
   assert.equal(windowStart(Date.UTC(2026, 10, 3, 20) / 1000, 86400, "et-day"), Date.UTC(2026, 10, 3, 17) / 1000);
 });
+
+test("4h windows follow New York time across the clock change", () => {
+  // 21 Oct 2026 (EDT, UTC-4): 00:00 UTC is 20:00 ET, a 4h boundary
+  assert.equal(windowStart(1792569600 + 100, 14400), 1792569600);
+  // 10 Nov 2026 (EST, UTC-5): boundaries are 01:00, 05:00, 09:00, 13:00, 17:00, 21:00 UTC
+  const t = Date.UTC(2026, 10, 10, 15, 30) / 1000;
+  assert.equal(windowStart(t, 14400), Date.UTC(2026, 10, 10, 13, 0) / 1000);
+  assert.equal(windowStart(Date.UTC(2026, 10, 10, 2, 0) / 1000, 14400), Date.UTC(2026, 10, 10, 1, 0) / 1000);
+});

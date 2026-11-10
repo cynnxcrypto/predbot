@@ -103,6 +103,12 @@ export const windowStart = (sec = Math.floor(Date.now() / 1000), windowSec = WIN
     const noon = noonEt(sec);
     return noon <= sec ? noon : noonEt(sec - 86400);
   }
+  // 4-hour windows follow New York time (00:00, 04:00, ... ET). Until US clocks went back on 1 Nov 2026 that was also
+  // a multiple of 4 hours in UTC; since then it is one hour off, and the 4h series found no market at all.
+  if (windowSec === 14400) {
+    const noon = noonEt(sec);
+    return noon + Math.floor((sec - noon) / 14400) * 14400;
+  }
   return Math.floor(sec / windowSec) * windowSec;
 };
 export const dayOf = (ms: number) => new Date(ms).toISOString().slice(0, 10);
