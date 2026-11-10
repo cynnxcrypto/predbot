@@ -1,5 +1,5 @@
 import { execSync, spawn, type ChildProcess } from "node:child_process";
-import { closeSync, existsSync, openSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { createServer } from "node:net";
 import { ROOT, SERIES, STATUS_PORT } from "./config.js";
@@ -120,13 +120,31 @@ eventPaperTimer = setTimeout(runEventPaper, 30_000);
  * tap into"). research/trader-collector.py is read-only on Polymarket's public APIs and publishes to the server-data
  * branch. Started once, 3 minutes in, only on the server (it needs ~/.predbot-github-token), detached so bot restarts
  * do not kill it; the script holds a lock (a second copy exits), is niced and memory-capped, and writes
- * data/traders/DONE-v2 when finished so it never starts again. TRADERS=off disables it.
+ * data/traders/DONE-v3 when finished so it never starts again. TRADERS=off disables it.
  */
 // Tried 3 minutes in and again every 10 minutes: an older copy may still hold the lock (the new one then exits at once).
+const COLLECTOR_VERSION = "3"; // bump when research/trader-collector.py changes and must restart
 const startTraders = () => {
   try {
     const home = process.env.HOME ?? "";
-    if (process.env.TRADERS === "off" || !home || !existsSync(join(home, ".predbot-github-token")) || existsSync(join(ROOT, "data", "traders", "DONE-v2"))) return;
+    if (process.env.TRADERS === "off" || !home || !existsSync(join(home, ".predbot-github-token")) || existsSync(join(ROOT, "data", "traders", "DONE-v3"))) return;
+    // A newer collector script: stop the copy still running the old code once (it holds the lock), then start the new one.
+    const verFile = join(ROOT, "data", "traders", "VERSION");
+    let ver = "";
+    try {
+      ver = readFileSync(verFile, "utf8").trim();
+    } catch {
+      /* first run */
+    }
+    if (ver !== COLLECTOR_VERSION) {
+      try {
+        execSync("pkill -f research/trader-collector.py", { stdio: "ignore" });
+      } catch {
+        /* none running */
+      }
+      mkdirSync(join(ROOT, "data", "traders"), { recursive: true });
+      writeFileSync(verFile, COLLECTOR_VERSION);
+    }
     const out = openSync(join(home, "trader-collector.log"), "a");
     spawn("python3", [join(ROOT, "research", "trader-collector.py")], { cwd: ROOT, detached: true, stdio: ["ignore", out, out] }).unref();
     closeSync(out);

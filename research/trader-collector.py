@@ -14,7 +14,7 @@ It publishes to the server-data branch under server/traders/ as it goes (same to
   tape/<group>.json.gz          every fill (both sides, maker/taker flag) of a sample of resolved markets
   tapestats/<group>.json.gz     per-wallet profit over that sample
   wallets/<address>.json.gz     the selected wallets' own trades (30 days) plus redeems, merges, rewards
-Stdlib only. Safe to re-run: finished pieces are skipped (state in ~/predbot/data/traders/v2/; marker DONE-v2).
+Stdlib only. Safe to re-run: finished pieces are skipped (state in ~/predbot/data/traders/v2/; marker DONE-v3).
 Uses the Data API v2 routes (v1 answers 410 Gone since 2 Nov 2026)."""
 import base64, fcntl, gzip, json, os, resource, sys, time, urllib.request, urllib.error, urllib.parse, collections
 
@@ -242,8 +242,10 @@ def tag_markets(tag, days_back, top, min_vol, per_event=2):
     lo = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(NOW - days_back * 86400))
     hi = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(NOW + 8 * 86400))
     evs, off = [], 0
-    while off < 3000:
-        page = get(f"{GAMMA}/events?tag_slug={tag}&closed=true&end_date_min={lo}&end_date_max={hi}&limit=100&offset={off}")
+    # Biggest events first: the default order starts with the oldest and the API refuses deep offsets (422), which
+    # left the first tennis pull with 4 markets.
+    while off < 1500:
+        page = get(f"{GAMMA}/events?tag_slug={tag}&closed=true&end_date_min={lo}&end_date_max={hi}&limit=100&offset={off}&order=volume&ascending=false")
         if not isinstance(page, list) or not page:
             break
         evs += page; off += 100
@@ -333,10 +335,11 @@ def main():
             ("up-or-down", 3, 120, 20000), ("crypto-prices", 6, 80, 10000), ("stocks", 8, 60, 5000), ("commodities", 8, 40, 3000), ("economy", 30, 40, 10000), ("politics", 30, 60, 50000)]
     for tag, days, top, mv in tags:
         try:
-            ms = [] if done(f"tapestats/{tag}.json.gz") else tag_markets(tag, days, top, mv)
-            if not ms and not done(f"tapestats/{tag}.json.gz"):
+            grp = tag + "-m"  # "-m": second pull, biggest events first (the first tennis file had 4 markets)
+            ms = [] if done(f"tapestats/{grp}.json.gz") else tag_markets(tag, days, top, mv)
+            if not ms and not done(f"tapestats/{grp}.json.gz"):
                 step(f"tag {tag}: no markets"); continue
-            st = tape_group(tag, ms); add(pick(st, 10, 8), f"tape-{tag}"); step(f"tape {tag}")
+            st = tape_group(grp, ms); add(pick(st, 10, 8), f"tape-{tag}"); step(f"tape {grp}: {len(ms)} markets")
             if tag in ("tennis", "soccer", "highest-temperature"):
                 pull_all(tag)
         except Exception as e:
@@ -345,7 +348,7 @@ def main():
         add([r[1] for r in lb.get(f"{cat}/MONTH", [])[:12]], f"lb-{cat.lower()}")
     pull_all("all")
     step("DONE")
-    open(os.path.join(OUT, "DONE-v2"), "w").write(str(int(time.time())))
+    open(os.path.join(OUT, "DONE-v3"), "w").write(str(int(time.time())))
 
 
 if __name__ == "__main__":

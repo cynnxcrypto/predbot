@@ -458,7 +458,7 @@ export function setLiveMaxLoss(seriesKey: string, maxLoss: number, variant = "")
  * A repo "minBalance" replaces the local one when present; leave it out of the repo file to keep the local floor.
  */
 function withRepoRules<T extends { mode?: string }>(local: T): T {
-  let repo: { mode?: string; maxLossPerDay?: number; variants?: unknown[]; markets?: unknown[]; minBalance?: number; lossCap?: unknown };
+  let repo: { mode?: string; maxLossPerDay?: number; variants?: unknown[]; markets?: unknown[]; minBalance?: number; lossCap?: unknown; claimEveryMin?: number };
   try {
     repo = JSON.parse(readFileSync(join(ROOT, "deploy", "live-rules.json"), "utf8"));
   } catch {
@@ -466,7 +466,11 @@ function withRepoRules<T extends { mode?: string }>(local: T): T {
   }
   const mode = local.mode === "off" ? "off" : repo.mode;
   const minBalance = Number.isFinite(Number(repo.minBalance)) && Number(repo.minBalance) >= 0 ? Number(repo.minBalance) : (local as { minBalance?: number }).minBalance;
-  return { ...local, mode, maxLossPerDay: repo.maxLossPerDay, variants: repo.variants ?? [], markets: repo.markets ?? [], minBalance, lossCap: repo.lossCap, variant: undefined };
+  // 11 Nov 2026: the repo file may set how often wins are claimed (the real pair test finishes pairs every few minutes
+  // and their cash only returns at a claim). Never under 20 minutes: the relayer allows about 65 transactions a day.
+  const every = Number(repo.claimEveryMin);
+  const claimEveryMin = Number.isFinite(every) && every >= 20 ? every : (local as { claimEveryMin?: number }).claimEveryMin;
+  return { ...local, mode, maxLossPerDay: repo.maxLossPerDay, variants: repo.variants ?? [], markets: repo.markets ?? [], minBalance, lossCap: repo.lossCap, variant: undefined, claimEveryMin };
 }
 
 export function liveConfig(seriesKey = ""): LiveConfig {
