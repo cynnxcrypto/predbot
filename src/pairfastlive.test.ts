@@ -113,3 +113,18 @@ test("pairfastlive: the rules in the repo stay inside enrique's word (BTC 5m, $1
   assert.equal(JSON.parse(text).pairs.on, false);
   assert.equal(parseFast(text, { mode: "off", funder: "x" }).on, false);
 });
+
+test("pairfastlive: a part-filled bid keeps resting for the rest of its clip and no second clip is started on that side", () => {
+  const w = newWin(T);
+  // Up filled 3.63 of 6 at 48c
+  w.orders = { U: ord(0.48, 6, 3.63), D: ord(0.51) };
+  w.up = { shares: 3.63, cost: 3.63 * 0.48, last: 0.48 };
+  assert.deepEqual(desired(w, book(0.48), book(0.51), T + 60, cfg, true, 15), { U: { price: 0.48, size: 2.37 }, D: { price: 0.51, size: 6 } });
+  // Down then fills in full: the Up remainder stays, no new Up clip, no new Down clip
+  w.orders.D = null;
+  w.down = { shares: 6, cost: 3.06, last: 0.51 };
+  assert.deepEqual(desired(w, book(0.47), book(0.52), T + 70, cfg, true, 15), { U: { price: 0.48, size: 2.37 }, D: null });
+  // also when the guards say no and in the last 2 minutes; pulled 15 s before the close
+  assert.deepEqual(desired(w, book(0.47), book(0.52), T + 200, cfg, false, 0), { U: { price: 0.48, size: 2.37 }, D: null });
+  assert.deepEqual(desired(w, book(0.47), book(0.52), T + 290, cfg, true, 15), { U: null, D: null });
+});
