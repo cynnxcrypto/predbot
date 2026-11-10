@@ -7,6 +7,7 @@ const c = (x: number) => Math.round(x * 100) / 100;
 /** A book with `size` at the best bid, 50 on each of the four levels under it, and the ask 1c over the bid. */
 const book = (bid: number, size: number, ask = c(bid + 0.01)): Book => ({ bids: [{ price: bid, size }, ...[1, 2, 3, 4].map((i) => ({ price: c(bid - i / 100), size: 50 }))], asks: [{ price: ask, size: 10 }], bestBid: bid, bestAsk: ask, bidDepth: 0, askDepth: 0 });
 const spec = (over: Partial<Spec> = {}): Spec => ({ name: "t", key: "eth15m", offs: [0], slack: 3, maxImb: 1, from: 20, stop: 120, ...over });
+const real = PAIRFAST.find((p) => p.name === "pairfast-top-lock-5m")!;
 const T0 = 1_000_000; // window start, s
 const at = (sec: number) => (T0 + sec) * 1000;
 const view = (s: Sim) => s.orders.map((o) => [o.side, o.price, o.ahead, o.rem]);
@@ -149,4 +150,18 @@ test("pairfast: a settled window is split into the paired part and the lone part
 test("pairfast: every rule is paper, on ETH 15m or BTC 5m, with a unique name", () => {
   assert.equal(new Set(PAIRFAST.map((p) => p.name)).size, PAIRFAST.length);
   assert.ok(PAIRFAST.every((p) => p.name.startsWith("pairfast-") && ["eth15m", ""].includes(p.key)));
+});
+
+test("pairfast: the twin of the real rule starts pairs only at 17-83c and stops after one pair a window", () => {
+  const s = newSim(T0, 300);
+  run(s, real, book(0.12, 30), book(0.87, 20), at(30));
+  assert.equal(s.orders.length, 0);
+  run(s, real, book(0.48, 30), book(0.51, 20), at(31));
+  assert.equal(s.orders.length, 2);
+  const t = newSim(T0, 300);
+  Object.assign(t, { inv: { U: 6, D: 6 }, cost: { U: 2.88, D: 3.06 } });
+  run(t, real, book(0.48, 30), book(0.51, 20), at(31));
+  assert.equal(t.orders.length, 0);
+  // no new pair in the last 2 minutes
+  run(newSim(T0, 300), real, book(0.48, 30), book(0.51, 20), at(185));
 });

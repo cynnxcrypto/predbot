@@ -101,6 +101,7 @@ def summary():
     out["budgets"] = s.get("budgets")
     out["preopen"] = s.get("preopen")
     out["pairlock"] = s.get("pairlock")
+    out["pairfastlive"] = s.get("pairfastlive")  # 11 Nov 2026: REAL fast pair bot on BTC 5m, own $15 budget (src/pairfastlive.ts)
     out["pairfast"] = s.get("pairfast")  # 11 Nov 2026: feed-driven paper pair bot (src/pairfast.ts)
     out["pairlive"] = s.get("pairlive")  # 10 Nov 2026: budget, lost, open and left per real-money category
     out["realTrades"] = sorted(rows, key=lambda r: r.get("t") or 0)[-200:]
