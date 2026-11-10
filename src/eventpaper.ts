@@ -909,10 +909,15 @@ async function usportsTick() {
     const i = books[0].mid >= books[1].mid ? 0 : 1;
     const bk = books[i]!;
     const ask = bk.bestAsk!;
-    if (ask < 0.85 - 1e-9 || ask > 0.95 + 1e-9) continue;
     const spread = ask - (bk.bestBid ?? ask);
     const atAsk = bk.asks[0] ? bk.asks[0].price * bk.asks[0].size : 0;
     const extra: Record<string, unknown> = { league: m.league, start: m.start, mid: bk.mid, bid: bk.bestBid, ask, spread, atAsk };
+    // Round 320 (10 Nov 2026): log the out-of-band favourite as a skip so the dashboard shows the rule evaluating games.
+    if (ask < 0.85 - 1e-9 || ask > 0.95 + 1e-9) {
+      extra.skip = `favourite ask ${Math.round(ask * 100)}c outside 85-95c`;
+      signal(lg.rule, m.title, false, extra);
+      continue;
+    }
     const losses = lossesIn7d(lg.rule, now);
     const skip = losses >= 3 ? `${losses} losses in 7 days` : spread > 0.01 + 1e-9 ? `spread ${Math.round(spread * 100)}c` : atAsk < 25 ? `$${Math.round(atAsk)} at the ask` : null;
     if (skip) {
