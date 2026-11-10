@@ -953,7 +953,10 @@ export class LiveTrader {
         return this.skip(trade, "unsettled fills could trip the coin day stop");
       }
     }
-    if (rule.familyHaltLosses) {
+    // 10 Nov 2026 20:25 KST: with "familyHaltMin" the stop is only a 30-minute pause, so there is no day to protect and
+    // this check just cost trades (3 real signals skipped today, ETH and SOL at 19:47 KST behind one open BTC fill, in
+    // the rule's best block). It now applies to day-stop rules only; "maxOpen" still caps the tickets open at once.
+    if (rule.familyHaltLosses && !rule.familyHaltMin) {
       const open = familyOpen(trade.variant);
       if (open && familyStreak(trade.variant) + open >= rule.familyHaltLosses) {
         console.log(`live ${this.series.label}: ${trade.variant} skipped window ${trade.window}, ${open} unsettled fill(s) across markets could trip the day-halt`);
