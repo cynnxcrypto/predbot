@@ -53,3 +53,21 @@ test("pairlock: the cut twin sells a lone clip once its own bid is 10c under the
   quote(sim, book(0.4, 10, 0.41), book(0.58, 10, 0.6), 1111, 699, false, 30, 180, 0.1);
   assert.deepEqual([v(sim).cuts, Math.round(v(sim).cutNet * 100), v(sim).held], [1, -60, null]);
 });
+
+test("pairlock: the hold twin keeps both bids where they were placed and never chases", () => {
+  const sim = newSim(1000);
+  quote(sim, book(0.48, 30, 0.5), book(0.5, 20, 0.52), 1040, 860, false, 30, 120, 0, 0.99, 0, true);
+  assert.deepEqual([v(sim).up?.price, v(sim).up?.ahead, v(sim).down?.price], [0.48, 30, 0.5]);
+  // the best bids move 2c: the orders stay, with their place in the queue
+  quote(sim, book(0.5, 99, 0.52), book(0.48, 99, 0.5), 1041, 859, false, 30, 120, 0, 0.99, 0, true);
+  assert.deepEqual([v(sim).up?.price, v(sim).up?.ahead, v(sim).down?.price], [0.48, 30, 0.5]);
+  // Down is sold through our bid: first leg; the Up bid stays at 48c even though Up is now bid 53c
+  assert.equal(onPrint(sim, { price: 0.49, size: 6, side: "SELL" }, false, 1042), "first");
+  quote(sim, book(0.53, 99, 0.55), book(0.45, 99, 0.47), 1043, 857, false, 30, 120, 0, 0.99, 0, true);
+  assert.deepEqual([v(sim).up?.price, v(sim).down, v(sim).held?.price], [0.48, null, 0.5]);
+  assert.equal(onPrint(sim, { price: 0.47, size: 6, side: "SELL" }, true, 1050), "pair");
+  assert.deepEqual([v(sim).pairs, Math.round(v(sim).cost * 100)], [1, 98]);
+  // flat again inside the last 2 minutes: no new first legs
+  quote(sim, book(0.48, 30, 0.5), book(0.5, 20, 0.52), 1790, 110, false, 30, 120, 0, 0.99, 0, true);
+  assert.deepEqual([v(sim).up, v(sim).down], [null, null]);
+});

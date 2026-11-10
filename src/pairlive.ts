@@ -108,8 +108,9 @@ export function desired(w: Win, up: Book | null, down: Book | null, now: number,
   }
   const paired = Math.min(w.up.shares, w.down.shares);
   const band = (b: number) => b >= PAIR_LO - 1e-9 && b <= PAIR_HI + 1e-9;
-  // 15m: quote from 30 s in until 180 s before the close; 5m: from 20 s in until 60 s before the close.
-  const [from, stop] = windowSec <= 300 ? [20, 60] : [30, 180];
+  // 15m: quote from 30 s in until 180 s before the close; 5m: from 20 s in until 120 s before the close (60 s until
+  // 11 Nov 2026 02:45 KST: late first legs were the ones left alone).
+  const [from, stop] = windowSec <= 300 ? [20, 120] : [30, 180];
   if (now - w.start < from || left < stop || up.bestBid + down.bestBid > 0.99 + 1e-9 || !band(up.bestBid) || !band(down.bestBid) || paired >= cfg.maxPairs * cfg.clip - 0.01) return none;
   // A part fill can leave a few shares unpaired (under the 5-share order minimum): never add to the heavier side.
   return { U: un > 0.01 ? null : { price: up.bestBid, size: cfg.clip }, D: un < -0.01 ? null : { price: down.bestBid, size: cfg.clip } };

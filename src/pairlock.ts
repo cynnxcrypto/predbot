@@ -26,7 +26,7 @@ import { append, loadJson, saveJson } from "./store.js";
 
 export const CLIP = 6;
 const FILE = "pairlock.json";
-type Spec = { name: string; every: number; chase: boolean; keys: string[]; from?: number; stop?: number; cut?: number; cap?: number; deep?: number };
+type Spec = { name: string; every: number; chase: boolean; keys: string[]; from?: number; stop?: number; cut?: number; cap?: number; deep?: number; hold?: boolean };
 const BIG3 = ["btc15m", "eth15m", "sol15m"];
 const BTC5M = SERIES[0].key; // the first series is BTC 5m
 const USED = [...BIG3, BTC5M];
@@ -54,6 +54,14 @@ export const PAIRLOCK: Spec[] = [
   // sides (a pair then costs about 95c, 30c a pair instead of 6c), so each lone clip is paid for by fewer pairs.
   { name: "pairlock-1s-deep2", every: 1, chase: false, keys: BIG3, deep: 0.02 },
   { name: "pairlock-1s-5m-deep2", every: 1, chase: false, keys: [BTC5M], from: 20, stop: 60, deep: 0.02 },
+  // 11 Nov 2026 02:45 KST (top-traders update): why real lost. Re-joining the best bid every second puts us last in
+  // the queue each time, so we fill mainly when a level is swept (about 4c against us). The winning pair wallets leave
+  // both bids RESTING all window and earn about 2c a pair from their place in the queue. These twins do that: bids are
+  // placed once at the best bid on both sides and are NOT moved when the best bid moves (queue place kept); after the
+  // first fill the other bid simply stays where it is (the pair can never cost over 99c, nothing is chased); bids are
+  // re-placed only while flat when one has been left 4c or more under its best bid; no new first legs in the last 2 min.
+  { name: "pairlock-hold", every: 1, chase: false, keys: BIG3, stop: 120, hold: true },
+  { name: "pairlock-hold-5m", every: 1, chase: false, keys: [BTC5M], from: 20, stop: 120, hold: true },
   { name: "pairlock-1s-cut10", every: 1, chase: false, keys: BIG3, cut: 0.1 },
   { name: "pairlock-1s-cut5", every: 1, chase: false, keys: BIG3, cut: 0.05 },
   { name: "pairlock-1s-5m-cut10", every: 1, chase: false, keys: [BTC5M], from: 20, stop: 60, cut: 0.1 },
@@ -61,7 +69,7 @@ export const PAIRLOCK: Spec[] = [
 ];
 
 export type Order = { price: number; ahead: number; got: number };
-export type Sim = { start: number; up: Order | null; down: Order | null; held: { side: "U" | "D"; price: number; at: number } | null; pairs: number; cost: number; rebate: number; active: boolean; cuts: number; cutNet: number };
+export type Sim = { start: number; up: Order | null; down: Order | null; held: { side: "U" | "D"; price: number; at: number } | null; pairs: number; cost: number; rebate: number; active: boolean; cuts: number; cutNet: number; hold?: boolean };
 type Left = { series: string; start: number; side: "U" | "D"; price: number; won?: boolean; net?: number };
 type Tot = { windows: number; pairs: number; pairNet: number; rebate: number; left: Left[]; cuts?: number; cutNet?: number };
 
@@ -77,10 +85,24 @@ export function join(cur: Order | null, bids: { price: number; size: number }[],
 }
 
 /** One second of quoting for one sim. `now` and `left` in seconds. */
-export function quote(sim: Sim, up: Book | null, down: Book | null, now: number, left: number, chase: boolean, from = 30, stop = 180, cut = 0, capAt = 0.99, deep = 0) {
+export function quote(sim: Sim, up: Book | null, down: Book | null, now: number, left: number, chase: boolean, from = 30, stop = 180, cut = 0, capAt = 0.99, deep = 0, hold = false) {
   const elapsed = now - sim.start;
+  sim.hold = hold;
+  if (hold && up && down && up.bestBid != null && down.bestBid != null) {
+    if (sim.held) {
+      // The other bid stays where it was placed; it is only pulled 20 s before the close.
+      if (left <= 20) sim.up = sim.down = null;
+      return;
+    }
+    if (sim.up && sim.down) {
+      const stale = sim.up.price <= up.bestBid - 0.04 + 1e-9 || sim.down.price <= down.bestBid - 0.04 + 1e-9;
+      if (left < stop) sim.up = sim.down = null;
+      else if (!stale) return;
+      else sim.up = sim.down = null;
+    }
+  }
   if (!up || !down || up.bestBid == null || down.bestBid == null) {
-    sim.up = sim.down = null;
+    if (!hold) sim.up = sim.down = null; // a resting order stays in the book when our view of it drops
     return;
   }
   if (!sim.held) {
@@ -148,7 +170,10 @@ export function onPrint(sim: Sim, p: { price: number; size: number; side: string
       return "pair";
     }
     sim.held = { side, price: o.price, at: now };
-    sim.up = sim.down = null;
+    if (sim.hold) {
+      if (side === "U") sim.up = null;
+      else sim.down = null;
+    } else sim.up = sim.down = null;
     return "first";
   }
   return null;
@@ -197,7 +222,7 @@ function tick() {
         sim = undefined;
       }
       if (!sim) sims.set(id, (sim = newSim(start)));
-      if (now % spec.every === 0) quote(sim, up, down, now, start + s.windowSec - now, spec.chase, spec.from, spec.stop, spec.cut, spec.cap, spec.deep);
+      if (now % spec.every === 0) quote(sim, up, down, now, start + s.windowSec - now, spec.chase, spec.from, spec.stop, spec.cut, spec.cap, spec.deep, spec.hold);
     }
   }
   if (dirty) saveJson(FILE, state);
