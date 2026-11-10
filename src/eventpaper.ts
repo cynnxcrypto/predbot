@@ -630,6 +630,7 @@ const RULE_TEXT: Record<string, [string, string]> = {
   "nfl-fav85": ["usports", "Shadow: NFL favourite 85-95c, same rule as nba-fav85."],
   "nba-fav85-mid": ["usports", "Mid-bid twin of nba-fav85: at T-30 min rest $5 one tick under the favourite's ask (books are 1c, so this joins the bid), cancel at tip-off, hold a fill."],
   "weather-fav16-mid": ["weather", "Round 307 (9 Nov 2026 21:15 KST): maker shadow of the 16:00 rule. In three days the taker rules saw 21 signals and took none (asks 65-91c, 4c+ over mid; the mid+5c copy also took none), so this one rests a $5 bid AT the mid of the leading bucket for up to 6 h and books the trade only if the ask comes down to it. Measures whether a patient bid can trade the weather edge at all, and what it wins when it does."],
+  "weather-dayahead-all": ["weather", "11 Nov 2026 02:50 KST (top-traders lead: one wallet, one week, +$3,269 on $10,573 as a pure maker buying 10-50c buckets 24-48 h before the close; a lead, not proof): the day before, at 12:00 station local time (36 h before the market day ends), rest a $5 bid at the best bid on up to 3 temperature buckets asking 10-50c; never take; cancel 20 h before the close; hold fills to settlement. This is the no-forecast baseline; the copy that only bids where a weather-model forecast disagrees with the price is still to come. Tickets win under half the time by design."],
   "weather-fav16-hi": ["weather", "10 Nov 2026 17:10 KST: 16:00 rule for city-days whose leading bucket is already 85-95c (the main rule only takes 50-85c and dropped these without a line). Buys the ask when it is within 2c of mid. No backtest for this band: it measures whether late near-certain buckets pay after the spread."],
   "weather-fav15-ask1": ["weather", "10 Nov 2026 17:10 KST: 15:00 copy of the 1c-under-ask maker shadow. The 15:00 taker saw 22 signals in three days and took 1 (asks 4c+ over mid), so this rests a $5 bid 1c under the ask for up to 6 h on every 15:00 signal."],
   "weather-fav16-ask1": ["weather", "Round 317 (10 Nov 2026 07:10 KST): maker shadow of the 16:00 rule bidding 1c UNDER THE ASK for up to 6 h. The mid-bid shadow got its first fills on 10 Nov (Madrid bid 61c vs ask 70c, Buenos Aires 62c vs 75c): both filled only after the ask slid 9-13c down to the bid, so a mid bid in a 10-25c-wide weather book buys mostly when the market has turned against the bucket. This twin fills on a 1c dip instead and gives up the price; the two together say whether weather can be traded as a maker at all."],
@@ -711,6 +712,22 @@ async function weatherRefresh() {
 async function weatherTick() {
   const now = Date.now();
   for (const ev of Object.values(state.wx)) {
+    {
+      // weather-dayahead-all: one look per city-day, 36-24 h before the market day ends (see RULES).
+      const key = `weather-dayahead-all|${ev.id}`;
+      const day0 = zonedUtc(ev.date[0], ev.date[1], ev.date[2], 0, ev.tz);
+      if (!state.done[key] && now >= day0 - 12 * 3600_000 && now < day0) {
+        state.done[key] = now;
+        const books = await Promise.all(ev.buckets.map((b) => book(b.token).catch(() => null)));
+        const picks = ev.buckets
+          .map((bu, i) => ({ bu, bk: books[i] }))
+          .filter((x) => x.bk?.bestAsk != null && x.bk.bestBid != null && x.bk.bestAsk >= 0.1 - 1e-9 && x.bk.bestAsk <= 0.5 + 1e-9 && x.bk.bestBid >= 0.05 && x.bk.bestBid < x.bk.bestAsk)
+          .sort((a, b) => b.bk!.bestAsk! - a.bk!.bestAsk!)
+          .slice(0, 3);
+        for (const { bu, bk } of picks) state.makers.push({ rule: "weather-dayahead-all", marketId: bu.id, title: ev.title, outcome: bu.label, idx: 0, token: bu.token, bid: bk!.bestBid!, t: now, feeRate: bu.feeRate, ask: bk!.bestAsk!, until: day0 + 4 * 3600_000, mid: bk!.mid ?? undefined });
+        signal("weather-dayahead-all", ev.title, false, { station: ev.station, bids: picks.map((x) => `${x.bu.label} ${Math.round(x.bk!.bestBid! * 100)}c`), ...(picks.length ? {} : { skip: "no bucket asking 10-50c" }) });
+      }
+    }
     for (const { rule, hour, slip = 0.02, lo = 0.5, hi = 0.85 } of WX_RULES) {
       const key = `${rule}|${ev.id}`;
       if (state.done[key]) continue;
@@ -1110,7 +1127,7 @@ const GROUPS: Record<string, string[]> = {
   esports: ["esports-map1", "esports-fav-shadow", "esports-map1-dota", "esports-lol-fav90", "esports-cs2-fav90"],
   indices: ["gold-momentum", "spx-underdog", "spy-underdog"],
   politics: ["election-lock-taker", "election-lock-maker"],
-  weather: ["weather-fav16", "weather-fav15", "weather-fav16-wide", "weather-fav16-mid", "weather-fav16-ask1", "weather-fav16-hi", "weather-fav15-ask1"],
+  weather: ["weather-fav16", "weather-fav15", "weather-fav16-wide", "weather-fav16-mid", "weather-fav16-ask1", "weather-fav16-hi", "weather-fav15-ask1", "weather-dayahead-all"],
   tennis: ["tennis-wta-fav90", "tennis-atp-fav90", "tennis-wta-fav85", "tennis-itf-fav90", "tennis-fav95", "tennis-fav90-mid"],
   cricket: ["cricket-fav10", "cricket-fav60", "cricket-dog-control"],
   usports: ["nba-fav85", "cbb-fav85", "nfl-fav85", "nba-fav85-mid"],
