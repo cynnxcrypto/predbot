@@ -42,6 +42,8 @@ type Done = { key: string; start: number; up: number; down: number; cost: number
 type State = { cur: Record<string, Win>; pending: Win[]; done: Done[]; errDay: string; errs: number; note: string | null; rejects?: number };
 export type Want = { price: number; size: number };
 
+/** The name a series goes by in the "pairs" config and in the state file. */
+export const nameOf = (s: { key: string }) => s.key || "btc5m";
 const num = (x: unknown, d: number) => (x != null && Number.isFinite(Number(x)) ? Number(x) : d);
 const r2 = (x: number) => Math.round(x * 100) / 100;
 
@@ -52,7 +54,8 @@ export function parsePairs(repoText: string, local: { mode?: string; funder?: st
     const repo = JSON.parse(repoText) as { mode?: string; minBalance?: unknown; pairs?: { on?: unknown; series?: unknown; clip?: unknown; maxLoss?: unknown; maxPairs?: unknown; dayMaxLoss?: unknown } };
     const p = repo?.pairs;
     if (!p || p.on !== true || repo.mode !== "live" || local.mode === "off" || !String(local.funder ?? "").trim()) return off;
-    const series = Array.isArray(p.series) ? p.series.filter((s): s is string => typeof s === "string" && SERIES.some((x) => x.key === s && x.windowSec === 900)) : [];
+    // 15-minute series by their key, and "btc5m" for BTC 5m (whose key is the empty string).
+    const series = Array.isArray(p.series) ? p.series.filter((s): s is string => typeof s === "string" && SERIES.some((x) => nameOf(x) === s && (x.windowSec === 900 || s === "btc5m"))) : [];
     const clip = Math.min(6, Math.max(5, num(p.clip, 6))); // 6 shares at 83c is $4.98: the $5 a trade limit
     const maxLoss = Math.min(35, Math.max(0, num(p.maxLoss, 0))); // enrique's word covers $35, no more
     if (!series.length || !(maxLoss > 0)) return off;
@@ -102,7 +105,9 @@ export function desired(w: Win, up: Book | null, down: Book | null, now: number,
   }
   const paired = Math.min(w.up.shares, w.down.shares);
   const band = (b: number) => b >= PAIR_LO - 1e-9 && b <= PAIR_HI + 1e-9;
-  if (now - w.start < 30 || left < 180 || up.bestBid + down.bestBid > 0.99 + 1e-9 || !band(up.bestBid) || !band(down.bestBid) || paired >= cfg.maxPairs * cfg.clip - 0.01) return none;
+  // 15m: quote from 30 s in until 180 s before the close; 5m: from 20 s in until 60 s before the close.
+  const [from, stop] = windowSec <= 300 ? [20, 60] : [30, 180];
+  if (now - w.start < from || left < stop || up.bestBid + down.bestBid > 0.99 + 1e-9 || !band(up.bestBid) || !band(down.bestBid) || paired >= cfg.maxPairs * cfg.clip - 0.01) return none;
   // A part fill can leave a few shares unpaired (under the 5-share order minimum): never add to the heavier side.
   return { U: un > 0.01 ? null : { price: up.bestBid, size: cfg.clip }, D: un < -0.01 ? null : { price: down.bestBid, size: cfg.clip } };
 }
@@ -194,7 +199,8 @@ async function step(c: ClobClient, s: Series, cfg: PairConfig) {
   const nowMs = Date.now();
   const now = Math.floor(nowMs / 1000);
   const start = Math.floor(now / s.windowSec) * s.windowSec;
-  let w: Win | undefined = state.cur[s.key];
+  const name = nameOf(s);
+  let w: Win | undefined = state.cur[name];
   if (w && w.start !== start) {
     // The window is over: its orders died with the market, but cancel and read them once more to be sure of the fills.
     try {
@@ -204,14 +210,14 @@ async function step(c: ClobClient, s: Series, cfg: PairConfig) {
       w.orders = { U: null, D: null };
     }
     if (w.up.shares > 0 || w.down.shares > 0) state.pending.push(w);
-    delete state.cur[s.key];
+    delete state.cur[name];
     save();
     w = undefined;
   }
-  const active = cfg.on && cfg.series.includes(s.key) && !quiet;
+  const active = cfg.on && cfg.series.includes(name) && !quiet;
   if (!w) {
     if (!active) return;
-    w = state.cur[s.key] = newWin(s.key, start);
+    w = state.cur[name] = newWin(name, start);
   }
   const m = currentMarket(s.key);
   const live = m && m.start === start ? m : null;
@@ -221,7 +227,7 @@ async function step(c: ClobClient, s: Series, cfg: PairConfig) {
   blocked = active ? guardsOk(cfg, nowMs) : "switched off";
   // A clip waiting for its pair may always be completed (that lowers risk); new pairs need every guard.
   const completing = Math.abs(w.up.shares - w.down.shares) >= 5;
-  const ok = active && nowMs >= (pauseUntil.get(s.key) ?? 0) && (completing ? !/errors/.test(blocked ?? "") : blocked == null);
+  const ok = active && nowMs >= (pauseUntil.get(name) ?? 0) && (completing ? !/errors/.test(blocked ?? "") : blocked == null);
   const want = desired(w, up, down, now, s.windowSec, cfg, ok);
   for (const side of ["U", "D"] as const) {
     const o = w.orders[side];
@@ -237,7 +243,7 @@ async function step(c: ClobClient, s: Series, cfg: PairConfig) {
 async function settle() {
   const now = Math.floor(Date.now() / 1000);
   for (const w of [...state.pending]) {
-    const s = SERIES.find((x) => x.key === w.key);
+    const s = SERIES.find((x) => nameOf(x) === w.key);
     if (!s || now < w.start + s.windowSec + 90) continue;
     const r = await resolution(w.start, s.slug, s.slugStyle).catch(() => null);
     if (!r || r.resolvedUp == null) continue;
@@ -246,7 +252,7 @@ async function settle() {
     state.done.push({ key: w.key, start: w.start, up: r2(w.up.shares), down: r2(w.down.shares), cost: r2(cost), net: r2(win - cost), at: Date.now() });
     if (state.done.length > 2000) state.done.splice(0, state.done.length - 2000);
     state.pending = state.pending.filter((x) => x !== w);
-    if (win > 0.01) queueRedeem(w.key, w.start, win);
+    if (win > 0.01) queueRedeem(s.key, w.start, win);
     console.log(`pairs ${w.key}: window settled ${r.resolvedUp ? "Up" : "Down"}, ${w.up.shares.toFixed(2)} Up / ${w.down.shares.toFixed(2)} Down for $${cost.toFixed(2)}, net ${win - cost >= 0 ? "+" : "-"}$${Math.abs(win - cost).toFixed(2)}`);
     save();
   }
@@ -307,7 +313,7 @@ export function startPairlive() {
         if (b && Number.isFinite(Number(b.balance))) balance = Number(b.balance) / 1e6;
       }
       for (const s of SERIES) {
-        if (s.windowSec !== 900 || (!cfg.series.includes(s.key) && !state.cur[s.key])) continue;
+        if (!cfg.series.includes(nameOf(s)) && !state.cur[nameOf(s)]) continue;
         try {
           await step(c, s, cfg);
         } catch (e) {
@@ -318,8 +324,8 @@ export function startPairlive() {
           }
           state.errs += 1;
           state.note = `error: ${scrub((e as Error).message ?? String(e))}`;
-          pauseUntil.set(s.key, Date.now() + 20_000);
-          console.log(`pairs ${s.key}: ${state.note}; pausing 20 s`);
+          pauseUntil.set(nameOf(s), Date.now() + 20_000);
+          console.log(`pairs ${nameOf(s)}: ${state.note}; pausing 20 s`);
           save();
         }
       }

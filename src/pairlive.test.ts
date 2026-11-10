@@ -50,6 +50,12 @@ test("pairlive: config is off unless everything says on, and the hard limits hol
   assert.equal(parsePairs(mk({ on: true, series: ["nope"], maxLoss: 35 }), local).on, false);
   const big = parsePairs(mk({ on: true, series: ["eth15m", "eth5m"], clip: 50, maxLoss: 500, maxPairs: 99 }), local);
   assert.deepEqual([big.on, big.series, big.clip, big.maxLoss, big.maxPairs, big.minBalance], [true, ["eth15m"], 6, 35, 6, 250]);
+  assert.deepEqual(parsePairs(mk({ on: true, series: ["btc5m", "eth15m"], maxLoss: 35 }), local).series, ["btc5m", "eth15m"]);
+  // 5m windows quote from 20 s in until 60 s before the close
+  const w5 = newWin("btc5m", 900);
+  assert.deepEqual(desired(w5, book(0.48), book(0.5), 915, 300, cfg, true), { U: null, D: null });
+  assert.deepEqual(desired(w5, book(0.48), book(0.5), 925, 300, cfg, true), { U: { price: 0.48, size: 6 }, D: { price: 0.5, size: 6 } });
+  assert.deepEqual(desired(w5, book(0.48), book(0.5), 1145, 300, cfg, true), { U: null, D: null });
   const real = parsePairs(readFileSync("deploy/live-rules.json", "utf8"), local);
-  assert.ok(real.maxLoss <= 35 && real.clip <= 6 && real.series.every((s) => s.endsWith("15m")));
+  assert.ok(real.maxLoss <= 35 && real.clip <= 6 && real.series.every((s) => s.endsWith("15m") || s === "btc5m"));
 });
