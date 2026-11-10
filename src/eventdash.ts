@@ -14,7 +14,7 @@
 import { gunzipSync } from "node:zlib";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { ROOT } from "./config.js";
+import { ROOT, kstDay } from "./config.js";
 import { budgets } from "./live.js";
 import { loadJson } from "./store.js";
 
@@ -308,6 +308,53 @@ function realInfo(group: string): { budget: unknown; guards: Record<string, numb
   return { budget, guards };
 }
 
+type RealRow = { t: number; group?: string; rule: string; title: string; outcome: string; ask: number; cost: number; shares: number; status: string | null; error: string | null; pnl?: number | null; settledAt?: number | null };
+/** Every real bet of a category from data/eventlive.json (read only): per rule today / all time, Korean days, latest orders. */
+function realRecord(group: string): unknown {
+  const all = loadJson<RealRow[]>("eventlive.json", []);
+  const rows = (Array.isArray(all) ? all : []).filter((r) => r.group === group);
+  const today = kstDay(Date.now());
+  const r2 = (x: number) => Math.round(x * 100) / 100;
+  type Agg = { trades: number; open: number; settled: number; won: number; net: number };
+  const z = (): Agg => ({ trades: 0, open: 0, settled: 0, won: 0, net: 0 });
+  const add = (a: Agg, r: RealRow) => {
+    a.trades++;
+    if (r.pnl == null) a.open++;
+    else {
+      a.settled++;
+      a.net = r2(a.net + r.pnl);
+      if (r.pnl > 0) a.won++;
+    }
+  };
+  const byRule: Record<string, { today: Agg; all: Agg; misses: number }> = {};
+  const days: Record<string, Agg & { by: Record<string, Agg> }> = {};
+  const tot = { today: z(), all: z() };
+  for (const r of rows) {
+    const b = (byRule[r.rule] ??= { today: z(), all: z(), misses: 0 });
+    if (!(r.shares > 0)) {
+      if (kstDay(r.t) === today) b.misses++;
+      continue;
+    }
+    add(b.all, r);
+    add(tot.all, r);
+    if (r.pnl == null) continue;
+    const day = kstDay(r.settledAt ?? r.t);
+    if (day === today) {
+      add(b.today, r);
+      add(tot.today, r);
+    }
+    const d = (days[day] ??= { ...z(), by: {} });
+    add(d, r);
+    add((d.by[r.rule] ??= z()), r);
+  }
+  return {
+    byRule,
+    tot,
+    days: Object.keys(days).sort().reverse().slice(0, 30).map((day) => ({ day, ...days[day] })),
+    log: rows.slice(-60).reverse().map((r) => ({ t: r.t, rule: r.rule, title: r.title, outcome: r.outcome, ask: r.ask, cost: r.cost, shares: r.shares, status: r.status, error: r.error, pnl: r.pnl ?? null, settledAt: r.settledAt ?? null })),
+  };
+}
+
 /** /api/events?sec=<id>: everything one category tab shows. */
 export async function eventsStatus(sec: string): Promise<unknown> {
   const cat = CATS[sec];
@@ -321,6 +368,7 @@ export async function eventsStatus(sec: string): Promise<unknown> {
     at: Date.now(),
     paper: cat.group ? (sum[cat.group] ?? null) : null,
     real: cat.group ? realInfo(cat.group) : null,
+    realRec: cat.group ? realRecord(cat.group) : null,
     paperAt: sum.at ?? null,
     health: sum.health ?? null,
     names: RULE_NAMES,
@@ -349,37 +397,43 @@ export const EV_CSS = String.raw`
 .ev .cd{font-weight:600}.ev .cd.soon{color:var(--acc)}.ev .cd.live{color:var(--up)}
 .ev .rl .stats{display:flex;flex-wrap:wrap;gap:18px 34px;padding:4px 0 12px}.ev .rl .sub{font-size:14px;color:var(--mut);font-weight:400}.ev .rl .chips{margin-bottom:12px}.ev .rl .chip{font-size:12px;padding:4px 11px}
 .ev .rl .bud{height:6px;border-radius:3px;background:var(--line);overflow:hidden;margin-top:6px;width:150px;display:flex}.ev .rl .bud i{display:block;height:100%}.ev .rl .bud .lo{background:var(--down)}.ev .rl .bud .op{background:var(--acc)}
-.ev .rl .stats .v.big{font-size:30px}.ev .rl.none{border-color:var(--line)}.ev .rl.none .v.big{color:var(--mut)}.ev .rl .say{font-size:14px;line-height:1.5;margin:0 0 10px}.ev .rl .say b{color:var(--fg)}
-.ev .tag.none{color:var(--mut);border:1px solid var(--line)}.ev .rgrid{margin-bottom:14px}.ev .rgrid .panel{margin-bottom:0}
-.ev .psep{display:flex;align-items:center;gap:10px;margin:22px 0 10px;color:var(--mut);font-size:12px}.ev .psep:after{content:"";flex:1;height:1px;background:var(--line)}
-.ev .pp .hero{gap:14px 30px}.ev .pp .hero .clock{font-size:30px;letter-spacing:0}.ev .pp .stats{gap:12px 26px}.ev .pp .stats .v.big{font-size:18px;font-weight:600}
+.ev .hero .clock{font-size:64px}.ev .log td.rn{width:30%}.ev .log td.mkt{max-width:0;width:34%;overflow:hidden;text-overflow:ellipsis}.ev .rules td:first-child{max-width:320px;overflow:hidden;text-overflow:ellipsis}.ev .rules td b{font-weight:700}
 .ev .jst{color:var(--mut);font-size:12px;white-space:nowrap}
 .ev .why{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
-@media(max-width:700px){.ev .ph{flex-wrap:wrap;gap:4px 10px}.ev .ph>.mut{text-align:left;flex-basis:100%;font-size:11px}.ev .chip{white-space:normal}.ev .nm{display:none}.ev .pp .hero .clock{font-size:26px}.ev .rl .stats .v.big{font-size:24px}.ev table td.mk{width:auto;min-width:110px;max-width:none;white-space:normal;overflow-wrap:anywhere}.ev table td.mk .s{white-space:normal}.ev th{font-size:9px;letter-spacing:.06em}.ev td,.ev th{padding-right:8px}.ev td{font-size:12px}.ev .stats{gap:16px}}
+@media(max-width:700px){.ev .ph{flex-wrap:wrap;gap:4px 10px}.ev .ph>.mut{text-align:left;flex-basis:100%;font-size:11px}.ev .chip{white-space:normal}.ev .nm{display:none}.ev .hero .clock{font-size:40px}.ev .stats.tight{flex-wrap:wrap;gap:12px 18px;justify-content:flex-start}.ev .log td.mkt{width:auto;max-width:150px}.ev .log td.rn{display:none}.ev table td.mk{width:auto;min-width:110px;max-width:none;white-space:normal;overflow-wrap:anywhere}.ev table td.mk .s{white-space:normal}.ev th{font-size:9px;letter-spacing:.06em}.ev td,.ev th{padding-right:8px}.ev td{font-size:12px}.ev .stats{gap:16px}}
 `;
-export function evSectionHtml(id: string, label: string): string {
+export function evSectionHtml(id: string, _label: string): string {
   const has = Boolean(CATS[id]?.group);
   const P = '<span class="tag paper">paper</span>';
+  const R = '<span class="tag real">real</span>';
   return `<section class="sec hide ev" id="sec-${id}">
-<div id="ev-${id}-real" data-lab="${label.replace(/[&<>"]/g, "")}"><div class="panel rl none" style="margin-bottom:14px"><div class="ph"><div class="k">real money</div><div class="mut">loading</div></div></div></div>
-<div class="psep"><span class="tag paper">paper · simulated, no money</span><span>everything from here down is practice at $5 a bet</span></div>
-<div class="panel pp" style="margin-bottom:14px"><div class="hero">
-  <div class="nxt"><div class="k" id="ev-${id}-nk">next market</div><div class="clock" id="ev-${id}-clock">–:––</div><div class="t" id="ev-${id}-nt"></div></div>
+<div class="panel" style="margin-bottom:14px"><div class="hero">
+  <div class="clocks"><div class="nxt"><div class="k" id="ev-${id}-nk">next market</div><div class="clock" id="ev-${id}-clock">–:––</div><div class="t" id="ev-${id}-nt"></div></div></div>
   <div class="stats" id="ev-${id}-stats"></div>
-  <div class="chips" id="ev-${id}-chips"></div>
 </div></div>
 <div class="grid">
-  <div class="panel"><div class="ph"><div class="k">${has ? 'paper rules <span class="tag paper">paper · $5 a bet</span>' : "research &amp; planned rule"}</div><div class="mut" id="ev-${id}-rsub"></div></div><div id="ev-${id}-rules"></div></div>
-  <div class="panel"><div class="ph"><div class="k">${has ? `paper trade log ${P}` : "markets watched"}</div><div class="mut" id="ev-${id}-lsub"></div></div><div id="ev-${id}-log"></div></div>
+  <div class="panel real"><div class="ph"><div class="k">real money ${R}</div><div class="mut" id="ev-${id}-lrule"></div></div>
+    <div class="stats tight" style="margin-bottom:6px" id="ev-${id}-rstats"></div>
+    <div class="mut" id="ev-${id}-ledger" style="font-size:12px;margin-bottom:12px"></div>
+    <table style="margin-bottom:12px" class="rules"><thead><tr class="gh"><th></th><th></th><th colspan="3" class="grp-today">today</th><th colspan="3" class="grp-all">all time</th></tr><tr><th>strategy</th><th class="r">size</th><th class="r">net</th><th class="r">trades</th><th class="r">won</th><th class="r">net</th><th class="r">trades</th><th class="r">won</th></tr></thead><tbody id="ev-${id}-lrules"></tbody></table>
+    <div class="wps" id="ev-${id}-lstate"></div>
+  </div>
+  <div class="panel real logp"><div class="ph"><div class="k">real trade log ${R}</div><div class="mut" id="ev-${id}-lopen"></div></div>
+    <div><table class="log"><tbody id="ev-${id}-rlog"></tbody></table></div>
+  </div>
 </div>
-${has ? `<div class="grid"><div class="panel"><div class="ph"><div class="k">paper net over time ${P}</div><div class="lg" id="ev-${id}-lg"></div></div><div class="netc" id="ev-${id}-chart"></div><div id="ev-${id}-days"></div></div>
-<div class="panel"><div class="ph"><div class="k">why no paper bet fired</div><div class="mut" id="ev-${id}-wsub"></div></div><div id="ev-${id}-why"></div></div></div>
+<div class="panel" style="margin-bottom:14px"><div class="ph"><div class="k">real money, day by day ${R}</div><div class="mut">Korean days</div></div>
+<table><thead><tr><th>day</th><th class="r">trades</th><th class="r">won</th><th class="r">net</th><th>by rule</th></tr></thead><tbody id="ev-${id}-cmp"></tbody></table></div>
+<div class="panel" style="margin-bottom:14px"><div class="ph"><div class="k">paper lab <span class="tag paper">paper · simulated, no money</span></div><div class="mut" id="ev-${id}-rsub" style="text-align:right"></div></div><div id="ev-${id}-rules"></div></div>
+<div class="grid">
+  <div class="panel"><div class="ph"><div class="k">${has ? `paper trade log ${P}` : "markets watched"}</div><div class="mut" id="ev-${id}-lsub"></div></div><div id="ev-${id}-log"></div></div>
+  ${has ? `<div class="panel"><div class="ph"><div class="k">paper, day by day ${P}</div><div class="lg" id="ev-${id}-lg"></div></div><div class="netc" id="ev-${id}-chart"></div><div id="ev-${id}-days"></div></div>` : ""}
+</div>
+${has ? `<div class="panel" style="margin-bottom:14px"><div class="ph"><div class="k">why no paper bet fired</div><div class="mut" id="ev-${id}-wsub"></div></div><div id="ev-${id}-why"></div></div>
 <div class="panel" style="margin-bottom:14px"><div class="ph"><div class="k">markets watched</div><div class="mut" id="ev-${id}-wtsub"></div></div><div id="ev-${id}-watch"></div></div>` : ""}
 <div class="panel" style="margin-bottom:14px"><div class="ph"><div class="k">live order books <span class="mut">· can a $5 bet fill?</span></div><div class="mut" id="ev-${id}-bsub"></div></div><div id="ev-${id}-books"></div></div>
-<div class="grid">
-  ${has ? `<div class="panel"><div class="ph"><div class="k">research</div><div class="mut" id="ev-${id}-resub"></div></div><div id="ev-${id}-research"></div></div>` : ""}
-  <div class="panel"${has ? "" : ' style="grid-column:1/-1"'}><div class="ph"><div class="k">data collector</div><div class="mut" id="ev-${id}-csub"></div></div><div id="ev-${id}-col"></div></div>
-</div>
+${has ? `<div class="panel" style="margin-bottom:14px"><div class="ph"><div class="k">research</div><div class="mut" id="ev-${id}-resub"></div></div><div id="ev-${id}-research"></div></div>` : ""}
+<div class="panel" style="margin-bottom:14px"><div class="ph"><div class="k">feeds &amp; recorder</div><div class="mut" id="ev-${id}-csub"></div></div><div class="chips" id="ev-${id}-chips" style="margin-bottom:12px"></div><div id="ev-${id}-col"></div></div>
 </section>`;
 }
 
@@ -398,22 +452,22 @@ var evDayLab=function(ms){var k=new Date(ms+9*3600000).toISOString().slice(0,10)
 var evStat=function(k,v,c,t){return '<div'+(t?' title="'+evE(t)+'"':'')+'><div class="k">'+k+'</div><div class="v big '+(c||"")+'">'+v+'</div></div>'};
 var evChip=function(st,txt,t){return '<span class="chip '+st+'"'+(t?' title="'+evE(t)+'"':'')+'><i></i>'+txt+'</span>'};
 var evJv=function(p,c,jm,cost){if(p==null)return '<span class="mut">—</span>';var k=String(p);if(k.indexOf("error")===0)return '<span class="jst" title="'+evE(k)+'">error</span>';var tip="Jev pick: "+k+(c!=null?", confidence "+Math.round(c):"")+". Paper only: the real rule does not use Jev.";return '<span class="jst" title="'+evE(tip)+'">'+(jm!=null&&cost!=null?"$"+(cost*jm).toFixed(2).replace(/\.00$/,""):evE(k))+'</span>'};
-function evNone(sec,D,box){var P=D.paper,lab=box.getAttribute("data-lab")||sec;var R=P&&P.rules||[];var best=null;R.forEach(function(r){if(r.fillable&&r.fillable.trades&&(!best||r.fillable.trades>best.fillable.trades))best=r});
-var st=evStat("real today","$0.00","","no real bets in this category")+evStat("real all time","$0.00","")+evStat("real bets","0","")+evStat("real rules on","0","")+evStat("budget","none","","no real-money budget is set for this category");
-var bar=best?evChip("","closest paper rule to the bar · <b>"+evE(evName(D,best.rule))+"</b> · <b>"+best.fillable.trades+"</b> of 100 fillable bets · won "+best.fillable.won+"/"+best.fillable.trades+" · "+evS(best.fillable.net),"bar for real money: 100+ fillable paper bets, 50%+ won, positive net"):evChip("",R.length?"no fillable paper bet has settled yet":"no paper rule runs here yet");
-box.innerHTML='<div class="panel rl none" style="margin-bottom:14px"><div class="ph"><div class="k">real money <span class="tag none">none here</span></div><div class="mut">no real rule · no real trades</div></div><div class="say"><b>No real money is traded in '+evE(lab)+'.</b> Nothing below is real: it is paper practice, and no rule here has reached the bar for real money (100+ fillable bets, 50%+ won). Real starts only on your word.</div><div class="stats">'+st+'</div><div class="chips">'+bar+'</div></div>'}
-function evReal(sec,D){var P=D.paper,R=P&&P.real,box=el("ev-"+sec+"-real");if(!box)return;if(!R||(!(R.rules||[]).length&&!R.trades&&!(R.recent||[]).length)){evNone(sec,D,box);return}
-var X=D.real||{},G=X.guards||{},Bd=X.budget,sz=R.size||G.size||0;var L=R.recent||[];var open=L.filter(function(t){return t.shares>0&&t.pnl==null}),done=L.filter(function(t){return t.shares>0&&t.pnl!=null}),fail=L.filter(function(t){return !(t.shares>0)});var stake=open.reduce(function(a,t){return a+t.cost},0);
-var st=evStat("real today",evS(R.todayNet||0),cls(R.todayNet),"real net of bets settled today (KST)")+evStat("real all time",evS(R.net||0),cls(R.net),"real net of every settled bet")+evStat("real bets",R.trades+' <span class="sub">'+R.open+' open'+(R.open?' · $'+stake.toFixed(0)+' at stake':'')+'</span>',"")+evStat("won",R.settled?R.won+"/"+R.settled:"—","",R.settled?Math.round(100*R.won/R.settled)+"% of settled":"nothing settled yet");
-if(Bd){var pl=Math.min(100,100*Bd.lost/Bd.budget),po=Math.min(100-pl,100*Bd.open/Bd.budget);st+='<div title="own budget, separate from crypto: lost + open stakes must stay inside it"><div class="k">budget left</div><div class="v big '+(Bd.left<sz?"":"ok")+'">'+money(Math.max(0,Bd.left))+' <span class="sub">of '+money(Bd.budget)+'</span></div><div class="bud"><i class="lo" style="width:'+pl+'%"></i><i class="op" style="width:'+po+'%"></i></div><div class="mut" style="font-size:11px;margin-top:4px">'+money(Bd.lost)+' lost · '+money(Bd.open)+' in open bets</div></div>'}
-var c="";if(!R.on)c=evChip("bad","real is OFF for this category");else if(Bd&&Bd.left<sz&&Bd.open>0)c=evChip("","live · budget fully in open bets · next bet when one settles");else if(Bd&&Bd.left<sz)c=evChip("bad","stopped · budget spent · waits for more budget");else if(G.maxOpen&&R.open>=G.maxOpen)c=evChip("","live · "+R.open+" open (max "+G.maxOpen+") · next bet when one settles");else if(!R.trades)c=evChip("ok","live · waiting for the first bet");else c=evChip("ok","live · "+(R.open?R.open+" open, ":"")+"waiting for the next bet");
-if(R.unknown)c+=evChip("bad",R.unknown+" order"+(R.unknown>1?"s":"")+" with no reply · being checked");
-var rule=[sz?"$"+sz+" a bet":"",G.maxAsk?"ask up to "+evC(G.maxAsk):"",G.maxOpen?"max "+G.maxOpen+" open":"",G.dayLosses?"stops after "+G.dayLosses+" losses in a day":"","Jev not used"].filter(Boolean).join(" · ");
-var part=L.length>=20;var rr=(R.rules||[]).map(function(r){var a={b:0,o:0,s:0,w:0,n:0};L.forEach(function(t){if(t.rule!==r||!(t.shares>0))return;a.b++;if(t.pnl==null)a.o++;else{a.s++;a.n+=t.pnl;if(t.pnl>0)a.w++}});return '<tr><td class="mk" title="'+evE(r)+'"><b>'+evE(evName(D,r))+'</b><span class="s">'+(R.on?'<span class="ok">on</span>':'<span class="bad">off</span>')+(sz?" · $"+sz+" a bet":"")+'</span></td><td class="r">'+a.b+'</td><td class="r nm">'+a.o+'</td><td class="r">'+(a.s?a.w+"/"+a.s:"—")+'</td><td class="r '+cls(a.s?a.n:null)+'"><b>'+(a.s?evS(a.n):"—")+'</b></td></tr>'});
-var row=function(t){var ok=t.shares>0;return '<tr><td>'+evT(t.t)+'</td><td class="mk" title="'+evE(t.rule)+'">'+evE(t.title)+'<span class="s">'+evE(evName(D,t.rule))+'</span></td><td>'+evE(t.outcome)+'<span class="mut" style="display:block;font-size:11px;white-space:normal">'+evC(t.ask)+(ok?" · "+t.shares.toFixed(2)+" shares":"")+'</span></td><td class="r nm">'+(ok?money(t.cost):"—")+'</td><td class="r '+cls(t.pnl)+'"><b>'+(!ok?'<span class="mut" title="'+evE(t.error||"")+'">'+evE(t.status==="unknown"?"no reply":"not filled")+'</span>':t.pnl==null?'<span class="mut">open</span>':evS(t.pnl))+'</b></td></tr>'};
-var rows=[];if(open.length){rows.push('<tr class="dsep"><td colspan="5">open · '+open.length+' · $'+stake.toFixed(2)+' at stake</td></tr>');open.forEach(function(t){rows.push(row(t))})}if(done.length){rows.push('<tr class="dsep"><td colspan="5">settled</td></tr>');done.forEach(function(t){rows.push(row(t))})}if(fail.length){rows.push('<tr class="dsep"><td colspan="5">orders that did not fill</td></tr>');fail.forEach(function(t){rows.push(row(t))})}
-var N=(R.notes||[]).slice(0,6);var notes=N.length?'<div class="k" style="margin:14px 0 6px">what real did with the latest paper bets</div>'+evTbl(["kst","market","real money"],N.map(function(n){return '<tr><td>'+evT(n.t)+'</td><td class="mk">'+evE(n.title)+'</td><td class="mut" style="white-space:normal;font-size:12px">'+evE(n.why)+'</td></tr>'}),""):"";
-box.innerHTML='<div class="grid rgrid"><div class="panel real rl"><div class="ph"><div class="k">real money <span class="tag real">real</span></div><div class="mut">'+(R.rules||[]).length+' rule'+((R.rules||[]).length===1?"":"s")+' on</div></div><div class="stats">'+st+'</div><div class="chips">'+c+'</div><div class="k" style="margin:4px 0 6px">active real rules</div>'+evTbl(["rule","bets|r","open|r nm","won|r","net|r"],rr,"no real rule")+'<div class="note">'+evE(rule)+'. Each real rule copies the paper rule of the same name.'+(part?" Per-rule numbers cover the latest 20 orders.":"")+'</div></div><div class="panel real rl"><div class="ph"><div class="k">real trade log <span class="tag real">real</span></div><div class="mut">'+(R.settled?R.won+"/"+R.settled+" won · "+evS(R.net||0):"nothing settled yet")+(R.open?" · "+R.open+" open":"")+'</div></div>'+evTbl(["kst","market","bet|","stake|r nm","result|r"],rows,"No real bet yet. The first one goes out when a favourite in the band shows up with enough money at the ask.")+notes+'</div></div>'}
+var evTile=function(k,v,c,t){return '<div><div class="k"'+(t?' title="'+evE(t)+'"':'')+'>'+k+'</div><div class="v big '+(c||"")+'">'+v+'</div></div>'};
+var evPct=function(x){return x&&x.settled?(x.won/x.settled*100).toFixed(1)+"%":"—"};
+var evPill=function(c,h,t){return '<span class="wp '+c+'"'+(t?' title="'+evE(t)+'"':'')+'><span class="d"></span>'+h+'</span>'};
+function evReal(sec,D){var id="ev-"+sec,q=function(k){return el(id+"-"+k)};if(!q("rstats"))return;var P=D.paper,R=P&&P.real||null,X=D.real||{},G=X.guards||{},Bd=X.budget,Q=D.realRec||{},BR=Q.byRule||{},T=Q.tot||{},L=Q.log||[];
+var rules=R&&R.rules?R.rules.slice():[];Object.keys(BR).forEach(function(r){if(rules.indexOf(r)<0)rules.push(r)});var live=R&&R.on?(R.rules||[]).length:0;var sz=(R&&R.size)||G.size||0;var ta=T.all||{trades:0,open:0,settled:0,won:0,net:0},tt=T.today||{trades:0,settled:0,won:0,net:0};
+q("lrule").textContent=live?live+" live":"none live";
+q("rstats").innerHTML=evTile("budget left",Bd?money(Math.max(0,Bd.left)):"—","","this category's own budget, minus what it lost and what sits in open bets")+evTile("in open bets",Bd?money(Bd.open):"—","","stakes of real bets not settled yet")+evTile("budget",Bd?money(Bd.budget):"—","","the most this category may lose; real stops when it is used up")+evTile("today",signed(tt.net),cls(tt.net),"real net of bets settled today (KST)")+evTile("all time",signed(ta.net),cls(ta.net),"real net of every settled bet")+evTile("trades",ta.trades,"")+evTile("won",evPct(ta),"",ta.settled?ta.won+" of "+ta.settled+" settled":"");
+q("ledger").textContent=rules.length?[sz?"$"+sz+" a bet":"",G.maxAsk?"ask up to "+evC(G.maxAsk):"",G.maxOpen?"max "+G.maxOpen+" open":"",G.dayLosses?"stops after "+G.dayLosses+" losses in a day":"","Jev not used"].filter(Boolean).join(" · "):"No real money is traded in this category. Everything further down is paper.";
+q("lrules").innerHTML=rules.length?rules.map(function(r){var b=BR[r]||{},d=b.today||{trades:0},a=b.all||{trades:0,net:0};var on=R&&R.on&&(R.rules||[]).indexOf(r)>=0;return '<tr class="'+(on?"":"dim")+'"><td title="'+evE(r)+'"><b>'+evE(evName(D,r))+'</b>'+(on?"":'<i class="st mut">paper now</i>')+'</td><td class="r">'+(sz?"$"+sz:"—")+'</td><td class="r tdy '+(d.trades?cls(d.net):"mut")+'">'+(d.trades?signed(d.net):"—")+'</td><td class="r tdy">'+(d.trades||"—")+'</td><td class="r tdy">'+evPct(d)+'</td><td class="r alt '+cls(a.net)+'">'+signed(a.net||0)+'</td><td class="r alt">'+a.trades+'</td><td class="r alt">'+evPct(a)+'</td></tr>'}).join(""):'<tr><td class="empty" colspan="8">no real rule in this category</td></tr>';
+var ps=[];if(!rules.length)ps.push(evPill("","real orders <b>none</b>","nothing here trades real money; real starts only on your word"));else if(!R||!R.on)ps.push(evPill("bad","real orders <b>off</b>"));else if(Bd&&Bd.left<sz&&Bd.open>0)ps.push(evPill("ok","live · <b>budget in open bets</b>","next bet when one settles"));else if(Bd&&Bd.left<sz)ps.push(evPill("bad","<b>stopped</b> · budget spent"));else if(G.maxOpen&&R.open>=G.maxOpen)ps.push(evPill("ok","live · <b>"+R.open+" open</b> (max "+G.maxOpen+")","next bet when one settles"));else ps.push(evPill("ok","live · <b>waiting for the next bet</b>"));
+if(R&&R.unknown)ps.push(evPill("bad","<b>"+R.unknown+"</b> order"+(R.unknown>1?"s":"")+" with no reply"));if(Bd)ps.push(evPill("","lost <b>"+money(Bd.lost)+"</b> of "+money(Bd.budget)));q("lstate").innerHTML=ps.join("");
+var rk=function(t){return !(t.shares>0)?3:t.pnl==null?0:2};var rows=L.slice().sort(function(a,b){return rk(a)-rk(b)||((b.settledAt||b.t)-(a.settledAt||a.t))});var lastG=-1,lastD="";
+q("rlog").innerHTML=rows.length?rows.map(function(t){var g=rk(t),hd="";if(g!==lastG){lastG=g;lastD="";hd+='<tr class="grp"><td colspan="6">'+({0:"open orders",2:"settled trades",3:"orders that did not fill"})[g]+'</td></tr>'}if(g>=2){var dl=evDayLab(t.settledAt||t.t);if(dl!==lastD){lastD=dl;hd+='<tr class="dsep"><td colspan="6">'+dl+'</td></tr>'}}var ok=t.shares>0;var px=ok?Math.round(t.cost/t.shares*100)+"¢":evC(t.ask).replace("c","¢");return hd+'<tr class="'+(ok?"":"dim")+'"><td><span class="dot'+(g===0?" on":"")+'"></span>'+evT(t.t)+'</td><td class="mkt" title="'+evE(t.title)+'"><b>'+evE(t.outcome)+'</b></td><td class="mut rn" title="'+evE(t.rule)+'">'+evE(evName(D,t.rule))+'</td><td>'+px+(ok?" × "+t.shares.toFixed(1):"")+'</td><td class="r">'+(ok?money(t.cost):"")+'</td><td class="r '+(t.pnl==null?"mut":cls(t.pnl))+'">'+(!ok?(t.status==="unknown"?"no reply":"no fill"):t.pnl==null?"open":signed(t.pnl))+'</td></tr>'}).join(""):'<tr><td class="empty" colspan="6">'+(rules.length?"no filled orders yet":"no real trades in this category")+'</td></tr>';
+q("lopen").textContent=ta.trades?[L.length+" shown · "+ta.won+"/"+ta.settled+" won · "+signed(ta.net),ta.open?ta.open+" open":""].filter(Boolean).join(" · "):"";
+var DS=Q.days||[];q("cmp").innerHTML=DS.length?DS.map(function(o){return '<tr><td>'+o.day+'</td><td class="r">'+o.settled+'</td><td class="r">'+Math.round(100*o.won/o.settled)+'%</td><td class="r '+cls(o.net)+'"><b>'+signed(o.net)+'</b></td><td><span class="wps">'+Object.keys(o.by).map(function(r){var m=o.by[r];return '<span class="wp" title="'+m.won+'/'+m.settled+' won">'+evE(evName(D,r))+' <b class="'+cls(m.net)+'">'+signed(m.net)+'</b></span>'}).join("")+'</span></td></tr>'}).join(""):'<tr><td class="empty" colspan="5">nothing yet</td></tr>';
+return {live:live,open:ta.open,stake:Bd?Bd.open:0}}
 var evTbl=function(head,rows,empty){return rows.length?'<table class="log"><thead><tr>'+head.map(function(h){var a=h.split("|");return '<th class="'+(a[1]||"")+'">'+a[0]+'</th>'}).join("")+'</tr></thead><tbody>'+rows.join("")+'</tbody></table>':'<div class="empty">'+empty+'</div>'};
 var evName=function(D,r){return (D.names&&D.names[r])||(D.names&&D.names[r.replace(/-nearmiss$/,"")]?D.names[r.replace(/-nearmiss$/,"")]+" (near miss)":r)};
 var evShadow=function(D,r){return (D.shadow||[]).indexOf(r)>=0};
@@ -421,7 +475,7 @@ function evPoll(force){if(SEC==="crypto"||EVBUSY)return;var sec=SEC;if(!force&&E
 function evTick(){var xs=document.querySelectorAll("[data-cd]");for(var i=0;i<xs.length;i++){var ms=Number(xs[i].getAttribute("data-cd"));xs[i].textContent=evLeft(ms);var s=(ms-Date.now())/1000;xs[i].className=(xs[i].classList.contains("clock")?"clock":"cd")+(s<=0&&s>-10800?" live":s<1800?" soon":"")}}
 function evChart(days){if(!days||!days.length)return '<div class="empty">The line starts with the first settled paper bet.</div>';var a=0,f=0,j=0;var pts=[{d:"start",a:0,f:0,j:0}].concat(days.map(function(x){a+=x.net;f+=x.fnet;j+=x.jnet;return {d:x.day,a:a,f:f,j:j}}));var W=560,H=190,L=44,R=8,T=10,B=22;var vs=[0];pts.forEach(function(p){vs.push(p.a,p.f,p.j)});var lo=Math.min.apply(null,vs),hi=Math.max.apply(null,vs);if(hi-lo<1){hi+=0.5;lo-=0.5}var X=function(i){return L+(W-L-R)*(pts.length<2?0:i/(pts.length-1))},Y=function(v){return T+(H-T-B)*(1-(v-lo)/(hi-lo))};var line=function(k,col,dash){return '<polyline fill="none" stroke="'+col+'" stroke-width="2"'+(dash?' stroke-dasharray="4 3"':'')+' points="'+pts.map(function(p,i){return X(i).toFixed(1)+","+Y(p[k]).toFixed(1)}).join(" ")+'"/>'};var g='<line class="gl" x1="'+L+'" x2="'+(W-R)+'" y1="'+Y(0)+'" y2="'+Y(0)+'"/><text class="gt" x="'+(L-6)+'" y="'+(Y(0)+3)+'" text-anchor="end">$0</text><text class="gt" x="'+(L-6)+'" y="'+(Y(hi)+8)+'" text-anchor="end">'+evS(hi)+'</text><text class="gt" x="'+(L-6)+'" y="'+Y(lo)+'" text-anchor="end">'+evS(lo)+'</text>';var lab=function(i){return '<text class="gt" x="'+X(i)+'" y="'+(H-6)+'" text-anchor="'+(i===0?"start":i===pts.length-1?"end":"middle")+'">'+pts[i].d.slice(5)+'</text>'};var fin=pts[pts.length-1];var col=fin.a<0?"#ff6b6b":"#3ddc84";return '<svg viewBox="0 0 '+W+' '+H+'" preserveAspectRatio="none">'+g+line("f","#7b8294",true)+line("j","#f7931a",true)+line("a",col)+lab(0)+(pts.length>2?lab(pts.length-1):lab(1))+'</svg>'}
 function evRender(sec,D){var P=D.paper,id="ev-"+sec,q=function(k){return el(id+"-"+k)};if(!q("stats"))return;
-try{evReal(sec,D)}catch(e){console.error(e)}var RL=P&&P.real&&(P.real.rules||[]).length?P.real.rules:[];var pp="paper ";
+var RS={live:0,open:0,stake:0};try{RS=evReal(sec,D)||RS}catch(e){console.error(e)}var RL=P&&P.real&&(P.real.rules||[]).length?P.real.rules:[];var pp="paper ";
 var W=[];
 if(P&&P.watch)W=P.watch.slice();else if(D.upcoming)W=D.upcoming.rows.slice();W.sort(function(a,b){return a.t-b.t});
 var now=Date.now();var nx=W.filter(function(w){return w.t>now}).sort(function(a,b){return a.t-b.t})[0];
@@ -430,16 +484,16 @@ q("nk").textContent=nx?nk+" · "+evT(nx.t)+" kst":nk;var ck=q("clock");if(nx){ck
 var st="",chips="";
 if(P){var R=P.rules||[];var sm=function(f){return R.reduce(function(a,r){return a+(f(r)||0)},0)};var net=sm(function(r){return r.net}),fn=sm(function(r){return r.fillable.net}),tr=sm(function(r){return r.trades}),op=sm(function(r){return r.open}),se=sm(function(r){return r.settled}),wn=sm(function(r){return r.won}),sg=sm(function(r){return r.signals});var jn=sm(function(r){return r.jev&&r.jev.settled?r.jev.net:0}),js=sm(function(r){return r.jev?r.jev.settled:0});
 var tdy=new Date(now+9*3600000).toISOString().slice(0,10);var td=(P.days||[]).filter(function(d){return d.day===tdy})[0];
-st=evStat(pp+"today",td?evS(td.net):"$0.00",td?cls(td.net):"","paper net of bets settled today (KST)")+evStat("paper fillable",evS(fn),cls(fn),"the honest paper number: only bets whose whole $5 fitted at the ask")+evStat("paper all bets",evS(net),cls(net),"all settled paper bets, $5 each, including ones too big for the book")+evStat("paper Jev-sized",js?evS(jn):"—",js?cls(jn):"","paper only: same bets, stake picked by Jev")+evStat(pp+"bets",tr+(op?' <span class="mut" style="font-size:14px">'+op+' open</span>':''),"")+evStat(pp+"won",se?Math.round(100*wn/se)+"%":"—","",se?wn+" of "+se+" settled":"")+evStat("paper signals",sg,"");
+var labsub=R.length+" rules · $5 a bet · fillable net "+evS(fn)+" · all bets "+evS(net)+" · today "+(td?evS(td.net):"$0.00")+" · "+tr+" bets"+(op?", "+op+" open":"")+(se?" · "+wn+"/"+se+" won":"")+" · "+sg+" signals";
 var H=D.health||{};var jobs={football:["football list","football"],esports:["esports list","esports"],indices:["indices"],politics:["politics","makers"],tennis:["tennis list","tennis"],weather:["weather list","weather"],other:["cricket list","cricket"],"us-sports":["US sports list","US sports"]}[sec]||[];var lastOk=0,err=null;jobs.forEach(function(j){var h=H[j]||{};if(h.ok>lastOk)lastOk=h.ok;if(h.errAt&&(!h.ok||h.errAt>h.ok))err=j+": "+h.err});var stale=!D.paperAt||now-D.paperAt>180000;
 chips+=evChip(stale||err?"bad":"ok","paper logger "+(stale?"silent since "+evAgo(D.paperAt):err?"error":"running · "+evAgo(lastOk||D.paperAt)),err||"");var jh=H.jev||{};var jask=sm(function(r){return r.jev?r.jev.asked:0}),jer=sm(function(r){return r.jev?r.jev.errors:0});chips+=evChip(jer&&jer===jask?"bad":jask?"ok":"","Jev sizing"+(RL.length?" (paper only)":"")+" · <b>"+jask+"</b> asked"+(jer?" · "+jer+" errors":""),jh.err||"")}
 else{var nUp=D.upcoming?D.upcoming.rows.filter(function(w){return w.t>now}).length:0;var cf=D.collector&&D.collector.fam||{};var ev=0,dd=0;Object.keys(cf).forEach(function(k){if(cf[k]){ev+=cf[k].events;dd=Math.max(dd,cf[k].days)}});
-st=evStat("paper rule","none yet","mut")+evStat("markets next 36 h",nUp,"")+evStat("books now",D.books.rows.length,"","markets in the latest order-book snapshot (games starting within 95 min)")+evStat("events stored",ev.toLocaleString("en-US"),"","resolved events in the backtest collector")+evStat("days",dd,"")}
+var labsub="no paper rule yet · "+nUp+" markets in the next 36 h · "+ev.toLocaleString("en-US")+" events stored"}
 var B=D.books||{},C=D.collector||{};chips+=evChip(B.err&&!B.at?"bad":B.at&&now-B.at<1800000?"ok":"","order books · "+(B.at?evAgo(B.at):"none")+(B.total?" · "+B.total+" markets":""),B.err||B.file||"");chips+=evChip(C.err&&!C.at?"bad":C.at?"ok":"","collector · "+(C.at?"last day pulled "+evAgo(C.at):"—")+(C.days?" · "+C.days+" days":""),C.err||"every 6 h on GitHub, data/history in server-data");if(D.upcoming)chips+=evChip(D.upcoming.err?"bad":"ok","Polymarket list · "+evAgo(D.upcoming.at),D.upcoming.err||"");
-q("stats").innerHTML=st;q("chips").innerHTML=chips;
+var nW=W.filter(function(w){return w.t>now-10800000}).length;q("stats").innerHTML='<div><div class="k">markets</div><div class="v big">'+nW+'</div></div><div><div class="k">real on</div><div class="v big">'+RS.live+'</div></div><div><div class="k">open trades</div><div class="v big">'+RS.open+(RS.open?' <span class="mut" style="font-size:14px">'+money(RS.stake)+'</span>':'')+'</div></div>';q("chips").innerHTML=chips;
 // rules (or research for tabs with no rule yet)
-if(P){q("rsub").textContent=RL.length?"Jev-sized: paper only":"Jev-sized = same bets, stake picked by Jev";q("rules").innerHTML=evTbl(["rule","signals|r nm","bets|r","won|r nm","c/share|r nm","net|r","fillable|r","Jev-sized|r"],P.rules.map(function(r){var J=r.jev||{};var isR=RL.indexOf(r.rule)>=0;return '<tr><td class="mk" title="'+evE(r.rule)+'">'+evE(evName(D,r.rule))+'<span class="s">'+(isR?'<span class="ok">real too</span>':'')+((isR?" · ":"")+(evShadow(D,r.rule)&&!isR?"shadow · ":"")+(r.open?r.open+" open · ":"")+(r.nearMisses?r.nearMisses+" near misses · ":"")+(J.asked?"Jev sized "+J.asked:"")).replace(/ · $/,"")+'</span></td><td class="r nm">'+r.signals+'</td><td class="r">'+r.trades+'</td><td class="r nm">'+(r.settled?r.won+"/"+r.settled+' <span class="mut">'+Math.round(100*r.won/r.settled)+"%</span>":"—")+'</td><td class="r nm '+cls(r.perShare)+'">'+(r.perShare==null?"—":(r.perShare>0?"+":"")+r.perShare+"c")+'</td><td class="r '+cls(r.settled?r.net:null)+'"><b>'+(r.settled?evS(r.net):"—")+'</b></td><td class="r '+cls(r.fillable.trades?r.fillable.net:null)+'">'+(r.fillable.trades?evS(r.fillable.net)+' <span class="mut">'+r.fillable.won+"/"+r.fillable.trades+"</span>":"—")+'</td><td class="r '+cls(J.settled?J.net:null)+'">'+(J.settled?evS(J.net)+(J.perDollar!=null?' <span class="mut">'+(J.perDollar>0?"+":"")+J.perDollar+"c/$</span>":""):"—")+'</td></tr>'}),"no rules")}
-else{q("rsub").textContent=D.report||"";q("rules").innerHTML='<ul class="rs">'+(D.research||[]).map(function(x){return "<li>"+evE(x)+"</li>"}).join("")+'</ul><div class="plan"><div class="k">planned rule · Jev will size every bet</div>'+evE(D.plan||"")+'</div>'}
+if(P){q("rsub").textContent=labsub;q("rules").innerHTML=evTbl(["rule","signals|r nm","bets|r","won|r nm","c/share|r nm","net|r","fillable|r","Jev-sized|r"],P.rules.map(function(r){var J=r.jev||{};var isR=RL.indexOf(r.rule)>=0;return '<tr><td class="mk" title="'+evE(r.rule)+'">'+evE(evName(D,r.rule))+'<span class="s">'+(isR?'<span class="ok">real too</span>':'')+((isR?" · ":"")+(evShadow(D,r.rule)&&!isR?"shadow · ":"")+(r.open?r.open+" open · ":"")+(r.nearMisses?r.nearMisses+" near misses · ":"")+(J.asked?"Jev sized "+J.asked:"")).replace(/ · $/,"")+'</span></td><td class="r nm">'+r.signals+'</td><td class="r">'+r.trades+'</td><td class="r nm">'+(r.settled?r.won+"/"+r.settled+' <span class="mut">'+Math.round(100*r.won/r.settled)+"%</span>":"—")+'</td><td class="r nm '+cls(r.perShare)+'">'+(r.perShare==null?"—":(r.perShare>0?"+":"")+r.perShare+"c")+'</td><td class="r '+cls(r.settled?r.net:null)+'"><b>'+(r.settled?evS(r.net):"—")+'</b></td><td class="r '+cls(r.fillable.trades?r.fillable.net:null)+'">'+(r.fillable.trades?evS(r.fillable.net)+' <span class="mut">'+r.fillable.won+"/"+r.fillable.trades+"</span>":"—")+'</td><td class="r '+cls(J.settled?J.net:null)+'">'+(J.settled?evS(J.net)+(J.perDollar!=null?' <span class="mut">'+(J.perDollar>0?"+":"")+J.perDollar+"c/$</span>":""):"—")+'</td></tr>'}),"no rules")}
+else{q("rsub").textContent=labsub;q("rules").innerHTML='<ul class="rs">'+(D.research||[]).map(function(x){return "<li>"+evE(x)+"</li>"}).join("")+'</ul><div class="plan"><div class="k">planned rule · Jev will size every bet</div>'+evE(D.plan||"")+'</div>'}
 // trade log (or watched markets for tabs with no rule)
 var watchRows=function(rows,lim){return rows.slice(0,lim).map(function(w){var px="";if(w.homeAsk!==undefined)px=evE(w.home)+" "+evC(w.homeAsk)+" · "+evE(w.away)+" "+evC(w.awayAsk);else if(w.asks)px=(w.outs||[]).map(function(o,i){return evE(o)+" "+evC(w.asks[i])}).join(" · ");else if(w.px&&w.px.map)px=w.px.map(function(x){return evE(x.n)+" "+evC(x.p)}).join(" · ");else if(w.px0!==undefined)px=(w.outs&&w.outs[0]?evE(w.outs[0])+" ":"")+evC(w.px0)+(w.p0!=null?' <span class="mut">P0 '+evC(w.p0)+"</span>":"");else if(w.ask!=null)px=evE(w.outcome)+" "+evC(w.ask);var sub=[w.league||w.game||w.tag||"",w.rule?evName(D,w.rule):"",w.vol!=null?"$"+Math.round(w.vol).toLocaleString("en-US")+" vol":"",w.liq!=null?"$"+Math.round(w.liq).toLocaleString("en-US")+" liq":""].filter(Boolean).join(" · ");return '<tr><td>'+evCd(w.t)+'<span class="mut" style="display:block;font-size:11px">'+evT(w.t)+'</span></td><td class="mk">'+evE(w.title)+'<span class="s">'+evE(sub)+'</span></td><td class="nm">'+px+'</td><td class="mut" style="white-space:normal;font-size:12px">'+evE(w.status||"")+'</td></tr>'})};
 if(P){var L=P.recent||[];var open=L.filter(function(t){return t.pnl==null}),done=L.filter(function(t){return t.pnl!=null});var rows=[],lastDay="";var row=function(t){var jm=t.jm;var jp=t.pnl!=null&&jm!=null?t.pnl*jm:null;return '<tr><td>'+evT(t.t)+'</td><td class="mk" title="'+evE(t.rule)+'">'+evE(t.title)+'<span class="s">'+evE(evName(D,t.rule))+(t.info?" · "+evE(t.info):"")+'</span></td><td>'+evE(t.outcome)+'<span class="mut" style="display:block;font-size:11px">'+evC(t.ask)+(t.avg!=null&&Math.abs(t.avg-t.ask)>0.0005?" → "+(t.avg*100).toFixed(1)+"c":"")+(t.fillable?"":" · thin")+'</span></td><td>'+evJv(t.jev,t.jc,t.jm,t.cost)+'</td><td class="r '+cls(t.pnl)+'"><b>'+(t.pnl==null?'<span class="mut">open</span>':evS(t.pnl))+'</b>'+(jp!=null&&jm!==1&&jm>0?'<span class="mut" style="display:block;font-size:11px">Jev '+evS(jp)+'</span>':'')+'</td></tr>'};
