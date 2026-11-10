@@ -629,6 +629,8 @@ const RULE_TEXT: Record<string, [string, string]> = {
   "nfl-fav85": ["usports", "Shadow: NFL favourite 85-95c, same rule as nba-fav85."],
   "nba-fav85-mid": ["usports", "Mid-bid twin of nba-fav85: at T-30 min rest $5 one tick under the favourite's ask (books are 1c, so this joins the bid), cancel at tip-off, hold a fill."],
   "weather-fav16-mid": ["weather", "Round 307 (9 Nov 2026 21:15 KST): maker shadow of the 16:00 rule. In three days the taker rules saw 21 signals and took none (asks 65-91c, 4c+ over mid; the mid+5c copy also took none), so this one rests a $5 bid AT the mid of the leading bucket for up to 6 h and books the trade only if the ask comes down to it. Measures whether a patient bid can trade the weather edge at all, and what it wins when it does."],
+  "weather-fav16-hi": ["weather", "10 Nov 2026 17:10 KST: 16:00 rule for city-days whose leading bucket is already 85-95c (the main rule only takes 50-85c and dropped these without a line). Buys the ask when it is within 2c of mid. No backtest for this band: it measures whether late near-certain buckets pay after the spread."],
+  "weather-fav15-ask1": ["weather", "10 Nov 2026 17:10 KST: 15:00 copy of the 1c-under-ask maker shadow. The 15:00 taker saw 22 signals in three days and took 1 (asks 4c+ over mid), so this rests a $5 bid 1c under the ask for up to 6 h on every 15:00 signal."],
   "weather-fav16-ask1": ["weather", "Round 317 (10 Nov 2026 07:10 KST): maker shadow of the 16:00 rule bidding 1c UNDER THE ASK for up to 6 h. The mid-bid shadow got its first fills on 10 Nov (Madrid bid 61c vs ask 70c, Buenos Aires 62c vs 75c): both filled only after the ask slid 9-13c down to the bid, so a mid bid in a 10-25c-wide weather book buys mostly when the market has turned against the bucket. This twin fills on a 1c dip instead and gives up the price; the two together say whether weather can be traded as a maker at all."],
   "football-laliga-home55": ["football", "La Liga control: buy the home team at 55-65c 10 minutes before kickoff; expected about break-even (+0.3c in bookmaker history)."],
 };
@@ -669,10 +671,12 @@ async function jevTick() {
 const WX_TZ: Record<string, string> = { CYYZ: "America/Toronto", EDDM: "Europe/Berlin", EFHK: "Europe/Helsinki", EGLC: "Europe/London", EHAM: "Europe/Amsterdam", EPWA: "Europe/Warsaw", FACT: "Africa/Johannesburg", KATL: "America/New_York", KAUS: "America/Chicago", KDAL: "America/Chicago", KDEN: "America/Denver", KHOU: "America/Chicago", KLAX: "America/Los_Angeles", KLGA: "America/New_York", KMIA: "America/New_York", KORD: "America/Chicago", KSEA: "America/Los_Angeles", KSFO: "America/Los_Angeles", LEMD: "Europe/Madrid", LFPB: "Europe/Paris", LIMC: "Europe/Rome", LLBG: "Asia/Jerusalem", LTAC: "Europe/Istanbul", LTFM: "Europe/Istanbul", MMMX: "America/Mexico_City", MPMG: "America/Panama", NZWN: "Pacific/Auckland", OEJN: "Asia/Riyadh", OPKC: "Asia/Karachi", RCSS: "Asia/Taipei", RJTT: "Asia/Tokyo", RKPK: "Asia/Seoul", RKSI: "Asia/Seoul", RPLL: "Asia/Manila", SAEZ: "America/Argentina/Buenos_Aires", SBGR: "America/Sao_Paulo", UUWW: "Europe/Moscow", VILK: "Asia/Kolkata", WMKK: "Asia/Kuala_Lumpur", WSSS: "Asia/Singapore", ZBAA: "Asia/Shanghai", ZGGG: "Asia/Shanghai", ZGSZ: "Asia/Shanghai", ZHHH: "Asia/Shanghai", ZSPD: "Asia/Shanghai", ZSQD: "Asia/Shanghai", ZUCK: "Asia/Shanghai", ZUUU: "Asia/Shanghai" };
 // 8 Nov 2026 15:10 KST: in two days the 2c rule skipped all 7 signals (asks 68-95c, spreads over 4c), so a shadow at
 // 16:00 accepts an ask up to 5c over mid, walking the book to that ask, to measure what the spread filter costs.
-const WX_RULES: { rule: string; hour: number; slip?: number }[] = [
+const WX_RULES: { rule: string; hour: number; slip?: number; lo?: number; hi?: number }[] = [
   { rule: "weather-fav16", hour: 16 },
   { rule: "weather-fav15", hour: 15 },
   { rule: "weather-fav16-wide", hour: 16, slip: 0.05 },
+  // 10 Nov 2026 17:10 KST: leader already 85-95c at 16:00 (the main rule drops these without a line).
+  { rule: "weather-fav16-hi", hour: 16, lo: 0.85, hi: 0.95 },
 ];
 type GEventWx = GEvent & { description?: string };
 async function weatherRefresh() {
@@ -706,7 +710,7 @@ async function weatherRefresh() {
 async function weatherTick() {
   const now = Date.now();
   for (const ev of Object.values(state.wx)) {
-    for (const { rule, hour, slip = 0.02 } of WX_RULES) {
+    for (const { rule, hour, slip = 0.02, lo = 0.5, hi = 0.85 } of WX_RULES) {
       const key = `${rule}|${ev.id}`;
       if (state.done[key]) continue;
       const at = zonedUtc(ev.date[0], ev.date[1], ev.date[2], hour, ev.tz);
@@ -724,7 +728,16 @@ async function weatherTick() {
       const mid = bk.mid!;
       const ask = bk.bestAsk!;
       const extra: Record<string, unknown> = { station: ev.station, localHour: hour, bucket: bu.label, mid, bid: bk.bestBid, ask, spread: ask - (bk.bestBid ?? ask), depth2c: bk.asks.filter((a) => a.price <= ask + 0.02 + 1e-9).reduce((x, a) => x + a.price * a.size, 0), mids: books.map((b) => b?.mid ?? null) };
-      if (mid < 0.5 - 1e-9 || mid > 0.85 + 1e-9) continue;
+      if (mid < lo - 1e-9 || mid > hi + 1e-9) {
+        // 10 Nov 2026: count the city-days the band drops instead of dropping them silently.
+        if (rule === "weather-fav16" || rule === "weather-fav15") {
+          extra.skip = `leading bucket mid ${Math.round(mid * 100)}c outside 50-85c`;
+          signal(rule, ev.title, false, extra);
+        }
+        continue;
+      }
+      // 10 Nov 2026 17:10 KST: 15:00 copy of the 1c-under-ask maker shadow.
+      if (rule === "weather-fav15" && !state.makers.some((mk) => mk.rule === "weather-fav15-ask1" && mk.marketId === bu.id)) state.makers.push({ rule: "weather-fav15-ask1", marketId: bu.id, title: ev.title, outcome: bu.label, idx: 0, token: bu.token, bid: Math.round((ask - 0.01) * 100) / 100, t: now, feeRate: bu.feeRate, ask });
       // Round 307 (9 Nov 2026): maker shadow, once per event at 16:00: rest a bid at the mid for up to 6 h (makersTick).
       if (rule === "weather-fav16" && !state.makers.some((mk) => mk.rule === "weather-fav16-mid" && mk.marketId === bu.id)) state.makers.push({ rule: "weather-fav16-mid", marketId: bu.id, title: ev.title, outcome: bu.label, idx: 0, token: bu.token, bid: Math.round(mid * 100) / 100, t: now, feeRate: bu.feeRate, ask });
       // Round 317 (10 Nov 2026): second maker shadow, bid 1c under the ask (fills on a 1c dip, not a 10c slide).
@@ -1074,7 +1087,7 @@ const GROUPS: Record<string, string[]> = {
   esports: ["esports-map1", "esports-fav-shadow", "esports-map1-dota", "esports-lol-fav90", "esports-cs2-fav90"],
   indices: ["gold-momentum", "spx-underdog", "spy-underdog"],
   politics: ["election-lock-taker", "election-lock-maker"],
-  weather: ["weather-fav16", "weather-fav15", "weather-fav16-wide", "weather-fav16-mid", "weather-fav16-ask1"],
+  weather: ["weather-fav16", "weather-fav15", "weather-fav16-wide", "weather-fav16-mid", "weather-fav16-ask1", "weather-fav16-hi", "weather-fav15-ask1"],
   tennis: ["tennis-wta-fav90", "tennis-atp-fav90", "tennis-wta-fav85", "tennis-itf-fav90", "tennis-fav95", "tennis-fav90-mid"],
   cricket: ["cricket-fav10", "cricket-fav60", "cricket-dog-control"],
   usports: ["nba-fav85", "cbb-fav85", "nfl-fav85", "nba-fav85-mid"],
