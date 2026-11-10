@@ -633,6 +633,7 @@ const RULE_TEXT: Record<string, [string, string]> = {
   "nba-fav85-mid": ["usports", "Mid-bid twin of nba-fav85: at T-30 min rest $5 one tick under the favourite's ask (books are 1c, so this joins the bid), cancel at tip-off, hold a fill."],
   "weather-fav16-mid": ["weather", "Round 307 (9 Nov 2026 21:15 KST): maker shadow of the 16:00 rule. In three days the taker rules saw 21 signals and took none (asks 65-91c, 4c+ over mid; the mid+5c copy also took none), so this one rests a $5 bid AT the mid of the leading bucket for up to 6 h and books the trade only if the ask comes down to it. Measures whether a patient bid can trade the weather edge at all, and what it wins when it does."],
   "weather-dayahead-all": ["weather", "11 Nov 2026 02:50 KST (top-traders lead: one wallet, one week, +$3,269 on $10,573 as a pure maker buying 10-50c buckets 24-48 h before the close; a lead, not proof): the day before, at 12:00 station local time (36 h before the market day ends), rest a $5 bid at the best bid on up to 3 temperature buckets asking 10-50c; never take; cancel 20 h before the close; hold fills to settlement. This is the no-forecast baseline; the copy that only bids where a weather-model forecast disagrees with the price is still to come. Tickets win under half the time by design."],
+  "weather-dayahead-yes": ["weather", "Round 341 (11 Nov 2026 07:15 KST): forecast copy of weather-dayahead-all. The day before, at 12:00 station local time, read the free Open-Meteo ensemble forecast (about 80 model runs) of the day's highest temperature at the station and count the share of runs landing in each bucket; rest a $5 bid at the best bid only on buckets asking 10-50c where that share is 15+ points over the ask; never take; cancel 20 h before the close; hold fills. Untested assumptions: the model grid point matches the airport thermometer, and raw model shares are honest odds. The forecast and the asks are logged for every city-day so both can be checked."],
   "weather-fav16-hi": ["weather", "10 Nov 2026 17:10 KST: 16:00 rule for city-days whose leading bucket is already 85-95c (the main rule only takes 50-85c and dropped these without a line). Buys the ask when it is within 2c of mid. No backtest for this band: it measures whether late near-certain buckets pay after the spread."],
   "weather-fav15-ask1": ["weather", "10 Nov 2026 17:10 KST: 15:00 copy of the 1c-under-ask maker shadow. The 15:00 taker saw 22 signals in three days and took 1 (asks 4c+ over mid), so this rests a $5 bid 1c under the ask for up to 6 h on every 15:00 signal."],
   "weather-fav16-ask1": ["weather", "Round 317 (10 Nov 2026 07:10 KST): maker shadow of the 16:00 rule bidding 1c UNDER THE ASK for up to 6 h. The mid-bid shadow got its first fills on 10 Nov (Madrid bid 61c vs ask 70c, Buenos Aires 62c vs 75c): both filled only after the ask slid 9-13c down to the bid, so a mid bid in a 10-25c-wide weather book buys mostly when the market has turned against the bucket. This twin fills on a 1c dip instead and gives up the price; the two together say whether weather can be traded as a maker at all."],
@@ -683,6 +684,37 @@ const WX_RULES: { rule: string; hour: number; slip?: number; lo?: number; hi?: n
   { rule: "weather-fav16-hi", hour: 16, lo: 0.85, hi: 0.95 },
 ];
 type GEventWx = GEvent & { description?: string };
+// Station coordinates (airport reference points, 0.01 degree) for the day-ahead forecast rule.
+const WX_LL: Record<string, [number, number]> = { CYYZ: [43.68, -79.63], EDDM: [48.35, 11.79], EFHK: [60.32, 24.96], EGLC: [51.51, 0.05], EHAM: [52.31, 4.76], EPWA: [52.17, 20.97], FACT: [-33.97, 18.6], KATL: [33.64, -84.43], KAUS: [30.19, -97.67], KDAL: [32.85, -96.85], KDEN: [39.86, -104.67], KHOU: [29.65, -95.28], KLAX: [33.94, -118.41], KLGA: [40.78, -73.87], KMIA: [25.79, -80.29], KORD: [41.98, -87.9], KSEA: [47.45, -122.31], KSFO: [37.62, -122.37], LEMD: [40.47, -3.56], LFPB: [48.97, 2.44], LIMC: [45.63, 8.72], LLBG: [32.01, 34.89], LTAC: [40.13, 32.99], LTFM: [41.26, 28.74], MMMX: [19.44, -99.07], MPMG: [8.97, -79.56], NZWN: [-41.33, 174.81], OEJN: [21.68, 39.16], OPKC: [24.91, 67.16], RCSS: [25.07, 121.55], RJTT: [35.55, 139.78], RKPK: [35.18, 128.94], RKSI: [37.46, 126.44], RPLL: [14.51, 121.02], SAEZ: [-34.82, -58.54], SBGR: [-23.43, -46.47], UUWW: [55.6, 37.27], VILK: [26.76, 80.89], WMKK: [2.74, 101.7], WSSS: [1.36, 103.99], ZBAA: [40.08, 116.58], ZGGG: [23.39, 113.3], ZGSZ: [22.64, 113.81], ZHHH: [30.78, 114.21], ZSPD: [31.14, 121.81], ZSQD: [36.36, 120.09], ZUCK: [29.72, 106.64], ZUUU: [30.58, 103.95] };
+/** Share of forecast members whose rounded daily maximum (given in Celsius) lands in the bucket named by `label`
+ *  ("24°C", "70-71°F", "15°C or below", "80°F or higher"). null when the label cannot be read. */
+export function wxBucketProb(label: string, maxC: number[]): number | null {
+  if (!maxC.length) return null;
+  const xs = maxC.map((c) => Math.round(/°\s*F/i.test(label) ? (c * 9) / 5 + 32 : c));
+  const share = (ok: (x: number) => boolean) => xs.filter(ok).length / xs.length;
+  const range = /(-?\d+)\s*[-\u2013]\s*(\d+)\s*°/.exec(label);
+  if (range) return share((x) => x >= Number(range[1]) && x <= Number(range[2]));
+  const one = /(-?\d+)\s*°/.exec(label);
+  if (!one) return null;
+  const n = Number(one[1]);
+  if (/below|lower|less/i.test(label)) return share((x) => x <= n);
+  if (/higher|above|more/i.test(label)) return share((x) => x >= n);
+  return share((x) => x === n);
+}
+/** Daily maximum (Celsius) of every ensemble member for one station-day, from the free Open-Meteo ensemble API. */
+async function wxEnsemble(ev: WxEvent): Promise<number[]> {
+  const ll = WX_LL[ev.station];
+  if (!ll) return [];
+  const day = `${ev.date[0]}-${String(ev.date[1]).padStart(2, "0")}-${String(ev.date[2]).padStart(2, "0")}`;
+  const r = await getJson<{ hourly?: Record<string, (number | null)[]> }>(`https://ensemble-api.open-meteo.com/v1/ensemble?latitude=${ll[0]}&longitude=${ll[1]}&hourly=temperature_2m&models=gfs_seamless,ecmwf_ifs025&start_date=${day}&end_date=${day}&timezone=${encodeURIComponent(ev.tz)}`, 20_000);
+  const out: number[] = [];
+  for (const [k, v] of Object.entries(r.hourly ?? {})) {
+    if (!k.startsWith("temperature_2m") || !Array.isArray(v)) continue;
+    const xs = v.filter((x): x is number => typeof x === "number");
+    if (xs.length >= 20) out.push(Math.max(...xs));
+  }
+  return out;
+}
 async function weatherRefresh() {
   let evs: GEventWx[];
   try {
@@ -727,6 +759,16 @@ async function weatherTick() {
           .sort((a, b) => b.bk!.bestAsk! - a.bk!.bestAsk!)
           .slice(0, 3);
         for (const { bu, bk } of picks) state.makers.push({ rule: "weather-dayahead-all", marketId: bu.id, title: ev.title, outcome: bu.label, idx: 0, token: bu.token, bid: bk!.bestBid!, t: now, feeRate: bu.feeRate, ask: bk!.bestAsk!, until: day0 + 4 * 3600_000, mid: bk!.mid ?? undefined });
+        // weather-dayahead-yes: the forecast copy. Bid only where the ensemble's share for a bucket is 15+ points over its ask.
+        try {
+          const maxC = await wxEnsemble(ev);
+          const fc = ev.buckets.map((bu, i) => ({ bu, bk: books[i], p: wxBucketProb(bu.label, maxC) }));
+          const take = fc.filter((x) => x.p != null && x.bk?.bestAsk != null && x.bk.bestBid != null && x.bk.bestAsk >= 0.1 - 1e-9 && x.bk.bestAsk <= 0.5 + 1e-9 && x.bk.bestBid >= 0.05 && x.bk.bestBid < x.bk.bestAsk && x.p! - x.bk.bestAsk >= 0.15 - 1e-9);
+          for (const { bu, bk } of take) state.makers.push({ rule: "weather-dayahead-yes", marketId: bu.id, title: ev.title, outcome: bu.label, idx: 0, token: bu.token, bid: bk!.bestBid!, t: now, feeRate: bu.feeRate, ask: bk!.bestAsk!, until: day0 + 4 * 3600_000, mid: bk!.mid ?? undefined });
+          signal("weather-dayahead-yes", ev.title, false, { station: ev.station, members: maxC.length, forecast: fc.filter((x) => (x.p ?? 0) >= 0.05).map((x) => `${x.bu.label} ${Math.round(x.p! * 100)}% vs ask ${x.bk?.bestAsk != null ? Math.round(x.bk.bestAsk * 100) : "?"}c`), bids: take.map((x) => x.bu.label), ...(take.length ? {} : { skip: maxC.length ? "no bucket 15+ points over its ask at 10-50c" : "no forecast" }) });
+        } catch (e) {
+          signal("weather-dayahead-yes", ev.title, false, { station: ev.station, skip: `forecast failed: ${(e as Error).message.slice(0, 80)}` });
+        }
         signal("weather-dayahead-all", ev.title, false, { station: ev.station, bids: picks.map((x) => `${x.bu.label} ${Math.round(x.bk!.bestBid! * 100)}c`), ...(picks.length ? {} : { skip: "no bucket asking 10-50c" }) });
       }
     }
@@ -1134,7 +1176,7 @@ const GROUPS: Record<string, string[]> = {
   esports: ["esports-map1", "esports-fav-shadow", "esports-map1-dota", "esports-lol-fav90", "esports-cs2-fav90"],
   indices: ["gold-momentum", "spx-underdog", "spy-underdog"],
   politics: ["election-lock-taker", "election-lock-maker"],
-  weather: ["weather-fav16", "weather-fav15", "weather-fav16-wide", "weather-fav16-mid", "weather-fav16-ask1", "weather-fav16-hi", "weather-fav15-ask1", "weather-dayahead-all"],
+  weather: ["weather-fav16", "weather-fav15", "weather-fav16-wide", "weather-fav16-mid", "weather-fav16-ask1", "weather-fav16-hi", "weather-fav15-ask1", "weather-dayahead-all", "weather-dayahead-yes"],
   tennis: ["tennis-wta-fav90", "tennis-atp-fav90", "tennis-wta-fav85", "tennis-itf-fav90", "tennis-fav95", "tennis-fav90-mid"],
   cricket: ["cricket-fav10", "cricket-fav60", "cricket-dog-control"],
   usports: ["nba-fav85", "cbb-fav85", "nfl-fav85", "nba-fav85-mid", "us-prematch-fav-bid", "us-prematch-dog-bid"],

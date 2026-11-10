@@ -31,3 +31,15 @@ test("tennis tour", () => {
   assert.equal(tennisTour("WTA Doubles: Kichenok/Ostapenko vs X/Y"), null);
   assert.equal(tennisTour("Some exhibition"), null);
 });
+
+test("weather forecast share per bucket label", async () => {
+  const { wxBucketProb } = await import("./eventpaper.js");
+  const maxC = [20.2, 20.6, 21.4, 22.0, 23.6]; // rounds to 20, 21, 21, 22, 24 C; 68, 69, 71, 72, 74 F
+  assert.equal(wxBucketProb("21°C", maxC), 0.4);
+  assert.equal(wxBucketProb("20°C or below", maxC), 0.2);
+  assert.equal(wxBucketProb("22°C or higher", maxC), 0.4);
+  assert.equal(wxBucketProb("70-71°F", maxC), 0.2);
+  assert.equal(wxBucketProb("72°F or higher", maxC), 0.4);
+  assert.equal(wxBucketProb("no number", maxC), null);
+  assert.equal(wxBucketProb("21°C", []), null);
+});
