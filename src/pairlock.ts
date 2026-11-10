@@ -26,13 +26,18 @@ import { append, loadJson, saveJson } from "./store.js";
 
 export const CLIP = 6;
 const FILE = "pairlock.json";
-type Spec = { name: string; every: number; chase: boolean; keys: string[] };
+type Spec = { name: string; every: number; chase: boolean; keys: string[]; from?: number; stop?: number };
 const BIG3 = ["btc15m", "eth15m", "sol15m"];
+const BTC5M = SERIES[0].key; // the first series is BTC 5m
+const USED = [...BIG3, BTC5M];
 export const PAIRLOCK: Spec[] = [
   { name: "pairlock-1s", every: 1, chase: false, keys: BIG3 },
   { name: "pairlock-5s", every: 5, chase: false, keys: BIG3 },
   { name: "pairlock-1s-chase20", every: 1, chase: true, keys: BIG3 },
   { name: "pairlock-1s-ethsol", every: 1, chase: false, keys: ["eth15m", "sol15m"] },
+  // 11 Nov 2026 00:00 KST (top-traders update): the best pair bots do most of their volume on BTC 5m. Same rule on the
+  // 5-minute window: start 20 s after the open, stop new pairs 60 s before the close.
+  { name: "pairlock-1s-5m", every: 1, chase: false, keys: [BTC5M], from: 20, stop: 60 },
 ];
 
 export type Order = { price: number; ahead: number; got: number };
@@ -52,14 +57,14 @@ export function join(cur: Order | null, bids: { price: number; size: number }[],
 }
 
 /** One second of quoting for one sim. `now` and `left` in seconds. */
-export function quote(sim: Sim, up: Book | null, down: Book | null, now: number, left: number, chase: boolean) {
+export function quote(sim: Sim, up: Book | null, down: Book | null, now: number, left: number, chase: boolean, from = 30, stop = 180) {
   const elapsed = now - sim.start;
   if (!up || !down || up.bestBid == null || down.bestBid == null) {
     sim.up = sim.down = null;
     return;
   }
   if (!sim.held) {
-    const ok = elapsed >= 30 && left >= 180 && up.bestBid + down.bestBid <= 0.99 + 1e-9 && [up.bestBid, down.bestBid].every((b) => b >= 0.1 && b <= 0.9);
+    const ok = elapsed >= from && left >= stop && up.bestBid + down.bestBid <= 0.99 + 1e-9 && [up.bestBid, down.bestBid].every((b) => b >= 0.1 && b <= 0.9);
     if (!ok) {
       sim.up = sim.down = null;
       return;
@@ -145,7 +150,7 @@ function tick() {
   const now = Math.floor(Date.now() / 1000);
   let dirty = false;
   for (const s of SERIES) {
-    if (!BIG3.includes(s.key)) continue;
+    if (!USED.includes(s.key)) continue;
     const start = Math.floor(now / s.windowSec) * s.windowSec;
     const m = currentMarket(s.key);
     const live = m && m.start === start ? m : null;
@@ -161,7 +166,7 @@ function tick() {
         sim = undefined;
       }
       if (!sim) sims.set(id, (sim = newSim(start)));
-      if (now % spec.every === 0) quote(sim, up, down, now, start + s.windowSec - now, spec.chase);
+      if (now % spec.every === 0) quote(sim, up, down, now, start + s.windowSec - now, spec.chase, spec.from, spec.stop);
     }
   }
   if (dirty) saveJson(FILE, state);
@@ -170,7 +175,7 @@ function tick() {
 function trade(p: TradePrint) {
   const now = Math.floor(Date.now() / 1000);
   for (const s of SERIES) {
-    if (!BIG3.includes(s.key)) continue;
+    if (!USED.includes(s.key)) continue;
     const m = currentMarket(s.key);
     if (!m || (p.tokenId !== m.upToken && p.tokenId !== m.downToken)) continue;
     for (const spec of PAIRLOCK) {
@@ -187,10 +192,10 @@ async function settle() {
   let changed = false;
   for (const t of Object.values(state)) {
     for (const l of t.left) {
-      if (l.won != null || now < l.start + 900 + 120) continue;
+      const s = SERIES.find((x) => x.key === l.series);
+      if (l.won != null || !s || now < l.start + s.windowSec + 120) continue;
       const k = `${l.series}|${l.start}`;
       if (!seen.has(k)) {
-        const s = SERIES.find((x) => x.key === l.series);
         const r = s ? await resolution(l.start, s.slug, s.slugStyle).catch(() => null) : null;
         seen.set(k, r?.resolvedUp ?? null);
       }
