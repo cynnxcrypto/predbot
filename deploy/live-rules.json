@@ -1,6 +1,6 @@
 {
   "mode": "live",
-  "minBalance": 270,
+  "minBalance": 235,
   "events": {
     "tennis": {
       "note": "10 Nov 2026 17:28 KST, enrique: start tennis. Real copy of the paper tennis favourite rules (mid 90-95c, 10 min before the start, ask within 2c of mid). $3 a bet, Jev sizing off, only when $25+ rests within 2c of the ask. Guards: 2 losses in a KST day stop it until the next day, 4 bets open at most, its own budget of $10 (enrique 17:56 KST: 10usd for tennis is totally fine, outside of what i said for crypto; lost + open stakes), separate from the crypto $70 cap (enrique 17:45 KST: tennis should have its own little budget). Code src/eventlive.ts.",
@@ -16,6 +16,17 @@
       "maxOpen": 4,
       "maxLoss": 10
     }
+  },
+  "pairs": {
+    "note": "REAL two-sided pair test (src/pairlive.ts). enrique 11 Nov 2026 00:02-00:04 KST: 'go trade it for real', 'its okay to start and build up', 'we can risk 35usd on this'. Post-only bids of 6 shares on Up and Down of ETH 15m at the best bid while they add to 99c or less (17-83c); after one fills, the other is bid so the pair costs under $1. Own budget $35 = settled losses + worst case of open windows. ETH only to start (replay ETH +$27.59, SOL +$8.84, BTC -$7.62); reviews add coins. At most $20 lost per KST day. Wallet floor lowered 270 -> 235 for this budget.",
+    "on": true,
+    "series": [
+      "eth15m"
+    ],
+    "clip": 6,
+    "maxLoss": 35,
+    "maxPairs": 3,
+    "dayMaxLoss": 20
   },
   "maxLossPerDay": 15,
   "variants": [],

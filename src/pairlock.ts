@@ -154,8 +154,8 @@ function tick() {
     const start = Math.floor(now / s.windowSec) * s.windowSec;
     const m = currentMarket(s.key);
     const live = m && m.start === start ? m : null;
-    const up = live ? bookFeed.get(live.upToken, 5000) : null;
-    const down = live ? bookFeed.get(live.downToken, 5000) : null;
+    const up = live ? bookFeed.fresh(live.upToken) : null;
+    const down = live ? bookFeed.fresh(live.downToken) : null;
     for (const spec of PAIRLOCK) {
       if (!spec.keys.includes(s.key)) continue;
       const id = `${spec.name}|${s.key}`;

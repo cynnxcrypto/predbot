@@ -566,6 +566,13 @@ export function relayerUsedToday(): number {
 let relayBusy = false;
 /** Every trader, so the BTC 5m one can claim all series' wins in one transaction. */
 const traders: LiveTrader[] = [];
+/** Ask the crypto claim queue to turn a window's winning shares back into cash (used by the real pair test, src/pairlive.ts). */
+export function queueRedeem(seriesKey: string, window: number, shares: number): boolean {
+  const t = traders.find((x) => x.series.key === seriesKey);
+  if (!t || !(shares > 0)) return false;
+  t.addRedeem(window, shares);
+  return true;
+}
 /** When the relayer said its daily quota is used up: nothing is sent until this time. */
 let relayerBlockedUntil = 0;
 /** When the last claim batch went out. */
@@ -1501,6 +1508,13 @@ export class LiveTrader {
       relayBusy = false;
     }
     return true;
+  }
+
+  addRedeem(window: number, shares: number) {
+    const r = this.redeems.find((x) => x.window === window);
+    if (r) r.shares += shares;
+    else this.redeems.push({ window, shares, tries: 0, nextAt: Date.now() + 60000, lastError: null });
+    saveJson(`${this.prefix}live-redeem.json`, this.redeems);
   }
 
   async redeemPending() {

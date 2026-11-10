@@ -10,6 +10,7 @@ import { startServerReport } from "./serverReport.js";
 import { installSshKeys } from "./sshkeys.js";
 import { startPreopen } from "./preopen.js";
 import { startPairlock } from "./pairlock.js";
+import { pairliveQuiet, startPairlive } from "./pairlive.js";
 
 function build() {
   try {
@@ -80,6 +81,7 @@ const server = await serveStatus(recorder, build(), recorders.slice(1));
 for (const r of recorders) r.start();
 const latencyTimer = startLatencyProbe();
 const reportTimer = startServerReport();
+const pairliveTimer = startPairlive(); // REAL: two-sided pair test (src/pairlive.ts), guarded by deploy/live-rules.json "pairs"
 const pairlockTimer = startPairlock(); // paper only: two-sided pair locking on BTC/ETH/SOL 15m (src/pairlock.ts)
 const preopenTimer = startPreopen(); // paper only: 49c bids on both sides of the next 15m window (src/preopen.ts)
 console.log(`Pred bot recorder ${build()}. Status: http://127.0.0.1:${STATUS_PORT}. Recording ${recorders.map((r) => r.series.label).join(", ")}.`);
@@ -148,6 +150,7 @@ function stop() {
   clearInterval(latencyTimer);
   if (preopenTimer) clearInterval(preopenTimer);
   if (pairlockTimer) clearInterval(pairlockTimer);
+  if (pairliveTimer) clearInterval(pairliveTimer);
   if (reportTimer) clearInterval(reportTimer);
   history?.kill("SIGTERM");
   for (const r of recorders) r.stop();
@@ -163,5 +166,7 @@ process.on("SIGUSR2", () => {
   // Ten seconds past the edge, so the closing window is queued for settlement before we exit (3s was sometimes too soon).
   const wait = ((300 - (sec % 300)) % 300) + 10;
   console.log(`update requested; restarting in ${wait}s, at the next window edge`);
+  // The real pair test pulls its resting bids 20 s before the restart (orders left behind are also cancelled on start).
+  setTimeout(pairliveQuiet, Math.max(0, wait - 20) * 1000);
   setTimeout(stop, wait * 1000);
 });

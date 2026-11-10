@@ -126,7 +126,7 @@ export function eventLiveRows(): EventLiveRow[] {
 
 let client: ClobClient | null = null;
 const timed = <T>(p: Promise<T>, what: string, ms = 20_000) => Promise.race([p, new Promise<never>((_, no) => setTimeout(() => no(new Error(`${what} timed out`)), ms).unref())]);
-async function getClient(funder: string): Promise<ClobClient> {
+export async function getClient(funder: string): Promise<ClobClient> {
   if (client) return client;
   const keys = loadJson<{ wallet?: string }>("polygon-keys.json", {});
   const pk = String(keys.wallet ?? "").trim();

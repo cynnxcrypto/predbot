@@ -91,6 +91,15 @@ export class BookFeed {
     return { ...makeBook(top(entry.bids, "bid"), top(entry.asks, "ask")), at: entry.at };
   }
 
+  /**
+   * The cached book while the socket itself is alive (some event within `feedMs`), even if this token's own book has
+   * not changed for a while: a quiet book is still the book. `get` would call it stale after 3 s of no change.
+   */
+  fresh(tokenId: string, feedMs = 5000, maxAgeMs = 120_000): (Book & { at: number }) | null {
+    if (!this.connected() || Date.now() - this.lastAt > feedMs) return null;
+    return this.peek(tokenId, maxAgeMs);
+  }
+
   /** Replace a token's cached book with a fresh HTTP read (the periodic cross-check). */
   reset(tokenId: string, bids: Level[], asks: Level[]) {
     if (!this.watched.has(tokenId)) return;

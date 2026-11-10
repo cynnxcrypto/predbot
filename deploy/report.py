@@ -100,7 +100,8 @@ def summary():
     out["eventPaper"] = s.get("eventPaper")  # 7 Nov 2026: esports/indices/politics paper loggers (src/eventpaper.ts)
     out["budgets"] = s.get("budgets")
     out["preopen"] = s.get("preopen")
-    out["pairlock"] = s.get("pairlock")  # 10 Nov 2026: budget, lost, open and left per real-money category
+    out["pairlock"] = s.get("pairlock")
+    out["pairlive"] = s.get("pairlive")  # 10 Nov 2026: budget, lost, open and left per real-money category
     out["realTrades"] = sorted(rows, key=lambda r: r.get("t") or 0)[-200:]
     return out
 
