@@ -2,6 +2,7 @@ import { preopenSummary } from "./preopen.js";
 import { pairliveSummary } from "./pairlive.js";
 import { pairlockSummary } from "./pairlock.js";
 import { pairfastSummary } from "./pairfast.js";
+import { pairfastliveSummary } from "./pairfastlive.js";
 import { createServer } from "node:http";
 import { loadJson } from "./store.js";
 import { STATUS_PORT } from "./config.js";
@@ -301,7 +302,7 @@ export function serveStatus(recorder: Recorder, build: string, others: Recorder[
     }
     if (req.url === "/api/status") {
       res.writeHead(200, { "content-type": "application/json" });
-      res.end(JSON.stringify({ build, ...recorder.status(), series: others.map((r) => r.status()), eventPaper: loadJson<unknown>("eventpaper-summary.json", null), budgets: [...budgets(), pairliveSummary().budget], pairlive: pairliveSummary(), preopen: preopenSummary(), pairlock: pairlockSummary(), pairfast: pairfastSummary() }));
+      res.end(JSON.stringify({ build, ...recorder.status(), series: others.map((r) => r.status()), eventPaper: loadJson<unknown>("eventpaper-summary.json", null), budgets: [...budgets(), pairliveSummary().budget, pairfastliveSummary().budget], pairlive: pairliveSummary(), pairfastlive: pairfastliveSummary(), preopen: preopenSummary(), pairlock: pairlockSummary(), pairfast: pairfastSummary() }));
       return;
     }
     if (req.url === "/favicon.svg" || req.url === "/favicon.ico") {
