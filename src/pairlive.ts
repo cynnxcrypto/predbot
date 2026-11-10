@@ -190,8 +190,22 @@ function guardsOk(cfg: PairConfig, now: number): string | null {
   const dayNet = state.done.filter((d) => kstDay(d.at) === today).reduce((a, d) => a + d.net, 0);
   if (dayNet <= -cfg.dayMaxLoss) return `down $${(-dayNet).toFixed(2)} today (day limit $${cfg.dayMaxLoss}); back at 00:00 KST`;
   if (balance == null) return "balance not read yet";
-  if (balance - cfg.minBalance < 2 * 5) return `wallet $${balance.toFixed(2)} is at the $${cfg.minBalance} floor`;
+  // 11 Nov 2026 00:18 KST, enrique: "okay then increase budget" (told that cash locked in finished pairs could pause
+  // the test until the hourly claim). Finished pairs return $1 a share, so up to $60 of that locked cash is treated as
+  // still in the wallet for THIS test's floor check. The loss limits do not change.
+  const locked = lockedInPairs(now);
+  if (balance + Math.min(LOCKED_ALLOWANCE, locked) - cfg.minBalance < 2 * 5) return `wallet $${balance.toFixed(2)} (+$${locked.toFixed(2)} in finished pairs) is at the $${cfg.minBalance} floor`;
   return null;
+}
+
+export const LOCKED_ALLOWANCE = 60;
+/** Dollars sure to come back from finished pairs not yet claimed: open and unsettled windows, and windows settled in the last 75 minutes (claims run hourly). */
+function lockedInPairs(now: number): number {
+  const paired = (w: { up: number; down: number }) => Math.min(w.up, w.down);
+  let total = 0;
+  for (const w of [...Object.values(state.cur), ...state.pending]) total += Math.min(w.up.shares, w.down.shares);
+  for (const d of state.done) if (now - d.at < 75 * 60_000) total += paired(d);
+  return total;
 }
 
 let blocked: string | null = null;
@@ -279,6 +293,7 @@ export function pairliveSummary() {
     pairedShares: r2(state.done.reduce((a, d) => a + Math.min(d.up, d.down), 0)),
     leftoverWindows: state.done.filter((d) => Math.abs(d.up - d.down) >= 1).length,
     unsettled: state.pending.length,
+    lockedInPairs: r2(lockedInPairs(Date.now())),
     blocked,
     errorsToday: state.errDay === today ? state.errs : 0,
     rejects: state.rejects ?? 0,
