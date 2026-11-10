@@ -26,7 +26,7 @@ import { append, loadJson, saveJson } from "./store.js";
 
 export const CLIP = 6;
 const FILE = "pairlock.json";
-type Spec = { name: string; every: number; chase: boolean; keys: string[]; from?: number; stop?: number; cut?: number; cap?: number; deep?: number; hold?: boolean };
+type Spec = { name: string; every: number; chase: boolean; keys: string[]; from?: number; stop?: number; cut?: number; cap?: number; deep?: number; hold?: boolean; flip?: number };
 const BIG3 = ["btc15m", "eth15m", "sol15m"];
 const BTC5M = SERIES[0].key; // the first series is BTC 5m
 const USED = [...BIG3, BTC5M];
@@ -62,6 +62,13 @@ export const PAIRLOCK: Spec[] = [
   // re-placed only while flat when one has been left 4c or more under its best bid; no new first legs in the last 2 min.
   { name: "pairlock-hold", every: 1, chase: false, keys: BIG3, stop: 120, hold: true },
   { name: "pairlock-hold-5m", every: 1, chase: false, keys: [BTC5M], from: 20, stop: 120, hold: true },
+  // Round 338 (11 Nov 2026 04:15 KST): the real pair test ended its day at 37 windows, -$23.88, and across the paper
+  // copies a clip left alone lost 250 of about 255 times: when our resting bid is filled and the other side does not
+  // complete, that side goes on to lose almost always. These twins read that as a signal instead of a cost: same quoting
+  // as pairlock-1s, and when a clip has been alone for 30 s they also log a BUY OF THE OTHER SIDE AT ITS ASK (6 shares,
+  // taker fee counted), scored on its own (flips / flipNet). The price paid by then is the open question.
+  { name: "pairlock-1s-flip30", every: 1, chase: false, keys: BIG3, flip: 30 },
+  { name: "pairlock-1s-5m-flip30", every: 1, chase: false, keys: [BTC5M], from: 20, stop: 60, flip: 30 },
   { name: "pairlock-1s-cut10", every: 1, chase: false, keys: BIG3, cut: 0.1 },
   { name: "pairlock-1s-cut5", every: 1, chase: false, keys: BIG3, cut: 0.05 },
   { name: "pairlock-1s-5m-cut10", every: 1, chase: false, keys: [BTC5M], from: 20, stop: 60, cut: 0.1 },
@@ -69,9 +76,9 @@ export const PAIRLOCK: Spec[] = [
 ];
 
 export type Order = { price: number; ahead: number; got: number };
-export type Sim = { start: number; up: Order | null; down: Order | null; held: { side: "U" | "D"; price: number; at: number } | null; pairs: number; cost: number; rebate: number; active: boolean; cuts: number; cutNet: number; hold?: boolean };
+export type Sim = { start: number; up: Order | null; down: Order | null; held: { side: "U" | "D"; price: number; at: number; flip?: boolean } | null; pairs: number; cost: number; rebate: number; active: boolean; cuts: number; cutNet: number; hold?: boolean };
 type Left = { series: string; start: number; side: "U" | "D"; price: number; won?: boolean; net?: number };
-type Tot = { windows: number; pairs: number; pairNet: number; rebate: number; left: Left[]; cuts?: number; cutNet?: number };
+type Tot = { windows: number; pairs: number; pairNet: number; rebate: number; left: Left[]; cuts?: number; cutNet?: number; flips?: Left[] };
 
 const cent = (x: number) => Math.round(x * 100) / 100;
 export const newSim = (start: number): Sim => ({ start, up: null, down: null, held: null, pairs: 0, cost: 0, rebate: 0, active: false, cuts: 0, cutNet: 0 });
@@ -223,6 +230,14 @@ function tick() {
       }
       if (!sim) sims.set(id, (sim = newSim(start)));
       if (now % spec.every === 0) quote(sim, up, down, now, start + s.windowSec - now, spec.chase, spec.from, spec.stop, spec.cut, spec.cap, spec.deep, spec.hold);
+      if (spec.flip && sim.held && !sim.held.flip && now - sim.held.at >= spec.flip && start + s.windowSec - now > 20) {
+        const other = sim.held.side === "U" ? down : up;
+        if (other?.bestAsk != null && other.bestAsk >= 0.05 && other.bestAsk <= 0.97) {
+          sim.held.flip = true;
+          (tot(spec.name).flips ??= []).push({ series: s.key, start, side: sim.held.side === "U" ? "D" : "U", price: other.bestAsk });
+          dirty = true;
+        }
+      }
     }
   }
   if (dirty) saveJson(FILE, state);
@@ -247,7 +262,8 @@ async function settle() {
   const seen = new Map<string, boolean | null>();
   let changed = false;
   for (const t of Object.values(state)) {
-    for (const l of t.left) {
+    if (t.flips && t.flips.length > 600) t.flips.splice(0, t.flips.length - 600);
+    for (const l of [...t.left, ...(t.flips ?? [])]) {
       const s = SERIES.find((x) => x.key === l.series);
       if (l.won != null || !s || now < l.start + s.windowSec + 120) continue;
       const k = `${l.series}|${l.start}`;
@@ -258,7 +274,8 @@ async function settle() {
       const upWon = seen.get(k);
       if (upWon == null) continue;
       l.won = upWon === (l.side === "U");
-      l.net = Math.round((l.won ? 1 - l.price : -l.price) * CLIP * 100) / 100;
+      const fee = t.flips?.includes(l) ? 0.07 * l.price * (1 - l.price) : 0; // a flip is a taker buy
+      l.net = Math.round(((l.won ? 1 - l.price : -l.price) - fee) * CLIP * 100) / 100;
       changed = true;
     }
   }
@@ -270,7 +287,9 @@ export function pairlockSummary() {
     const t = tot(spec.name);
     const done = t.left.filter((l) => l.won != null);
     const leftNet = Math.round(done.reduce((a, l) => a + (l.net ?? 0), 0) * 100) / 100;
-    return { name: spec.name, windows: t.windows, pairs: t.pairs, pairNet: t.pairNet, leftovers: t.left.length, leftSettled: done.length, leftWon: done.filter((l) => l.won).length, leftNet, cuts: t.cuts ?? 0, cutNet: t.cutNet ?? 0, net: Math.round((t.pairNet + leftNet + (t.cutNet ?? 0)) * 100) / 100, rebateEst: t.rebate };
+    const fl = (t.flips ?? []).filter((l) => l.won != null);
+    const flip = spec.flip ? { flips: (t.flips ?? []).length, flipSettled: fl.length, flipWon: fl.filter((l) => l.won).length, flipNet: Math.round(fl.reduce((a, l) => a + (l.net ?? 0), 0) * 100) / 100, flipAvgPrice: fl.length ? Math.round((fl.reduce((a, l) => a + l.price, 0) / fl.length) * 1000) / 1000 : null } : {};
+    return { ...flip, name: spec.name, windows: t.windows, pairs: t.pairs, pairNet: t.pairNet, leftovers: t.left.length, leftSettled: done.length, leftWon: done.filter((l) => l.won).length, leftNet, cuts: t.cuts ?? 0, cutNet: t.cutNet ?? 0, net: Math.round((t.pairNet + leftNet + (t.cutNet ?? 0)) * 100) / 100, rebateEst: t.rebate };
   });
 }
 
