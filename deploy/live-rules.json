@@ -127,5 +127,16 @@
     "since": "2026-11-07T02:44:00Z",
     "maxLoss": 70,
     "note": "enrique 7 Nov 11:46 KST: go live with the BIG3 DOWN taker and the maker (1c-under bid), lose no more than $50 combined from 11:44 KST; 8 Nov 02:11 KST enrique: +$20 -> $70 (stop at -$134 since Friday)"
+  },
+  "pairfast": {
+    "note": "REAL fast pair bot on BTC 5m (src/pairfastlive.ts). enrique 11 Nov 2026 08:03 KST: 'do real money with the fast btc5min. can lose up to 15usd'. One 6-share post-only bid rests on Up and one on Down at the best bid and keeps its queue place; a pair never costs over 99c; at most $4.98 an order; one pair a window; no new first leg in the last 2 minutes. HARD budget $15: settled losses plus the worst case of everything open and of the bid about to be placed, checked before every first leg; when it is used the rule stays off until enrique says otherwise. It went real with no settled paper windows. Paper twin: pairfast-top-lock-5m. The old slow pair test ('pairs') stays off.",
+    "on": true,
+    "series": [
+      "btc5m"
+    ],
+    "clip": 6,
+    "maxLoss": 15,
+    "maxPairs": 1,
+    "slack": 3
   }
 }

@@ -104,3 +104,12 @@ test("pairfastlive: bids rest (kept within the slack), pairs never over 99c, tim
   w.up = { shares: 6, cost: 2.4, last: 0.4 };
   assert.deepEqual(desired(w, book(0.48), book(0.51), T + 100, cfg, true, 15), none);
 });
+
+test("pairfastlive: the rules in the repo stay inside enrique's word (BTC 5m, $15, one pair, old pair test off)", async () => {
+  const { readFileSync } = await import("node:fs");
+  const text = readFileSync("deploy/live-rules.json", "utf8");
+  const cfg = parseFast(text, { mode: "live", funder: "x" });
+  assert.ok(cfg.maxLoss <= 15 && cfg.clip <= 6 && cfg.maxPairs <= 1);
+  assert.equal(JSON.parse(text).pairs.on, false);
+  assert.equal(parseFast(text, { mode: "off", funder: "x" }).on, false);
+});
