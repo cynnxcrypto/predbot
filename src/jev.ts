@@ -2,7 +2,7 @@
  * Jev (TypeSafe AI) as a stake picker for paper bets (7 Nov 2026, enrique: "I want you to use JEV to decide sizing of
  * the bet" ... "i want it for all, not only laliga"). Shared by every event paper rule (src/eventpaper.ts). For each
  * signal we send the full context (rule thesis, the rule's own paper record, live book, recent headlines, the proposed
- * flat stake and the caps) and ask for a stake: skip, half, normal or double the default stake. The answer is LOGGED next to the flat $5 paper
+ * flat stake and the caps) and ask for a stake: half, normal or double the default stake (never skip, since 10 Nov 2026). The answer is LOGGED next to the flat $5 paper
  * trade so "flat $5" and "Jev-sized" can be compared per rule. Nothing here places an order.
  *
  * Key: env TYPESAFE_API_KEY (or TYPESAFE_AI_API_KEY), else data/jev-key.txt, else TYPESAFE_API_KEY= in the app's .env
@@ -16,9 +16,12 @@ import { DATA, ROOT } from "./config.js";
 const ENDPOINT = "https://api.typesafe.ai/v1/systemone";
 const MODEL = process.env.JEV_MODEL || "jev-latest";
 /** Multiplier on the rule's default stake (spec: /mnt/project-files/reviews/jev-sizing-spec.md). Caps apply after it. */
-export const STAKES: Record<string, number> = { skip: 0, half: 0.5, normal: 1, double: 2 };
+// 10 Nov 2026 17:57 KST, enrique: "the jev thing for skipping is pretty useless, i dont like that it skips literally
+// everything"; Jev was meant to pick a bigger or smaller bet, never to skip. It had answered skip on all 55 tennis
+// favourites (all won). So there is no skip any more: Jev only chooses small / normal / double. Older rows keep "skip".
+export const STAKES: Record<string, number> = { half: 0.5, normal: 1, double: 2 };
 export const JEV_CONTEXT =
-  "You are the risk manager for a small bettor. A rule wants to place this bet. Using everything here (news, injuries, form, motivation, market vs other prices, the rule's record), decide how much to stake. Size down or skip when the news or situation undermines the bet; size up only when you are confident the outcome is underpriced.";
+  "You are the risk manager for a small bettor. A rule wants to place this bet. Using everything here (news, injuries, form, motivation, market vs other prices, the rule's record), decide how much to stake. The bet WILL be placed: you only choose its size. Size down when the news or situation undermines the bet; size up only when you are confident the outcome is underpriced; otherwise keep the normal stake.";
 
 let cachedKey: string | null | undefined;
 let checkedAt = 0;
@@ -50,8 +53,8 @@ export type JevStake = { mult: number | null; pick?: string; probs?: Record<stri
 const QUESTIONS = {
   stake: {
     type: "choice",
-    instructions: "How much should we stake on the proposed bet?",
-    criteria: { skip: "Skip ($0): not worth it at this price", half: "Small ($2.50): some doubt", normal: "Normal ($5): fair-to-good bet", double: "Double ($10): high confidence it is underpriced" },
+    instructions: "The bet will be placed either way. How big should the stake be?",
+    criteria: { half: "Small ($2.50): real doubt about this bet", normal: "Normal ($5): the default, nothing unusual", double: "Double ($10): high confidence it is underpriced" },
   },
   // A bare "score" question is rejected by the API (football thread, 7 Nov 22:50 KST): ask it as 10 labelled levels and
   // map back to a % (probability-weighted mean of the level midpoints).
@@ -104,7 +107,7 @@ type Answer = { probabilities?: Record<string, number>; choice?: string; score?:
 export function parseJev(j: { model?: string; answers?: Record<string, Answer> }, ms: number, at: number): JevStake {
   const s = j.answers?.stake;
   const probs = s?.probabilities;
-  const pick = s?.choice && s.choice in STAKES ? s.choice : probs ? Object.entries(probs).sort((a, b) => b[1] - a[1])[0]?.[0] : undefined;
+  const pick = s?.choice && s.choice in STAKES ? s.choice : probs ? Object.entries(probs).filter(([k]) => k in STAKES).sort((a, b) => b[1] - a[1])[0]?.[0] : undefined;
   if (!pick || !(pick in STAKES)) return { mult: null, err: "no stake in answer", model: j.model, ms, at };
   const c = j.answers?.confidence;
   const cp = c?.probabilities;
