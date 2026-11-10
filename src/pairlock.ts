@@ -26,7 +26,7 @@ import { append, loadJson, saveJson } from "./store.js";
 
 export const CLIP = 6;
 const FILE = "pairlock.json";
-type Spec = { name: string; every: number; chase: boolean; keys: string[]; from?: number; stop?: number };
+type Spec = { name: string; every: number; chase: boolean; keys: string[]; from?: number; stop?: number; cut?: number };
 const BIG3 = ["btc15m", "eth15m", "sol15m"];
 const BTC5M = SERIES[0].key; // the first series is BTC 5m
 const USED = [...BIG3, BTC5M];
@@ -38,15 +38,23 @@ export const PAIRLOCK: Spec[] = [
   // 11 Nov 2026 00:00 KST (top-traders update): the best pair bots do most of their volume on BTC 5m. Same rule on the
   // 5-minute window: start 20 s after the open, stop new pairs 60 s before the close.
   { name: "pairlock-1s-5m", every: 1, chase: false, keys: [BTC5M], from: 20, stop: 60 },
+  // Round 335 (11 Nov 2026 01:15 KST): the first real hour of the pair test: 9 windows, about 21 pairs at +6c each, but
+  // 3 windows ended with a lone clip and all 3 lost (-$2.82, -$2.58, -$1.20), net -$5.04. Paper says the same: 23 of
+  // 23 settled lone clips lost across the copies. The side that fills first is the side that is falling. These twins cut a lone clip
+  // instead of holding it: when its own best bid is 10c (or 5c) under what we paid, sell it at that bid and start again.
+  { name: "pairlock-1s-cut10", every: 1, chase: false, keys: BIG3, cut: 0.1 },
+  { name: "pairlock-1s-cut5", every: 1, chase: false, keys: BIG3, cut: 0.05 },
+  { name: "pairlock-1s-5m-cut10", every: 1, chase: false, keys: [BTC5M], from: 20, stop: 60, cut: 0.1 },
+  { name: "pairlock-1s-5m-cut5", every: 1, chase: false, keys: [BTC5M], from: 20, stop: 60, cut: 0.05 },
 ];
 
 export type Order = { price: number; ahead: number; got: number };
-export type Sim = { start: number; up: Order | null; down: Order | null; held: { side: "U" | "D"; price: number; at: number } | null; pairs: number; cost: number; rebate: number; active: boolean };
+export type Sim = { start: number; up: Order | null; down: Order | null; held: { side: "U" | "D"; price: number; at: number } | null; pairs: number; cost: number; rebate: number; active: boolean; cuts: number; cutNet: number };
 type Left = { series: string; start: number; side: "U" | "D"; price: number; won?: boolean; net?: number };
-type Tot = { windows: number; pairs: number; pairNet: number; rebate: number; left: Left[] };
+type Tot = { windows: number; pairs: number; pairNet: number; rebate: number; left: Left[]; cuts?: number; cutNet?: number };
 
 const cent = (x: number) => Math.round(x * 100) / 100;
-export const newSim = (start: number): Sim => ({ start, up: null, down: null, held: null, pairs: 0, cost: 0, rebate: 0, active: false });
+export const newSim = (start: number): Sim => ({ start, up: null, down: null, held: null, pairs: 0, cost: 0, rebate: 0, active: false, cuts: 0, cutNet: 0 });
 
 /** Join (or keep) a resting bid at `price`; a new price means a new place in the queue behind the shares shown there. */
 export function join(cur: Order | null, bids: { price: number; size: number }[], price: number): Order {
@@ -57,7 +65,7 @@ export function join(cur: Order | null, bids: { price: number; size: number }[],
 }
 
 /** One second of quoting for one sim. `now` and `left` in seconds. */
-export function quote(sim: Sim, up: Book | null, down: Book | null, now: number, left: number, chase: boolean, from = 30, stop = 180) {
+export function quote(sim: Sim, up: Book | null, down: Book | null, now: number, left: number, chase: boolean, from = 30, stop = 180, cut = 0) {
   const elapsed = now - sim.start;
   if (!up || !down || up.bestBid == null || down.bestBid == null) {
     sim.up = sim.down = null;
@@ -72,6 +80,15 @@ export function quote(sim: Sim, up: Book | null, down: Book | null, now: number,
     sim.active = true;
     sim.up = join(sim.up, up.bids, up.bestBid);
     sim.down = join(sim.down, down.bids, down.bestBid);
+    return;
+  }
+  const own = sim.held.side === "U" ? up : down;
+  if (cut > 0 && own.bestBid != null && own.bestBid <= sim.held.price - cut + 1e-9) {
+    // Cut the lone clip: sold at its own best bid (a taker sale; the fee is not counted here).
+    sim.cuts += 1;
+    sim.cutNet += (own.bestBid - sim.held.price) * CLIP;
+    sim.held = null;
+    sim.up = sim.down = null;
     return;
   }
   const other = sim.held.side === "U" ? down : up;
@@ -130,13 +147,15 @@ const sims = new Map<string, Sim>(); // `${variant}|${series}`
 const tot = (name: string) => (state[name] ??= { windows: 0, pairs: 0, pairNet: 0, rebate: 0, left: [] });
 
 function close(spec: Spec, key: string, sim: Sim) {
-  if (!sim.active && !sim.pairs && !sim.held) return;
+  if (!sim.active && !sim.pairs && !sim.held && !sim.cuts) return;
   const t = tot(spec.name);
   const pairNet = Math.round((sim.pairs - sim.cost) * CLIP * 100) / 100;
   t.windows += 1;
   t.pairs += sim.pairs;
   t.pairNet = Math.round((t.pairNet + pairNet) * 100) / 100;
   t.rebate = Math.round((t.rebate + sim.rebate) * 1000) / 1000;
+  t.cuts = (t.cuts ?? 0) + sim.cuts;
+  t.cutNet = Math.round(((t.cutNet ?? 0) + sim.cutNet) * 100) / 100;
   if (sim.held) t.left.push({ series: key, start: sim.start, side: sim.held.side, price: sim.held.price });
   if (t.left.length > 600) t.left.splice(0, t.left.length - 600);
   try {
@@ -166,7 +185,7 @@ function tick() {
         sim = undefined;
       }
       if (!sim) sims.set(id, (sim = newSim(start)));
-      if (now % spec.every === 0) quote(sim, up, down, now, start + s.windowSec - now, spec.chase, spec.from, spec.stop);
+      if (now % spec.every === 0) quote(sim, up, down, now, start + s.windowSec - now, spec.chase, spec.from, spec.stop, spec.cut);
     }
   }
   if (dirty) saveJson(FILE, state);
@@ -214,7 +233,7 @@ export function pairlockSummary() {
     const t = tot(spec.name);
     const done = t.left.filter((l) => l.won != null);
     const leftNet = Math.round(done.reduce((a, l) => a + (l.net ?? 0), 0) * 100) / 100;
-    return { name: spec.name, windows: t.windows, pairs: t.pairs, pairNet: t.pairNet, leftovers: t.left.length, leftSettled: done.length, leftWon: done.filter((l) => l.won).length, leftNet, net: Math.round((t.pairNet + leftNet) * 100) / 100, rebateEst: t.rebate };
+    return { name: spec.name, windows: t.windows, pairs: t.pairs, pairNet: t.pairNet, leftovers: t.left.length, leftSettled: done.length, leftWon: done.filter((l) => l.won).length, leftNet, cuts: t.cuts ?? 0, cutNet: t.cutNet ?? 0, net: Math.round((t.pairNet + leftNet + (t.cutNet ?? 0)) * 100) / 100, rebateEst: t.rebate };
   });
 }
 

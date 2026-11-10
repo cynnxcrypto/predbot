@@ -44,3 +44,12 @@ test("pairlock: no quotes when the bids add to more than 99c or near the close; 
   quote(sim, book(0.4, 10, 0.42), book(0.55, 10, 0.6), 1890, 10, true);
   assert.equal(v(sim).down, null);
 });
+
+test("pairlock: the cut twin sells a lone clip once its own bid is 10c under the price paid", () => {
+  const sim = newSim(1000);
+  sim.held = { side: "U", price: 0.5, at: 1100 };
+  quote(sim, book(0.45, 10, 0.46), book(0.53, 10, 0.55), 1110, 700, false, 30, 180, 0.1);
+  assert.equal(v(sim).cuts, 0);
+  quote(sim, book(0.4, 10, 0.41), book(0.58, 10, 0.6), 1111, 699, false, 30, 180, 0.1);
+  assert.deepEqual([v(sim).cuts, Math.round(v(sim).cutNet * 100), v(sim).held], [1, -60, null]);
+});
