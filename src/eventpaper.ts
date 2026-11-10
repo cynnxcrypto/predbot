@@ -628,6 +628,8 @@ const RULE_TEXT: Record<string, [string, string]> = {
   "nba-fav85": ["usports", "Research batch 2 (10 Nov 2026): NBA moneyline favourite asking 85-95c at T-10 min, take the ask when the spread is 1c or less and $25+ rests at the ask; hold to settlement; sits out after 3 losses in 7 days. History on mids +1c slip +fee: 156 bets 94.9% won vs 88.6c implied, +5.2c/share, 11 of 14 months positive."],
   "cbb-fav85": ["usports", "Control: college basketball favourite 85-95c, same rule as nba-fav85 (history -2.0c/share over 299)."],
   "nfl-fav85": ["usports", "Shadow: NFL favourite 85-95c, same rule as nba-fav85."],
+  "us-prematch-fav-bid": ["usports", "Round 340 (11 Nov 2026 06:15 KST): the top-traders read of 7 sports says the wallets that win before the start are the ones with RESTING orders (6 of 7 sports), while pre-match takers lose; our 85-95c favourite rules have found 0 games in band in a day. This rests $5 one tick under the ask of the favourite at 55-85c, 30 min before the start, NBA, college basketball and NFL, cancelled at the start, a fill held to the result. Our own batch 1 said such bids lose on tennis (fills come when the price is falling), so this is a test of the claim, not a belief."],
+  "us-prematch-dog-bid": ["usports", "Control for us-prematch-fav-bid: the same resting bid on the underdog of the same games (15-45c). If resting orders win only because of the side, the two will differ; if they win because of the spread saved, both should be near zero or better."],
   "nba-fav85-mid": ["usports", "Mid-bid twin of nba-fav85: at T-30 min rest $5 one tick under the favourite's ask (books are 1c, so this joins the bid), cancel at tip-off, hold a fill."],
   "weather-fav16-mid": ["weather", "Round 307 (9 Nov 2026 21:15 KST): maker shadow of the 16:00 rule. In three days the taker rules saw 21 signals and took none (asks 65-91c, 4c+ over mid; the mid+5c copy also took none), so this one rests a $5 bid AT the mid of the leading bucket for up to 6 h and books the trade only if the ask comes down to it. Measures whether a patient bid can trade the weather edge at all, and what it wins when it does."],
   "weather-dayahead-all": ["weather", "11 Nov 2026 02:50 KST (top-traders lead: one wallet, one week, +$3,269 on $10,573 as a pure maker buying 10-50c buckets 24-48 h before the close; a lead, not proof): the day before, at 12:00 station local time (36 h before the market day ends), rest a $5 bid at the best bid on up to 3 temperature buckets asking 10-50c; never take; cancel 20 h before the close; hold fills to settlement. This is the no-forecast baseline; the copy that only bids where a weather-model forecast disagrees with the price is still to come. Tickets win under half the time by design."],
@@ -934,12 +936,17 @@ async function usportsTick() {
     if (!lg) continue;
     if (!m.mid30 && now >= m.start - 32 * 60_000 && now <= m.start - 28 * 60_000) {
       m.mid30 = true;
-      if (m.league === "nba") {
+      {
         const books = await Promise.all(m.tokens.map((k) => book(k).catch(() => null)));
         if (books[0]?.mid && books[1]?.mid) {
           const i = books[0].mid >= books[1].mid ? 0 : 1;
           const mid = books[i]!.mid!;
-          if (mid >= 0.85 - 1e-9 && mid < 0.95 + 1e-9) midBid("nba-fav85-mid", m, i, books[i]!, now);
+          if (m.league === "nba" && mid >= 0.85 - 1e-9 && mid < 0.95 + 1e-9) midBid("nba-fav85-mid", m, i, books[i]!, now);
+          // Round 340 (11 Nov 2026): every US league, favourite 55-85c, and the underdog of the same games as a control.
+          if (mid >= 0.55 - 1e-9 && mid < 0.85) {
+            midBid("us-prematch-fav-bid", m, i, books[i]!, now);
+            midBid("us-prematch-dog-bid", m, 1 - i, books[1 - i]!, now);
+          }
         }
       }
     }
@@ -1130,7 +1137,7 @@ const GROUPS: Record<string, string[]> = {
   weather: ["weather-fav16", "weather-fav15", "weather-fav16-wide", "weather-fav16-mid", "weather-fav16-ask1", "weather-fav16-hi", "weather-fav15-ask1", "weather-dayahead-all"],
   tennis: ["tennis-wta-fav90", "tennis-atp-fav90", "tennis-wta-fav85", "tennis-itf-fav90", "tennis-fav95", "tennis-fav90-mid"],
   cricket: ["cricket-fav10", "cricket-fav60", "cricket-dog-control"],
-  usports: ["nba-fav85", "cbb-fav85", "nfl-fav85", "nba-fav85-mid"],
+  usports: ["nba-fav85", "cbb-fav85", "nfl-fav85", "nba-fav85-mid", "us-prematch-fav-bid", "us-prematch-dog-bid"],
   football: ["football-laliga-home", "football-portugal-home", "football-italy-away", "football-laliga-home55"],
 };
 function summarize() {
