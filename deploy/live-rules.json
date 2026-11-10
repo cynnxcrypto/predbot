@@ -45,10 +45,11 @@
           "bidUnderC": 2,
           "bidSec": 30,
           "maxOpen": 1,
-          "familyHaltLosses": 2
+          "familyHaltLosses": 2,
+          "familyHaltMin": 30
         }
       ],
-      "note": "Review 37 (9 Nov 2026 22:45 KST): bid tightened 4c -> 2c under the ask (same signal, same $3, max 1 open, 2-loss cross-coin day stop). Real since Review 36: 19 bids at 4c, 8 filled (42%), 7 won +$16.19; 0 of 6 bids filled when the ask was at the 60c cap. The 2c paper twin over the same six hours: 21 fillable, 15 won (71%), +$29.39, 3 misses; the first-3-minute family's depth ladder on BIG3 wins the same at 1c, 2c and 3c (62.4% / 62.0% / 60.5%). Paper fill rates run about 2x real, so the 2c bid should fill roughly 60-70% of signals instead of 42%."
+      "note": "Review 39 (10 Nov 2026 10:45 KST): the 2-loss cross-coin stop is now a 30-MINUTE PAUSE instead of the rest of the KST day (familyHaltMin 30; same $3, 2c under, max 1 open, 60c cap, $6/day per market). Evidence: the day stop tripped 03:01 KST on 10 Nov after SOL+ETH lost; over the next 7 hours the no-stop 2c paper twin went 9 fills 7 won +$18 and the 30-minute-pause twin 12/10 +$29.6, while live sat out; research P3 replay (31 Oct-8 Nov) +$111 for the pause vs -$32 for the day-stop shape; Round 309 found the same. Review 37 (9 Nov 22:45): bid 4c -> 2c (2c twin 21/15 +$29.39 over six hours vs 4c real 8 fills 7 won +$16.19, 42% filled)."
     },
     {
       "series": "btc15m",
@@ -63,10 +64,11 @@
           "bidUnderC": 2,
           "bidSec": 30,
           "maxOpen": 1,
-          "familyHaltLosses": 2
+          "familyHaltLosses": 2,
+          "familyHaltMin": 30
         }
       ],
-      "note": "Review 37 (9 Nov 2026 22:45 KST): bid tightened 4c -> 2c under the ask (same signal, same $3, max 1 open, 2-loss cross-coin day stop). Real since Review 36: 19 bids at 4c, 8 filled (42%), 7 won +$16.19; 0 of 6 bids filled when the ask was at the 60c cap. The 2c paper twin over the same six hours: 21 fillable, 15 won (71%), +$29.39, 3 misses; the first-3-minute family's depth ladder on BIG3 wins the same at 1c, 2c and 3c (62.4% / 62.0% / 60.5%). Paper fill rates run about 2x real, so the 2c bid should fill roughly 60-70% of signals instead of 42%."
+      "note": "Review 39 (10 Nov 2026 10:45 KST): the 2-loss cross-coin stop is now a 30-MINUTE PAUSE instead of the rest of the KST day (familyHaltMin 30; same $3, 2c under, max 1 open, 60c cap, $6/day per market). Evidence: the day stop tripped 03:01 KST on 10 Nov after SOL+ETH lost; over the next 7 hours the no-stop 2c paper twin went 9 fills 7 won +$18 and the 30-minute-pause twin 12/10 +$29.6, while live sat out; research P3 replay (31 Oct-8 Nov) +$111 for the pause vs -$32 for the day-stop shape; Round 309 found the same. Review 37 (9 Nov 22:45): bid 4c -> 2c (2c twin 21/15 +$29.39 over six hours vs 4c real 8 fills 7 won +$16.19, 42% filled)."
     },
     {
       "series": "hype5m",
@@ -98,10 +100,11 @@
           "bidUnderC": 2,
           "bidSec": 30,
           "maxOpen": 1,
-          "familyHaltLosses": 2
+          "familyHaltLosses": 2,
+          "familyHaltMin": 30
         }
       ],
-      "note": "Review 37 (9 Nov 2026 22:45 KST): bid tightened 4c -> 2c under the ask (same signal, same $3, max 1 open, 2-loss cross-coin day stop). Real since Review 36: 19 bids at 4c, 8 filled (42%), 7 won +$16.19; 0 of 6 bids filled when the ask was at the 60c cap. The 2c paper twin over the same six hours: 21 fillable, 15 won (71%), +$29.39, 3 misses; the first-3-minute family's depth ladder on BIG3 wins the same at 1c, 2c and 3c (62.4% / 62.0% / 60.5%). Paper fill rates run about 2x real, so the 2c bid should fill roughly 60-70% of signals instead of 42%."
+      "note": "Review 39 (10 Nov 2026 10:45 KST): the 2-loss cross-coin stop is now a 30-MINUTE PAUSE instead of the rest of the KST day (familyHaltMin 30; same $3, 2c under, max 1 open, 60c cap, $6/day per market). Evidence: the day stop tripped 03:01 KST on 10 Nov after SOL+ETH lost; over the next 7 hours the no-stop 2c paper twin went 9 fills 7 won +$18 and the 30-minute-pause twin 12/10 +$29.6, while live sat out; research P3 replay (31 Oct-8 Nov) +$111 for the pause vs -$32 for the day-stop shape; Round 309 found the same. Review 37 (9 Nov 22:45): bid 4c -> 2c (2c twin 21/15 +$29.39 over six hours vs 4c real 8 fills 7 won +$16.19, 42% filled)."
     },
     {
       "series": "doge15m",

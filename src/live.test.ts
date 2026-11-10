@@ -94,6 +94,20 @@ test("family day-halt: N straight losses across markets stop the rule until KST 
   assert.equal(familyHalted("other", t0), false);
 });
 
+test("family pause: with familyHaltMin the stop lasts M minutes, not the KST day, and ignores an old day-halt", () => {
+  const t0 = Date.parse("2026-11-10T01:00:00Z"); // 10:00 KST
+  familyTrack("fam-p", false, 2, t0); // old-style day halt left from before the change
+  familyTrack("fam-p", false, 2, t0);
+  assert.equal(familyHalted("fam-p", t0), true);
+  assert.equal(familyHalted("fam-p", t0, 30), false); // pause mode ignores the day-halt
+  familyTrack("fam-p", false, 2, t0 + 60_000, 30);
+  const f = familyTrack("fam-p", false, 2, t0 + 120_000, 30);
+  assert.equal(f.haltUntil, t0 + 120_000 + 30 * 60_000);
+  assert.equal(familyHalted("fam-p", t0 + 10 * 60_000, 30), true);
+  assert.equal(familyHalted("fam-p", t0 + 33 * 60_000, 30), false); // 30 min later it trades again, same KST day
+  assert.equal(familyHalted("fam-p", t0 + 10 * 60_000), true); // the old day-halt is still today without pause mode
+});
+
 test("live.json: bidUnderC turns a rule into a resting bid under the ask (maker mode)", () => {
   writeFileSync(join(dir, "live.json"), JSON.stringify({
     mode: "live", funder: "0xabc",
