@@ -174,6 +174,10 @@ def upload_history(budget_s=600):
         pass
     start = time.time()
     today = time.strftime("%Y-%m-%d", time.gmtime())
+    try:
+        upload_prints(today)
+    except Exception as e:  # noqa: BLE001
+        print(f"prints upload failed: {e}")
     dirs = sorted(glob.glob(os.path.join(DATA, "*book")))
     for d in dirs:
         prefix = os.path.basename(d).removesuffix("book")  # "" for the first series (btc5m), else "eth15m-"
@@ -237,6 +241,52 @@ def upload_history(budget_s=600):
             code, _ = gh("PUT", f"contents/{path}", {"message": f"server hist {series} {day}", "branch": BRANCH,
                                                       "content": base64.b64encode(blob).decode()})
             print(f"hist {series} {day}: {len(out)} rows, {len(blob) // 1024} KB, GitHub {code}")
+
+
+def upload_prints(today):
+    """Trade prints (10 Nov 2026, venue-mechanics research): data/<prefix>prints/<day>.jsonl rows {"p": [t ms, window,
+    seconds left, U|D, taker side B|S, price, shares]} go to server/hist/<series>/<day>-prints.jsonl.gz once the day is
+    over, and the running day goes to server/hist/<series>/today-prints.jsonl.gz at most once an hour (overwritten).
+    Uploaded days are dropped locally after 3 days, like the books."""
+    cols = json.dumps(["t", "window", "left", "outcome", "takerSide", "price", "shares"])
+    old = time.strftime("%Y-%m-%d", time.gmtime(time.time() - 3 * 86400))
+    for d in sorted(glob.glob(os.path.join(DATA, "*prints"))):
+        prefix = os.path.basename(d).removesuffix("prints")
+        series = prefix.rstrip("-") or "btc5m"
+        for src in sorted(glob.glob(os.path.join(d, "*.jsonl"))):
+            day = os.path.basename(src)[:-6]
+            if day > today:
+                continue
+            body = {"branch": BRANCH}
+            if day == today:
+                stamp = os.path.join(d, ".uploaded")
+                if os.path.exists(stamp) and time.time() - os.path.getmtime(stamp) < 3300:
+                    continue
+                path = f"server/hist/{series}/today-prints.jsonl.gz"
+                code, cur = gh("GET", f"contents/{path}?ref={BRANCH}")
+                if code == 200 and isinstance(cur, dict) and cur.get("sha"):
+                    body["sha"] = cur["sha"]
+            else:
+                path = f"server/hist/{series}/{day}-prints.jsonl.gz"
+                if gh("GET", f"contents/{path}?ref={BRANCH}")[0] == 200:
+                    if day <= old:
+                        try:
+                            os.remove(src)
+                        except OSError:
+                            pass
+                    continue
+            rows = []
+            for line in open(src):
+                try:
+                    rows.append(json.dumps(json.loads(line).get("p"), separators=(",", ":")))
+                except ValueError:
+                    continue
+            blob = gzip.compress(("\n".join([cols] + rows) + "\n").encode())
+            body.update({"message": f"server prints {series} {day}", "content": base64.b64encode(blob).decode()})
+            code, _ = gh("PUT", f"contents/{path}", body)
+            print(f"prints {series} {day}: {len(rows)} rows, {len(blob) // 1024} KB, GitHub {code}")
+            if day == today and code in (200, 201):
+                open(os.path.join(d, ".uploaded"), "w").close()
 
 
 def down_report(err):

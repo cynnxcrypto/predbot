@@ -102,6 +102,7 @@ export class Recorder {
   private balanceTimer: NodeJS.Timeout | null = null;
   private busy = false;
   private unwatch: (() => void) | null = null;
+  private unwatchTrades: (() => void) | null = null;
   private lastSnapshotAt = 0;
   private lastCheckAt = 0;
   /** Snapshots taken because the websocket pushed a change (the rest come from the 1s timer). */
@@ -179,6 +180,18 @@ export class Recorder {
     }
     this.timer = setInterval(() => void this.tick(), 1000);
     // A pushed book change takes a snapshot at once (at most four a second), so a signal is seen the moment it appears.
+    // 10 Nov 2026 (venue-mechanics research): every trade print of this series' current window goes to
+    // data/<prefix>prints/<day>.jsonl as [t ms, window, seconds left, U|D, taker side B|S, price, shares]. Quotes alone
+    // cannot say whether a resting bid would have been hit; prints can.
+    this.unwatchTrades = bookFeed.onTrade((p) => {
+      const m = this.market;
+      if (!m || (p.tokenId !== m.upToken && p.tokenId !== m.downToken)) return;
+      try {
+        append(`${prefixOf(this.series)}prints`, { p: [p.t, m.start, m.start + this.series.windowSec - Math.floor(p.t / 1000), p.tokenId === m.upToken ? "U" : "D", p.side === "BUY" ? "B" : p.side === "SELL" ? "S" : "", p.price, Math.round(p.size * 100) / 100] }, p.t);
+      } catch {
+        /* a full disk must not stop the recorder */
+      }
+    });
     this.unwatch = bookFeed.onUpdate((tokenId) => {
       const m = this.market;
       if (!m || (tokenId !== m.upToken && tokenId !== m.downToken) || this.busy) return;
@@ -200,6 +213,7 @@ export class Recorder {
 
   stop() {
     this.unwatch?.();
+    this.unwatchTrades?.();
     if (this.timer) clearInterval(this.timer);
     if (this.balanceTimer) clearInterval(this.balanceTimer);
     for (const feed of [this.f.chainlink, this.f.binance, this.f.coinbase, this.f.futures]) feed.stop();

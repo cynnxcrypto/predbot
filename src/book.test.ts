@@ -39,3 +39,14 @@ test("book feed: an HTTP read resets the cache", () => {
   feed.reset(DOWN, [{ price: 0.5, size: 10 }], []);
   assert.equal(feed.peek(DOWN), null);
 });
+
+test("book feed: trade prints reach listeners for watched tokens only", () => {
+  const feed = new BookFeed();
+  feed.watch([UP], false);
+  const got: unknown[] = [];
+  feed.onTrade((p) => got.push(p));
+  feed.handle({ event_type: "last_trade_price", asset_id: UP, price: "0.46", size: "12.5", side: "BUY", timestamp: "1762780000000" });
+  feed.handle({ event_type: "last_trade_price", asset_id: DOWN, price: "0.54", size: "3", side: "SELL", timestamp: "1762780000000" });
+  feed.handle({ event_type: "last_trade_price", asset_id: UP, price: "0", size: "3", side: "SELL" });
+  assert.deepEqual(got, [{ tokenId: UP, price: 0.46, size: 12.5, side: "BUY", t: 1762780000000 }]);
+});

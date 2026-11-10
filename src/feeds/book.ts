@@ -34,11 +34,16 @@ export function makeBook(bids: Level[], asks: Level[]): Book {
   };
 }
 
+/** One trade print from the market socket ("last_trade_price"): the taker's side, price and size (shares). */
+export type TradePrint = { tokenId: string; price: number; size: number; side: string; t: number };
+
 export class BookFeed {
   private socket: WebSocket | null = null;
   private books = new Map<string, Entry>();
   private watched = new Set<string>();
   private listeners = new Set<(tokenId: string) => void>();
+  private tradeListeners = new Set<(p: TradePrint) => void>();
+  prints = 0;
   private backoff = 1000;
   private closed = true;
   private pinger: NodeJS.Timeout | null = null;
@@ -99,12 +104,18 @@ export class BookFeed {
     return () => void this.listeners.delete(listener);
   }
 
+  /** Called with every trade print on a watched token (10 Nov 2026: needed to score maker rules honestly). */
+  onTrade(listener: (p: TradePrint) => void) {
+    this.tradeListeners.add(listener);
+    return () => void this.tradeListeners.delete(listener);
+  }
+
   connected() {
     return this.socket?.readyState === WebSocket.OPEN && Date.now() - this.lastAt < 30000;
   }
 
   status() {
-    return { connected: this.connected(), watching: this.watched.size, cached: this.books.size, events: this.events, connects: this.connects, errors: this.errors, lastAt: this.lastAt || null };
+    return { connected: this.connected(), watching: this.watched.size, cached: this.books.size, events: this.events, prints: this.prints, connects: this.connects, errors: this.errors, lastAt: this.lastAt || null };
   }
 
   private connect() {
@@ -172,7 +183,28 @@ export class BookFeed {
       asks?: { price: string; size: string }[];
       changes?: { price: string; size: string; side: string }[];
       price_changes?: { asset_id: string; price: string; size: string; side: string }[];
+      price?: string;
+      size?: string;
+      side?: string;
+      timestamp?: string;
     };
+    if (ev.event_type === "last_trade_price" && ev.asset_id) {
+      if (!this.watched.has(ev.asset_id)) return;
+      const price = Number(ev.price);
+      const size = Number(ev.size);
+      if (!(price > 0) || !(size > 0)) return;
+      const ts = Number(ev.timestamp);
+      const p: TradePrint = { tokenId: ev.asset_id, price, size, side: String(ev.side ?? ""), t: Number.isFinite(ts) && ts > 0 ? (ts > 1e12 ? ts : ts * 1000) : Date.now() };
+      this.prints += 1;
+      for (const listener of this.tradeListeners) {
+        try {
+          listener(p);
+        } catch {
+          this.errors += 1;
+        }
+      }
+      return;
+    }
     if (ev.event_type === "book" && ev.asset_id) {
       if (!this.watched.has(ev.asset_id)) return;
       const bids: Side = new Map();
