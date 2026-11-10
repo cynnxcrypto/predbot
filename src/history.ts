@@ -87,9 +87,10 @@ function doneStarts(file: string): Set<number> {
   for (const line of readFileSync(file, "utf8").split("\n")) {
     if (!line) continue;
     try {
-      const w = JSON.parse(line) as { start: number; tapeVersion?: number };
+      const w = JSON.parse(line) as { start: number; tapeVersion?: number; trades?: unknown[] };
       // Old tape format, or a second copy of a window (two pulls that overlapped both appended it).
-      if ((w.tapeVersion ?? 1) < 2 || out.has(w.start)) { dropped += 1; continue; }
+      // Also dropped (10 Nov 2026): version-2 rows with an empty tape, saved while the retired v1 route answered 410.
+      if ((w.tapeVersion ?? 1) < 2 || out.has(w.start) || (TAPE && w.tapeVersion === 2 && !(w.trades?.length))) { dropped += 1; continue; }
       out.add(w.start);
       keep.push(line);
     } catch {
@@ -128,20 +129,28 @@ async function fetchWindow(series: Series, start: number): Promise<HistoryWindow
   const ph = await getJson<{ history?: { t: number; p: number }[] }>(`https://clob.polymarket.com/prices-history?market=${tokens[0]}&startTs=${start - 60}&endTs=${end + 60}&fidelity=1`);
   const prices: [number, number][] = (ph?.history ?? []).map((h) => [h.t, h.p]);
   const trades: [number, number, number, number][] = [];
-  for (let offset = 0; TAPE && offset < 10000; offset += 1000) {
-    const page = await getJson<{ side?: string; asset?: string; outcome?: string; size?: number | string; price?: number | string; timestamp?: number | string }[]>(`https://data-api.polymarket.com/trades?market=${market.conditionId}&limit=1000&offset=${offset}`);
-    if (!page || !Array.isArray(page)) break;
-    for (const t of page) {
-      const upToken = t.asset === tokens[0] || /^up$/i.test(t.outcome ?? "");
+  // 10 Nov 2026: Polymarket retired the v1 data routes (410 Gone), so tapes saved since then were empty. v2: rows in
+  // `data` with snake_case fields, paging by pagination.next_cursor. A window whose tape could not be read keeps
+  // tapeVersion 2 with no trades, which doneStarts() treats as not done, so it is pulled again on a later run.
+  let tapeOk = !TAPE;
+  let cursor: string | null = null;
+  for (let n = 0; TAPE && n < 10; n++) {
+    const page: { data?: { side?: string; token_id?: string; outcome?: string; size?: number | string; price?: number | string; timestamp?: number | string }[]; pagination?: { next_cursor?: string | null } } | null =
+      await getJson(`https://data-api.polymarket.com/v2/trades?condition=${market.conditionId}&limit=1000&taker_only=false${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`);
+    if (!page || !Array.isArray(page.data)) break;
+    tapeOk = true;
+    for (const t of page.data) {
+      const upToken = t.token_id === tokens[0] || /^up$/i.test(t.outcome ?? "");
       const buyUp = (t.side === "BUY") === upToken;
       const ts = Number(t.timestamp);
       const price = Number(t.price);
       trades.push([ts > 1e12 ? Math.floor(ts / 1000) : ts, buyUp ? 1 : -1, upToken ? price : Math.round((1 - price) * 1e4) / 1e4, Number(t.size)]);
     }
-    if (page.length < 1000) break;
+    cursor = page.pagination?.next_cursor ?? null;
+    if (!cursor || !page.data.length) break;
   }
   trades.sort((a, b) => a[0] - b[0]);
-  return { start, conditionId: market.conditionId, upToken: tokens[0], downToken: tokens[1], resolvedUp, prices, trades, tapeVersion: 2 };
+  return { start, conditionId: market.conditionId, upToken: tokens[0], downToken: tokens[1], resolvedUp, prices, trades, tapeVersion: tapeOk ? 3 : 2 };
 }
 
 async function pullWindows(series: Series) {
