@@ -280,7 +280,7 @@ export function pairliveSummary() {
   const net = r2(state.done.reduce((a, d) => a + d.net, 0));
   const day = state.done.filter((d) => kstDay(d.at) === today);
   return {
-    rule: "Real: on each listed 15m market, post-only bids on both Up and Down at the best bid while they add to 99c or less; after one fills, bid the other so the pair costs under $1; a clip left alone is held to settlement",
+    rule: "We rest small buy orders (6 shares) on both Up and Down at the best bid while the two prices add to 99c or less. When one fills we bid the other side so the pair costs under $1; one side of a pair always pays $1. A clip that never gets its pair is held to the result.",
     on: cfg.on,
     series: cfg.series,
     clip: cfg.clip,
