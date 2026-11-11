@@ -11,7 +11,7 @@ history instead of waiting weeks on paper:
   progress.json                 what was read, errors
 
 Started once by the Solana paper runner (src/solana/candles.ts), detached, niced, with a lock; it writes
-data/research/CANDLES-DONE-v1 when finished so it never starts again. SOLANA_CANDLES=off disables it. About 500
+data/research/CANDLES-DONE-v2 (second run: 5-minute and wider hourly files) when finished so it never starts again. SOLANA_CANDLES=off disables it. About 500
 requests at 4 a second: far under the exchange's limit, so the bot's own price feed is not put at risk. Stdlib only.
 It touches nothing of the bot: no live rule, no wallet, no data file of the trading code."""
 import base64, fcntl, gzip, json, os, sys, time, urllib.request, urllib.error
@@ -19,10 +19,18 @@ import base64, fcntl, gzip, json, os, sys, time, urllib.request, urllib.error
 REPO, BRANCH = "cynnxcrypto/predbot", "server-data"
 SPOT, PERP = "https://api.binance.com", "https://fapi.binance.com"
 OUT = os.path.expanduser("~/predbot/data/research")
-DONE = os.path.join(OUT, "CANDLES-DONE-v1")
+DONE = os.path.join(OUT, "CANDLES-DONE-v2")
 FROM_MS = 1609459200000  # 1 Jan 2021 UTC
 SYMBOLS = ["SOLUSDT", "BTCUSDT", "ETHUSDT", "JUPUSDT", "BONKUSDT", "WIFUSDT", "JTOUSDT", "RAYUSDT", "PYTHUSDT"]
 FUNDING = ["SOLUSDT", "BTCUSDT", "ETHUSDT"]
+# second run (12 Nov 2026, v2): 5-minute candles of the three big coins from 2024, and hourly candles of 20 more
+# coins from 2023, for the research on rules that trade often. A file already on disk is not read again, so a run
+# cut by a bot restart picks up where it stopped.
+FIVE_MIN = ["SOLUSDT", "BTCUSDT", "ETHUSDT"]
+FIVE_MIN_FROM = 1704067200000  # 1 Jan 2024 UTC
+WIDE = ["XRPUSDT", "DOGEUSDT", "BNBUSDT", "ADAUSDT", "AVAXUSDT", "LINKUSDT", "SUIUSDT", "TRXUSDT", "LTCUSDT", "DOTUSDT",
+        "NEARUSDT", "APTUSDT", "ARBUSDT", "OPUSDT", "PEPEUSDT", "SHIBUSDT", "UNIUSDT", "AAVEUSDT", "INJUSDT", "TIAUSDT"]
+WIDE_FROM = 1672531200000  # 1 Jan 2023 UTC
 PROGRESS = {"started": int(time.time()), "candles": {}, "funding": {}, "errors": []}
 
 
@@ -92,26 +100,25 @@ def publish(name, obj, gz=True):
     return False
 
 
-def candles(symbol):
-    """Hourly candles from FROM_MS (or the listing) to now. Returns the column object, or None / "stop"."""
+def candles(symbol, interval="1h", step=3600000, start=FROM_MS):
+    """Candles from `start` (or the listing) to now; t counts candles since 1970. Returns the column object, or None / "stop"."""
     t, o, h, l, c, qv = [], [], [], [], [], []
-    start = FROM_MS
     while True:
-        rows = get(f"{SPOT}/api/v3/klines?symbol={symbol}&interval=1h&startTime={start}&limit=1000")
+        rows = get(f"{SPOT}/api/v3/klines?symbol={symbol}&interval={interval}&startTime={start}&limit=1000")
         if rows == "stop":
             return "stop"
         if not rows:
             break
         for k in rows:
-            t.append(int(k[0]) // 3600000)
+            t.append(int(k[0]) // step)
             o.append(float(k[1])); h.append(float(k[2])); l.append(float(k[3])); c.append(float(k[4]))
             qv.append(round(float(k[7])))
-        start = int(rows[-1][0]) + 3600000
+        start = int(rows[-1][0]) + step
         if len(rows) < 1000:
             break
     if not t:
         return None
-    return {"symbol": symbol, "interval": "1h", "t": t, "o": o, "h": h, "l": l, "c": c, "qv": qv}
+    return {"symbol": symbol, "interval": interval, "t": t, "o": o, "h": h, "l": l, "c": c, "qv": qv}
 
 
 def funding(symbol):
@@ -133,30 +140,28 @@ def funding(symbol):
 
 def main():
     stopped = False
-    for s in SYMBOLS:
-        got = candles(s)
+    jobs = [(s, "5m", 300000, FIVE_MIN_FROM) for s in FIVE_MIN] + [(s, "1h", 3600000, WIDE_FROM) for s in WIDE]
+    for s, interval, step, start in jobs:
+        name = f"candles/{s}-{interval}.json.gz"
+        key = f"{s}-{interval}"
+        if os.path.exists(os.path.join(OUT, name) + ".ok"):
+            PROGRESS["candles"][key] = {"kept": True}
+            continue
+        got = candles(s, interval, step, start)
         if got == "stop":
             stopped = True
             break
-        if got and publish(f"candles/{s}-1h.json.gz", got):
-            PROGRESS["candles"][s] = {"rows": len(got["t"]), "from": got["t"][0] * 3600, "to": got["t"][-1] * 3600}
+        if got and publish(name, got):
+            PROGRESS["candles"][key] = {"rows": len(got["t"]), "from": got["t"][0] * step // 1000, "to": got["t"][-1] * step // 1000}
+            open(os.path.join(OUT, name) + ".ok", "w").write("1")
         else:
-            PROGRESS["candles"][s] = {"rows": 0}
-        publish("progress.json", PROGRESS, gz=False)
-    for s in ([] if stopped else FUNDING):
-        got = funding(s)
-        if got == "stop":
-            stopped = True
-            break
-        if got and publish(f"funding/{s}.json.gz", got):
-            PROGRESS["funding"][s] = {"rows": len(got["t"])}
-        else:
-            PROGRESS["funding"][s] = {"rows": 0}
+            PROGRESS["candles"][key] = {"rows": 0}
+        publish("progress-v2.json", PROGRESS, gz=False)
     PROGRESS["finished"] = int(time.time())
     PROGRESS["stoppedByRateLimit"] = stopped
-    publish("progress.json", PROGRESS, gz=False)
-    # done once SOL's own history is out; a rate-limit stop is not retried either (the bot's feed comes first)
-    if PROGRESS["candles"].get("SOLUSDT", {}).get("rows") or stopped:
+    publish("progress-v2.json", PROGRESS, gz=False)
+    # a rate-limit stop is not retried (the bot's feed comes first); otherwise done when every file is out
+    if stopped or all(v.get("rows") or v.get("kept") for v in PROGRESS["candles"].values()) and len(PROGRESS["candles"]) == len(jobs):
         open(DONE, "w").write(str(int(time.time())))
     log("finished", json.dumps(PROGRESS)[:600])
 

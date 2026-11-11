@@ -3,7 +3,7 @@
  * market data, published to the server-data branch for the slow-trade research. Read-only, no key, no order.
  *
  * Only on the server (it needs ~/.predbot-github-token to publish), detached so a bot restart does not kill it;
- * the script holds a lock, is niced, and writes data/research/CANDLES-DONE-v1 when finished so it never starts
+ * the script holds a lock, is niced, and writes data/research/CANDLES-DONE-v2 when finished so it never starts
  * again. SOLANA_CANDLES=off disables it.
  */
 import { spawn } from "node:child_process";
@@ -11,7 +11,7 @@ import { closeSync, existsSync, openSync } from "node:fs";
 import { join } from "node:path";
 import { ROOT } from "../config.js";
 
-export const CANDLES_DONE = "CANDLES-DONE-v1";
+export const CANDLES_DONE = "CANDLES-DONE-v2";
 
 /** true when the script was started (or is left to a copy already running) */
 export function startCandles(home = process.env.HOME ?? "", run: typeof spawn = spawn): boolean {
