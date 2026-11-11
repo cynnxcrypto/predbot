@@ -181,6 +181,9 @@ test("a side wallet shows up on both counts; an exchange and a stranger do not",
   assert.equal(judge({ ...base, transfers: 0, before: 6, overlapPct: 2 }), "no sign", "a sniper that buys everything");
   assert.equal(judge({ ...base, before: 0, after: 0 }), "money link only");
   assert.equal(judge({ ...base, transfers: 0, twoStep: true }), "likely");
+  // one transfer is not a money link, unless it is a large one
+  assert.equal(judge({ ...base, transfers: 1, before: 0, after: 0 }), "no sign");
+  assert.equal(judge({ ...base, transfers: 1, big: true, before: 0, after: 0 }), "money link only");
 });
 
 test("runner: traces a seed on a made-up chain; the public summary carries tags, never the address or the key", async () => {
@@ -261,6 +264,8 @@ test("runner: a seed buried under dropped coins is still read, through its dolla
   assert.equal(r.buys, 5, "found through the dollar account, not through the flooded read");
   assert.equal(r.buysUsd, 5);
   assert.equal(r.days, 30);
+  assert.deepEqual(r.reach, [30, 30], "both reads got to the start of the 30 days");
+  assert.deepEqual(r.span, [20.9, 21], "its newest and oldest buy, in days ago");
   assert.ok(net.asked.some((q) => q.address === SEED && q.tokenAccounts === "balanceChanged"));
   assert.ok(net.asked.some((q) => q.address === ATA(USDC, SEED)), "its dollar account was read by its own address");
   assert.ok(!r.linked.some((l) => l.address === SPAM), "the stranger who dropped the coins is not a lead");
@@ -274,4 +279,43 @@ test("runner: a seed buried under dropped coins is still read, through its dolla
   // a result from the first way of reading is marked to be read again
   _test.state().seeds[SEED] = { ...r, v: 1 };
   assert.equal(linksSummary().seeds[0].redo, true);
+});
+
+test("runner: a read that stops short says so, and a deeper one finds the older buys", async () => {
+  _test.reset();
+  const now = Math.floor(Date.now() / 1000);
+  const chain: Item[] = [];
+  const put = (it: Item, ago: number) => ((it.blockTime = now - ago), chain.push(it), it);
+  // three dollar-paid buys ten days ago that never name the wallet
+  for (const i of [1, 2, 3]) put(hiddenBuy(1000 * i, 5, SEED, COIN(i)), 10 * 86_400 + i);
+  put(usdSend(40_000, 0, SEED, SIDE, 900), 86_400);
+  // and its dollar account is busy: 400 small payments in over the last two days
+  const PAYER = A("Payer");
+  for (let k = 1; k <= 400; k++) put(usdSend(90_000 - k, 0, PAYER, SEED, 2), 400 * k);
+  const net = fakeChain(chain);
+  _test.setCfg({ rpcUrl: () => "https://mainnet.helius-rpc.com/?api-key=SECRET", fetch: () => net.fetch });
+  try {
+    // one page of the dollar account: 100 payments, 11 hours, no buy
+    _test.setDepth({ deep: 1 });
+    const short = await _test.doSeed(SEEDS[0]);
+    assert.ok(short);
+    assert.equal(short.buys, 0);
+    assert.deepEqual(short.reach, [30, 0.5]);
+    assert.equal(short.days, 0.5, "the shorter of the two reads, not the 30 days asked for");
+    assert.equal(short.span, null);
+    _test.state().seeds[SEED] = short;
+    const row = linksSummary().seeds[0];
+    assert.deepEqual({ daysCovered: row.daysCovered, daysRead: row.daysRead, buysFromDaysAgo: row.buysFromDaysAgo }, { daysCovered: 0.5, daysRead: { own: 30, dollar: 0.5 }, buysFromDaysAgo: null });
+    // read to its end: the buys are there
+    _test.reset();
+    _test.setDepth({ deep: 150 });
+    const deep = await _test.doSeed(SEEDS[0]);
+    assert.ok(deep);
+    assert.equal(deep.buys, 3);
+    assert.deepEqual(deep.reach, [30, 30]);
+    assert.deepEqual(deep.span, [10, 10]);
+    assert.ok(!deep.linked.some((l) => l.address === PAYER), "small payments in are not a money link");
+  } finally {
+    _test.setDepth({ deep: 150 });
+  }
 });
