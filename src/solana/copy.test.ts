@@ -574,15 +574,22 @@ test("other readings of the stored buys: hour of the day, repeat buyers, and sel
   const rep = repeatStudy([c, b, a]);
   assert.deepEqual(rep.rows.map((x) => [x.buyer, x.buys]), [["first", 2], ["second", 1], ["third or later", 0]]);
   const w = secondWaveStudy([a, b, c]);
-  const row = (sec: number) => w.rows.find((x) => x.entrySec === sec)!;
-  // bought 2 min after A at 0.2 per 1000 (in-and-out cost 4.8%), sold 2 s after B's buy at 0.3 per 1000
-  assert.deepEqual([row(120).all.n, row(120).withSecond.n, row(120).noSecond.n, row(120).secondPct, row(120).waitSecMedian], [2, 1, 1, 50, 80]);
-  assert.equal(row(120).withSecond.avgRetPct, 42.8);
-  assert.equal(row(120).withSecondAt5.avgRetPct, 33.28);
-  // B itself has no later buyer: held to 10 min, 0.25 -> 0.2 less the cost
-  assert.equal(row(120).noSecond.avgRetPct, -23.84);
-  // bought 5 min after A: B's buy is already past, so A too is held to 10 min (0.18 -> 0.15)
-  assert.deepEqual([row(300).withSecond.n, row(300).noSecond.n], [0, 2]);
+  const row = (sec: number, end: number, buyers: string) => w.rows.find((x) => x.entrySec === sec && x.endSec === end && x.buyers === buyers)!;
+  assert.equal(w.rows.length, 2 * 2 * 4);
+  // bought 2 min after A at 0.2 per 1000 (in-and-out cost 4.8%), sold 2 s after B's buy at 0.3 per 1000; A was the
+  // coin's first listed buyer
+  assert.deepEqual([row(120, 600, "1").all.n, row(120, 600, "1").withNext.n, row(120, 600, "1").nextPct, row(120, 600, "1").waitSecMedian], [1, 1, 100, 80]);
+  assert.equal(row(120, 600, "1").withNext.avgRetPct, 42.8);
+  assert.equal(row(120, 600, "1").withNextAt5.avgRetPct, 33.28);
+  // B is the coin's second listed buyer and nobody follows: held to 10 min, 0.25 -> 0.2 less the cost
+  assert.deepEqual([row(120, 600, "2").all.n, row(120, 600, "2").noNext.n, row(120, 600, "2").noNext.avgRetPct], [1, 1, -23.84]);
+  assert.deepEqual([row(120, 600, "any").all.n, row(120, 600, "any").nextPct, row(120, 600, "3 or more").all.n], [2, 50, 0]);
+  // C's later checks were never made (no price at 5 or 10 min): it is not counted at all
+  assert.equal(row(60, 300, "any").all.n, 2);
+  // a listed buy that comes before our own purchase moves the purchase behind it: A is then no entry
+  const soon = sig({ ...b, sig: "B2", knownMs: T + 30_000 });
+  const w2 = secondWaveStudy([a, soon]);
+  assert.deepEqual([w2.rows.find((x) => x.entrySec === 60 && x.endSec === 600 && x.buyers === "any")!.all.n, w2.rows.find((x) => x.entrySec === 60 && x.endSec === 600 && x.buyers === "2")!.noNext.n], [1, 1]);
   assert.equal(JSON.stringify([h, rep, w]).includes('"M"'), false, "numbers only");
 });
 
