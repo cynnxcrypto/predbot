@@ -542,6 +542,10 @@ export function summarize(sigs: Signal[], solUsd: number | null) {
     // only followers already in the wallet's own block). Same exit: +10% or 60 s.
     { id: "copy-d3-wave10-tp10-t60", text: `When a tracked wallet buys and 10 or more other wallets follow within about 4 s, buy ${STAKE_SOL} SOL of the same token 3 s after we know, sell as soon as it is up 10% after costs, and sell anyway after ${TIME_STOP} s.`, ...score(sigs, (s) => (s.crowd && s.crowd.s10 >= 10 ? scalp(s, 3, 10) : undefined), solUsd) },
     { id: "copy-d1-same2-tp10-t60", text: `When a tracked wallet buys and 2 or more other wallets bought in the same block, buy ${STAKE_SOL} SOL of the same token 1 s after we know, sell as soon as it is up 10% after costs, and sell anyway after ${TIME_STOP} s.`, ...score(sigs, (s) => (s.crowd && s.crowd.same >= 2 ? scalp(s, 1, 10) : undefined), solUsd) },
+    // Round 353 (19:10 KST 11 Nov 2026, MAIN). Real test under "+10% or 60 s": 8 of 15 copies reached the target, and the
+    // ones that did had gone on to +16% to +48% at best; the 7 that ran out of time lost more each than a target win
+    // gains. So does a higher target pay for the copies it misses? Same copy, target 15% and 20%.
+    ...[15, 20].map((tp) => ({ id: scalpId(0, tp), text: scalpText(0, tp), ...score(sigs, (s) => scalp(s, 0, tp), solUsd) })),
     ...[300, 600].map((x) => ({ id: ruleId(0, x), text: ruleText(0, x), ...score(sigs, (s) => pathRet(s, x), solUsd) })),
     ...TRAILS.map((t) => ({ id: trailId(t), text: trailText(t), ...score(sigs, (s) => trail(s, t), solUsd) })),
   ];
