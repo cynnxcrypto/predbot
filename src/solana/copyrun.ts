@@ -299,7 +299,7 @@ function connect() {
       if (w && typeof m.result === "number") {
         subOf.set(m.result, w);
         health.subs = subOf.size;
-      } else if (m.error) fail(new Error(`subscribe: ${m.error.message}`));
+      } else if (m.error && m.id !== 2) fail(new Error(`subscribe: ${m.error.message}`)); // id 2 is only our keep-alive
       return;
     }
     if (m.method === "slotNotification" && m.params?.result.slot) slotNow = m.params.result.slot;
