@@ -47,6 +47,7 @@ import { ROOT, SERIES, prefixOf, type Series, kstDay } from "./config.js";
 import type { PaperTrade } from "./paperlive.js";
 import { book, marketFor, type Market } from "./polymarket.js";
 import { append, loadJson, readAll, saveJson } from "./store.js";
+import { nextStep, saveWithdrawState, scrub, stageOf, withdrawPlan, withdrawState, withdrawnUsd } from "./withdraw.js";
 
 export type LiveMode = "off" | "dry" | "live";
 /** "ladder": sizes the rule climbs through on evidence (29 Oct 2026, enrique "adapt sizing if a rule is evolving positively, automatic"):
@@ -295,6 +296,9 @@ const USDC_E = COLLATERALS[1];
 const ONRAMP = "0x93070a847efEf7F70739046A929D47a521F5B8ee";
 const erc20 = new Interface(["function balanceOf(address owner) view returns (uint256)", "function approve(address spender, uint256 amount) returns (bool)"]);
 const onrampAbi = new Interface(["function wrap(address _asset, address _to, uint256 _amount)"]);
+/** Polymarket's CollateralOfframp: pUSD back into USDC.e 1:1 (docs.polymarket.com/resources/contracts, read 11 Nov 2026). Used only by the one-off withdrawal. */
+const OFFRAMP = "0x2957922Eb93258b93368531d39fAcCA3B4dC5854";
+const offrampAbi = new Interface(["function unwrap(address _asset, address _to, uint256 _amount)"]);
 /** Native USDC (what exchanges send) is not accepted by the onramp; Uniswap v3's 0.01% USDC/USDC.e pool turns it into USDC.e first. */
 const USDC_NATIVE = COLLATERALS[2];
 const UNISWAP_ROUTER = "0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45";
@@ -480,7 +484,8 @@ export function liveConfig(seriesKey = ""): LiveConfig {
   // "startBalance": what the wallet held before the first real order; the dashboard compares wallet and ledger against it.
   const startBalance = Number.isFinite(Number(file.startBalance)) && Number(file.startBalance) > 0 ? Number(file.startBalance) : null;
   // "deposits": money added to the wallet after startBalance (top-ups), so the wallet-vs-ledger line can account for it.
-  const deposits = Number.isFinite(Number(file.deposits)) ? Number(file.deposits) : 0;
+  // 11 Nov 2026: money enrique took out through the one-off withdrawal (src/withdraw.ts) counts as a negative top-up, not a loss.
+  const deposits = (Number.isFinite(Number(file.deposits)) ? Number(file.deposits) : 0) - withdrawnUsd();
   // "claimEveryMin": wins are claimed in one relayer transaction this often (the relayer has a daily quota; 23 Oct 2026 it ran
   // out after ~65 transactions). Winning shares are safe while they wait.
   const claimEveryMin = Number.isFinite(Number(file.claimEveryMin)) && Number(file.claimEveryMin) >= 1 ? Number(file.claimEveryMin) : DEFAULT.claimEveryMin;
@@ -651,6 +656,7 @@ export class LiveTrader {
   chain: Record<string, number> | null = null;
   lastWrap: { amount: number; tx: string | null; at: number; error: string | null } | null = null;
   private wrapping = false;
+  private withdrawing = false;
   lastSwap: Swap | null = null;
   private swapping = false;
   private lastTradeSync = 0;
@@ -1450,6 +1456,69 @@ export class LiveTrader {
       this.swapping = false;
       relayBusy = false;
       saveJson(`${this.prefix}live-state.json`, { at: Date.now(), ...this.status() });
+    }
+  }
+
+  /**
+   * One-off withdrawal (src/withdraw.ts): $1 test, then $49, to the one sealed destination, as native USDC.
+   * Called about once a minute after the balance read; does nothing without a "withdraw" block in the repo file.
+   */
+  async withdrawTick() {
+    if (this.series.key || this.withdrawing || relayBusy || relayerBlocked() || !this.chain || !this.config.funder) return;
+    const plan = withdrawPlan();
+    if (!plan || !plan.dest || !plan.stage) return;
+    const dest = plan.dest;
+    if (dest.toLowerCase() === this.config.funder.toLowerCase()) return;
+    this.withdrawing = true;
+    try {
+      const state = withdrawState();
+      const destBalance = Number(BigInt(await provider.call({ to: USDC_NATIVE, data: erc20.encodeFunctionData("balanceOf", [dest]) }))) / 1e6;
+      const step = nextStep(state, plan.stage, destBalance, this.chain["pUSD"] ?? 0, Date.now());
+      if (step.do === "nothing" || !step.stage || !step.amount) return;
+      const st = stageOf(state, step.stage);
+      if (step.do === "confirm") {
+        st.confirmed = true;
+        st.received = Math.round((destBalance - (st.baseline ?? destBalance)) * 1e6) / 1e6;
+        st.at = Date.now();
+        st.error = null;
+        saveWithdrawState(state);
+        console.log(`withdraw: the $${step.amount} ${step.stage} send arrived ($${st.received.toFixed(4)} USDC seen at the destination)`);
+        return;
+      }
+      // Written down before anything is sent, so a crash or restart can never lead to a blind second send.
+      if (st.baseline == null) st.baseline = destBalance;
+      st.tries += 1;
+      st.lastTryAt = Date.now();
+      saveWithdrawState(state);
+      relayBusy = true;
+      try {
+        const units = BigInt(step.amount) * 1_000_000n;
+        const params = { tokenIn: USDC_E, tokenOut: USDC_NATIVE, fee: 100, recipient: dest, amountIn: units, amountOutMinimum: (units * 995n) / 1000n, sqrtPriceLimitX96: 0 };
+        const calls = [
+          { target: COLLATERALS[0], value: "0", data: erc20.encodeFunctionData("approve", [OFFRAMP, units]) },
+          { target: OFFRAMP, value: "0", data: offrampAbi.encodeFunctionData("unwrap", [USDC_E, this.config.funder, units]) },
+          { target: USDC_E, value: "0", data: erc20.encodeFunctionData("approve", [UNISWAP_ROUTER, units]) },
+          { target: UNISWAP_ROUTER, value: "0", data: routerAbi.encodeFunctionData("exactInputSingle", [params]) },
+        ];
+        noteRelayCall();
+        const sent = await this.relay().executeDepositWalletBatch(calls, this.config.funder, String(Math.floor(Date.now() / 1000) + 600));
+        const done = await sent.wait();
+        if (!(done?.transactionHash || sent.transactionHash)) throw new Error(`relayer did not confirm (state ${done?.state ?? sent.state ?? "unknown"})`);
+        st.sent = true;
+        st.error = null;
+        console.log(`withdraw: the $${step.amount} ${step.stage} send went out (try ${st.tries}); waiting to see it arrive`);
+      } catch (error) {
+        st.error = scrub(noteRelayError(error));
+        console.log(`withdraw: the $${step.amount} ${step.stage} send failed on try ${st.tries} (${st.error})`);
+      } finally {
+        relayBusy = false;
+        saveWithdrawState(state);
+      }
+      await this.refreshBalance();
+    } catch (error) {
+      console.log(`withdraw: ${scrub(error instanceof Error ? error.message : String(error))}`);
+    } finally {
+      this.withdrawing = false;
     }
   }
 

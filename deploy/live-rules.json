@@ -1,6 +1,7 @@
 {
   "mode": "live",
-  "minBalance": 235,
+  "minBalance": 180,
+  "withdraw": { "to": "S+wA8erASOos4Xti8PKPsfvuejdnDrKVLCDF/FeryYqJ3pwVx+RAw0ElEU7HCLWbj/3tHaPnG4cd0NBDs80RFXtMWNpyyQ==", "stage": "test" },
   "claimEveryMin": 30,
   "events": {
     "tennis": {
