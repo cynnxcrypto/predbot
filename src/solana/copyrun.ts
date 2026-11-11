@@ -11,7 +11,7 @@ import { appendFileSync, mkdirSync, readFileSync, renameSync, writeFileSync } fr
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { DATA } from "../config.js";
-import { crowd, DELAYS, EXITS, followerPrice, parseBuy, STAKE_SOL, summarize, TX_SOL, type Entry, type ParsedTx, type Signal } from "./copy.js";
+import { crowd, DELAYS, EXITS, followerPrice, parseBuy, PATH, STAKE_SOL, summarize, TX_SOL, type Entry, type ParsedTx, type Signal } from "./copy.js";
 import { SOL, USDC } from "./pools.js";
 import { discoverSummary, foundWallets, startDiscover, stopDiscover } from "./discover.js";
 import { validAddress, WALLETS, type Tracked } from "./wallets.js";
@@ -47,7 +47,7 @@ export function scrub(s: string): string {
 }
 
 const health = {
-  startedAt: 0, feed: "public", stream: "not tried", streamTx: 0, quotes: "none", wsUp: false, wallets: 0, found: 0, subs: 0, badWallets: [] as string[],
+  startedAt: 0, feed: "public", stream: "not tried", streamTx: 0, quotes: "none", wsUp: false, wallets: 0, found: 0, tails: 0, subs: 0, badWallets: [] as string[],
   senderPingMs: {} as Record<string, number | null>, quoteMsMedian: null as number | null,
   txSeen: 0, buys: 0, skippedBusy: 0, active: 0, rpcErrors: 0, quoteErrors: 0, quoteOk: 0, lastError: "",
 };
@@ -113,7 +113,13 @@ const decimals = new Map<string, number>();
 function load() {
   loaded = true;
   try {
-    signals = readFileSync(SIGNALS(), "utf8").split("\n").filter(Boolean).slice(-KEEP).map((l) => JSON.parse(l) as Signal);
+    // a signal is written again once its long checks (3 to 10 min) are in: the later line replaces the earlier one
+    const bySig = new Map<string, Signal>();
+    for (const l of readFileSync(SIGNALS(), "utf8").split("\n").filter(Boolean).slice(-2 * KEEP)) {
+      const x = JSON.parse(l) as Signal;
+      bySig.set(x.sig, x);
+    }
+    signals = [...bySig.values()].slice(-KEEP);
   } catch {
     signals = [];
   }
@@ -271,7 +277,7 @@ async function onTx(w: Tracked, sig: string, seenMs: number, ready: ParsedTx | n
   }
   const s: Signal = {
     sig, wallet: w.address, name: w.name, mint: buy.mint, leaderSlot: buy.slot, leaderTime: buy.blockTime, leaderSol: buy.sol, leaderPrice: buy.price,
-    seenMs, knownMs, lagSlots: slotNow ? slotNow - buy.slot : null, feed: ready ? "helius transaction stream" : health.feed, entries: {}, exits: {}, crowd: null,
+    seenMs, knownMs, lagSlots: slotNow ? slotNow - buy.slot : null, feed: ready ? "helius transaction stream" : health.feed, entries: {}, exits: {}, path: {}, crowd: null,
   };
   try {
     const dec = await tokenDecimals(buy.mint).catch(() => 6);
@@ -288,11 +294,14 @@ async function onTx(w: Tracked, sig: string, seenMs: number, ready: ParsedTx | n
       }
       const e: Entry = { t: Date.now(), slot: slotNow + 1, tokens: out.toString(), price: STAKE_SOL / (Number(out) / 10 ** dec) };
       s.entries[key] = e;
-      await Promise.all([0, ...EXITS].map(async (x) => {
+      // the fastest copy is also checked at the exit study's extra times; those past the last normal check are
+      // taken after the signal is saved (tail), so a restart costs only them
+      const extra: number[] = d === 0 ? PATH.filter((x) => x <= EXITS[EXITS.length - 1]) : [];
+      await Promise.all([0, ...EXITS, ...extra].map(async (x) => {
         if (x === 0 && d !== 0) return;
         await sleep(Math.max(0, e.t + x * 1000 - Date.now()));
         const back = await quote(buy.mint, SOL, e.tokens);
-        s.exits[key][`x${x}`] = back === null ? null : Number(back) / 1e9;
+        (extra.includes(x) ? s.path! : s.exits[key])[`x${x}`] = back === null ? null : Number(back) / 1e9;
       }));
     }));
     await sleep(Math.max(0, knownMs + 70_000 - Date.now()));
@@ -315,11 +324,30 @@ async function onTx(w: Tracked, sig: string, seenMs: number, ready: ParsedTx | n
     if (signals.length > KEEP) signals.shift();
     mkdirSync(join(DATA, "solana"), { recursive: true });
     appendFileSync(SIGNALS(), JSON.stringify(s) + "\n");
+    void tail(s).catch(fail);
   } catch (e) {
     fail(e);
   } finally {
     health.active--;
     publish();
+  }
+}
+
+/** The exit study's long checks (3 to 10 min after the entry) on the fastest copy, then the signal is saved again. */
+async function tail(s: Signal) {
+  const e = s.entries.d0;
+  if (!e) return;
+  health.tails++;
+  try {
+    await Promise.all(PATH.filter((x) => x > EXITS[EXITS.length - 1]).map(async (x) => {
+      await sleep(Math.max(0, e.t + x * 1000 - Date.now()));
+      const back = await quote(s.mint, SOL, e.tokens);
+      (s.path ??= {})[`x${x}`] = back === null ? null : Number(back) / 1e9;
+    }));
+    appendFileSync(SIGNALS(), JSON.stringify(s) + "\n");
+    publish();
+  } finally {
+    health.tails--;
   }
 }
 

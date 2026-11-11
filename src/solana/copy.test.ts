@@ -9,7 +9,7 @@ process.env.DATA_DIR = dir;
 process.env.HELIUS_API_KEY = "SECRETHELIUS";
 process.env.JUPITER_API_KEY = "SECRETJUP";
 
-const { crowd, followerPrice, parseBuy, ret, roundTrip, sameBlockRet, SAME_BLOCK_SLIP, scalp, STAKE_SOL, summarize, TX_SOL } = await import("./copy.js");
+const { crowd, exitStudy, followerPrice, GRID, parseBuy, pathRet, ret, roundTrip, sameBlockRet, SAME_BLOCK_SLIP, scalp, STAKE_SOL, summarize, trail, TX_SOL } = await import("./copy.js");
 const { SOL } = await import("./pools.js");
 const { validAddress, WALLETS } = await import("./wallets.js");
 const { _test, buildCopySummary, scrub } = await import("./copyrun.js");
@@ -111,9 +111,37 @@ test("summary: speed first, rules counted, wallets ranked by follow-through", ()
   assert.equal(sum.speed.noWavePct, 50);
   assert.equal(sum.speed.entryGapPctMedian, 10);
   assert.ok(sum.speed.breakEvenPctMedian! > 4);
-  assert.equal(sum.rulesTried, 33);
+  assert.equal(sum.rulesTried, 38);
   assert.equal(sum.wallets[0].name, "Chairman");
   assert.deepEqual(sum.qualified, []);
+});
+
+test("exit study: long path, trailing exit, and nothing invented for times never checked", () => {
+  const cost = 2 * TX_SOL;
+  const pct = (out: number) => (out - cost) / STAKE_SOL - 1;
+  // an older signal has no long checks: they cannot be scored, the short ones can
+  const old = sig();
+  assert.equal(pathRet(old, 300), undefined);
+  assert.ok(Math.abs(pathRet(old, 30)! - pct(0.2)) < 1e-12);
+  assert.equal(trail(old, 90), undefined, "never fell 90 points from its best and was not followed to 10 min");
+  assert.ok(Math.abs(trail(old, 5)! - pct(0.25)) < 1e-12, "best at 5 s (0.27), 5 points lower at 10 s: sold there");
+  // a new signal with the whole path: pumps, fades, recovers
+  const full = sig({ exits: { d0: { x0: 0.24, x2: 0.26, x5: 0.3, x10: 0.31, x20: 0.3, x30: 0.29, x60: 0.28, x120: 0.27 }, d1: {}, d3: {} }, path: { x1: 0.25, x3: 0.27, x15: 0.305, x45: 0.28, x90: 0.275, x180: 0.255, x300: 0.33, x600: 0.2 }, crowd: { same: 1, s10: 9, s25: 9, s150: 9, ahead: { d0: 2 } } });
+  assert.ok(Math.abs(pathRet(full, 300)! - pct(0.33)) < 1e-12);
+  assert.ok(Math.abs(trail(full, 10)! - pct(0.28)) < 1e-12, "best 0.31 at 10 s; first check 10 points below it is 45 s");
+  assert.ok(Math.abs(trail(full, 20)! - pct(0.255)) < 1e-12);
+  // a token that stopped being sellable: total loss from the first dead check on
+  const dead = sig({ exits: { d0: { x0: 0.24, x2: 0.26, x5: null, x10: null, x20: null, x30: null, x60: null, x120: null }, d1: {}, d3: {} }, path: { x1: 0.25, x3: 0.2, x15: null, x45: null, x90: null, x180: null, x300: null, x600: null } });
+  assert.equal(pathRet(dead, 60), -1);
+  assert.equal(trail(dead, 20), pathRet(dead, 3), "already 20 points under its best at 3 s");
+  const st = exitStudy([old, full, dead]);
+  assert.equal(st.n, 3);
+  assert.equal(st.path.length, GRID.length);
+  assert.deepEqual(st.path.find((c) => c.sec === 600), { sec: 600, n: 2, won: 0, medianRetPct: st.path.find((c) => c.sec === 600)!.medianRetPct, avgRetPct: st.path.find((c) => c.sec === 600)!.avgRetPct });
+  assert.equal(st.path.find((c) => c.sec === 2)!.n, 3);
+  assert.equal(st.best.n, 3);
+  assert.equal(st.byWave[0].n + st.byWave[1].n, 1, "only signals with a counted wave are split by wave");
+  assert.deepEqual(st.byStart.map((g) => g.n), [1, 1, 1], "dead token down, old signal up moderately, full one up strongly");
 });
 
 test("runner: a buy becomes a scored signal, and keys never leak", async () => {
@@ -145,7 +173,11 @@ test("runner: a buy becomes a scored signal, and keys never leak", async () => {
     assert.equal(s[0].exits.d0.x0, 0.24);
     assert.equal(s[0].exits.d1.x120, 0.24);
     assert.deepEqual(s[0].crowd, { same: 1, s10: 2, s25: 2, s150: 2, ahead: { d0: 2, d1: 2, d3: 2 } });
-    assert.equal(quotes, 3 + 3 * 7 + 1);
+    // 3 entries, 7 exits each, the instant round trip, the 5 extra early checks of the exit study; its 3 long
+    // checks follow after the signal is saved
+    assert.ok(quotes >= 3 + 3 * 7 + 1 + 5 && quotes <= 3 + 3 * 7 + 1 + 8);
+    assert.equal(s[0].path!.x1, 0.24);
+    assert.equal(s[0].path!.x90, 0.24);
     void 0;
     // the transaction stream hands over a whole transaction: no lookup, and the signal is marked with that feed
     const t2 = tx({ postTok: [tok("Mint2222222222222222222222222222222222222222", W, 5)] });
