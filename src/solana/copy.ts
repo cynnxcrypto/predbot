@@ -245,6 +245,44 @@ export function scalpStop(s: Signal, tp: number, sl: number): number | undefined
 export const gapOf = (s: Signal): number | null => (s.entries.d0 && s.leaderPrice > 0 ? s.entries.d0.price / s.leaderPrice - 1 : null);
 const GAP9 = `When a tracked wallet buys and our price is already 9% or more above what the wallet paid, buy ${STAKE_SOL} SOL`;
 
+/**
+ * 12 Nov 2026 00:05 KST, enrique: "in the end you are copying other traders, so there will be traders that are good
+ * signals and traders that are bad signals" / "keep finding traders and keep only the ones that favour us".
+ *
+ * A trader's record with us = every first buy of that wallet we saw, copied on paper the moment we knew and sold at
+ * +10% or 30 s (the real test's exit). From TRADER_MIN copies on the record has a verdict:
+ *   good  = the copies made money on average AND half or more of them won
+ *   bad   = they lost on average AND fewer than half won
+ *   mixed = anything between; new = fewer than TRADER_MIN copies so far.
+ * Few copies per trader means a noisy verdict, so the rules below judge each buy only on the copies BEFORE it
+ * (walk-forward): they show whether yesterday's good traders are still good today, which is the only thing that pays.
+ */
+export const TRADER_MIN = 4;
+export const TRADER_EXIT_SEC = 30;
+export type Verdict = "good" | "bad" | "mixed" | "new";
+export const VERDICTS: readonly Verdict[] = ["good", "mixed", "bad", "new"];
+export const traderRet = (s: Signal) => scalp(s, 0, 10, TRADER_EXIT_SEC);
+export function verdictOf(rets: number[]): Verdict {
+  if (rets.length < TRADER_MIN) return "new";
+  const avg = rets.reduce((a, b) => a + b, 0) / rets.length;
+  const won = rets.filter((v) => v > 0).length;
+  if (avg > 0 && won * 2 >= rets.length) return "good";
+  if (avg < 0 && won * 2 < rets.length) return "bad";
+  return "mixed";
+}
+/** A trader's verdict at the moment `atMs`: only copies whose result was already in by then (bought TRADER_EXIT_SEC or more before). */
+export function verdictAt(sigs: Signal[], wallet: string, atMs: number): Verdict {
+  return verdictOf(nums(sigs.filter((s) => s.wallet === wallet && s.knownMs + TRADER_EXIT_SEC * 1000 <= atMs).map(traderRet)));
+}
+/** Every signal with the verdict its trader had just before it. */
+export function verdictsBefore(sigs: Signal[]): Map<Signal, Verdict> {
+  const by = new Map<string, Signal[]>();
+  for (const s of sigs) by.set(s.wallet, [...(by.get(s.wallet) ?? []), s]);
+  const out = new Map<Signal, Verdict>();
+  for (const s of sigs) out.set(s, verdictAt(by.get(s.wallet)!, s.wallet, s.knownMs));
+  return out;
+}
+
 export const cutId = (tp: number, c: number) => `copy-d0-tp${tp}-cut${c}-t${TIME_STOP}`;
 export const cutText = (tp: number, c: number) =>
   `When a tracked wallet buys, buy ${STAKE_SOL} SOL of the same token the moment we know, sell as soon as it is up ${tp}% after costs, sell at ${c} s if it is not up after costs by then, and sell anyway after ${TIME_STOP} s.`;
@@ -538,6 +576,7 @@ export function summarize(sigs: Signal[], solUsd: number | null) {
       return a.length ? r((a.filter((v) => v === 0).length / a.length) * 100, 0) : null;
     })(),
   };
+  const before = verdictsBefore(sigs);
   const rules = [
     ...DELAYS.flatMap((d) => EXITS.map((x) => ({ id: ruleId(d, x), text: ruleText(d, x), ...score(sigs, (s) => ret(s, d, x), solUsd) }))),
     ...DELAYS.flatMap((d) => TARGETS.map((tp) => ({ id: scalpId(d, tp), text: scalpText(d, tp), ...score(sigs, (s) => scalp(s, d, tp), solUsd) }))),
@@ -602,6 +641,13 @@ export function summarize(sigs: Signal[], solUsd: number | null) {
     // and with the 20 s clock. Picked after looking, on the same buys: they describe, they do not prove.
     ...GAP9_STOPS.map((sl) => ({ id: `copy-d0-gap15-tp10-sl${sl}-t60`, text: `When a tracked wallet buys and our price is already 15% or more above what the wallet paid, buy ${STAKE_SOL} SOL the moment we know, sell as soon as it is up 10% after costs or down ${sl}%, and sell anyway after ${TIME_STOP} s.`, ...score(sigs, (s) => ((gapOf(s) ?? -1) >= 0.15 ? scalpStop(s, 10, sl) : undefined), solUsd) })),
     { id: "copy-d0-gap15-tp10-t20", text: `When a tracked wallet buys and our price is already 15% or more above what the wallet paid, buy ${STAKE_SOL} SOL the moment we know, sell as soon as it is up 10% after costs, and sell anyway after 20 s.`, ...score(sigs, (s) => ((gapOf(s) ?? -1) >= 0.15 ? scalp(s, 0, 10, 20) : undefined), solUsd) },
+    // Traders (see verdictOf): every buy copied at once and sold at +10% or 30 s, split by what its trader's earlier
+    // copies did. The four groups add up to the first rule. "not bad" and the 15% bar with it are what the real test
+    // would run. Judged before the buy, never with its own result.
+    { id: `copy-d0-tp10-t${TRADER_EXIT_SEC}`, text: `When a tracked wallet buys, buy ${STAKE_SOL} SOL of the same token the moment we know, sell as soon as it is up 10% after costs, and sell anyway after ${TRADER_EXIT_SEC} s.`, ...score(sigs, traderRet, solUsd) },
+    ...VERDICTS.map((v) => ({ id: `copy-d0-trader-${v}-tp10-t${TRADER_EXIT_SEC}`, text: `The same, but only buys of traders whose earlier copies were ${v === "new" ? `too few to judge (under ${TRADER_MIN})` : v}.`, ...score(sigs, (s) => (before.get(s) === v ? traderRet(s) : undefined), solUsd) })),
+    { id: `copy-d0-trader-notbad-tp10-t${TRADER_EXIT_SEC}`, text: `The same, but leaving out the buys of traders whose earlier copies were bad (${TRADER_MIN}+ copies, lost on average, fewer than half won).`, ...score(sigs, (s) => (before.get(s) !== "bad" ? traderRet(s) : undefined), solUsd) },
+    ...(["notbad", "bad", "good"] as const).map((v) => ({ id: `copy-d0-gap15-trader-${v}-tp10-t${TRADER_EXIT_SEC}`, text: `When a tracked wallet buys and our price is already 15% or more above what the wallet paid, and the trader's earlier copies were ${v === "notbad" ? "not bad" : v}, buy ${STAKE_SOL} SOL the moment we know, sell as soon as it is up 10% after costs, and sell anyway after ${TRADER_EXIT_SEC} s.`, ...score(sigs, (s) => ((gapOf(s) ?? -1) >= 0.15 && (v === "notbad" ? before.get(s) !== "bad" : before.get(s) === v) ? traderRet(s) : undefined), solUsd) })),
     ...[300, 600].map((x) => ({ id: ruleId(0, x), text: ruleText(0, x), ...score(sigs, (s) => pathRet(s, x), solUsd) })),
     ...TRAILS.map((t) => ({ id: trailId(t), text: trailText(t), ...score(sigs, (s) => trail(s, t), solUsd) })),
   ];
@@ -621,8 +667,20 @@ export function summarize(sigs: Signal[], solUsd: number | null) {
     ret30: r((med(nums(ss.map((s) => ret(s, 0, 30)))) ?? NaN) * 100),
     ret120: r((med(nums(ss.map((s) => ret(s, 0, 120)))) ?? NaN) * 100),
     ref: Object.fromEntries(REF_RULES.map((id) => [id, score(ss, (s) => ret(s, 1, id.endsWith("x10") ? 10 : 30), solUsd)])),
+    /** the trader's record with us: every buy copied at once and sold at +10% or 30 s; and the verdict it gives now */
+    copy: score(ss, traderRet, solUsd),
+    verdict: verdictOf(nums(ss.map(traderRet))),
   }));
   wallets.sort((a, b) => (b.follow4s ?? -1) - (a.follow4s ?? -1) || b.buys - a.buys);
+  const traders = {
+    note: `A trader's record = every first buy of that wallet we saw, copied on paper the moment we knew and sold at +10% or ${TRADER_EXIT_SEC} s. From ${TRADER_MIN} copies on: good = made money on average and half or more won; bad = lost on average and fewer than half won; mixed = between. Few copies make a noisy verdict: the rules copy-d0-trader-* judge each buy only on the copies before it.`,
+    min: TRADER_MIN,
+    seen: wallets.length,
+    good: wallets.filter((w) => w.verdict === "good").length,
+    mixed: wallets.filter((w) => w.verdict === "mixed").length,
+    bad: wallets.filter((w) => w.verdict === "bad").length,
+    new: wallets.filter((w) => w.verdict === "new").length,
+  };
   const recent = sigs.slice(-15).reverse().map((s) => ({
     t: s.knownMs, name: s.name, mint: s.mint, leaderSol: r(s.leaderSol), lagSec: s.leaderTime ? r((s.knownMs - s.leaderTime * 1000) / 1000, 1) : null, lagSlots: s.lagSlots,
     ahead: s.crowd?.ahead.d0 ?? null, follow4s: s.crowd?.s10 ?? null, entryGapPct: s.entries.d0 ? r((s.entries.d0.price / s.leaderPrice - 1) * 100) : null,
@@ -636,5 +694,5 @@ export function summarize(sigs: Signal[], solUsd: number | null) {
     rules: EXITS.map((x) => ({ id: sameId(x), ...score(sigs, (s) => sameBlockRet(s, x), solUsd) })),
   };
   const qualified = rules.filter((x) => x.n >= 100 && x.won / x.n >= 0.5 && (x.netSol ?? 0) > 0).map((x) => x.id);
-  return { speed, rulesTried: rules.length, inProfit: rules.filter((x) => (x.netSol ?? 0) > 0).length, qualified, rules, exitStudy: exitStudy(sigs), sizeStudy: sizeStudy(sigs), lateStudy: lateStudy(sigs), sameBlock, wallets, recent };
+  return { speed, rulesTried: rules.length, inProfit: rules.filter((x) => (x.netSol ?? 0) > 0).length, qualified, rules, exitStudy: exitStudy(sigs), sizeStudy: sizeStudy(sigs), lateStudy: lateStudy(sigs), sameBlock, traders, wallets, recent };
 }

@@ -11,7 +11,7 @@ import { appendFileSync, mkdirSync, readFileSync, renameSync, writeFileSync } fr
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { DATA } from "../config.js";
-import { crowd, DELAYS, EXITS, followerPrice, fomoStudy, LATE, parseBuy, parseDollarBuy, PATH, SIZE_EXITS, SIZES, STAKE_SOL, summarize, TX_SOL, type Entry, type ParsedTx, type Signal } from "./copy.js";
+import { crowd, DELAYS, EXITS, followerPrice, fomoStudy, LATE, parseBuy, parseDollarBuy, PATH, SIZE_EXITS, SIZES, STAKE_SOL, summarize, TX_SOL, verdictAt, type Entry, type ParsedTx, type Signal, type Verdict } from "./copy.js";
 import { SOL, USDC } from "./pools.js";
 import { discoverSummary, foundWallets, startDiscover, stopDiscover } from "./discover.js";
 import { historySummary, startHistory, stopHistory } from "./history.js";
@@ -51,7 +51,7 @@ export function scrub(s: string): string {
 const health = {
   startedAt: 0, feed: "public", stream: "not tried", streamTx: 0, quotes: "none", wsUp: false, wallets: 0, found: 0, fomo: 0, tails: 0, subs: 0, badWallets: [] as string[],
   senderPingMs: {} as Record<string, number | null>, quoteMsMedian: null as number | null,
-  txSeen: 0, buys: 0, skippedBusy: 0, active: 0, rpcErrors: 0, quoteErrors: 0, quoteOk: 0, lastError: "",
+  txSeen: 0, buys: 0, skippedBusy: 0, active: 0, rpcErrors: 0, quoteErrors: 0, quoteOk: 0, quoteRefused: 0, quoteHeld: 0, lastError: "",
 };
 const fail = (e: unknown) => (health.lastError = scrub(String((e as Error)?.message ?? e)));
 
@@ -78,13 +78,35 @@ async function rpc<T>(method: string, params: unknown[]): Promise<T> {
   return j.result as T;
 }
 
+/**
+ * The real test first. Paper and real share one Jupiter key and so one request allowance. 12 Nov 2026 00:05 to 00:11
+ * KST: a burst of 27 trader buys in six minutes, the paper test asked its dozens of quotes for each, and the price
+ * service refused 7 of the real test's own buys ("too many requests"): never sent, while enrique was watching for a
+ * trade. So the real test calls realFirst() when it starts a copy and whenever it is refused, and until that time has
+ * passed the paper test asks nothing new: its checks wait (a check a second late is still a check). The paper test
+ * also stands back for a moment after a refusal of its own. The one paper quote that is never held is the fastest
+ * entry of a buy: it is a single request and the paper record needs the price of that very moment.
+ */
+let holdUntil = 0;
+export const realFirst = (ms: number) => void (holdUntil = Math.max(holdUntil, Date.now() + Math.min(ms, 5000)));
+const PAPER_BACKOFF_MS = 1500;
+
 /** Jupiter quote: raw output amount for a raw input amount, fees and price impact included. null = no quote. */
-async function quote(inMint: string, outMint: string, amount: string): Promise<bigint | null> {
+async function quote(inMint: string, outMint: string, amount: string, now = false): Promise<bigint | null> {
   const k = jupiter();
   const base = k ? "https://api.jup.ag" : "https://lite-api.jup.ag";
+  if (!now && Date.now() < holdUntil) {
+    health.quoteHeld++;
+    // at most 6 s in all, so a string of real copies can delay a paper check but never lose it
+    for (let waited = 0; Date.now() < holdUntil && waited < 6000; waited += 50) await sleep(50);
+  }
   const t0 = performance.now();
   try {
     const res = await net(`${base}/swap/v1/quote?inputMint=${inMint}&outputMint=${outMint}&amount=${amount}&slippageBps=2000&restrictIntermediateTokens=true`, { headers: k ? { "x-api-key": k } : {}, signal: AbortSignal.timeout(4000) });
+    if (res.status === 429) {
+      health.quoteRefused++;
+      holdUntil = Math.max(holdUntil, Date.now() + PAPER_BACKOFF_MS);
+    }
     if (!res.ok) throw new Error(`quote http ${res.status}`);
     const j = (await res.json()) as { outAmount?: string };
     if (!j.outAmount) throw new Error("quote: no outAmount");
@@ -221,6 +243,8 @@ export function solanaCopySummary(): unknown {
 
 export interface StreamBuy {
   sig: string;
+  /** the trader's own (public, listed) address: the key of the trader's record */
+  wallet?: string;
   name: string;
   mint: string;
   leaderSlot: number;
@@ -233,7 +257,15 @@ let buyHook: ((b: StreamBuy) => void) | null = null;
 /** copylive.ts registers here to be told of each fast-stream buy the moment it is known. */
 export const onStreamBuy = (f: ((b: StreamBuy) => void) | null) => (buyHook = f);
 /** What the real test shares with this runner: the keys, the RPC address, the current slot, the follower count. */
-export const shared = { helius: () => helius(), jupiter: () => jupiter(), rpcUrl: () => rpcUrl(), slot: () => slotNow, waveAfter: (mint: string, sig: string, slot: number) => waveAfter(mint, sig, slot), fetch: () => net };
+/**
+ * What the paper record says of a trader right now (see verdictOf in copy.ts): the same buys the paper rules are
+ * scored on, fast stream only, known within 30 s. The real test asks this before it copies.
+ */
+export function traderVerdict(wallet: string | undefined, atMs = Date.now()): Verdict {
+  if (!wallet) return "new";
+  return verdictAt(signals.filter((x) => !x.fomo && x.feed === "helius transaction stream" && x.leaderTime > 0 && x.knownMs - x.leaderTime * 1000 <= 30_000), wallet, atMs);
+}
+export const shared = { verdict: (wallet: string | undefined) => traderVerdict(wallet), realFirst: (ms: number) => realFirst(ms), helius: () => helius(), jupiter: () => jupiter(), rpcUrl: () => rpcUrl(), slot: () => slotNow, waveAfter: (mint: string, sig: string, slot: number) => waveAfter(mint, sig, slot), fetch: () => net };
 
 // ---- one signal -------------------------------------------------------------------------------------------------
 async function tokenDecimals(mint: string): Promise<number> {
@@ -292,7 +324,7 @@ async function onTx(w: Tracked, sig: string, seenMs: number, ready: ParsedTx | n
   // the real test (copylive.ts) acts only on fast-stream buys, and first, before any paper quote is asked for
   if (ready && buyHook && !w.found && !w.fomo) {
     try {
-      buyHook({ sig, name: w.name, mint: buy.mint, leaderSlot: buy.slot, leaderPrice: buy.price, decimals: buy.decimals, knownMs });
+      buyHook({ sig, wallet: w.address, name: w.name, mint: buy.mint, leaderSlot: buy.slot, leaderPrice: buy.price, decimals: buy.decimals, knownMs });
     } catch (e) {
       fail(e);
     }
@@ -320,7 +352,7 @@ async function onTx(w: Tracked, sig: string, seenMs: number, ready: ParsedTx | n
     await Promise.all([...sized, ...[...DELAYS, ...LATE].map(async (d) => {
       const at = knownMs + d * 1000;
       await sleep(Math.max(0, at - Date.now()));
-      const out = await quote(SOL, buy.mint, stake);
+      const out = await quote(SOL, buy.mint, stake, d === 0);
       const key = `d${d}`;
       s.exits[key] = {};
       if (out === null || out === 0n) {
@@ -584,7 +616,7 @@ export function stopSolanaCopy() {
 }
 
 /** Test hooks. */
-export const _test = { onTx, setNet: (f: Fetch) => (net = f), setSlot: (n: number) => (slotNow = n), setSolUsd: (v: number | null) => (solUsd = v), signals: () => signals, load: () => load() };
+export const _test = { quote, health: () => health, onTx, setNet: (f: Fetch) => (net = f), setSlot: (n: number) => (slotNow = n), setSolUsd: (v: number | null) => (solUsd = v), signals: () => signals, load: () => load() };
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   console.log(`solana copy test: ${WALLETS.length} wallets, helius key ${helius() ? "yes" : "no"}, jupiter key ${jupiter() ? "yes" : "no"}`);
