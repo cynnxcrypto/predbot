@@ -37,6 +37,14 @@ export const TRAILS = [5, 10, 20] as const;
 /** Scalp rules: sell at the first check where the return reaches the target (%), otherwise at the time stop (s). */
 export const TARGETS = [3, 5, 10] as const;
 export const TIME_STOP = 60;
+/**
+ * The size check (enrique, 11 Nov 2026 18:11 KST: "does the size of the trade affect our result in any way or is
+ * everything % based"): the fastest copy is also priced at these stakes, and sold again at these times.
+ */
+export const SIZES = [0.05, 1, 3];
+export const SIZE_EXITS = [0, 10, 30, 60];
+/** Network fees of one in-and-out as the real test pays them (11 Nov 2026: a failed buy cost 0.00003 SOL). */
+export const SIZE_FEE_SOL = 0.0001;
 /** The two rules shown per wallet, fixed in advance so nobody picks the best column afterwards. */
 export const REF_RULES = ["copy-d1-x10", "copy-d1-x30"] as const;
 
@@ -116,6 +124,8 @@ export interface Signal {
   path?: Record<string, number | null>;
   /** MEASURED: what the first followers really paid, those that landed in the wallet's block or the next one (median SOL per token over n of them, at most 5) */
   near?: { n: number; price: number } | null;
+  /** the size check: stake in SOL -> SOL received selling that stake's tokens at the SIZE_EXITS times; null = no quote */
+  sizes?: Record<string, Record<string, number | null>>;
 }
 
 /** The fee payer's own buy of this token in a follower's transaction: the price somebody really got at that spot in line. */
@@ -277,6 +287,38 @@ function score(sigs: Signal[], f: (s: Signal) => number | undefined, solUsd: num
 }
 
 /**
+ * The size check: the same copies at four stakes. Pool fees are a percentage, so what changes with size is the
+ * price our own order moves (worse as it grows) and the fixed network fee (smaller as it grows). Only buys that
+ * were priced at every stake count, the standard stake among them, so the rows compare like with like.
+ */
+export function sizeStudy(sigs: Signal[]) {
+  const ss = sigs.filter((s) => s.sizes && s.entries.d0);
+  const row = (sol: number, get: (s: Signal, x: number) => number | null | undefined) => {
+    const at = (x: number) => nums(ss.map((s) => {
+      const out = get(s, x);
+      return out == null ? undefined : (out - SIZE_FEE_SOL) / sol - 1;
+    }));
+    const back = at(0);
+    return {
+      sol, n: back.length,
+      /** lost by buying and selling straight back: pool fees, the price we move ourselves, network fees */
+      inAndOutCostPct: r(-(med(back) ?? NaN) * 100),
+      holds: SIZE_EXITS.filter((x) => x > 0).map((x) => {
+        const rs = at(x);
+        const avg = rs.length ? rs.reduce((a, b) => a + b, 0) / rs.length : null;
+        return { sec: x, n: rs.length, won: rs.filter((v) => v > 0).length, medianRetPct: r((med(rs) ?? NaN) * 100), avgRetPct: avg === null ? null : r(avg * 100), avgSolPerTrade: avg === null ? null : r(avg * sol, 4) };
+      }),
+    };
+  };
+  const sizes = [...SIZES.map((sol) => row(sol, (s, x) => s.sizes?.[String(sol)]?.[`x${x}`])), row(STAKE_SOL, (s, x) => s.exits.d0?.[`x${x}`])].sort((a, b) => a.sol - b.sol);
+  return {
+    note: `Paper. The fastest copy priced at ${[...SIZES, STAKE_SOL].sort((a, b) => a - b).join(", ")} SOL at the same moment and sold ${SIZE_EXITS.filter((x) => x > 0).join(", ")} s later, with network fees of ${SIZE_FEE_SOL} SOL per in-and-out (what the real test pays; the other paper rules assume ${2 * TX_SOL}). A stake with no quote is left out of its row, so a big stake's row can miss the thinnest pools.`,
+    n: ss.length,
+    sizes,
+  };
+}
+
+/**
  * The exit study: how the fastest paper copy stands at every check, when it stood best, and whether the first
  * wave's strength or the first 5 seconds tell how long to hold. Numbers only, no rule picked.
  */
@@ -405,5 +447,5 @@ export function summarize(sigs: Signal[], solUsd: number | null) {
     rules: EXITS.map((x) => ({ id: sameId(x), ...score(sigs, (s) => sameBlockRet(s, x), solUsd) })),
   };
   const qualified = rules.filter((x) => x.n >= 100 && x.won / x.n >= 0.5 && (x.netSol ?? 0) > 0).map((x) => x.id);
-  return { speed, rulesTried: rules.length, inProfit: rules.filter((x) => (x.netSol ?? 0) > 0).length, qualified, rules, exitStudy: exitStudy(sigs), sameBlock, wallets, recent };
+  return { speed, rulesTried: rules.length, inProfit: rules.filter((x) => (x.netSol ?? 0) > 0).length, qualified, rules, exitStudy: exitStudy(sigs), sizeStudy: sizeStudy(sigs), sameBlock, wallets, recent };
 }

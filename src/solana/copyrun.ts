@@ -11,7 +11,7 @@ import { appendFileSync, mkdirSync, readFileSync, renameSync, writeFileSync } fr
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { DATA } from "../config.js";
-import { crowd, DELAYS, EXITS, followerPrice, parseBuy, PATH, STAKE_SOL, summarize, TX_SOL, type Entry, type ParsedTx, type Signal } from "./copy.js";
+import { crowd, DELAYS, EXITS, followerPrice, parseBuy, PATH, SIZE_EXITS, SIZES, STAKE_SOL, summarize, TX_SOL, type Entry, type ParsedTx, type Signal } from "./copy.js";
 import { SOL, USDC } from "./pools.js";
 import { discoverSummary, foundWallets, startDiscover, stopDiscover } from "./discover.js";
 import { historySummary, startHistory, stopHistory } from "./history.js";
@@ -288,7 +288,20 @@ async function onTx(w: Tracked, sig: string, seenMs: number, ready: ParsedTx | n
   try {
     const dec = await tokenDecimals(buy.mint).catch(() => 6);
     const stake = String(Math.round(STAKE_SOL * 1e9));
-    await Promise.all(DELAYS.map(async (d) => {
+    // the size check: the same copy at other stakes, priced now and sold again at a few fixed times
+    const sized = SIZES.map(async (sol) => {
+      const out = await quote(SOL, buy.mint, String(Math.round(sol * 1e9)));
+      if (out === null || out === 0n) return;
+      const t = Date.now();
+      const got: Record<string, number | null> = {};
+      await Promise.all(SIZE_EXITS.map(async (x) => {
+        await sleep(Math.max(0, t + x * 1000 - Date.now()));
+        const back = await quote(buy.mint, SOL, out.toString());
+        got[`x${x}`] = back === null ? null : Number(back) / 1e9;
+      }));
+      (s.sizes ??= {})[String(sol)] = got;
+    });
+    await Promise.all([...sized, ...DELAYS.map(async (d) => {
       const at = knownMs + d * 1000;
       await sleep(Math.max(0, at - Date.now()));
       const out = await quote(SOL, buy.mint, stake);
@@ -309,7 +322,7 @@ async function onTx(w: Tracked, sig: string, seenMs: number, ready: ParsedTx | n
         const back = await quote(buy.mint, SOL, e.tokens);
         (extra.includes(x) ? s.path! : s.exits[key])[`x${x}`] = back === null ? null : Number(back) / 1e9;
       }));
-    }));
+    })]);
     await sleep(Math.max(0, knownMs + 70_000 - Date.now()));
     if (!s.leaderTime) s.leaderTime = (await rpc<number | null>("getBlockTime", [buy.slot]).catch(() => null)) ?? 0;
     const wave = await waveAfter(buy.mint, sig, buy.slot).catch((e) => (health.rpcErrors++, fail(e), null));
