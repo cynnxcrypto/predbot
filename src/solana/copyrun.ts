@@ -47,6 +47,7 @@ export function scrub(s: string): string {
 
 const health = {
   startedAt: 0, feed: "public", stream: "not tried", streamTx: 0, quotes: "none", wsUp: false, subs: 0, badWallets: [] as string[],
+  senderPingMs: {} as Record<string, number | null>, quoteMsMedian: null as number | null,
   txSeen: 0, buys: 0, skippedBusy: 0, active: 0, rpcErrors: 0, quoteErrors: 0, quoteOk: 0, lastError: "",
 };
 const fail = (e: unknown) => (health.lastError = scrub(String((e as Error)?.message ?? e)));
@@ -78,12 +79,16 @@ async function rpc<T>(method: string, params: unknown[]): Promise<T> {
 async function quote(inMint: string, outMint: string, amount: string): Promise<bigint | null> {
   const k = jupiter();
   const base = k ? "https://api.jup.ag" : "https://lite-api.jup.ag";
+  const t0 = performance.now();
   try {
     const res = await net(`${base}/swap/v1/quote?inputMint=${inMint}&outputMint=${outMint}&amount=${amount}&slippageBps=2000&restrictIntermediateTokens=true`, { headers: k ? { "x-api-key": k } : {}, signal: AbortSignal.timeout(4000) });
     if (!res.ok) throw new Error(`quote http ${res.status}`);
     const j = (await res.json()) as { outAmount?: string };
     if (!j.outAmount) throw new Error("quote: no outAmount");
     health.quoteOk++;
+    quoteMs.push(performance.now() - t0);
+    if (quoteMs.length > 100) quoteMs.shift();
+    health.quoteMsMedian = Math.round([...quoteMs].sort((a, b) => a - b)[quoteMs.length >> 1]);
     health.quotes = k ? "jupiter (key)" : "jupiter (no key)";
     return BigInt(j.outAmount);
   } catch (e) {
@@ -92,6 +97,8 @@ async function quote(inMint: string, outMint: string, amount: string): Promise<b
     return null;
   }
 }
+
+const quoteMs: number[] = [];
 
 // ---- state ------------------------------------------------------------------------------------------------------
 let signals: Signal[] = [];
@@ -138,7 +145,11 @@ export function buildCopySummary() {
       const slow = helius() ? signals.filter((x) => x.feed.startsWith("helius") && x.leaderTime > 0 && x.knownMs - x.leaderTime * 1000 > 30_000).length : 0;
       // Speed per feed, so the fast stream and the slower signature feed are never averaged together.
       const byFeed = [...new Set(clean.map((x) => x.feed))].map((feed) => ({ feed, ...summarize(clean.filter((x) => x.feed === feed), solUsd).speed }));
-      return { leftOut: signals.length - clean.length, leftOutSlow: slow, byFeed, ...summarize(clean, solUsd) };
+      // Once the fast stream has delivered buys, rules and wallets are scored on stream buys only: that is the setup
+      // we would trade with, and mixing in the slower feed's entries would blur exactly what we are trying to see.
+      const fast = clean.filter((x) => x.feed === "helius transaction stream");
+      const scored = fast.length ? fast : clean;
+      return { leftOut: signals.length - scored.length, leftOutSlow: slow, scoredFeed: fast.length ? "helius transaction stream" : "all clean feeds", byFeed, ...summarize(scored, solUsd) };
     })(),
   };
 }
@@ -365,6 +376,28 @@ function connect() {
   };
 }
 
+/**
+ * How far this server is from Helius's transaction-sending hubs: fastest of 3 plain pings each (no key, nothing
+ * is sent). Tells us whether Stockholm is close enough, or which city a trading server should sit in.
+ */
+async function pingSenders() {
+  for (const city of ["fra", "ams", "lon"]) {
+    let best: number | null = null;
+    for (let i = 0; i < 3; i++) {
+      const t = performance.now();
+      try {
+        const res = await net(`http://${city}-sender.helius-rpc.com/ping`, { signal: AbortSignal.timeout(3000) });
+        await res.text();
+        const ms = performance.now() - t;
+        if (res.ok && (best === null || ms < best)) best = ms;
+      } catch {
+        /* unreachable this time */
+      }
+    }
+    health.senderPingMs[city] = best === null ? null : Math.round(best);
+  }
+}
+
 async function refreshSolUsd() {
   const out = await quote(SOL, USDC, "1000000000");
   if (out) solUsd = Number(out) / 1e6;
@@ -383,11 +416,15 @@ export function startSolanaCopy(fetcher: Fetch = fetch) {
   stopped = false;
   connect();
   void refreshSolUsd();
+  void pingSenders();
   let n = 0;
   let hadKey = !!helius();
   return setInterval(() => {
     publish();
-    if (++n % 10 === 0) void refreshSolUsd();
+    if (++n % 10 === 0) {
+      void refreshSolUsd();
+      void pingSenders();
+    }
     if (!hadKey && helius()) {
       hadKey = true; // the key file arrived: move to the faster feed without a restart
       ws?.close();
