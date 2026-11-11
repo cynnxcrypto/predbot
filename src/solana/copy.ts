@@ -43,6 +43,9 @@ export const TIME_STOP = 60;
  * everything % based"): the fastest copy is also priced at these stakes, and sold again at these times.
  */
 export const SIZES = [0.05, 1, 3];
+/** The 9% buys under other exits (see the note where the rules are listed): stops in %, stricter gaps in %. */
+export const GAP9_STOPS = [10, 20] as const;
+export const GAPS_MORE = [12, 15] as const;
 export const SIZE_EXITS = [0, 10, 30, 60];
 /** Network fees of one in-and-out as the real test pays them (11 Nov 2026: a failed buy cost 0.00003 SOL). */
 export const SIZE_FEE_SOL = 0.0001;
@@ -237,6 +240,10 @@ export function scalpStop(s: Signal, tp: number, sl: number): number | undefined
   }
   return undefined;
 }
+
+/** How far our own buy price already is above what the wallet paid, as a fraction; null when either price is missing. */
+export const gapOf = (s: Signal): number | null => (s.entries.d0 && s.leaderPrice > 0 ? s.entries.d0.price / s.leaderPrice - 1 : null);
+const GAP9 = `When a tracked wallet buys and our price is already 9% or more above what the wallet paid, buy ${STAKE_SOL} SOL`;
 
 export const cutId = (tp: number, c: number) => `copy-d0-tp${tp}-cut${c}-t${TIME_STOP}`;
 export const cutText = (tp: number, c: number) =>
@@ -569,6 +576,16 @@ export function summarize(sigs: Signal[], solUsd: number | null) {
     // together and only one of them had come near the target. So a copy that has not paid by ~30 s mostly will not:
     // the same paper copy with the time stop at 30 s and at 20 s (the checks are at fixed times, so this is coarse).
     ...[30, 20].map((t) => ({ id: `copy-d0-gap9-tp10-t${t}`, text: `When a tracked wallet buys and our price is already 9% or more above what the wallet paid, buy ${STAKE_SOL} SOL the moment we know, sell as soon as it is up 10% after costs, and sell anyway after ${t} s.`, ...score(sigs, (s) => (s.entries.d0 && s.leaderPrice > 0 && s.entries.d0.price / s.leaderPrice - 1 >= 0.09 ? scalp(s, 0, 10, t) : undefined), solUsd) })),
+    // 11 Nov 2026 22:30 KST (enrique: "are u actively analyzing if we can get better returns by tweaking our
+    // strategies?"). Real test under the 9% rule, 20 copies: the 12 that reached +10% all did so within 25 s
+    // (+0.122 SOL together); of the 8 that ran the full 60 s, 7 lost (-0.103 SOL together), ending 17% to 42% down.
+    // The shorter clocks above do not help on paper (70 buys: +3.62% a trade at 30 s against +3.64% at 60 s, +3.03%
+    // at 20 s): the slow ones are already down by then. So, for the 9% buys only: a look at 20 s that sells what is
+    // not up, a stop at 10% and at 20%, and a stricter gap (12%, 15%). Five more rules on some 70 buys: one of them
+    // will look best by chance, so a change of the real test needs the real copies to say the same.
+    { id: "copy-d0-gap9-tp10-cut20-t60", text: `${GAP9} the moment we know, sell as soon as it is up 10% after costs, sell at 20 s if it is not up after costs by then, and sell anyway after ${TIME_STOP} s.`, ...score(sigs, (s) => ((gapOf(s) ?? -1) >= 0.09 ? scalpCut(s, 10, 20) : undefined), solUsd) },
+    ...GAP9_STOPS.map((sl) => ({ id: `copy-d0-gap9-tp10-sl${sl}-t60`, text: `${GAP9} the moment we know, sell as soon as it is up 10% after costs or down ${sl}%, and sell anyway after ${TIME_STOP} s.`, ...score(sigs, (s) => ((gapOf(s) ?? -1) >= 0.09 ? scalpStop(s, 10, sl) : undefined), solUsd) })),
+    ...GAPS_MORE.map((g) => ({ id: `copy-d0-gap${g}-tp10-t60`, text: `When a tracked wallet buys and our price is already ${g}% or more above what the wallet paid, buy ${STAKE_SOL} SOL the moment we know, sell as soon as it is up 10% after costs, and sell anyway after ${TIME_STOP} s.`, ...score(sigs, (s) => ((gapOf(s) ?? -1) >= g / 100 ? scalp(s, 0, 10) : undefined), solUsd) })),
     ...[300, 600].map((x) => ({ id: ruleId(0, x), text: ruleText(0, x), ...score(sigs, (s) => pathRet(s, x), solUsd) })),
     ...TRAILS.map((t) => ({ id: trailId(t), text: trailText(t), ...score(sigs, (s) => trail(s, t), solUsd) })),
   ];
