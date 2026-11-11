@@ -67,7 +67,7 @@ async function rpc<T>(method: string, params: unknown[]): Promise<T> {
   gate = turn.catch(() => undefined);
   await turn;
   const res = await net(rpcUrl(), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }), signal: AbortSignal.timeout(8000) });
-  if (res.status === 429) coolUntil = Date.now() + (helius() ? 1000 : 5000);
+  if (res.status === 429) coolUntil = Date.now() + (helius() ? 1000 : 30_000);
   if (!res.ok) throw new Error(`rpc ${method} http ${res.status}`);
   const j = (await res.json()) as { result?: T; error?: { message: string } };
   if (j.error) throw new Error(`rpc ${method}: ${j.error.message}`);
@@ -179,7 +179,9 @@ async function onTx(w: Tracked, sig: string, seenMs: number) {
   if (seen.size > 20_000) seen.clear();
   health.txSeen++;
   let tx: ParsedTx | null = null;
-  for (let i = 0; i < 8 && !tx; i++) {
+  // Without the Helius key the public RPC refuses most of these (11 Nov 2026: 2,534 errors and 3 buys read in 45
+  // min), so only two tries there: more would just add to a limit the liquidity reader shares.
+  for (let i = 0; i < (helius() ? 8 : 2) && !tx; i++) {
     tx = await rpc<ParsedTx | null>("getTransaction", [sig, { encoding: "jsonParsed", maxSupportedTransactionVersion: 0, commitment: "confirmed" }]).catch((e) => (health.rpcErrors++, fail(e), null));
     if (!tx) await sleep(250);
   }
