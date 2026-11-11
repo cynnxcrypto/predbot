@@ -47,7 +47,7 @@ import { ROOT, SERIES, prefixOf, type Series, kstDay } from "./config.js";
 import type { PaperTrade } from "./paperlive.js";
 import { book, marketFor, type Market } from "./polymarket.js";
 import { append, loadJson, readAll, saveJson } from "./store.js";
-import { nextStep, saveWithdrawState, scrub, stageOf, withdrawPlan, withdrawState, withdrawnUsd } from "./withdraw.js";
+import { nextStep, noteWithdraw, saveWithdrawState, scrub, stageOf, withdrawPlan, withdrawState, withdrawnUsd } from "./withdraw.js";
 
 export type LiveMode = "off" | "dry" | "live";
 /** "ladder": sizes the rule climbs through on evidence (29 Oct 2026, enrique "adapt sizing if a rule is evolving positively, automatic"):
@@ -1464,17 +1464,19 @@ export class LiveTrader {
    * Called about once a minute after the balance read; does nothing without a "withdraw" block in the repo file.
    */
   async withdrawTick() {
-    if (this.series.key || this.withdrawing || relayBusy || relayerBlocked() || !this.chain || !this.config.funder) return;
+    if (this.series.key || this.withdrawing) return;
     const plan = withdrawPlan();
     if (!plan || !plan.dest || !plan.stage) return;
+    const wait = relayBusy ? "the wallet is busy with a claim" : relayerBlocked() ? "the relayer quota is used up for now" : !this.chain ? "the wallet's chain balance has not been read yet" : !this.config.funder ? "no wallet configured" : "";
+    if (wait) return noteWithdraw(wait);
     const dest = plan.dest;
     if (dest.toLowerCase() === this.config.funder.toLowerCase()) return;
     this.withdrawing = true;
     try {
       const state = withdrawState();
       const destBalance = Number(BigInt(await provider.call({ to: USDC_NATIVE, data: erc20.encodeFunctionData("balanceOf", [dest]) }))) / 1e6;
-      const step = nextStep(state, plan.stage, destBalance, this.chain["pUSD"] ?? 0, Date.now());
-      if (step.do === "nothing" || !step.stage || !step.amount) return;
+      const step = nextStep(state, plan.stage, destBalance, this.chain?.["pUSD"] ?? 0, Date.now());
+      if (step.do === "nothing" || !step.stage || !step.amount) return noteWithdraw(step.why ?? "nothing to do");
       const st = stageOf(state, step.stage);
       if (step.do === "confirm") {
         st.confirmed = true;
@@ -1516,6 +1518,7 @@ export class LiveTrader {
       }
       await this.refreshBalance();
     } catch (error) {
+      noteWithdraw(`check failed: ${scrub(error instanceof Error ? error.message : String(error))}`);
       console.log(`withdraw: ${scrub(error instanceof Error ? error.message : String(error))}`);
     } finally {
       this.withdrawing = false;

@@ -91,6 +91,10 @@ export function withdrawState(): WithdrawState {
 export function saveWithdrawState(s: WithdrawState) {
   saveJson(FILE, s);
 }
+/** Why the last pass did nothing (server-only file, shown in status as plain words). */
+export function noteWithdraw(why: string) {
+  saveJson("withdraw-note.json", { at: Date.now(), why: scrub(why) });
+}
 export function stageOf(s: WithdrawState, k: StageName): Stage {
   return (s[k] ??= fresh());
 }
@@ -128,5 +132,5 @@ export function withdrawSummary() {
     return st ? { amount: WITHDRAW_STAGES[k], tries: st.tries, sent: st.sent, confirmed: st.confirmed, received: st.received, at: st.at, error: st.error ? scrub(st.error) : null } : null;
   };
   if (!plan && !s.test) return null;
-  return { stage: plan?.stage ?? null, destinationReadable: plan ? plan.dest != null : null, withdrawn: withdrawnUsd(), test: row("test"), rest: row("rest") };
+  return { last: loadJson<{ at: number; why: string } | null>("withdraw-note.json", null), stage: plan?.stage ?? null, destinationReadable: plan ? plan.dest != null : null, withdrawn: withdrawnUsd(), test: row("test"), rest: row("rest") };
 }
