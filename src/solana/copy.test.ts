@@ -96,8 +96,12 @@ test("returns: costs taken off, missing quotes handled honestly", () => {
   assert.ok(Math.abs(ret(s, 0, 5)! - ((0.27 - 2 * TX_SOL) / STAKE_SOL - 1)) < 1e-12);
   assert.equal(ret(s, 1, 2), undefined); // later quote exists: a failed request, left out
   assert.equal(ret(s, 3, 5), undefined); // never entered
-  const dead = sig({ exits: { d0: { x0: 0.24, x2: 0.2 }, d1: {}, d3: {} } });
-  assert.equal(ret(dead, 0, 30), -1); // could not be sold at all: total loss
+  // the price service had no price from 5 s on, to the last check: could not be sold at all, a total loss
+  const dead = sig({ exits: { d0: { x0: 0.24, x2: 0.2, x5: null, x10: null, x20: null, x30: null, x60: null, x120: null }, d1: {}, d3: {} } });
+  assert.equal(ret(dead, 0, 30), -1);
+  // the same checks never made, or their requests failed (keys absent): nothing was measured, so nothing is scored
+  assert.equal(ret(sig({ exits: { d0: { x0: 0.24, x2: 0.2 }, d1: {}, d3: {} } }), 0, 30), undefined);
+  assert.equal(ret(sig({ exits: { d0: { x0: 0.24, x2: 0.2, x30: null, x60: 0.2 }, d1: {}, d3: {} } }), 0, 30), undefined);
   assert.ok(Math.abs(roundTrip(s)! - (1 - (0.24 - 2 * TX_SOL) / STAKE_SOL)) < 1e-12);
 });
 
@@ -127,7 +131,7 @@ test("early cut: one timed look, a copy that is not up by then is sold", () => {
   // a failed quote at the look is no cut; a coin that cannot be sold at all is a total loss
   const gap = path({ x2: out(-1), x5: null, x10: out(-4), x20: out(-4), x30: out(-4), x60: out(-7), x120: out(-9) });
   assert.equal(scalpCut(gap, 10, 5), ret(gap, 0, 60));
-  assert.equal(scalpCut(sig({ exits: { d0: { x0: out(-2), x2: out(1) }, d1: {}, d3: {} } }), 10, 5), -1);
+  assert.equal(scalpCut(sig({ exits: { d0: { x0: out(-2), x2: out(1), x5: null, x10: null, x20: null, x30: null, x60: null, x120: null }, d1: {}, d3: {} } }), 10, 5), -1);
 });
 
 test("late entries: followed from their own purchase, and compared only on buys priced at every entry time", () => {
@@ -414,7 +418,8 @@ test("traders: a verdict from the earlier copies only, and rules that never see 
 
 
 test("the real test first: paper quotes wait while the real test is buying and after a refusal, except a buy's fastest entry", async () => {
-  const { realFirst } = await import("./copyrun.js");
+  const { realFirst, PAPER_RETRIES, PAPER_GAP_MS } = await import("./copyrun.js");
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
   let status = 200;
   let calls = 0;
   _test.setNet((async () => {
@@ -435,15 +440,39 @@ test("the real test first: paper quotes wait while the real test is buying and a
     assert.ok(Date.now() - t >= 250, "a check waits until the real test is through");
     const held = _test.health().quoteHeld;
     assert.ok(held >= 1);
-    // a refusal of its own: counted, and the next paper quote stands back for a moment
-    status = 429;
-    assert.equal(await _test.quote(SOL, MINT, "1"), null);
-    assert.ok(_test.health().quoteRefused >= 1);
-    status = 200;
+    // refused once for asking too fast: counted, the paper test stands back, and the same quote is asked again
+    let refuse = 1;
+    _test.setNet((async () => {
+      calls++;
+      if (refuse-- > 0) return new Response(JSON.stringify({ error: "Too many requests" }), { status: 429 });
+      return new Response(JSON.stringify({ outAmount: "1000" }));
+    }) as unknown as typeof fetch);
+    const before = { ..._test.health() };
     t = Date.now();
-    const n = calls;
+    let n = calls;
     assert.equal(await _test.quote(SOL, MINT, "1"), 1000n);
-    assert.ok(Date.now() - t >= 1200 && calls === n + 1);
+    assert.ok(Date.now() - t >= 1200 && calls === n + 2, "asked again after standing back");
+    assert.equal(_test.health().quoteRefused, before.quoteRefused + 1);
+    // refused every time: given up after the retries, and that is "not measured" (undefined), never "no price"
+    refuse = 99;
+    n = calls;
+    assert.equal(await _test.quote(SOL, MINT, "1"), undefined);
+    assert.equal(calls, n + 1 + PAPER_RETRIES);
+    assert.equal(_test.health().quoteLost, before.quoteLost + 1);
+    // the price service answers that it has no route: that is "no price" (null), at once
+    _test.setNet((async () => (calls++, new Response(JSON.stringify({ error: "no route" }), { status: 400 }))) as unknown as typeof fetch);
+    n = calls;
+    assert.equal(await _test.quote(SOL, MINT, "1"), null);
+    assert.equal(calls, n + 1);
+    // a server error or a time-out is not an answer either
+    _test.setNet((async () => new Response("bad gateway", { status: 502 })) as unknown as typeof fetch);
+    assert.equal(await _test.quote(SOL, MINT, "1"), undefined);
+    // a burst: ten quotes asked in the same instant leave one after the other, PAPER_GAP_MS apart
+    const at: number[] = [];
+    _test.setNet((async () => (at.push(Date.now()), new Response(JSON.stringify({ outAmount: "1000" })))) as unknown as typeof fetch);
+    await sleep(1600); // past the last stand-back
+    await Promise.all(Array.from({ length: 10 }, () => _test.quote(SOL, MINT, "1")));
+    assert.ok(at[9] - at[0] >= 9 * PAPER_GAP_MS - 20, `spread over ${at[9] - at[0]} ms`);
   } finally {
     _test.setNet(fetch);
   }
