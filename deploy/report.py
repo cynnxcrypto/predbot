@@ -107,6 +107,7 @@ def summary():
     # what the wallet is worth and the money put in stay on the password-protected dashboard.
     wh = s.get("walletHistory") or {}
     out["walletHistory"] = {k: wh.get(k) for k in ("at", "source", "error", "rows", "truncated", "firstAt", "lastAt", "serverStart", "beforeNet", "sinceNet", "allTimeNet", "kinds", "unknown", "months")} if wh else None
+    out["solanaCopy"] = s.get("solanaCopy")  # 11 Nov 2026: paper wallet-copy speed test on Solana (src/solana/copyrun.ts), read-only; keys are scrubbed there
     out["solana"] = s.get("solana")  # 11 Nov 2026: paper liquidity provision on Orca SOL/USDC (src/solana/), read-only
     out["pairlive"] = s.get("pairlive")  # 10 Nov 2026: budget, lost, open and left per real-money category
     out["realTrades"] = sorted(rows, key=lambda r: r.get("t") or 0)[-200:]

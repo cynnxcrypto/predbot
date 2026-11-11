@@ -235,6 +235,10 @@ async function onTx(w: Tracked, sig: string, seenMs: number) {
 // ---- live feed --------------------------------------------------------------------------------------------------
 let ws: WebSocket | null = null;
 let stopped = false;
+/** Transactions being looked at now. Every one queues RPC reads; past this many new ones are dropped, so a very
+ *  busy wallet cannot build an endless queue in the process that also runs the Polymarket bot. */
+let pending = 0;
+const MAX_PENDING = 200;
 
 function connect() {
   if (stopped) return;
@@ -280,7 +284,13 @@ function connect() {
     else if (m.method === "logsNotification" && m.params) {
       const w = subOf.get(m.params.subscription);
       const v = m.params.result.value;
-      if (w && v && !v.err && !/^1+$/.test(v.signature)) void onTx(w, v.signature, now).catch(fail);
+      if (w && v && !v.err && !/^1+$/.test(v.signature)) {
+        if (pending >= MAX_PENDING) health.skippedBusy++;
+        else {
+          pending++;
+          void onTx(w, v.signature, now).catch(fail).finally(() => pending--);
+        }
+      }
     }
   };
   sock.onerror = () => fail(new Error("websocket error"));

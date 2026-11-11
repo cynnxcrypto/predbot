@@ -5,6 +5,7 @@ import { pairfastSummary } from "./pairfast.js";
 import { pairfastliveSummary } from "./pairfastlive.js";
 import { walletHistorySummary } from "./wallethistory.js";
 import { solanaSummary } from "./solana/run.js";
+import { solanaCopySummary } from "./solana/copyrun.js";
 import { createServer } from "node:http";
 import { loadJson } from "./store.js";
 import { STATUS_PORT } from "./config.js";
@@ -306,7 +307,7 @@ export function serveStatus(recorder: Recorder, build: string, others: Recorder[
       res.writeHead(200, { "content-type": "application/json" });
       const mine = recorder.status() as { live?: { balance?: number | null; toClaim?: number; chain?: Record<string, number> | null } | null };
       const cash = mine.live?.balance != null ? (mine.live.chain?.pUSD ?? mine.live.balance) + (mine.live.chain?.["USDC.e"] ?? 0) + (mine.live.chain?.USDC ?? 0) : null;
-      res.end(JSON.stringify({ build, ...mine, walletHistory: walletHistorySummary(cash, mine.live?.toClaim ?? 0), solana: solanaSummary(), series: others.map((r) => r.status()), eventPaper: loadJson<unknown>("eventpaper-summary.json", null), budgets: [...budgets(), pairliveSummary().budget, pairfastliveSummary().budget], pairlive: pairliveSummary(), pairfastlive: pairfastliveSummary(), preopen: preopenSummary(), pairlock: pairlockSummary(), pairfast: pairfastSummary() }));
+      res.end(JSON.stringify({ build, ...mine, walletHistory: walletHistorySummary(cash, mine.live?.toClaim ?? 0), solana: solanaSummary(), solanaCopy: solanaCopySummary(), series: others.map((r) => r.status()), eventPaper: loadJson<unknown>("eventpaper-summary.json", null), budgets: [...budgets(), pairliveSummary().budget, pairfastliveSummary().budget], pairlive: pairliveSummary(), pairfastlive: pairfastliveSummary(), preopen: preopenSummary(), pairlock: pairlockSummary(), pairfast: pairfastSummary() }));
       return;
     }
     if (req.url === "/favicon.svg" || req.url === "/favicon.ico") {
