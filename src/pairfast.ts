@@ -92,6 +92,10 @@ export const PAIRFAST: Spec[] = [
   // to -$19.33). All pair styles are red on BTC 5m. Last idea in this family: a lone clip is a first leg that ran
   // out of time, so stop opening new pairs 3 minutes before the close instead of 2 (only the first 2 minutes trade).
   ...base("pairfast-fav60-stop180-lock", [0], 3, 1, true, { band: [0.17, 0.83], maxPairs: 1, minBid: 0.6, stop: 180 }),
+  // Round 350 (16:15 KST 11 Nov 2026). stop180 with the favourite filter starts 8 windows, 0 lone clips, +$1.14 on
+  // BTC 5m (far too few; fav60-lock was also green at 49 windows and is -$14.80 at 73). This is its control without
+  // the favourite filter, to tell whether the earlier stop or the filter does the work.
+  ...base("pairfast-top-stop180-lock", [0], 3, 1, true, { band: [0.17, 0.83], maxPairs: 1, stop: 180 }),
   // No new pair in the first 2 minutes; new pairs until 60 s before the close.
   ...base("pairfast-late-lock", [0], 3, 1, true, { band: [0.17, 0.83], maxPairs: 1, from: 120, stop: 60 }),
   // What 1-second data cannot test: pull the first-leg bid on a side the moment Binance spot has moved 1.5 bp against
