@@ -109,7 +109,8 @@ def summary():
     out["walletHistory"] = {k: wh.get(k) for k in ("at", "source", "error", "rows", "truncated", "firstAt", "lastAt", "serverStart", "beforeNet", "sinceNet", "allTimeNet", "kinds", "unknown", "months")} if wh else None
     out["solanaCopy"] = s.get("solanaCopy")  # 11 Nov 2026: paper wallet-copy speed test on Solana (src/solana/copyrun.ts), read-only; keys are scrubbed there
     out["withdraw"] = s.get("withdraw")  # one-off withdrawal: stage, tries, confirmed, amounts; never an address or a transaction id
-    out["solanaCopyLive"] = s.get("solanaCopyLive")  # only {mode, walletReady, error}: never an address or a key
+    # numbers only: never an address, token, signature or key; the wallet's balance stays off the public file too
+    out["solanaCopyLive"] = {k: v for k, v in (s.get("solanaCopyLive") or {}).items() if k != "balanceSol"} or None
     out["solana"] = s.get("solana")  # 11 Nov 2026: paper liquidity provision on Orca SOL/USDC (src/solana/), read-only
     out["pairlive"] = s.get("pairlive")  # 10 Nov 2026: budget, lost, open and left per real-money category
     out["realTrades"] = sorted(rows, key=lambda r: r.get("t") or 0)[-200:]
