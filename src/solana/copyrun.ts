@@ -46,7 +46,7 @@ export function scrub(s: string): string {
 }
 
 const health = {
-  startedAt: 0, feed: "public", stream: "not tried", streamTx: 0, quotes: "none", wsUp: false, subs: 0, badWallets: [] as string[],
+  startedAt: 0, feed: "public", stream: "not tried", streamTx: 0, quotes: "none", wsUp: false, wallets: 0, subs: 0, badWallets: [] as string[],
   senderPingMs: {} as Record<string, number | null>, quoteMsMedian: null as number | null,
   txSeen: 0, buys: 0, skippedBusy: 0, active: 0, rpcErrors: 0, quoteErrors: 0, quoteOk: 0, lastError: "",
 };
@@ -118,6 +118,9 @@ function load() {
   }
 }
 
+/** With a Helius key, how many wallets also get the slower signature feed (each of its buys costs a second request). */
+const LOGS_MAX = 50;
+
 function tracked(): Tracked[] {
   let list = WALLETS;
   try {
@@ -126,7 +129,9 @@ function tracked(): Tracked[] {
     /* built-in list */
   }
   health.badWallets = list.filter((w) => !validAddress(w.address)).map((w) => w.name);
-  return list.filter((w) => validAddress(w.address));
+  list = list.filter((w) => validAddress(w.address));
+  health.wallets = list.length;
+  return list;
 }
 
 export function buildCopySummary() {
@@ -333,7 +338,9 @@ function connect() {
     // know the token without a second request. If the plan or the endpoint refuses it, the reply is an error, the
     // stream stays off and the signature feed below carries on as before.
     if (helius()) sock.send(JSON.stringify({ jsonrpc: "2.0", id: 3, method: "transactionSubscribe", params: [{ accountInclude: list.map((w) => w.address), vote: false, failed: false }, { commitment: "processed", encoding: "jsonParsed", transactionDetails: "full", showRewards: false, maxSupportedTransactionVersion: 1 }] }));
-    list.forEach((w, i) => {
+    // The signature feed is kept only as the comparison (and as the fallback when there is no key): with a key the
+    // stream above carries every wallet, so only the first LOGS_MAX get the slower per-wallet subscription too.
+    (helius() ? list.slice(0, LOGS_MAX) : list).forEach((w, i) => {
       reqOf.set(100 + i, w);
       sock.send(JSON.stringify({ jsonrpc: "2.0", id: 100 + i, method: "logsSubscribe", params: [{ mentions: [w.address] }, { commitment: "processed" }] }));
     });

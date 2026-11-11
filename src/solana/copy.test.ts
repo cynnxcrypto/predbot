@@ -25,9 +25,9 @@ const tx = (o: Partial<{ pre: number; post: number; preTok: unknown[]; postTok: 
 }) as never;
 
 test("all tracked wallets are valid addresses", () => {
-  assert.equal(WALLETS.length, 50);
+  assert.ok(WALLETS.length >= 170);
   for (const w of WALLETS) assert.ok(validAddress(w.address), w.name);
-  assert.equal(new Set(WALLETS.map((w) => w.address)).size, 50);
+  assert.equal(new Set(WALLETS.map((w) => w.address)).size, WALLETS.length);
   assert.ok(!validAddress("notanaddress"));
 });
 
