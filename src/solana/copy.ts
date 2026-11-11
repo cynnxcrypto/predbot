@@ -595,6 +595,13 @@ export function summarize(sigs: Signal[], solUsd: number | null) {
     { id: "copy-d0-gap15-tp10-t30", text: `When a tracked wallet buys and our price is already 15% or more above what the wallet paid, buy ${STAKE_SOL} SOL the moment we know, sell as soon as it is up 10% after costs, and sell anyway after 30 s.`, ...score(sigs, (s) => ((gapOf(s) ?? -1) >= 0.15 ? scalp(s, 0, 10, 30) : undefined), solUsd) },
     { id: "copy-d0-gap9to15-tp10-t60", text: `When a tracked wallet buys and our price is 9% to 15% above what the wallet paid, buy ${STAKE_SOL} SOL the moment we know, sell as soon as it is up 10% after costs, and sell anyway after ${TIME_STOP} s.`, ...score(sigs, (s) => ((gapOf(s) ?? -1) >= 0.09 && gapOf(s)! < 0.15 ? scalp(s, 0, 10) : undefined), solUsd) },
     { id: "copy-d0-gap30-tp10-t60", text: `When a tracked wallet buys and our price is already 30% or more above what the wallet paid, buy ${STAKE_SOL} SOL the moment we know, sell as soon as it is up 10% after costs, and sell anyway after ${TIME_STOP} s.`, ...score(sigs, (s) => ((gapOf(s) ?? -1) >= 0.3 ? scalp(s, 0, 10) : undefined), solUsd) },
+    // 11 Nov 2026 23:55 KST. The real test went below zero (134 copies, -0.046 SOL): the 9-15% band has now lost on
+    // 21 real copies (-0.072 SOL) and 38 paper buys, the 15%+ copies are flat (31 copies, +0.008 SOL), and a stop
+    // beat no stop on paper at both readings of the 9% band (85 and 102 buys). The candidate for the real test is
+    // therefore the 15% bar with a stop, and paper had no rule for that: the 15% bar with the 10% and the 20% stop,
+    // and with the 20 s clock. Picked after looking, on the same buys: they describe, they do not prove.
+    ...GAP9_STOPS.map((sl) => ({ id: `copy-d0-gap15-tp10-sl${sl}-t60`, text: `When a tracked wallet buys and our price is already 15% or more above what the wallet paid, buy ${STAKE_SOL} SOL the moment we know, sell as soon as it is up 10% after costs or down ${sl}%, and sell anyway after ${TIME_STOP} s.`, ...score(sigs, (s) => ((gapOf(s) ?? -1) >= 0.15 ? scalpStop(s, 10, sl) : undefined), solUsd) })),
+    { id: "copy-d0-gap15-tp10-t20", text: `When a tracked wallet buys and our price is already 15% or more above what the wallet paid, buy ${STAKE_SOL} SOL the moment we know, sell as soon as it is up 10% after costs, and sell anyway after 20 s.`, ...score(sigs, (s) => ((gapOf(s) ?? -1) >= 0.15 ? scalp(s, 0, 10, 20) : undefined), solUsd) },
     ...[300, 600].map((x) => ({ id: ruleId(0, x), text: ruleText(0, x), ...score(sigs, (s) => pathRet(s, x), solUsd) })),
     ...TRAILS.map((t) => ({ id: trailId(t), text: trailText(t), ...score(sigs, (s) => trail(s, t), solUsd) })),
   ];
