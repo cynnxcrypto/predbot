@@ -696,7 +696,9 @@ test("a buy order the price service fails to build is tried once more, with a fr
   const e = solanaCopyLiveSummary().entryRuleCopies!;
   const [won, lost] = [st().rows[0].netSol, st().rows[1].netSol];
   assert.ok(won > 0 && lost < 0);
-  const { byGap, byExit, byTrader, byPace, ...flat } = e;
+  const { byGap, byExit, byTrader, byPace, byLanding: landing, ...flat } = e;
+  // both copies landed (the made-up chain lands everything at slot 500, the wallet bought at 100): one row, "4+"
+  assert.deepEqual(landing.map((x) => [x.blocksBehind, x.copies]), [["1", 0], ["2", 0], ["3", 0], ["4+", 2]]);
   assert.deepEqual(byTrader.map((x) => [x.trader, x.copies]), [["new", 2]]);
   assert.deepEqual(byPace.map((x) => [x.pace, x.copies]), [["calm", 2]]);
   assert.deepEqual({ ...flat, netSol: 0 }, { minGapPct: 9, copies: 2, landed: 2, won: 1, netSol: 0, targetSales: 1, targetSalesSol: Math.round(won * 1e6) / 1e6, timeUps: 1, timeUpsWon: 0, timeUpsSol: Math.round(lost * 1e6) / 1e6, stops: 0, stopsSol: 0, otherSol: 0, rowsKept: 2 });
