@@ -47,7 +47,7 @@ import { ROOT, SERIES, prefixOf, type Series, kstDay } from "./config.js";
 import type { PaperTrade } from "./paperlive.js";
 import { book, marketFor, type Market } from "./polymarket.js";
 import { append, loadJson, readAll, saveJson } from "./store.js";
-import { nextStep, saveWithdrawState, scrub, stageOf, withdrawPlan, withdrawState, withdrawnUsd } from "./withdraw.js";
+import { nextStep, noteWithdraw, saveWithdrawState, scrub, stageOf, withdrawPlan, withdrawState, withdrawnUsd } from "./withdraw.js";
 
 export type LiveMode = "off" | "dry" | "live";
 /** "ladder": sizes the rule climbs through on evidence (29 Oct 2026, enrique "adapt sizing if a rule is evolving positively, automatic"):
@@ -1464,18 +1464,21 @@ export class LiveTrader {
    * Called about once a minute after the balance read; does nothing without a "withdraw" block in the repo file.
    */
   async withdrawTick() {
-    if (this.series.key || this.withdrawing || relayBusy || relayerBlocked() || !this.chain || !this.config.funder) return;
+    if (this.series.key || this.withdrawing) return;
     const plan = withdrawPlan();
     if (!plan || !plan.dest || !plan.stage) return;
+    const wait = relayBusy ? "the wallet is busy with a claim" : relayerBlocked() ? "the relayer quota is used up for now" : !this.chain ? "the wallet's chain balance has not been read yet" : !this.config.funder ? "no wallet configured" : "";
+    if (wait) return noteWithdraw(wait);
     const dest = plan.dest;
     if (dest.toLowerCase() === this.config.funder.toLowerCase()) return;
     this.withdrawing = true;
     try {
       const state = withdrawState();
       const destBalance = Number(BigInt(await provider.call({ to: USDC_NATIVE, data: erc20.encodeFunctionData("balanceOf", [dest]) }))) / 1e6;
-      const step = nextStep(state, plan.stage, destBalance, this.chain["pUSD"] ?? 0, Date.now());
-      if (step.do === "nothing" || !step.stage || !step.amount) return;
+      const step = nextStep(state, plan.stage, destBalance, this.chain?.["pUSD"] ?? 0, Date.now());
+      if (step.do === "nothing" || !step.stage || !step.amount) return noteWithdraw(step.why ?? "nothing to do");
       const st = stageOf(state, step.stage);
+      if (step.do === "send" && (st.busyUntil ?? 0) > Date.now()) return noteWithdraw("the wallet was busy; trying again within 2 minutes");
       if (step.do === "confirm") {
         st.confirmed = true;
         st.received = Math.round((destBalance - (st.baseline ?? destBalance)) * 1e6) / 1e6;
@@ -1509,6 +1512,14 @@ export class LiveTrader {
         console.log(`withdraw: the $${step.amount} ${step.stage} send went out (try ${st.tries}); waiting to see it arrive`);
       } catch (error) {
         st.error = scrub(noteRelayError(error));
+        // "wallet busy" is the relayer refusing the request at the door (another action of ours is still running):
+        // nothing was sent, so it does not use up a try. Look again in 2 minutes, at most 15 such refusals.
+        if (/wallet busy/i.test(st.error) && (st.busy ?? 0) < 15) {
+          st.busy = (st.busy ?? 0) + 1;
+          st.tries -= 1;
+          st.lastTryAt = 0;
+          st.busyUntil = Date.now() + 120_000;
+        }
         console.log(`withdraw: the $${step.amount} ${step.stage} send failed on try ${st.tries} (${st.error})`);
       } finally {
         relayBusy = false;
@@ -1516,6 +1527,7 @@ export class LiveTrader {
       }
       await this.refreshBalance();
     } catch (error) {
+      noteWithdraw(`check failed: ${scrub(error instanceof Error ? error.message : String(error))}`);
       console.log(`withdraw: ${scrub(error instanceof Error ? error.message : String(error))}`);
     } finally {
       this.withdrawing = false;

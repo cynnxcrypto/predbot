@@ -251,11 +251,30 @@ function save() {
   }
 }
 
+/**
+ * The hour's data count is kept on disk: every deploy restarts the bot (several times an hour on a busy day), and a
+ * count that started again from zero each time would let the stream use many times its cap (MAIN review, 11 Nov 2026).
+ */
+const METER = () => join(DATA, "solana", "discover-meter.json");
+function saveMeter() {
+  try {
+    mkdirSync(join(DATA, "solana"), { recursive: true });
+    writeFileSync(METER(), JSON.stringify({ hour: health.hour, mb: health.mbHour }));
+  } catch {
+    /* next time */
+  }
+}
 function hourNow() {
   const h = Math.floor(Date.now() / 3_600_000);
   if (h !== health.hour) {
     health.hour = h;
     health.mbHour = 0;
+    try {
+      const m = JSON.parse(readFileSync(METER(), "utf8")) as { hour?: number; mb?: number };
+      if (m.hour === h && typeof m.mb === "number" && m.mb > 0) health.mbHour = m.mb;
+    } catch {
+      /* no count yet for this hour */
+    }
   }
 }
 
@@ -342,6 +361,8 @@ export function startDiscover(url: () => string | null, tracked: () => string[] 
     exclude = new Set(tracked());
     picked = finder.candidates(exclude);
     if (n % 4 === 0) save();
+    hourNow();
+    saveMeter();
     // accepted, data arrives, but nothing readable in it: ask for whole transactions instead
     if (health.detail === "accounts" && health.txSeen === 0 && health.mbTotal > 2) {
       health.detail = "full";
@@ -357,6 +378,7 @@ export function stopDiscover() {
   if (timer) clearInterval(timer);
   sock?.close();
   save();
+  saveMeter();
 }
 
 /** Found wallets for the copy test to watch as well (addresses only, best first). */

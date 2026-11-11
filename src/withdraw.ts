@@ -28,7 +28,7 @@ export const WITHDRAW_TOTAL = 50;
 export const RETRY_WAIT_MS = 20 * 60_000;
 export const MAX_TRIES = 2;
 
-export type Stage = { tries: number; lastTryAt: number; baseline: number | null; sent: boolean; confirmed: boolean; received: number | null; at: number | null; error: string | null };
+export type Stage = { tries: number; lastTryAt: number; baseline: number | null; sent: boolean; confirmed: boolean; received: number | null; at: number | null; error: string | null; busy?: number; busyUntil?: number };
 export type WithdrawState = Partial<Record<StageName, Stage>>;
 const FILE = "withdraw-state.json";
 const fresh = (): Stage => ({ tries: 0, lastTryAt: 0, baseline: null, sent: false, confirmed: false, received: null, at: null, error: null });
@@ -91,6 +91,10 @@ export function withdrawState(): WithdrawState {
 export function saveWithdrawState(s: WithdrawState) {
   saveJson(FILE, s);
 }
+/** Why the last pass did nothing (server-only file, shown in status as plain words). */
+export function noteWithdraw(why: string) {
+  saveJson("withdraw-note.json", { at: Date.now(), why: scrub(why) });
+}
 export function stageOf(s: WithdrawState, k: StageName): Stage {
   return (s[k] ??= fresh());
 }
@@ -125,8 +129,8 @@ export function withdrawSummary() {
   const s = withdrawState();
   const row = (k: StageName) => {
     const st = s[k];
-    return st ? { amount: WITHDRAW_STAGES[k], tries: st.tries, sent: st.sent, confirmed: st.confirmed, received: st.received, at: st.at, error: st.error ? scrub(st.error) : null } : null;
+    return st ? { amount: WITHDRAW_STAGES[k], tries: st.tries, busyRefusals: st.busy ?? 0, sent: st.sent, confirmed: st.confirmed, received: st.received, at: st.at, error: st.error ? scrub(st.error) : null } : null;
   };
   if (!plan && !s.test) return null;
-  return { stage: plan?.stage ?? null, destinationReadable: plan ? plan.dest != null : null, withdrawn: withdrawnUsd(), test: row("test"), rest: row("rest") };
+  return { last: loadJson<{ at: number; why: string } | null>("withdraw-note.json", null), stage: plan?.stage ?? null, destinationReadable: plan ? plan.dest != null : null, withdrawn: withdrawnUsd(), test: row("test"), rest: row("rest") };
 }
