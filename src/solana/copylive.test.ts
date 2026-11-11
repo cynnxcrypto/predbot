@@ -221,6 +221,48 @@ test("entry filter: a buy whose quote is not far enough above the wallet's price
   _test.reset();
 });
 
+test("wallet check: money put in beyond what was agreed stops buying and says so; the test's own winnings do not", async () => {
+  const net = (lamports: number) => {
+    const log = { quotes: 0 };
+    run.setNet((async (url: string, init?: { body?: string }) => {
+      if (url.includes("/swap/v1/quote")) return log.quotes++, new Response(JSON.stringify({ outAmount: raw(1) }));
+      if (url.includes("/swap/v1/swap")) return new Response("no", { status: 500 });
+      const { method } = JSON.parse(init!.body!) as { method: string };
+      if (method === "getBalance") return new Response(JSON.stringify({ result: { value: lamports } }));
+      throw new Error(`unexpected call ${method}`);
+    }) as never);
+    return log;
+  };
+  for (const maxOpen of [1, 5]) {
+    _test.reset();
+    _test.ready();
+    _test.setConfig({ ...CFG, maxOpen });
+    // 0.75 SOL in a wallet that was to hold 0.5: somebody put more in
+    let log = net(0.75e9);
+    await trade(signal());
+    assert.equal(log.quotes, 0);
+    assert.match(_test.state().note, /more than was agreed .*0\.6 SOL now.*not buying/);
+    assert.match(solanaCopyLiveSummary().note, /not buying until the extra is taken out/, "it says so in the status");
+    // the same 0.75 SOL after the test has won 0.2: that is its own money, it goes on
+    _test.reset();
+    _test.state().netSol = 0.2;
+    log = net(0.75e9);
+    await trade(signal());
+    assert.equal(log.quotes, 1);
+    assert.equal(_test.state().note, "");
+    // winnings and more on top: stops again
+    _test.reset();
+    _test.state().netSol = 0.2;
+    log = net(0.85e9);
+    await trade(signal());
+    assert.equal(log.quotes, 0);
+    assert.match(_test.state().note, /0\.8 SOL now/);
+  }
+  run.setNet(fetch);
+  _test.setConfig(null);
+  _test.reset();
+});
+
 test("daily count: stops the day only when a limit is set", async () => {
   const today = new Date(Date.now() + 9 * 3600_000).toISOString().slice(0, 10);
   _test.reset();
