@@ -9,7 +9,7 @@ process.env.DATA_DIR = dir;
 process.env.HELIUS_API_KEY = "SECRETHELIUS";
 process.env.JUPITER_API_KEY = "SECRETJUP";
 
-const { crowd, parseBuy, ret, roundTrip, scalp, STAKE_SOL, summarize, TX_SOL } = await import("./copy.js");
+const { crowd, parseBuy, ret, roundTrip, sameBlockRet, SAME_BLOCK_SLIP, scalp, STAKE_SOL, summarize, TX_SOL } = await import("./copy.js");
 const { SOL } = await import("./pools.js");
 const { validAddress, WALLETS } = await import("./wallets.js");
 const { _test, buildCopySummary, scrub } = await import("./copyrun.js");
@@ -76,6 +76,14 @@ test("scalp: first check at the target, else the time stop", () => {
   assert.equal(scalp(s, 0, 10), ret(s, 0, 60)); // never reached: out at 60 s
 });
 
+test("same-block what-if: the measured exit re-priced at the wallet's price plus slip", () => {
+  const s = sig(); // we paid 1.1e-6, the wallet 1e-6
+  const want = (0.27 * (1.1e-6 / (1e-6 * (1 + SAME_BLOCK_SLIP))) - 2 * TX_SOL) / STAKE_SOL - 1;
+  assert.ok(Math.abs(sameBlockRet(s, 5)! - want) < 1e-12);
+  assert.ok(sameBlockRet(s, 5)! > ret(s, 0, 5)!);
+  assert.equal(summarize([s], 80).sameBlock.rules.length, 7);
+});
+
 test("crowd: who lands before us", () => {
   const after = [1000, 1000, 1001, 1003, 1004, 1009, 1020, 1100, 1200].map((slot) => ({ slot, ok: true }));
   after.push({ slot: 1001, ok: false });
@@ -129,9 +137,16 @@ test("runner: a buy becomes a scored signal, and keys never leak", async () => {
     assert.equal(s[0].exits.d1.x120, 0.24);
     assert.deepEqual(s[0].crowd, { same: 1, s10: 2, s25: 2, s150: 2, ahead: { d0: 2, d1: 2, d3: 2 } });
     assert.equal(quotes, 3 + 3 * 7 + 1);
+    void 0;
+    // the transaction stream hands over a whole transaction: no lookup, and the signal is marked with that feed
+    const t2 = tx({ postTok: [tok("Mint2222222222222222222222222222222222222222", W, 5)] });
+    await _test.onTx(WALLETS[0], "sigC", Date.now(), t2);
+    assert.equal(_test.signals().length, 2);
+    assert.equal(_test.signals()[1].feed, "helius transaction stream");
     const sum = buildCopySummary();
     assert.equal(sum.mode, "paper");
-    assert.equal(sum.speed.buysSeen, 0); // the test buy is from 2027 block time on a non-Helius feed: left out
+    assert.equal(sum.speed.buysSeen, 1); // only the stream buy is scored; the non-Helius one is left out
+    assert.equal(sum.byFeed[0].feed, "helius transaction stream");
     assert.equal(sum.leftOut, 1);
     const files = readFileSync(join(dir, "solana", "copy-signals.jsonl"), "utf8") + readFileSync(join(dir, "solana-copy-summary.json"), "utf8");
     assert.ok(!files.includes("SECRET"));

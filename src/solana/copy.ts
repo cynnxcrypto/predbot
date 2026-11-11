@@ -161,6 +161,24 @@ export function ret(s: Signal, d: number, x: number): number | undefined {
   return (out - 2 * TX_SOL) / STAKE_SOL - 1;
 }
 
+/** Assumed extra paid over the wallet's own average price by a buy landing right behind it (same or next block). */
+export const SAME_BLOCK_SLIP = 0.02;
+export const sameId = (x: number) => `same-block-x${x}`;
+
+/**
+ * WHAT IF we had landed right behind the wallet: the measured copy (fastest entry, same exit quote) re-priced as if
+ * the entry had been at the wallet's average price plus SAME_BLOCK_SLIP. A best case, not a measurement: the
+ * wallet's own buy moves the price, other same-block buyers exist, and a bigger token amount sells a little worse.
+ * It answers one thing only: is there money in the first seconds that our delay is giving away?
+ */
+export function sameBlockRet(s: Signal, x: number): number | undefined {
+  const e = s.entries.d0;
+  const out = s.exits.d0?.[`x${x}`];
+  if (!e || !(s.leaderPrice > 0)) return undefined;
+  if (out == null) return s.exits.d0?.[`x${EXITS[EXITS.length - 1]}`] == null ? -1 : undefined;
+  return (out * (e.price / (s.leaderPrice * (1 + SAME_BLOCK_SLIP))) - 2 * TX_SOL) / STAKE_SOL - 1;
+}
+
 const med = (xs: number[]) => {
   if (!xs.length) return null;
   const a = [...xs].sort((p, q) => p - q);
@@ -228,6 +246,10 @@ export function summarize(sigs: Signal[], solUsd: number | null) {
     ahead: s.crowd?.ahead.d0 ?? null, follow4s: s.crowd?.s10 ?? null, entryGapPct: s.entries.d0 ? r((s.entries.d0.price / s.leaderPrice - 1) * 100) : null,
     breakEvenPct: r((roundTrip(s) ?? NaN) * 100), ret10Pct: r((ret(s, 1, 10) ?? NaN) * 100), ret30Pct: r((ret(s, 1, 30) ?? NaN) * 100),
   }));
+  const sameBlock = {
+    note: `What if: entry right behind the wallet at its own price +${SAME_BLOCK_SLIP * 100}%, same exits. Best case, not measured.`,
+    rules: EXITS.map((x) => ({ id: sameId(x), ...score(sigs, (s) => sameBlockRet(s, x), solUsd) })),
+  };
   const qualified = rules.filter((x) => x.n >= 100 && x.won / x.n >= 0.5 && (x.netSol ?? 0) > 0).map((x) => x.id);
-  return { speed, rulesTried: rules.length, inProfit: rules.filter((x) => (x.netSol ?? 0) > 0).length, qualified, rules, wallets, recent };
+  return { speed, rulesTried: rules.length, inProfit: rules.filter((x) => (x.netSol ?? 0) > 0).length, qualified, rules, sameBlock, wallets, recent };
 }
