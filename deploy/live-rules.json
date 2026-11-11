@@ -1,7 +1,7 @@
 {
   "mode": "live",
   "minBalance": 180,
-  "solanaCopy": { "on": true, "maxLossSol": 0.5, "stakeSol": 0.05, "holdSec": 60, "targetPct": 10, "minGapPct": 9, "maxOpen": 5 },
+  "solanaCopy": { "on": true, "maxLossSol": 0.5, "stakeSol": 0.05, "holdSec": 30, "targetPct": 10, "minGapPct": 9, "maxOpen": 5 },
   "claimEveryMin": 30,
   "events": {
     "tennis": {
