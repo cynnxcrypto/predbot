@@ -11,7 +11,7 @@ import { appendFileSync, mkdirSync, readFileSync, renameSync, writeFileSync } fr
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { DATA } from "../config.js";
-import { crowd, DELAYS, EXITS, followerPrice, fomoStudy, LATE, parseBuy, parseDollarBuy, PATH, SIZE_EXITS, SIZES, STAKE_SOL, paceAt, summarize, TX_SOL, verdictAt, type Entry, type Pace, type ParsedTx, type Signal, type Verdict } from "./copy.js";
+import { crowd, DELAYS, EXITS, followerPrice, fomoStudy, LATE, parseBuy, parseDollarBuy, PATH, SIZE_EXITS, SIZES, STAKE_SOL, paceAt, summarize, TX_SOL, unrefuse, verdictAt, type Entry, type Pace, type ParsedTx, type Signal, type Verdict } from "./copy.js";
 import { SOL, USDC } from "./pools.js";
 import { discoverSummary, foundWallets, startDiscover, stopDiscover } from "./discover.js";
 import { historySummary, startHistory, stopHistory } from "./history.js";
@@ -171,7 +171,7 @@ function load() {
     // a signal is written again once its long checks (3 to 10 min) are in: the later line replaces the earlier one
     const bySig = new Map<string, Signal>();
     for (const l of readFileSync(SIGNALS(), "utf8").split("\n").filter(Boolean).slice(-2 * KEEP)) {
-      const x = JSON.parse(l) as Signal;
+      const x = unrefuse(JSON.parse(l) as Signal);
       bySig.set(x.sig, x);
     }
     signals = [...bySig.values()].slice(-KEEP);

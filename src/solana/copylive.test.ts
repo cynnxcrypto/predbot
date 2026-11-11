@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync } from "node:fs";
+import { appendFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -13,7 +13,7 @@ const { HARD_MAX_LOSS_SOL, HARD_STAKE_SOL, parseLive, solanaCopyLiveSummary, tra
 const { _test: run, shared } = await import("./copyrun.js");
 const { buildSigned, wallet } = await import("./keys.js");
 const { base58 } = await import("./whirlpool.js");
-const { recoverMany, HARD_MAX_OPEN, solanaCopyLiveQuiet, solanaCopyLiveWaiting, whyNotSent, MIN_STOP_PCT, exitKey, heldTogether, REQUOTE_MS, PIPE, speedOf, byLanding, feesOf, readFees } = await import("./copylive.js");
+const { recoverMany, HARD_MAX_OPEN, solanaCopyLiveQuiet, solanaCopyLiveWaiting, whyNotSent, MIN_STOP_PCT, exitKey, heldTogether, REQUOTE_MS, PIPE, speedOf, byLanding, feesOf, readFees, ROWS_KEPT, IDLE_KEPT } = await import("./copylive.js");
 type Row = import("./copylive.js").Row;
 type LiveConfig = import("./copylive.js").LiveConfig;
 
@@ -1095,6 +1095,55 @@ test("fees: read back from the chain once per copy, never while a coin is out, a
     assert.equal(second.feeSol, 0.00121);
   } finally {
     run.setNet(fetch);
+    _test.reset();
+  }
+});
+
+test("rows: the whole test stays in the tables, buys never sent are kept apart, and copies that fell out are read back", () => {
+  _test.reset();
+  try {
+    // buys that were never sent do not push finished copies out
+    for (let i = 0; i < IDLE_KEPT + 30; i++) _test.keep({ ...blank(), t: 100 + i, buy: "not sent", error: "no route" });
+    for (let i = 0; i < 250; i++) _test.keep({ ...blank(), t: 1000 + i, netSol: 0.001 });
+    let rows = _test.state().rows;
+    assert.equal(rows.filter((r) => r.buy === "not sent").length, IDLE_KEPT);
+    assert.equal(rows.find((r) => r.buy === "not sent")!.t, 130, "the oldest of them go first");
+    assert.equal(rows.filter((r) => r.buy === "landed").length, 250, "more than the 200 of before");
+    _test.state().trades = 260;
+    const s = solanaCopyLiveSummary();
+    assert.deepEqual([s.copies, s.copiesAllTime], [250, 260]);
+    for (let i = 0; i < ROWS_KEPT; i++) _test.keep({ ...blank(), t: 5000 + i });
+    rows = _test.state().rows;
+    assert.deepEqual([rows.length, rows[0].t], [ROWS_KEPT, 5000], "bounded: the oldest rows go once the list is full");
+
+    // a state file written by the bot of before (its short list), and the file every finished copy was appended to
+    _test.reset();
+    const dir = process.env.DATA_DIR!;
+    mkdirSync(join(dir, "solana"), { recursive: true });
+    const row = (t: number, over: object = {}) => ({ ...blank(), t, ...over });
+    writeFileSync(join(dir, "solana", "copylive-trades.jsonl"), "");
+    appendFileSync(join(dir, "solana", "copylive-trades.jsonl"), [
+      JSON.stringify(row(30, { netSol: -0.002 })),
+      JSON.stringify(row(10, { netSol: 0.004 })),
+      "not json",
+      JSON.stringify(row(20, { buy: "not sent" })),
+      JSON.stringify(row(30, { netSol: -0.002 })), // written twice: counted once
+      JSON.stringify({ t: 40 }), // not a copy
+      JSON.stringify(row(50, { netSol: 0.001 })), // still in the state file
+      JSON.stringify(row(70, { netSol: 0.009 })), // newer than the oldest kept: the state file is the record from there on
+      "",
+    ].join("\n"));
+    writeFileSync(join(dir, "solana-copylive.json"), JSON.stringify({ netSol: -0.05, trades: 4, rows: [row(50, { netSol: 0.001 }), row(60, { netSol: 0.002 })] }));
+    _test.load();
+    const st = _test.state();
+    assert.deepEqual(st.rows.map((r) => r.t), [10, 30, 50, 60]);
+    assert.deepEqual([st.netSol, st.trades], [-0.05, 4], "the loss count is the state file's, never rebuilt from rows");
+    // no file to read back from: the list is what the state file holds
+    rmSync(join(dir, "solana", "copylive-trades.jsonl"));
+    _test.load();
+    assert.deepEqual(_test.state().rows.map((r) => r.t), [50, 60]);
+  } finally {
+    rmSync(join(process.env.DATA_DIR!, "solana-copylive.json"), { force: true });
     _test.reset();
   }
 });

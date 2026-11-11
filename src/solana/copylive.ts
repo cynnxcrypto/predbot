@@ -306,6 +306,8 @@ function load() {
   try {
     state = { ...state, ...(JSON.parse(text) as State) };
     if (!Array.isArray(state.opens)) state.opens = [];
+    if (!Array.isArray(state.rows)) state.rows = [];
+    restore();
   } catch {
     // a file that is there but unreadable must never restart the loss count from zero
     state.halted = "the state file could not be read: the loss count is unknown, so nothing trades";
@@ -667,9 +669,54 @@ export async function tidy() {
   }
 }
 
+/**
+ * How many finished copies the state file keeps for the tables of the status. To 12 Nov 2026 01:40 KST it was the
+ * last 200 rows of every kind: the count of copies stood still near 150 while the test went on, and the tables under
+ * the entry rule were about to lose their oldest copies (the 60 s copies the 30 s ones are judged against).
+ * Buys that were never sent are kept apart, and fewer: they cost nothing and are only counted by their reason.
+ * No decision to trade reads these rows; the loss count is state.netSol, which never depended on them.
+ */
+export const ROWS_KEPT = 1000;
+export const IDLE_KEPT = 100;
+function trim(rows: Row[]) {
+  let idle = 0;
+  for (const r of rows) if (r.buy === "not sent") idle++;
+  for (; idle > IDLE_KEPT; idle--) rows.splice(rows.findIndex((r) => r.buy === "not sent"), 1);
+  if (rows.length > ROWS_KEPT) rows.splice(0, rows.length - ROWS_KEPT);
+}
+/**
+ * Copies that fell out of the short list of before are read back from the file every finished copy is appended to,
+ * so the tables cover the whole test again. Only copies older than the oldest one kept, and only ones that were
+ * sent. A missing or unreadable file changes nothing: the tables then start where the state file does.
+ */
+function restore() {
+  try {
+    const first = state.rows.length ? state.rows[0].t : Infinity;
+    const have = new Set(state.rows.map((r) => `${r.t}|${r.mint}`));
+    const old: Row[] = [];
+    for (const line of readFileSync(ROWS(), "utf8").split("\n")) {
+      if (!line) continue;
+      let r: Row;
+      try {
+        r = JSON.parse(line) as Row;
+      } catch {
+        continue;
+      }
+      if (typeof r?.t !== "number" || typeof r.netSol !== "number" || typeof r.mint !== "string" || !Array.isArray(r.sigs) || r.buy === "not sent" || r.t >= first || have.has(`${r.t}|${r.mint}`)) continue;
+      have.add(`${r.t}|${r.mint}`);
+      old.push(r);
+    }
+    if (!old.length) return;
+    old.sort((a, b) => a.t - b.t);
+    state.rows = [...old, ...state.rows];
+    trim(state.rows);
+  } catch {
+    /* see above */
+  }
+}
 function keep(row: Row) {
   state.rows.push(row);
-  if (state.rows.length > 200) state.rows.shift();
+  trim(state.rows);
   try {
     mkdirSync(join(DATA, "solana"), { recursive: true });
     appendFileSync(ROWS(), JSON.stringify(row) + "\n");
@@ -1441,6 +1488,8 @@ export function solanaCopyLiveSummary() {
       bestPctMedian: med(nums(aimed.map((r) => r.bestPct))),
       missedTargetSales: aimed.reduce((a, r) => a + Math.max(0, (r.targetTries ?? 0) - (r.exit === "target" ? 1 : 0)), 0),
     },
+    // every buy ever sent, counted as it happened; `copies` and the tables count the rows kept (see ROWS_KEPT)
+    copiesAllTime: state.trades,
     copies: rows.filter((r) => r.buy !== "not sent").length,
     landed: land.length,
     notLanded: rows.filter((r) => r.buy === "did not land" || r.buy === "failed on chain").length,
@@ -1565,4 +1614,6 @@ export const _test = {
   booked,
   forgetCloses: () => noClose.clear(),
   setPoll: (ms: number) => (pollMs = ms),
+  keep,
+  load,
 };

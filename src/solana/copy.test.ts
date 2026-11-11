@@ -9,7 +9,7 @@ process.env.DATA_DIR = dir;
 process.env.HELIUS_API_KEY = "SECRETHELIUS";
 process.env.JUPITER_API_KEY = "SECRETJUP";
 
-const { crowd, exitStudy, followerPrice, fomoStudy, GRID, lateStudy, parseBuy, parseDollarBuy, pathRet, ret, rising, roundTrip, sameBlockRet, SAME_BLOCK_SLIP, scalp, scalpCut, sizeStudy, STAKE_SOL, summarize, trail, TX_SOL, traderRet, verdictAt, verdictOf, paceAt, gapAt, verdictsBefore } = await import("./copy.js");
+const { crowd, exitStudy, followerPrice, fomoStudy, GRID, lateStudy, parseBuy, parseDollarBuy, pathRet, ret, rising, roundTrip, sameBlockRet, SAME_BLOCK_SLIP, scalp, scalpCut, sizeStudy, STAKE_SOL, summarize, trail, TX_SOL, traderRet, verdictAt, verdictOf, paceAt, gapAt, verdictsBefore, unrefuse, REFUSED_FROM, REFUSED_TO } = await import("./copy.js");
 const { SOL, USDC } = await import("./pools.js");
 const { validAddress, WALLETS } = await import("./wallets.js");
 const { _test, buildCopySummary, onStreamBuy, scrub } = await import("./copyrun.js");
@@ -476,4 +476,22 @@ test("the real test first: paper quotes wait while the real test is buying and a
   } finally {
     _test.setNet(fetch);
   }
+});
+
+test("refused checks: in the 80 minutes when refusals were written down as 'no price', a missing price proves nothing", () => {
+  const dead = () => ({ d0: { x0: 0.24, x2: 0.2, x5: null, x10: null, x20: null, x30: null, x60: null, x120: null }, d1: {}, d3: {} });
+  const more = () => ({ path: { x1: 0.2, x180: null }, sizes: { "0.05": { x10: 0.049, x30: null } } });
+  // known inside that time: the missing prices are taken out, so the copy cannot be scored instead of being a total loss
+  const inside = unrefuse(sig({ knownMs: REFUSED_FROM + 60_000, exits: dead(), ...more() }));
+  assert.equal(ret(inside, 0, 30), undefined);
+  assert.equal(ret(inside, 0, 2)! < 0, true, "what was measured stays");
+  assert.deepEqual([inside.exits.d0, inside.path, inside.sizes], [{ x0: 0.24, x2: 0.2 }, { x1: 0.2 }, { "0.05": { x10: 0.049 } }]);
+  // known before or after it: a token the price service had no price for is still a total loss
+  for (const knownMs of [REFUSED_FROM - 1, REFUSED_TO, REFUSED_TO + 3_600_000]) {
+    const s = unrefuse(sig({ knownMs, exits: dead(), ...more() }));
+    assert.equal(ret(s, 0, 30), -1);
+    assert.equal(s.path!.x180, null);
+  }
+  assert.equal(new Date(REFUSED_FROM).toISOString(), "2026-11-11T15:23:26.000Z");
+  assert.equal(new Date(REFUSED_TO).toISOString(), "2026-11-11T16:45:28.000Z");
 });

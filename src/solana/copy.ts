@@ -342,6 +342,27 @@ export function roundTrip(s: Signal): number | null {
 }
 
 /**
+ * From 12 Nov 2026 00:25:26 to 01:45:28 KST the paper test's price requests were refused in bursts (copyrun.ts,
+ * quote) and a refused request was written down exactly like an answer of "no price". In a buy known in that time
+ * (or in the two minutes before it, whose last checks fell inside) a missing price therefore proves nothing: at
+ * 02:00 the 15% rules showed -0.6 SOL on 20 new buys, most of it from such checks read as total losses.
+ * Those entries are taken out when the signals are loaded, so the check counts as never made. A token that truly
+ * could not be sold in that time is left out with them: 80 minutes of paper data are less complete, not wrong.
+ */
+export const REFUSED_FROM = Date.UTC(2026, 10, 11, 15, 23, 26);
+export const REFUSED_TO = Date.UTC(2026, 10, 11, 16, 45, 28);
+export function unrefuse(s: Signal): Signal {
+  if (!(s.knownMs >= REFUSED_FROM && s.knownMs < REFUSED_TO)) return s;
+  const clean = (m?: Record<string, number | null>) => {
+    if (m) for (const k of Object.keys(m)) if (m[k] === null) delete m[k];
+  };
+  for (const ex of Object.values(s.exits ?? {})) clean(ex);
+  clean(s.path);
+  for (const got of Object.values(s.sizes ?? {})) clean(got);
+  return s;
+}
+
+/**
  * Return of one copy as a fraction of the stake, after transaction costs. undefined = cannot be scored.
  * A missing sell quote counts as a total loss when the price service had no price at the last check of that entry
  * either (null there: the token could not be sold at all). A check that was never made, or whose request failed
