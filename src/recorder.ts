@@ -183,7 +183,7 @@ export class Recorder {
     if (live) {
       void live.start();
       this.balanceTimer = setInterval(() => {
-        void live.refreshBalance().then(() => live.wrapPending()).then(() => live.swapNative()).then(() => live.withdrawTick());
+        void live.refreshBalance().then(() => live.wrapPending()).then(() => live.swapNative());
         void live.redeemPending();
       }, 60000);
     }
