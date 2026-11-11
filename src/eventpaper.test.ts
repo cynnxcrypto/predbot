@@ -43,3 +43,16 @@ test("weather forecast share per bucket label", async () => {
   assert.equal(wxBucketProb("no number", maxC), null);
   assert.equal(wxBucketProb("21°C", []), null);
 });
+
+test("wx-no-maker: a resting NO bid fills only from trades at its price after the queue ahead, or through it", async () => {
+  const { noMakerFill } = await import("./eventpaper.js");
+  const mk = { bid: 0.8, ahead: 10, got: 0, shares: 6.25, seen: 100, yes: "Y", no: "N" };
+  // old trade, a buy of NO, a sale at a better NO bid: nothing
+  assert.equal(noMakerFill(mk, [{ timestamp: 90, side: "SELL", token_id: "N", price: 0.8, size: 50 }, { timestamp: 110, side: "BUY", token_id: "N", price: 0.82, size: 50 }, { timestamp: 111, side: "SELL", token_id: "N", price: 0.81, size: 50 }]), false);
+  assert.deepEqual([mk.ahead, mk.got], [10, 0]);
+  // a YES buy at 20c is a sale into NO bids at 80c: 12 shares eat the 10 ahead, 2 reach us
+  assert.equal(noMakerFill(mk, [{ timestamp: 120, side: "BUY", token_id: "Y", price: 0.2, size: 12 }]), false);
+  assert.deepEqual([mk.ahead, mk.got, mk.seen], [0, 2, 120]);
+  // the same row again is not counted twice; a sale through our price fills the rest
+  assert.equal(noMakerFill(mk, [{ timestamp: 120, side: "BUY", token_id: "Y", price: 0.2, size: 12 }, { timestamp: 130000, side: "SELL", token_id: "N", price: 0.79, size: 5 }]), true);
+});

@@ -146,7 +146,9 @@ type Match = {
 };
 type Side = { id: string; token: string; team: string; feeRate: number };
 type Fixture = { id: string; league: string; title: string; kickoff: number; home: Side; away: Side; done?: boolean; note?: string; homeAsk?: number | null; awayAsk?: number | null; pxAt?: number };
-type WxEvent = { id: string; title: string; station: string; tz: string; date: [number, number, number]; buckets: { id: string; token: string; label: string; feeRate: number }[] };
+type WxEvent = { id: string; title: string; station: string; tz: string; date: [number, number, number]; buckets: { id: string; token: string; label: string; feeRate: number; no?: string; noIdx?: number; cond?: string }[] };
+/** A resting paper bid on the NO side of a weather bucket (wx-no-maker). Prices are NO prices. */
+export type NoMaker = { marketId: string; cond: string; title: string; label: string; yes: string; no: string; noIdx: number; bid: number; bid0: number; ahead: number; got: number; shares: number; t: number; until: number; seen: number; yesMid0: number; twin: boolean };
 type TennisMatch = { id: string; title: string; tour: string; start: number; tokens: string[]; outcomes: string[]; feeRate: number; done?: boolean; mid30?: boolean; note?: string };
 type CricketMatch = { id: string; title: string; start: number; tokens: string[]; outcomes: string[]; feeRate: number; done10?: boolean; done60?: boolean; note?: string };
 type Maker = { rule: string; marketId: string; title: string; outcome: string; idx: number; token: string; bid: number; t: number; feeRate: number; ask: number; until?: number; mid?: number };
@@ -162,8 +164,9 @@ type State = {
   tennis: Record<string, TennisMatch>;
   cricket: Record<string, CricketMatch>;
   usports: Record<string, UsMatch>;
+  nomk: NoMaker[];
 };
-const state: State = { matches: {}, done: {}, makers: [], trades: [], signals: [], fixtures: {}, wx: {}, tennis: {}, cricket: {}, usports: {}, ...loadJson<Partial<State>>(STATE_FILE, {}) };
+const state: State = { matches: {}, done: {}, nomk: [], makers: [], trades: [], signals: [], fixtures: {}, wx: {}, tennis: {}, cricket: {}, usports: {}, ...loadJson<Partial<State>>(STATE_FILE, {}) };
 // 7 Nov 2026 20:15 KST fix: the first run counted matches whose map 1 had ended before the logger started (map-1 price
 // already decided), so it "bought" mid-map-2 prices. Drop those esports rows once; later rows need sawLive.
 if (!state.done["fix:esports-sawlive"]) {
@@ -634,6 +637,8 @@ const RULE_TEXT: Record<string, [string, string]> = {
   "weather-fav16-mid": ["weather", "Round 307 (9 Nov 2026 21:15 KST): maker shadow of the 16:00 rule. In three days the taker rules saw 21 signals and took none (asks 65-91c, 4c+ over mid; the mid+5c copy also took none), so this one rests a $5 bid AT the mid of the leading bucket for up to 6 h and books the trade only if the ask comes down to it. Measures whether a patient bid can trade the weather edge at all, and what it wins when it does."],
   "weather-dayahead-all": ["weather", "11 Nov 2026 02:50 KST (top-traders lead: one wallet, one week, +$3,269 on $10,573 as a pure maker buying 10-50c buckets 24-48 h before the close; a lead, not proof): the day before, at 12:00 station local time (36 h before the market day ends), rest a $5 bid at the best bid on up to 3 temperature buckets asking 10-50c; never take; cancel 20 h before the close; hold fills to settlement. This is the no-forecast baseline; the copy that only bids where a weather-model forecast disagrees with the price is still to come. Tickets win under half the time by design."],
   "weather-dayahead-yes": ["weather", "Round 341 (11 Nov 2026 07:15 KST): forecast copy of weather-dayahead-all. The day before, at 12:00 station local time, read the free Open-Meteo ensemble forecast (about 80 model runs) of the day's highest temperature at the station and count the share of runs landing in each bucket; rest a $5 bid at the best bid only on buckets asking 10-50c where that share is 15+ points over the ask; never take; cancel 20 h before the close; hold fills. Untested assumptions: the model grid point matches the airport thermometer, and raw model shares are honest odds. The forecast and the asks are logged for every city-day so both can be checked."],
+  "wx-no-maker": ["weather", "11 Nov 2026 (research thread 'Find a strategy worth pursuing', reviews/strategy-worth-pursuing-2026-11-11.md): bet AGAINST the unlikely temperature buckets as a maker. 36 h before the market day ends, for every bucket whose YES trades at 8-30c with a spread of 5c or less, rest a $5 bid on NO at the best NO bid; every 10 min re-join the best bid while it is within 2c of the first; cancel 12 h before the end; hold fills. A fill counts only from real trades at our price after the shares that were ahead of us traded. History 19 Oct-8 Nov, 1,823 bucket-days: NO won 85.5% at 81.7c, +4.6% if every bid fills, -0.1% if only the bad fills happen. Bar 300+ fills, 84%+ won, net over 0; killed at 300 fills with net at or under 0 or a 30-minute markout worse than -1.5c."],
+  "wx-no-maker-815": ["weather", "Twin of wx-no-maker counting only buckets whose YES was 8-15c when the bid was placed."],
   "weather-fav16-hi": ["weather", "10 Nov 2026 17:10 KST: 16:00 rule for city-days whose leading bucket is already 85-95c (the main rule only takes 50-85c and dropped these without a line). Buys the ask when it is within 2c of mid. No backtest for this band: it measures whether late near-certain buckets pay after the spread."],
   "weather-fav15-ask1": ["weather", "10 Nov 2026 17:10 KST: 15:00 copy of the 1c-under-ask maker shadow. The 15:00 taker saw 22 signals in three days and took 1 (asks 4c+ over mid), so this rests a $5 bid 1c under the ask for up to 6 h on every 15:00 signal."],
   "weather-fav16-ask1": ["weather", "Round 317 (10 Nov 2026 07:10 KST): maker shadow of the 16:00 rule bidding 1c UNDER THE ASK for up to 6 h. The mid-bid shadow got its first fills on 10 Nov (Madrid bid 61c vs ask 70c, Buenos Aires 62c vs 75c): both filled only after the ask slid 9-13c down to the bid, so a mid bid in a 10-25c-wide weather book buys mostly when the market has turned against the bucket. This twin fills on a 1c dip instead and gives up the price; the two together say whether weather can be traded as a maker at all."],
@@ -727,7 +732,7 @@ async function weatherRefresh() {
   for (const e of evs) {
     if (!e.id || !/^Highest temperature in /i.test(e.title ?? "") || /hong kong/i.test(e.title ?? "")) continue;
     seen.add(e.id);
-    if (state.wx[e.id]) continue;
+    if (state.wx[e.id]?.buckets.every((b) => b.no && b.cond)) continue; // older entries lack the NO token: rebuilt once
     const station = /\(([A-Z0-9]{4})\)/.exec(e.description ?? "")?.[1];
     const date = slugDate(e.slug ?? "");
     const tz = station ? WX_TZ[station] : undefined;
@@ -736,16 +741,104 @@ async function weatherRefresh() {
       .map((m) => {
         const toks = jl<string[]>(m.clobTokenIds, []);
         const yes = jl<string[]>(m.outcomes, []).findIndex((o) => /^yes$/i.test(o));
-        return m.id && toks.length === 2 && yes >= 0 ? { id: m.id, token: toks[yes], label: m.groupItemTitle ?? m.question ?? m.id, feeRate: Number(m.feeSchedule?.rate ?? 0.05) } : null;
+        return m.id && toks.length === 2 && yes >= 0 ? { id: m.id, token: toks[yes], label: m.groupItemTitle ?? m.question ?? m.id, feeRate: Number(m.feeSchedule?.rate ?? 0.05), no: toks[1 - yes], noIdx: 1 - yes, cond: m.conditionId } : null;
       })
       .filter((b): b is NonNullable<typeof b> => b != null);
     if (buckets.length >= 3) state.wx[e.id] = { id: e.id, title: e.title ?? e.id, station, tz, date, buckets };
   }
   for (const k of Object.keys(state.wx)) if (!seen.has(k)) delete state.wx[k];
 }
+/**
+ * Strict fill for a resting NO bid from taker trade rows of its market (oldest first is not assumed). A taker SELL of NO
+ * at or under our bid, or a taker BUY of YES at or over 1 - our bid, reaches our level; at exactly our price the shares
+ * that were ahead of us must trade first; a trade through our price fills us whatever was ahead. True when the whole
+ * order has filled. Mutates ahead, got and seen (seconds).
+ */
+export function noMakerFill(mk: { bid: number; ahead: number; got: number; shares: number; seen: number; yes: string; no: string }, rows: { side?: string; token_id?: string; size?: number | string; price?: number | string; timestamp?: number | string }[]): boolean {
+  const xs = rows
+    .map((r) => ({ ts: Number(r.timestamp) > 1e12 ? Math.floor(Number(r.timestamp) / 1000) : Number(r.timestamp), price: Number(r.price), size: Number(r.size), side: String(r.side ?? "").toUpperCase(), tok: r.token_id }))
+    .filter((r) => Number.isFinite(r.ts) && r.ts > mk.seen && r.size > 0 && r.price > 0)
+    .sort((a, b) => a.ts - b.ts);
+  for (const r of xs) {
+    mk.seen = Math.max(mk.seen, r.ts);
+    const lvl = r.tok === mk.no && r.side === "SELL" ? r.price : r.tok === mk.yes && r.side === "BUY" ? Math.round((1 - r.price) * 1000) / 1000 : null;
+    if (lvl == null || lvl > mk.bid + 1e-9) continue;
+    let size = r.size;
+    if (Math.abs(lvl - mk.bid) < 1e-9) {
+      const eaten = Math.min(mk.ahead, size);
+      mk.ahead -= eaten;
+      size -= eaten;
+    } else mk.ahead = 0;
+    mk.got += size;
+  }
+  return mk.got >= mk.shares - 1e-9;
+}
+/** wx-no-maker: every 10 min read the tape and the book of each resting NO bid; fill, re-join or cancel. */
+async function noMakerTick() {
+  const now = Date.now();
+  const keep: NoMaker[] = [];
+  const one = async (mk: NoMaker) => {
+    if (now >= mk.until) {
+      signal("wx-no-maker", mk.title, false, { unfilled: true, bucket: mk.label, bid: mk.bid });
+      return;
+    }
+    const tape = await getJson<{ data?: Parameters<typeof noMakerFill>[1] }>(`https://data-api.polymarket.com/v2/trades?condition=${mk.cond}&limit=1000&taker_only=true`).catch(() => null);
+    if (tape && Array.isArray(tape.data) && noMakerFill(mk, tape.data)) {
+      const bk = await book(mk.no).catch(() => null);
+      for (const rule of mk.twin ? ["wx-no-maker", "wx-no-maker-815"] : ["wx-no-maker"])
+        state.trades.push({ rule, marketId: mk.marketId, title: mk.title, outcome: `No (${mk.label})`, idx: mk.noIdx, token: mk.no, t: now, ask: bk?.bestAsk ?? mk.bid, avg: mk.bid, shares: mk.shares, cost: mk.shares * mk.bid, fee: 0, fillable: true, feeRate: 0, extra: { bidAt: mk.t, fillMin: Math.round((now - mk.t) / 60_000), yesMid0: mk.yesMid0, bid0: mk.bid0, midFill: bk?.mid ?? null, mk30: null } });
+      log(`wx-no-maker ${mk.title} ${mk.label}: NO bid filled at ${Math.round(mk.bid * 1000) / 10}c`);
+      return;
+    }
+    // Re-join the best NO bid (1 - best YES ask) only while it is within 2c of the first bid; a new price is a new queue.
+    const yb = await book(mk.yes).catch(() => null);
+    if (yb?.bestAsk != null) {
+      const nb = Math.round((1 - yb.bestAsk) * 1000) / 1000;
+      if (Math.abs(nb - mk.bid) > 1e-9 && Math.abs(nb - mk.bid0) <= 0.02 + 1e-9) {
+        mk.bid = nb;
+        mk.ahead = yb.asks.filter((a) => Math.abs(a.price - yb.bestAsk!) < 1e-9).reduce((x, a) => x + a.size, 0);
+        mk.got = 0;
+        mk.shares = 5 / nb;
+      }
+    }
+    keep.push(mk);
+  };
+  for (let i = 0; i < state.nomk.length; i += 6) await Promise.all(state.nomk.slice(i, i + 6).map((mk) => one(mk).catch(() => void keep.push(mk))));
+  state.nomk = keep;
+  // The price 30 min after each fill (markout): NO mid then minus the price paid.
+  for (const t of state.trades) {
+    if (!t.rule.startsWith("wx-no-maker") || !t.extra || t.extra.mk30 != null || now - t.t < 30 * 60_000) continue;
+    if (now - t.t > 3 * 3600_000) {
+      t.extra.mk30 = "missed";
+      continue;
+    }
+    const bk = await book(t.token).catch(() => null);
+    if (bk?.mid != null && t.avg != null) t.extra.mk30 = Math.round((bk.mid - t.avg) * 1000) / 1000;
+  }
+}
 async function weatherTick() {
   const now = Date.now();
   for (const ev of Object.values(state.wx)) {
+    {
+      // wx-no-maker: one look per city-day, 36-24 h before the market day ends (see RULES).
+      const key = `wx-no-maker|${ev.id}`;
+      const day0 = zonedUtc(ev.date[0], ev.date[1], ev.date[2], 0, ev.tz);
+      if (!state.done[key] && now >= day0 - 12 * 3600_000 && now < day0 && ev.buckets.every((b) => b.no && b.cond)) {
+        state.done[key] = now;
+        const books = await Promise.all(ev.buckets.map((b) => book(b.token).catch(() => null)));
+        let n = 0;
+        ev.buckets.forEach((bu, i) => {
+          const bk = books[i];
+          if (!bk || bk.mid == null || bk.bestAsk == null || bk.bestBid == null) return;
+          if (bk.mid < 0.08 - 1e-9 || bk.mid > 0.3 + 1e-9 || bk.bestAsk - bk.bestBid > 0.05 + 1e-9) return;
+          const bid = Math.round((1 - bk.bestAsk) * 1000) / 1000;
+          const ahead = bk.asks.filter((a) => Math.abs(a.price - bk.bestAsk!) < 1e-9).reduce((x, a) => x + a.size, 0);
+          state.nomk.push({ marketId: bu.id, cond: bu.cond!, title: ev.title, label: bu.label, yes: bu.token, no: bu.no!, noIdx: bu.noIdx!, bid, bid0: bid, ahead, got: 0, shares: 5 / bid, t: now, until: day0 + 12 * 3600_000, seen: Math.floor(now / 1000), yesMid0: bk.mid, twin: bk.mid <= 0.15 + 1e-9 });
+          n += 1;
+        });
+        signal("wx-no-maker", ev.title, false, { station: ev.station, bids: n, ...(n ? {} : { skip: "no bucket with YES at 8-30c and a spread of 5c or less" }) });
+      }
+    }
     {
       // weather-dayahead-all: one look per city-day, 36-24 h before the market day ends (see RULES).
       const key = `weather-dayahead-all|${ev.id}`;
@@ -1176,7 +1269,7 @@ const GROUPS: Record<string, string[]> = {
   esports: ["esports-map1", "esports-fav-shadow", "esports-map1-dota", "esports-lol-fav90", "esports-cs2-fav90"],
   indices: ["gold-momentum", "spx-underdog", "spy-underdog"],
   politics: ["election-lock-taker", "election-lock-maker"],
-  weather: ["weather-fav16", "weather-fav15", "weather-fav16-wide", "weather-fav16-mid", "weather-fav16-ask1", "weather-fav16-hi", "weather-fav15-ask1", "weather-dayahead-all", "weather-dayahead-yes"],
+  weather: ["weather-fav16", "weather-fav15", "weather-fav16-wide", "weather-fav16-mid", "weather-fav16-ask1", "weather-fav16-hi", "weather-fav15-ask1", "weather-dayahead-all", "weather-dayahead-yes", "wx-no-maker", "wx-no-maker-815"],
   tennis: ["tennis-wta-fav90", "tennis-atp-fav90", "tennis-wta-fav85", "tennis-itf-fav90", "tennis-fav95", "tennis-fav90-mid"],
   cricket: ["cricket-fav10", "cricket-fav60", "cricket-dog-control"],
   usports: ["nba-fav85", "cbb-fav85", "nfl-fav85", "nba-fav85-mid", "us-prematch-fav-bid", "us-prematch-dog-bid"],
@@ -1272,7 +1365,7 @@ async function guard(name: string, f: () => Promise<void>) {
 }
 async function main() {
   log("started (paper only)");
-  let last = { esList: 0, idx: 0, pol: 0, mk: 0, settle: 0, fb: 0, wx: 0, tn: 0, ck: 0, us: 0 };
+  let last = { esList: 0, idx: 0, pol: 0, mk: 0, nomk: 0, settle: 0, fb: 0, wx: 0, tn: 0, ck: 0, us: 0 };
   for (;;) {
     const now = Date.now();
     if (now - last.esList > 5 * 60_000) {
@@ -1316,6 +1409,10 @@ async function main() {
     if (now - last.mk > 60_000) {
       last.mk = now;
       await guard("makers", makersTick);
+    }
+    if (now - last.nomk > 10 * 60_000) {
+      last.nomk = now;
+      await guard("weather NO makers", noMakerTick);
     }
     if (now - last.settle > 10 * 60_000) {
       last.settle = now;
