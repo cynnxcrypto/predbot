@@ -313,17 +313,16 @@ test("runner: a buy becomes a scored signal, and keys never leak", async () => {
     assert.equal(s[0].entries.d0!.price, STAKE_SOL / 1000);
     assert.equal(s[0].exits.d0.x0, 0.24);
     assert.equal(s[0].exits.d1.x120, 0.24);
-    assert.deepEqual(s[0].crowd, { same: 1, s10: 2, s25: 2, s150: 2, ahead: { d0: 2, d1: 2, d3: 2, d5: 2, d10: 2, d20: 2 } });
-    // the late entries are bought and followed like the others
-    assert.equal(s[0].entries.d20!.price, STAKE_SOL / 1000);
-    assert.equal(s[0].exits.d5.x60, 0.24);
-    assert.equal(s[0].exits.d20.x0, undefined, "only the fastest entry is priced for an instant round trip");
-    // 6 entries (3 of them late on purpose), 7 exits each, the instant round trip, the 5 extra early checks of the
-    // exit study; its 3 long checks follow after the signal is saved
-    // plus the size check: 3 other stakes, each one buy quote and 4 sale quotes
-    assert.ok(quotes >= 6 + 6 * 7 + 1 + 5 + 15 && quotes <= 6 + 6 * 7 + 1 + 8 + 15);
-    assert.deepEqual(Object.keys(s[0].sizes!).sort(), ["0.05", "1", "3"]);
-    assert.deepEqual(s[0].sizes!["1"], { x0: 0.24, x10: 0.24, x30: 0.24, x60: 0.24 });
+    assert.deepEqual(s[0].crowd, { same: 1, s10: 2, s25: 2, s150: 2, ahead: { d0: 2, d1: 2, d3: 2 } }, "the late entries (5, 10, 20 s) are no longer measured");
+    assert.equal(s[0].entries.d20, undefined);
+    assert.equal(s[0].exits.d3.x60, 0.24);
+    assert.equal(s[0].exits.d3.x0, undefined, "only the fastest entry is priced for an instant round trip");
+    // 3 entries, 7 exits each, the instant round trip, the 5 extra early checks of the exit study; its 3 long
+    // checks follow after the signal is saved; plus the size check: one other stake, a buy quote and 4 sale quotes.
+    // About half of the 72 a buy took before 12 Nov 2026: the real test shares the price service's limit.
+    assert.ok(quotes >= 3 + 3 * 7 + 1 + 5 + 5 && quotes <= 3 + 3 * 7 + 1 + 8 + 5, `${quotes} price requests`);
+    assert.deepEqual(Object.keys(s[0].sizes!).sort(), ["0.05"], "of the other stakes only the real test's own is still measured");
+    assert.deepEqual(s[0].sizes!["0.05"], { x0: 0.24, x10: 0.24, x30: 0.24, x60: 0.24 });
     assert.equal(s[0].path!.x1, 0.24);
     assert.equal(s[0].path!.x90, 0.24);
     void 0;
@@ -427,7 +426,15 @@ test("the real test first: paper quotes wait while the real test is buying and a
     return new Response(JSON.stringify(status === 200 ? { outAmount: "1000" } : { error: "Too many requests" }), { status });
   }) as unknown as typeof fetch);
   try {
-    // nothing held: answered at once
+    // the line is empty (the checks of the buys above are through) and nothing was asked in the last PAPER_GAP_MS:
+    // answered at once
+    for (let quiet = 0, last = -1; quiet < 2; ) {
+      // checks of the buys in the tests above may still be coming: wait until none has gone out for a moment
+      await _test.lane();
+      await sleep(PAPER_GAP_MS + 30);
+      if (calls === last) quiet++;
+      else [quiet, last] = [0, calls];
+    }
     let t = Date.now();
     assert.equal(await _test.quote(SOL, MINT, "1"), 1000n);
     assert.ok(Date.now() - t < 150);
@@ -494,4 +501,30 @@ test("refused checks: in the 80 minutes when refusals were written down as 'no p
   }
   assert.equal(new Date(REFUSED_FROM).toISOString(), "2026-11-11T15:23:26.000Z");
   assert.equal(new Date(REFUSED_TO).toISOString(), "2026-11-11T16:45:28.000Z");
+});
+
+test("walk-forward: only buys made after the pace rule was written are scored, by pace and by price gap", async () => {
+  const { walkStudy, WALK_FROM, pacesBefore } = await import("./copy.js");
+  const exits = (v: number) => ({ d0: { x0: 0.24, x2: v, x5: v, x10: v, x20: v, x30: v, x60: v, x120: v }, d1: {}, d3: {} });
+  // price paid by us against the wallet's 1e-6: 1.05e-6 = 5% above, 1.12e-6 = 12%, 1.3e-6 = 30%
+  const at = (i: number, wallet: string, price: number, out: number, ms = WALK_FROM + i * 60_000) =>
+    sig({ sig: `w${i}`, wallet, knownMs: ms, entries: { d0: { t: 0, slot: 1, tokens: "1", price }, d1: null, d3: null }, exits: exits(out) });
+  const sigs = [
+    at(-3, "busy", 1.05e-6, 0.5), at(-2, "busy", 1.05e-6, 0.5), at(-1, "busy", 1.05e-6, 0.5), // before the rule: never scored, but they make the trader busy
+    at(1, "busy", 1.05e-6, 0.2),
+    at(2, "calm", 1.05e-6, 0.3),
+    at(3, "calm2", 1.12e-6, 0.26),
+    at(4, "calm3", 1.3e-6, 0.2),
+  ];
+  const w = walkStudy(sigs, pacesBefore(sigs));
+  assert.equal(w.buys, 4);
+  assert.equal(w.since, "2026-11-11T16:15:00.000Z");
+  const cell = (pace: string, gap: string) => w.cells.find((c) => c.pace === pace && c.gap === gap)!;
+  assert.deepEqual([cell("calm", "under 9%").t30.n, cell("calm", "9% to 15%").t30.n, cell("calm", "15% and more").t30.n, cell("calm", "any").t30.n], [1, 1, 1, 3]);
+  assert.deepEqual([cell("busy", "under 9%").t30.n, cell("busy", "any").t30.n, cell("all", "any").t30.n, cell("all", "under 9%").t60.n], [1, 1, 4, 2]);
+  assert.equal(cell("calm", "under 9%").t30.won, 1);
+  assert.equal(cell("busy", "under 9%").t30.won, 0);
+  assert.ok(cell("calm", "under 9%").t30.avgRetPct! > 15);
+  assert.equal(w.cells.length, 12);
+  assert.equal(JSON.stringify(w).includes("calm2"), false, "numbers only");
 });

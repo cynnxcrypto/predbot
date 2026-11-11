@@ -11,7 +11,7 @@ import { appendFileSync, mkdirSync, readFileSync, renameSync, writeFileSync } fr
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { DATA } from "../config.js";
-import { crowd, DELAYS, EXITS, followerPrice, fomoStudy, LATE, parseBuy, parseDollarBuy, PATH, SIZE_EXITS, SIZES, STAKE_SOL, paceAt, summarize, TX_SOL, unrefuse, verdictAt, type Entry, type Pace, type ParsedTx, type Signal, type Verdict } from "./copy.js";
+import { crowd, DELAYS, EXITS, followerPrice, fomoStudy, parseBuy, parseDollarBuy, PATH, SIZE_EXITS, SIZES, STAKE_SOL, paceAt, summarize, TX_SOL, unrefuse, verdictAt, type Entry, type Pace, type ParsedTx, type Signal, type Verdict } from "./copy.js";
 import { SOL, USDC } from "./pools.js";
 import { discoverSummary, foundWallets, startDiscover, stopDiscover } from "./discover.js";
 import { historySummary, startHistory, stopHistory } from "./history.js";
@@ -52,7 +52,7 @@ export function scrub(s: string): string {
 const health = {
   startedAt: 0, feed: "public", stream: "not tried", streamTx: 0, quotes: "none", wsUp: false, wallets: 0, found: 0, fomo: 0, tails: 0, subs: 0, badWallets: [] as string[],
   senderPingMs: {} as Record<string, number | null>, quoteMsMedian: null as number | null,
-  txSeen: 0, buys: 0, skippedBusy: 0, active: 0, rpcErrors: 0, quoteErrors: 0, quoteOk: 0, quoteRefused: 0, quoteHeld: 0, quoteLost: 0, lastError: "",
+  txSeen: 0, buys: 0, skippedBusy: 0, active: 0, rpcErrors: 0, quoteErrors: 0, quoteOk: 0, quoteRefused: 0, quoteHeld: 0, quoteLost: 0, quoteWaitMsMedian: null as number | null, quoteWaitMsP90: null as number | null, lastError: "",
 };
 const fail = (e: unknown) => (health.lastError = scrub(String((e as Error)?.message ?? e)));
 
@@ -95,19 +95,43 @@ const PAPER_BACKOFF_MS = 1500;
  * Paper quotes leave one at a time, PAPER_GAP_MS apart. Before 12 Nov 2026 01:20 KST every quote that had been held
  * left at the same instant when the hold ended; the price service refused them in the hundreds (321 refusals in
  * half an hour) and each refusal held the rest again.
+ * 12 Nov 2026 03:00 KST: at 25 ms apart (40 a second in a burst) the price service still refused 498 paper
+ * requests in half an hour, and the REAL test, which shares the key, had 6 buys refused and 22 asked twice in
+ * 40 minutes. Now 5 a second at most, and each buy asks for about half as much (see MEASURED_LATE and
+ * MEASURED_SIZES). health.quoteWaitMs* says how long a paper request stands in line: if that grows, the checks
+ * are being taken late and the paper test asks for too much again.
  */
-export const PAPER_GAP_MS = 25;
+export const PAPER_GAP_MS = 200;
 /** How often a paper quote the price service refused for asking too fast is asked again. */
 export const PAPER_RETRIES = 2;
+/**
+ * What each buy is still measured for. The late entries (5, 10, 20 s after we know) and the stakes of 1 and 3 SOL
+ * are settled questions: 579 buys say every late entry loses (5 s later: -5.5% a trade), and 625 say an in-and-out
+ * costs 6% at 1 SOL and 12% at 3 SOL. They were 34 of the about 72 price requests a buy took. The buys measured
+ * before keep their numbers; lateStudy and the 1 and 3 SOL rows of sizeStudy stand still from here.
+ */
+export const MEASURED_LATE: readonly number[] = [];
+export const MEASURED_SIZES: readonly number[] = SIZES.filter((x) => x < 1);
+const waits: number[] = [];
+let lastOut = 0;
 let lane: Promise<void> = Promise.resolve();
 function paperTurn(): Promise<void> {
+  const asked = Date.now();
   const mine = lane.then(async () => {
     if (Date.now() < holdUntil) {
       health.quoteHeld++;
       // at most 6 s in all, so a string of real copies can delay a paper check but never stop it
       for (let waited = 0; Date.now() < holdUntil && waited < 6000; waited += 50) await sleep(50);
     }
-    await sleep(PAPER_GAP_MS);
+    // the gap is between two requests going out, so a request that finds the line empty leaves at once
+    const wait = lastOut + PAPER_GAP_MS - Date.now();
+    if (wait > 0) await sleep(wait);
+    lastOut = Date.now();
+    waits.push(lastOut - asked);
+    if (waits.length > 500) waits.shift();
+    const sorted = [...waits].sort((a, b) => a - b);
+    health.quoteWaitMsMedian = sorted[sorted.length >> 1];
+    health.quoteWaitMsP90 = sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * 0.9))];
   });
   lane = mine.catch(() => undefined);
   return mine;
@@ -374,7 +398,7 @@ async function onTx(w: Tracked, sig: string, seenMs: number, ready: ParsedTx | n
     const dec = await tokenDecimals(buy.mint).catch(() => 6);
     const stake = String(Math.round(STAKE_SOL * 1e9));
     // the size check: the same copy at other stakes, priced now and sold again at a few fixed times
-    const sized = SIZES.map(async (sol) => {
+    const sized = MEASURED_SIZES.map(async (sol) => {
       const out = await quote(SOL, buy.mint, String(Math.round(sol * 1e9)));
       if (!out) return;
       const t = Date.now();
@@ -387,7 +411,7 @@ async function onTx(w: Tracked, sig: string, seenMs: number, ready: ParsedTx | n
       }));
       (s.sizes ??= {})[String(sol)] = got;
     });
-    await Promise.all([...sized, ...[...DELAYS, ...LATE].map(async (d) => {
+    await Promise.all([...sized, ...[...DELAYS, ...MEASURED_LATE].map(async (d) => {
       const at = knownMs + d * 1000;
       await sleep(Math.max(0, at - Date.now()));
       const out = await quote(SOL, buy.mint, stake, d === 0);
@@ -660,7 +684,7 @@ export function stopSolanaCopy() {
 }
 
 /** Test hooks. */
-export const _test = { quote, health: () => health, onTx, setNet: (f: Fetch) => (net = f), setSlot: (n: number) => (slotNow = n), setSolUsd: (v: number | null) => (solUsd = v), signals: () => signals, load: () => load() };
+export const _test = { quote, health: () => health, onTx, setNet: (f: Fetch) => (net = f), setSlot: (n: number) => (slotNow = n), setSolUsd: (v: number | null) => (solUsd = v), signals: () => signals, load: () => load(), lane: () => lane };
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   console.log(`solana copy test: ${WALLETS.length} wallets, helius key ${helius() ? "yes" : "no"}, jupiter key ${jupiter() ? "yes" : "no"}`);
