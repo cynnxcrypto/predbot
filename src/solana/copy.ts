@@ -363,6 +363,13 @@ export function summarize(sigs: Signal[], solUsd: number | null) {
     ...DELAYS.flatMap((d) => EXITS.map((x) => ({ id: ruleId(d, x), text: ruleText(d, x), ...score(sigs, (s) => ret(s, d, x), solUsd) }))),
     ...DELAYS.flatMap((d) => TARGETS.map((tp) => ({ id: scalpId(d, tp), text: scalpText(d, tp), ...score(sigs, (s) => scalp(s, d, tp), solUsd) }))),
     ...STOPS.map(([tp, sl]) => ({ id: stopId(tp, sl), text: stopText(tp, sl), ...score(sigs, (s) => scalpStop(s, tp, sl), solUsd) })),
+    // Round 352 (18:10 KST 11 Nov 2026, MAIN). Exit study, 72 fast-stream buys: with 10+ follower transactions in ~4 s the
+    // fastest copy is up at 5 s in 17 of 32 (avg +8.2% at 30 s); with fewer it is up in 7 of 30 and loses at every hold.
+    // The fastest copy cannot know the wave yet, so these wait for it and pay the later price: buy 3 s after we know,
+    // only when the wave is there (the count runs to ~4 s, so the first has about 1 s of hindsight; the second uses
+    // only followers already in the wallet's own block). Same exit: +10% or 60 s.
+    { id: "copy-d3-wave10-tp10-t60", text: `When a tracked wallet buys and 10 or more other wallets follow within about 4 s, buy ${STAKE_SOL} SOL of the same token 3 s after we know, sell as soon as it is up 10% after costs, and sell anyway after ${TIME_STOP} s.`, ...score(sigs, (s) => (s.crowd && s.crowd.s10 >= 10 ? scalp(s, 3, 10) : undefined), solUsd) },
+    { id: "copy-d1-same2-tp10-t60", text: `When a tracked wallet buys and 2 or more other wallets bought in the same block, buy ${STAKE_SOL} SOL of the same token 1 s after we know, sell as soon as it is up 10% after costs, and sell anyway after ${TIME_STOP} s.`, ...score(sigs, (s) => (s.crowd && s.crowd.same >= 2 ? scalp(s, 1, 10) : undefined), solUsd) },
     ...[300, 600].map((x) => ({ id: ruleId(0, x), text: ruleText(0, x), ...score(sigs, (s) => pathRet(s, x), solUsd) })),
     ...TRAILS.map((t) => ({ id: trailId(t), text: trailText(t), ...score(sigs, (s) => trail(s, t), solUsd) })),
   ];
