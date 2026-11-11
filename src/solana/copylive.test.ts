@@ -13,7 +13,7 @@ const { HARD_MAX_LOSS_SOL, HARD_STAKE_SOL, parseLive, solanaCopyLiveSummary, tra
 const { _test: run } = await import("./copyrun.js");
 const { buildSigned, wallet } = await import("./keys.js");
 const { base58 } = await import("./whirlpool.js");
-const { recoverMany, HARD_MAX_OPEN, solanaCopyLiveQuiet, solanaCopyLiveWaiting } = await import("./copylive.js");
+const { recoverMany, HARD_MAX_OPEN, solanaCopyLiveQuiet, solanaCopyLiveWaiting, whyNotSent } = await import("./copylive.js");
 type Row = import("./copylive.js").Row;
 type LiveConfig = import("./copylive.js").LiveConfig;
 
@@ -201,7 +201,7 @@ test("entry filter: a buy whose quote is not far enough above the wallet's price
   // a skipped buy does not hold back the next one: this comes right after and goes ahead (the made-up swap call fails)
   gap = 12;
   await trade(signal());
-  assert.equal(log.swaps, 1, "12% above the wallet's price: the order is built");
+  assert.equal(log.swaps, 2, "12% above the wallet's price: the order is built (the made-up build fails, so it is tried once more)");
   assert.equal(log.sends, 0);
   assert.deepEqual({ buy: st().rows[0].buy, quoteGapPct: st().rows[0].quoteGapPct, trades: st().trades }, { buy: "not sent", quoteGapPct: 12, trades: 0 });
   const s = solanaCopyLiveSummary();
@@ -213,7 +213,7 @@ test("entry filter: a buy whose quote is not far enough above the wallet's price
   _test.setConfig(CFG);
   const all = entry(() => raw(1));
   await trade(signal());
-  assert.equal(all.swaps, 1);
+  assert.equal(all.swaps, 2);
   assert.equal(_test.state().rows[0].quoteGapPct, 1);
   assert.match(solanaCopyLiveSummary().entryRule, /every first buy/);
   run.setNet(fetch);
@@ -248,7 +248,7 @@ test("wallet check: money put in beyond what was agreed stops buying and says so
     _test.state().netSol = 0.2;
     log = net(0.75e9);
     await trade(signal());
-    assert.equal(log.quotes, 1);
+    assert.ok(log.quotes > 0, "it goes on to price the buy");
     assert.equal(_test.state().note, "");
     // winnings and more on top: stops again
     _test.reset();
@@ -283,7 +283,7 @@ test("daily count: stops the day only when a limit is set", async () => {
   _test.setConfig(CFG);
   log = entry(() => raw(1));
   await trade(signal());
-  assert.equal(log.quotes, 1);
+  assert.ok(log.quotes > 0, "it goes on to price the buy");
   assert.equal(_test.state().note, "");
   run.setNet(fetch);
   _test.setConfig(null);
@@ -389,6 +389,8 @@ function chain(worth: (mint: string) => number) {
     built: new Map<string, { kind: "buy" | "sell"; mint: string; out: number }>(),
     txs: new Map<string, { pre: number; post: number; ok: boolean }>(),
     stuck: new Set<string>(), hidden: new Set<string>(),
+    // the price service misbehaving: buy orders it fails to build, coins it has no route for, and the buy quotes it gives next
+    failBuild: 0, noRoute: new Set<string>(), code: "COULD_NOT_FIND_ANY_ROUTE", buyOut: [] as string[],
     apply(sig: string, delta: number, ok: boolean) {
       c.txs.set(sig, { pre: c.lamports, post: c.lamports + delta, ok });
       c.lamports += delta;
@@ -408,10 +410,16 @@ function chain(worth: (mint: string) => number) {
       c.quotes++;
       const u = new URL(url).searchParams;
       const [i, o] = [u.get("inputMint")!, u.get("outputMint")!];
+      if (i === SOLMINT && c.noRoute.has(o)) return new Response(JSON.stringify({ error: "Could not find any route", errorCode: c.code }), { status: 400 });
+      if (i === SOLMINT && c.buyOut.length) return json({ outAmount: c.buyOut.shift(), inputMint: i, outputMint: o });
       return json(i === SOLMINT ? { outAmount: "5000000000", inputMint: i, outputMint: o } : { outAmount: String(Math.round(worth(i) * 1e9)), inputMint: i, outputMint: o });
     }
     if (url.includes("/swap/v1/swap")) {
       const q = (JSON.parse(init!.body!) as { quoteResponse: { inputMint: string; outputMint: string; outAmount: string } }).quoteResponse;
+      if (q.inputMint === SOLMINT && c.failBuild > 0) {
+        c.failBuild--;
+        return new Response(JSON.stringify({ error: "internal" }), { status: 500 });
+      }
       const tx = buildSigned(w, SYSTEM, SYSTEM, [{ pubkey: w.address, writable: true }], [++c.n]);
       c.built.set(sigOfTx(tx), q.inputMint === SOLMINT ? { kind: "buy", mint: q.outputMint, out: 0 } : { kind: "sell", mint: q.inputMint, out: Number(q.outAmount) });
       return json({ swapTransaction: tx });
@@ -644,6 +652,65 @@ test("before a restart: no new copy is started, the coins that are out are sold,
   const sends = c.sends;
   await trade(signal({ mint: COIN.c, knownMs: old() }));
   assert.deepEqual({ trades: _test.state().trades, missed: _test.state().missedRestart, sends: c.sends - sends }, { trades: 0, missed: 1, sends: 0 });
+  run.setNet(fetch);
+  _test.setConfig(null);
+  _test.reset();
+});
+
+test("a buy order the price service fails to build is tried once more, with a fresh price that must pass the entry rule again", async () => {
+  const start = () => {
+    _test.reset();
+    _test.ready();
+    _test.forgetCloses();
+    _test.setPoll(20);
+    _test.setConfig({ ...MANY, holdSec: 1, minGapPct: 9 });
+    return chain((mint) => (mint === COIN.a ? 0.06 : 0.045));
+  };
+  const st = _test.state;
+  // fails once: the second try goes out, with the gap of the fresh quote on the row
+  let c = start();
+  c.failBuild = 1;
+  c.buyOut = [raw(20), raw(15)];
+  await trade(signal({ mint: COIN.a, knownMs: old() }));
+  assert.deepEqual({ rows: st().rows.length, buy: st().rows[0].buy, gap: st().rows[0].quoteGapPct, rebuilt: st().rebuilt, exit: st().rows[0].exit }, { rows: 1, buy: "landed", gap: 15, rebuilt: 1, exit: "target" });
+  assert.equal(solanaCopyLiveSummary().rebuiltBuys, 1);
+  // a second copy that runs out of time: the entry rule's own totals count both, with target sales and time-ups apart
+  c.buyOut = [raw(12)];
+  await trade(signal({ mint: COIN.b, knownMs: old() }));
+  const e = solanaCopyLiveSummary().entryRuleCopies!;
+  const [won, lost] = [st().rows[0].netSol, st().rows[1].netSol];
+  assert.ok(won > 0 && lost < 0);
+  assert.deepEqual({ ...e, netSol: 0 }, { minGapPct: 9, copies: 2, landed: 2, won: 1, netSol: 0, targetSales: 1, targetSalesSol: Math.round(won * 1e6) / 1e6, timeUps: 1, timeUpsWon: 0, timeUpsSol: Math.round(lost * 1e6) / 1e6, otherSol: 0, rowsKept: 2 });
+  assert.ok(Math.abs(e.netSol - (won + lost)) < 1e-6);
+  assert.equal(st().driftSol, 0, "the books still equal the wallet");
+  // fails once, and the fresh price is no longer far enough above the wallet's: no copy, no row, nothing sent
+  c = start();
+  c.failBuild = 1;
+  c.buyOut = [raw(20), raw(5)];
+  await trade(signal({ mint: COIN.a, knownMs: old() }));
+  assert.deepEqual({ rows: st().rows.length, low: st().skippedLowGap, sends: c.sends, opens: st().opens.length }, { rows: 0, low: 1, sends: 0, opens: 0 });
+  // fails twice: that is final, and the status says why in our own words
+  c = start();
+  c.failBuild = 2;
+  c.buyOut = [raw(20), raw(20)];
+  await trade(signal({ mint: COIN.a, knownMs: old() }));
+  assert.deepEqual({ buy: st().rows[0].buy, error: st().rows[0].error, sends: c.sends, opens: st().opens.length }, { buy: "not sent", error: "jupiter /swap/v1/swap http 500", sends: 0, opens: 0 });
+  // no route for the coin: Jupiter's own code is kept, anything that is not a plain code is not
+  c.noRoute.add(COIN.b);
+  await wait(250);
+  await trade(signal({ mint: COIN.b, knownMs: old() }));
+  assert.equal(st().rows[1].error, "jupiter /swap/v1/quote http 400 COULD_NOT_FIND_ANY_ROUTE");
+  c.code = "see https://example.com/?key=abc";
+  c.noRoute.add(COIN.c);
+  await wait(250);
+  await trade(signal({ mint: COIN.c, knownMs: old() }));
+  assert.equal(st().rows[2].error, "jupiter /swap/v1/quote http 400");
+  const sum = solanaCopyLiveSummary();
+  assert.deepEqual(sum.notSent, { n: 3, why: { "the price service could not build the order": 1, "the price service has no route for the coin": 2 } });
+  assert.equal(sum.entryRuleCopies!.copies, 0, "a buy that was never sent is not a copy");
+  assert.equal(whyNotSent("jupiter /swap/v1/quote http 429"), "the price service refused: too many requests");
+  assert.equal(whyNotSent("fetch failed"), "network error or time-out");
+  assert.equal(whyNotSent("something new"), "other");
   run.setNet(fetch);
   _test.setConfig(null);
   _test.reset();

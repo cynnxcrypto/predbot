@@ -181,6 +181,8 @@ interface State {
   missedCap: number;
   /** buys let go because an update was about to restart the bot */
   missedRestart: number;
+  /** buy orders that had to be built a second time (the price service answered 5xx the first time) */
+  rebuilt?: number;
   unreadTx: number;
   rows: Row[];
 }
@@ -271,7 +273,12 @@ async function jup<T>(path: string, body?: unknown): Promise<T> {
     ...(body ? { body: JSON.stringify(body) } : {}),
     signal: AbortSignal.timeout(5000),
   });
-  if (!res.ok) throw new Error(`jupiter ${path.split("?")[0]} http ${res.status}`);
+  if (!res.ok) {
+    // Jupiter's own error code says why (no route, coin not tradable...). Only capital letters and underscores are
+    // taken over, so nothing else can ride along into the log or the status.
+    const code = await (async () => String(((await res.json()) as { errorCode?: unknown })?.errorCode ?? ""))().catch(() => "");
+    throw new Error(`jupiter ${path.split("?")[0]} http ${res.status}${/^[A-Z_]{3,40}$/.test(code) ? ` ${code}` : ""}`);
+  }
   return (await res.json()) as T;
 }
 const quote = (inMint: string, outMint: string, amount: string, slippageBps: number) =>
@@ -284,6 +291,34 @@ async function swapTx(quoteResponse: unknown, address: string, maxLamports: numb
   if (!j.swapTransaction) throw new Error("jupiter swap: no transaction");
   return j.swapTransaction;
 }
+/**
+ * Build the buy order for a quote that passed the entry rule. The price service sometimes fails right here (http 5xx)
+ * on a buy it has just priced: 4 buys were lost that way on 11 Nov 2026, at least 2 of them past the 9% rule. So one
+ * more try, with a fresh quote that must pass the entry rule again (null = it no longer does: no copy). A second
+ * failure is final. Nothing is signed or sent in here.
+ */
+async function buildBuy(q: { outAmount?: string }, b: StreamBuy, c: LiveConfig, address: string, row: Row): Promise<string | null> {
+  try {
+    return await swapTx(q, address, c.maxFeeLamports);
+  } catch (e) {
+    if (!/ http 5\d\d/.test(String((e as Error).message))) throw e;
+    state.rebuilt = (state.rebuilt ?? 0) + 1;
+    const again = await quote(SOL, b.mint, String(Math.round(c.stakeSol * 1e9)), c.slippageBps);
+    if (!again.outAmount || again.outAmount === "0") throw e;
+    const gap = b.leaderPrice > 0 && b.decimals !== undefined ? (c.stakeSol / (Number(again.outAmount) / 10 ** b.decimals) / b.leaderPrice - 1) * 100 : null;
+    row.quoteGapPct = gap !== null && Number.isFinite(gap) ? Math.round(gap * 100) / 100 : undefined;
+    if (c.minGapPct > 0 && !(row.quoteGapPct !== undefined && row.quoteGapPct >= c.minGapPct)) return null;
+    return await swapTx(again, address, c.maxFeeLamports);
+  }
+}
+/** Why a buy was never sent, in our own fixed words (the raw text stays in the server's file). */
+const WHY_NOT: readonly [RegExp, string][] = [
+  [/ http 429/, "the price service refused: too many requests"],
+  [/quote http 4\d\d|no buy quote/, "the price service has no route for the coin"],
+  [/swap http|no transaction/, "the price service could not build the order"],
+  [/fetch failed|timeout|timed out|aborted|rpc/i, "network error or time-out"],
+];
+export const whyNotSent = (e = "") => WHY_NOT.find(([re]) => re.test(e))?.[1] ?? "other";
 const send = (b64: string) => rpc<string>("sendTransaction", [b64, { encoding: "base64", skipPreflight: true, maxRetries: 0 }]);
 const balance = async (address: string) => (await rpc<{ value: number }>("getBalance", [address, { commitment: "processed" }])).value / 1e9;
 
@@ -579,7 +614,15 @@ export async function trade(b: StreamBuy) {
       return;
     }
     const t1 = performance.now();
-    const tx = signTransaction(await swapTx(q, w.address, c.maxFeeLamports), w);
+    const built = await buildBuy(q, b, c, w.address, row);
+    if (built === null) {
+      // the order could not be built, and the fresh price no longer passes the entry rule: no copy
+      if (row.quoteGapPct === undefined) state.skippedNoPrice++;
+      else state.skippedLowGap++;
+      lastAt = prevAt;
+      return;
+    }
+    const tx = signTransaction(built, w);
     const t2 = performance.now();
     const sig = sigOf(tx);
     // Written to disk before the order leaves: a restart in the middle (every deploy restarts the bot) finds this
@@ -843,7 +886,15 @@ async function tradeMany(b: StreamBuy, c: LiveConfig) {
       return;
     }
     const t1 = performance.now();
-    const tx = signTransaction(await swapTx(q, w.address, c.maxFeeLamports), w);
+    const built = await buildBuy(q, b, c, w.address, row);
+    if (built === null) {
+      // the order could not be built, and the fresh price no longer passes the entry rule: no copy
+      if (row.quoteGapPct === undefined) state.skippedNoPrice++;
+      else state.skippedLowGap++;
+      lastAt = prevAt;
+      return;
+    }
+    const tx = signTransaction(built, w);
     const t2 = performance.now();
     const sig = sigOf(tx);
     // written to disk before the order leaves, with the order's id: a restart finds it, sells, and counts it
@@ -1015,6 +1066,10 @@ export function solanaCopyLiveSummary() {
   const land = rows.filter((r) => r.buy === "landed");
   // the copies made since the exit became "target or time", counted apart from the fixed-hold ones before them
   const aimed = rows.filter((r) => r.exit);
+  const unsent = rows.filter((r) => r.buy === "not sent");
+  // sent with a price gap on file that passes the entry rule in force (a rule changed later re-reads the old rows)
+  const gapped = rows.filter((r) => r.buy !== "not sent" && r.quoteGapPct !== undefined && r.quoteGapPct >= c.minGapPct);
+  const sol = (list: Row[]) => Math.round(list.reduce((a, r) => a + r.netSol, 0) * 1e6) / 1e6;
   return {
     mode: "REAL",
     on: c.on && !state.halted && walletReady,
@@ -1063,6 +1118,26 @@ export function solanaCopyLiveSummary() {
     missedNearCap: state.missedCap ?? 0,
     // buys let go in the last minute or so before an update restarted the bot (so that no copy is cut off)
     missedBeforeRestart: state.missedRestart ?? 0,
+    // buy orders the price service failed to build at first (http 5xx) and that were tried once more
+    rebuiltBuys: state.rebuilt ?? 0,
+    // buys that were never sent (nothing bought, no fee), with the reason in fixed words
+    notSent: { n: unsent.length, why: unsent.reduce<Record<string, number>>((a, r) => ((a[whyNotSent(r.error)] = (a[whyNotSent(r.error)] ?? 0) + 1), a), {}) },
+    // The copies made under the entry rule in force, counted here over every row kept (the last 200), because the
+    // rows in `recent` are only the last 40. Target sales and time-ups with their own sums, like targetExit.
+    entryRuleCopies: c.minGapPct > 0 ? {
+      minGapPct: c.minGapPct,
+      copies: gapped.length,
+      landed: gapped.filter((r) => r.buy === "landed").length,
+      won: gapped.filter((r) => r.netSol > 0).length,
+      netSol: sol(gapped),
+      targetSales: gapped.filter((r) => r.exit === "target").length,
+      targetSalesSol: sol(gapped.filter((r) => r.exit === "target")),
+      timeUps: gapped.filter((r) => r.exit === "time").length,
+      timeUpsWon: gapped.filter((r) => r.exit === "time" && r.netSol > 0).length,
+      timeUpsSol: sol(gapped.filter((r) => r.exit === "time")),
+      otherSol: sol(gapped.filter((r) => r.exit !== "target" && r.exit !== "time")),
+      rowsKept: rows.length,
+    } : null,
     targetExit: {
       copies: aimed.length,
       atTarget: aimed.filter((r) => r.exit === "target").length,
