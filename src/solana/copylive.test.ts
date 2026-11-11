@@ -13,7 +13,7 @@ const { HARD_MAX_LOSS_SOL, HARD_STAKE_SOL, parseLive, solanaCopyLiveSummary, tra
 const { _test: run, shared } = await import("./copyrun.js");
 const { buildSigned, wallet } = await import("./keys.js");
 const { base58 } = await import("./whirlpool.js");
-const { recoverMany, HARD_MAX_OPEN, solanaCopyLiveQuiet, solanaCopyLiveWaiting, whyNotSent, MIN_STOP_PCT, exitKey, heldTogether, REQUOTE_MS } = await import("./copylive.js");
+const { recoverMany, HARD_MAX_OPEN, solanaCopyLiveQuiet, solanaCopyLiveWaiting, whyNotSent, MIN_STOP_PCT, exitKey, heldTogether, REQUOTE_MS, PIPE, speedOf, byLanding } = await import("./copylive.js");
 type Row = import("./copylive.js").Row;
 type LiveConfig = import("./copylive.js").LiveConfig;
 
@@ -787,6 +787,106 @@ test("a buy quote refused for asking too fast is asked again, and the paper test
     _test.setConfig(null);
     _test.reset();
   }
+});
+
+test("speed: the balance is read while the price is asked, and nothing is signed before it is known and inside the limits", async () => {
+  const st = _test.state;
+  /** the made-up chain, with a slow balance read and a record of the order the calls were made in */
+  const start = (lastSeenSol: number | null) => {
+    _test.reset();
+    _test.ready();
+    _test.forgetCloses();
+    _test.setPoll(20);
+    _test.setConfig({ ...MANY, holdSec: 1, minGapPct: 9 });
+    const c = chain(() => 0.06);
+    st().balanceSol = lastSeenSol;
+    const inner = shared.fetch();
+    const order: string[] = [];
+    run.setNet((async (url: string, init?: { body?: string }) => {
+      const what = url.includes("/swap/v1/quote") ? "quote" : url.includes("/swap/v1/swap") ? "build" : (JSON.parse(init!.body!) as { method: string }).method;
+      if (what !== "getBalance") return order.push(what), inner(url, init as never);
+      order.push("balance asked");
+      await wait(60);
+      const r = await inner(url, init as never);
+      order.push("balance known");
+      return r;
+    }) as never);
+    return { c, order, first: (x: string) => order.indexOf(x) };
+  };
+  try {
+    // the last balance seen was fine: the price is asked while the balance is still being read, and the order
+    // leaves only once the balance is known
+    let f = start(0.45);
+    f.c.buyOut = [raw(20)];
+    await trade(signal({ mint: COIN.a, knownMs: old() }));
+    assert.ok(f.first("balance asked") < f.first("quote") && f.first("quote") < f.first("balance known"), "price asked before the balance is back");
+    assert.ok(f.first("balance known") < f.first("sendTransaction"), "nothing sent before the balance is known");
+    assert.deepEqual({ buy: st().rows[0].buy, pipe: st().rows[0].pipe, pre: typeof st().rows[0].preMs, note: st().note }, { buy: "landed", pipe: PIPE, pre: "number", note: "" });
+    const way = solanaCopyLiveSummary().speedByWay;
+    assert.deepEqual([way.length, way[0].way, way[0].copies, way[0].landed], [1, 2, 1, 1]);
+    // the wallet has run low since the last look: the price was asked, but nothing is signed or sent
+    f = start(0.45);
+    f.c.lamports = 0.05e9;
+    f.c.buyOut = [raw(20)];
+    await trade(signal({ mint: COIN.a, knownMs: old() }));
+    assert.deepEqual({ sends: f.c.sends, rows: st().rows.length, opens: st().opens.length, note: st().note, seen: st().balanceSol }, { sends: 0, rows: 0, opens: 0, note: "wallet balance too low for a copy", seen: 0.05 });
+    // and from then on the balance is read first again: no price is asked for nothing
+    const asked = f.c.quotes;
+    await trade(signal({ mint: COIN.b, knownMs: old() }));
+    assert.deepEqual({ quotes: f.c.quotes - asked, sends: f.c.sends }, { quotes: 0, sends: 0 });
+    // more in the wallet than was agreed, found only by the fresh read: nothing is signed or sent either
+    f = start(0.45);
+    f.c.lamports = 0.75e9;
+    f.c.buyOut = [raw(20)];
+    await trade(signal({ mint: COIN.a, knownMs: old() }));
+    assert.equal(f.c.sends, 0);
+    assert.match(st().note, /more than was agreed/);
+    // the balance cannot be read: the copy stops there, and the status says why
+    f = start(0.45);
+    f.c.buyOut = [raw(20)];
+    const inner = shared.fetch();
+    run.setNet((async (url: string, init?: { body?: string }) => {
+      if (!url.includes("/swap/") && (JSON.parse(init!.body!) as { method: string }).method === "getBalance") return new Response("no", { status: 503 });
+      return inner(url, init as never);
+    }) as never);
+    await trade(signal({ mint: COIN.a, knownMs: old() }));
+    assert.deepEqual({ sends: f.c.sends, buy: st().rows[0].buy, why: whyNotSent(st().rows[0].error) }, { sends: 0, buy: "not sent", why: "network error or time-out" });
+    // a buy the entry rule lets go: no order, and the balance that was read is still taken note of
+    f = start(0.45);
+    f.c.lamports = 0.44e9;
+    f.c.buyOut = [raw(5)];
+    await trade(signal({ mint: COIN.a, knownMs: old() }));
+    await wait(100);
+    assert.deepEqual({ low: st().skippedLowGap, sends: f.c.sends, rows: st().rows.length, seen: st().balanceSol }, { low: 1, sends: 0, rows: 0, seen: 0.44 });
+    // never seen a balance (a first start): read first, as before
+    f = start(null);
+    f.c.buyOut = [raw(20)];
+    await trade(signal({ mint: COIN.a, knownMs: old() }));
+    assert.ok(f.first("balance known") < f.first("quote"));
+    assert.equal(st().rows[0].buy, "landed");
+  } finally {
+    run.setNet(fetch);
+    _test.setConfig(null);
+    _test.reset();
+  }
+});
+
+test("speed: the status tells the two ways of making an order apart, and what landing a block later cost", () => {
+  const row = (over: object) => ({ t: 1, name: "x", mint: MINT, leaderSlot: 100, buy: "landed" as const, netSol: 0, sigs: [], ...over });
+  const rows = [
+    row({ slotsBehind: 1, pipelineMs: 230, quoteMs: 50, buildMs: 40, sendMs: 40, netSol: 0.004, quoteGapPct: 20, fillGapPct: 21 }),
+    row({ slotsBehind: 2, pipelineMs: 250, quoteMs: 60, buildMs: 44, sendMs: 42, netSol: -0.003, quoteGapPct: 20, fillGapPct: 24 }),
+    row({ slotsBehind: 1, pipe: 2, preMs: 3, warm: true, pipelineMs: 130, quoteMs: 30, buildMs: 40, sendMs: 40, netSol: 0.002, quoteGapPct: 16, fillGapPct: 16.5 }),
+    row({ slotsBehind: 6, pipe: 2, preMs: 5, warm: false, pipelineMs: 170, quoteMs: 70, buildMs: 40, sendMs: 40, netSol: -0.01, quoteGapPct: 30, fillGapPct: 45 }),
+    row({ buy: "not sent", pipe: 2, preMs: 4, warm: false }),
+  ];
+  assert.deepEqual(speedOf(rows.filter((r) => (r as { pipe?: number }).pipe === 2)), { copies: 2, pipelineMsMedian: 130, preMsMedian: 3, quoteMsMedian: 30, quoteMsWarmMedian: 30, quoteMsColdMedian: 70, buildMsMedian: 40, sendMsMedian: 40, landed: 2, nextBlock: 1, slotsBehindMedian: 1 });
+  assert.deepEqual(byLanding(rows), [
+    { blocksBehind: "1", copies: 2, won: 2, netSol: 0.006, slipPctMedian: 0.43 },
+    { blocksBehind: "2", copies: 1, won: 0, netSol: -0.003, slipPctMedian: 3.33 },
+    { blocksBehind: "3", copies: 0, won: 0, netSol: 0, slipPctMedian: null },
+    { blocksBehind: "4+", copies: 1, won: 0, netSol: -0.01, slipPctMedian: 11.54 },
+  ]);
 });
 
 test("traders: off unless the file says so; a bad trader's buy is let go at no cost, and each copy carries the verdict", async () => {

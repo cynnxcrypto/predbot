@@ -47,6 +47,12 @@ export const MAX_RECOVERIES = 3;
 export const HARD_MAX_OPEN = 5;
 /** With several at once: the least time between two copies starting. */
 const MANY_GAP_MS = 200;
+/**
+ * How a copy's order is made, so the speed of each way can be told apart in the status.
+ * 1: balance read, then price, then order (to 12 Nov 2026).
+ * 2: the balance is read while the price is asked and the order is built; connections are kept open between copies.
+ */
+export const PIPE = 2;
 const STUCK = "could not sell a position: tokens are still in the wallet";
 const UNREAD = "a transaction of a finished copy could not be read back: the books may be short, so nothing new is bought";
 const STATE = () => join(DATA, "solana-copylive.json");
@@ -143,6 +149,12 @@ export interface Row {
   quoteMs?: number;
   buildMs?: number;
   sendMs?: number;
+  /** ms from knowing of the wallet's buy to asking for the price (rows from PIPE 2 on) */
+  preMs?: number;
+  /** which way the order was made (see PIPE); absent = 1 */
+  pipe?: number;
+  /** the connection to the price service was still open from an earlier call when this copy asked for its price */
+  warm?: boolean;
   /** "interrupted": the bot restarted during the copy; the row is the clean-up after the restart */
   buy: "landed" | "failed on chain" | "did not land" | "not sent" | "interrupted";
   /** what the buy quote said we would pay over the wallet's price, %: known before the order is signed */
@@ -288,20 +300,60 @@ function save() {
 }
 
 // ---- network (its own calls: never queued behind the paper test's requests) ---------------------------------------
+/**
+ * Node closes a connection that has been idle for 4 s, and copies come minutes apart: nearly every copy began by
+ * opening new connections (TCP and TLS) to the price service and to the RPC. This is Node's own connection pool with
+ * a longer idle time, used for the real test's calls only. undefined (this Node has none, or it failed too often)
+ * = the calls go out exactly as before.
+ */
+export const KEEP_IDLE_MS = 120_000;
+let kept: object | undefined = (() => {
+  try {
+    void Response; // loads Node's fetch, which is what puts its pool where the next line looks
+    const g = (globalThis as unknown as Record<symbol, { constructor: new (o: object) => object } | undefined>)[Symbol.for("undici.globalDispatcher.1")];
+    return g ? new g.constructor({ keepAliveTimeout: KEEP_IDLE_MS, keepAliveMaxTimeout: KEEP_IDLE_MS }) : undefined;
+  } catch {
+    return undefined;
+  }
+})();
+let keptFailed = 0;
+/** After this many calls that failed at once on a kept connection, the kept connections are given up for good. */
+const KEPT_MAX_FAILS = 20;
+/**
+ * One request. On a kept connection when there is one; a failure that comes at once (the other side had just closed
+ * the connection) is asked again the old way, on a new connection. Every call made here may be repeated: reads,
+ * quotes, an order being built, and an already signed transaction, which the chain takes only once. A time-out or
+ * a slow failure is passed on as before. Tests put their own fetch in, and get it untouched.
+ */
+async function call(url: string, init: RequestInit): Promise<Response> {
+  const f = shared.fetch();
+  if (!kept || f !== globalThis.fetch) return f(url, init);
+  const t = Date.now();
+  try {
+    return await f(url, { ...init, dispatcher: kept } as RequestInit);
+  } catch (e) {
+    if (Date.now() - t > 250 || init.signal?.aborted) throw e;
+    if (++keptFailed >= KEPT_MAX_FAILS) kept = undefined;
+    return f(url, init);
+  }
+}
 async function rpc<T>(method: string, params: unknown[], ms = 6000): Promise<T> {
-  const res = await shared.fetch()(shared.rpcUrl(), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }), signal: AbortSignal.timeout(ms) });
+  const res = await call(shared.rpcUrl(), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }), signal: AbortSignal.timeout(ms) });
   if (!res.ok) throw new Error(`rpc ${method} http ${res.status}`);
   const j = (await res.json()) as { result?: T; error?: { message: string } };
   if (j.error) throw new Error(`rpc ${method}: ${j.error.message}`);
   return j.result as T;
 }
+/** When the price service last answered the real test: a connection used less than KEEP_IDLE_MS ago is still open. */
+let jupAt = 0;
 async function jup<T>(path: string, body?: unknown): Promise<T> {
-  const res = await shared.fetch()(`https://api.jup.ag${path}`, {
+  const res = await call(`https://api.jup.ag${path}`, {
     method: body ? "POST" : "GET",
     headers: { "x-api-key": shared.jupiter(), ...(body ? { "content-type": "application/json" } : {}) },
     ...(body ? { body: JSON.stringify(body) } : {}),
     signal: AbortSignal.timeout(5000),
   });
+  jupAt = Date.now();
   // refused for asking too fast: the paper test, which shares the key, stands back so the next ask goes through
   if (res.status === 429) shared.realFirst(2000);
   if (!res.ok) {
@@ -888,6 +940,15 @@ async function check(w: Wallet) {
   state.driftSol = Math.round((bal - state.baseSol - state.netSol) * 1e9) / 1e9;
 }
 
+/**
+ * What a fresh read of the wallet's balance says about buying: "" = go on. Too little for a copy, or more in the
+ * wallet than was agreed (the orders come from an API and are signed unread, so what is at risk is what it holds).
+ */
+function balanceNote(bal: number, c: LiveConfig): string {
+  state.balanceSol = bal;
+  return (state.note = bal < c.stakeSol + 0.02 ? "wallet balance too low for a copy" : bal > walletLimit() ? tooMuch() : "");
+}
+
 /** One real copy while others may be out. Never throws. */
 async function tradeMany(b: StreamBuy, c: LiveConfig) {
   // a copy from before the switch, the clean-up, or left-over copies being finished: wait for them
@@ -930,19 +991,18 @@ async function tradeMany(b: StreamBuy, c: LiveConfig) {
   let pos: OpenPos | null = null;
   let closed = true;
   try {
-    const bal0 = await balance(w.address);
-    state.balanceSol = bal0;
-    if (bal0 < c.stakeSol + 0.02) {
-      state.note = "wallet balance too low for a copy";
-      return;
-    }
-    if (bal0 > walletLimit()) {
-      state.note = tooMuch();
-      return;
-    }
-    // the start the books are checked against: the balance with nothing out, less the result so far
-    if (state.baseSol == null && !state.opens.length && entering === 1) state.baseSol = Math.round((bal0 - state.netSol) * 1e9) / 1e9;
-    state.note = "";
+    // The wallet's balance is read WHILE the price is asked and the order is built, not before them: one request's
+    // wait less on every copy. The checks are the same and still come before anything is signed. When the last
+    // balance seen was already outside the limits, it is read first as before, so no price is asked for nothing.
+    const alone = !state.opens.length && entering === 1;
+    const last = state.balanceSol;
+    const ahead = last != null && last >= c.stakeSol + 0.02 && last <= walletLimit();
+    const reading = balance(w.address);
+    reading.catch(() => undefined); // awaited below; a buy let go before that must not leave a failed read unhandled
+    if (!ahead && balanceNote(await reading, c)) return;
+    row.pipe = PIPE;
+    row.preMs = Date.now() - b.knownMs;
+    row.warm = Date.now() - jupAt < (kept ? KEEP_IDLE_MS : 4000);
     const t0 = performance.now();
     const q = await buyQuote(b.mint, c);
     if (!q.outAmount || q.outAmount === "0") throw new Error("no buy quote");
@@ -952,6 +1012,7 @@ async function tradeMany(b: StreamBuy, c: LiveConfig) {
       if (row.quoteGapPct === undefined) state.skippedNoPrice++;
       else state.skippedLowGap++;
       lastAt = prevAt;
+      void reading.then((v) => balanceNote(v, c), () => undefined);
       return;
     }
     const t1 = performance.now();
@@ -961,8 +1022,14 @@ async function tradeMany(b: StreamBuy, c: LiveConfig) {
       if (row.quoteGapPct === undefined) state.skippedNoPrice++;
       else state.skippedLowGap++;
       lastAt = prevAt;
+      void reading.then((v) => balanceNote(v, c), () => undefined);
       return;
     }
+    // nothing is signed until the balance is known and inside the limits (a read that failed stops the copy here)
+    const bal0 = await reading;
+    if (balanceNote(bal0, c)) return;
+    // the start the books are checked against: the balance with nothing out, less the result so far
+    if (state.baseSol == null && alone && !state.opens.length && entering === 1) state.baseSol = Math.round((bal0 - state.netSol) * 1e9) / 1e9;
     const tx = signTransaction(built, w);
     const t2 = performance.now();
     const sig = sigOf(tx);
@@ -1137,6 +1204,46 @@ export const exitKey = (c: Pick<LiveConfig, "targetPct" | "stopPct" | "holdSec">
 export const GAP_BARS = [12, 15, 20, 30] as const;
 
 /** One group of copies in numbers: how many, how many won, what they made, target sales and time-ups apart. */
+/**
+ * Where the time of a copy goes, for one way of making the order (see PIPE): from knowing of the wallet's buy to
+ * the order being sent, and how soon it landed. "Warm": the connection to the price service was still open.
+ */
+export function speedOf(list: Row[]) {
+  const sent = list.filter((r) => r.pipelineMs !== undefined);
+  const land = sent.filter((r) => r.buy === "landed");
+  const m = (f: (r: Row) => number | undefined, l = sent) => med(nums(l.map(f)));
+  return {
+    copies: sent.length,
+    pipelineMsMedian: m((r) => r.pipelineMs),
+    preMsMedian: m((r) => r.preMs),
+    quoteMsMedian: m((r) => r.quoteMs),
+    quoteMsWarmMedian: m((r) => r.quoteMs, sent.filter((r) => r.warm === true)),
+    quoteMsColdMedian: m((r) => r.quoteMs, sent.filter((r) => r.warm === false)),
+    buildMsMedian: m((r) => r.buildMs),
+    sendMsMedian: m((r) => r.sendMs),
+    landed: land.length,
+    nextBlock: land.filter((r) => r.slotsBehind === 1).length,
+    slotsBehindMedian: m((r) => r.slotsBehind, land),
+  };
+}
+/**
+ * What a block costs: the landed copies by how many blocks after the wallet's buy ours landed. `slipPctMedian` is
+ * how far the price ran between our quote and our fill (the price we paid over the price the quote said, %), the
+ * direct price of landing later. The evidence for or against paying for a faster feed.
+ */
+export function byLanding(rows: Row[]) {
+  const land = rows.filter((r) => r.buy === "landed" && typeof r.slotsBehind === "number");
+  return ([1, 2, 3, 4] as const).map((n) => {
+    const l = land.filter((r) => (n === 4 ? r.slotsBehind! >= 4 : r.slotsBehind === n));
+    return {
+      blocksBehind: n === 4 ? "4+" : String(n),
+      copies: l.length,
+      won: l.filter((r) => r.netSol > 0).length,
+      netSol: Math.round(l.reduce((a, r) => a + r.netSol, 0) * 1e6) / 1e6,
+      slipPctMedian: med(nums(l.map((r) => (r.fillGapPct !== undefined && r.quoteGapPct !== undefined ? Math.round(((100 + r.fillGapPct) / (100 + r.quoteGapPct) - 1) * 10000) / 100 : undefined)))),
+    };
+  });
+}
 function tally(list: Row[]) {
   const sol = (l: Row[]) => Math.round(l.reduce((a, r) => a + r.netSol, 0) * 1e6) / 1e6;
   const [hit, late, cut] = (["target", "time", "stop"] as const).map((x) => list.filter((r) => r.exit === x));
@@ -1237,6 +1344,10 @@ export function solanaCopyLiveSummary() {
     rebuiltBuys: state.rebuilt ?? 0,
     // buy quotes the price service refused for asking too fast (http 429) and that were asked again
     requotedBuys: state.requoted ?? 0,
+    // the speed of each way of making the order, side by side (way 2 since 12 Nov 2026), and what a block costs
+    speedByWay: [1, 2].map((way) => ({ way, ...speedOf(rows.filter((r) => (r.pipe ?? 1) === way)) })).filter((x) => x.copies),
+    byLanding: byLanding(rows),
+    keptConnections: kept ? "on" : "off",
     // buys that were never sent (nothing bought, no fee), with the reason in fixed words
     notSent: { n: unsent.length, why: unsent.reduce<Record<string, number>>((a, r) => ((a[whyNotSent(r.error)] = (a[whyNotSent(r.error)] ?? 0) + 1), a), {}) },
     // The copies made under the entry rule in force, counted here over every row kept (the last 200), because the
