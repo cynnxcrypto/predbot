@@ -87,6 +87,11 @@ export const PAIRFAST: Spec[] = [
   // sample grows, but it trades in only ~70% of windows. Does a looser favourite (55c+) keep the low lone-clip
   // share while pairing more often?
   ...base("pairfast-fav55-lock", [0], 3, 1, true, { band: [0.17, 0.83], maxPairs: 1, minBid: 0.55 }),
+  // Round 349 (15:15 KST 11 Nov 2026). The favourite-first lead was noise: fav60-lock went from +$2.48 at 49
+  // windows to -$8.32 at 59 (3 lone clips in 10 windows; now 6 lone = 10%), and every fav variant is red (-$2.70
+  // to -$19.33). All pair styles are red on BTC 5m. Last idea in this family: a lone clip is a first leg that ran
+  // out of time, so stop opening new pairs 3 minutes before the close instead of 2 (only the first 2 minutes trade).
+  ...base("pairfast-fav60-stop180-lock", [0], 3, 1, true, { band: [0.17, 0.83], maxPairs: 1, minBid: 0.6, stop: 180 }),
   // No new pair in the first 2 minutes; new pairs until 60 s before the close.
   ...base("pairfast-late-lock", [0], 3, 1, true, { band: [0.17, 0.83], maxPairs: 1, from: 120, stop: 60 }),
   // What 1-second data cannot test: pull the first-leg bid on a side the moment Binance spot has moved 1.5 bp against
