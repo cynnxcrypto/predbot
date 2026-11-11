@@ -13,7 +13,7 @@ const { HARD_MAX_LOSS_SOL, HARD_STAKE_SOL, parseLive, solanaCopyLiveSummary, tra
 const { _test: run, shared } = await import("./copyrun.js");
 const { buildSigned, wallet } = await import("./keys.js");
 const { base58 } = await import("./whirlpool.js");
-const { recoverMany, HARD_MAX_OPEN, solanaCopyLiveQuiet, solanaCopyLiveWaiting, whyNotSent, MIN_STOP_PCT, exitKey, heldTogether, REQUOTE_MS, PIPE, speedOf, byLanding } = await import("./copylive.js");
+const { recoverMany, HARD_MAX_OPEN, solanaCopyLiveQuiet, solanaCopyLiveWaiting, whyNotSent, MIN_STOP_PCT, exitKey, heldTogether, REQUOTE_MS, PIPE, speedOf, byLanding, feesOf, readFees } = await import("./copylive.js");
 type Row = import("./copylive.js").Row;
 type LiveConfig = import("./copylive.js").LiveConfig;
 
@@ -61,7 +61,7 @@ test("public summary carries numbers only", () => {
 // ---- the exit: sell at the target, else when the time is up --------------------------------------------------------
 const MINT = "9BB6NFEcjBCtnNLFko2FqVQBq8HHM13kCyYcdQbgpump";
 const SYSTEM = "11111111111111111111111111111111";
-const CFG: LiveConfig = { on: true, stakeSol: 0.05, maxLossSol: 0.5, holdSec: 60, targetPct: 10, stopPct: 0, maxPerDay: Number.MAX_SAFE_INTEGER, minGapPct: 0, maxOpen: 1, traders: "all", slippageBps: 1500, maxFeeLamports: 1_000_000 };
+const CFG: LiveConfig = { on: true, stakeSol: 0.05, maxLossSol: 0.5, holdSec: 60, targetPct: 10, stopPct: 0, maxPerDay: Number.MAX_SAFE_INTEGER, minGapPct: 0, maxOpen: 1, traders: "all", slippageBps: 1500, maxFeeLamports: 1_000_000, maxBuyFeeLamports: 1_000_000 };
 /** A made-up chain and Jupiter: `quotes` = what a sale would bring back at each ask (SOL); `fills` = whether each sale lands. */
 function fake(quotes: number[], fills: boolean[]) {
   const w = wallet();
@@ -826,7 +826,7 @@ test("speed: the balance is read while the price is asked, and nothing is signed
     assert.ok(f.first("balance known") < f.first("sendTransaction"), "nothing sent before the balance is known");
     assert.deepEqual({ buy: st().rows[0].buy, pipe: st().rows[0].pipe, pre: typeof st().rows[0].preMs, note: st().note }, { buy: "landed", pipe: PIPE, pre: "number", note: "" });
     const way = solanaCopyLiveSummary().speedByWay;
-    assert.deepEqual([way.length, way[0].way, way[0].copies, way[0].landed], [1, 2, 1, 1]);
+    assert.deepEqual([way.length, way[0].way, way[0].copies, way[0].landed], [1, PIPE, 1, 1]);
     // the wallet has run low since the last look: the price was asked, but nothing is signed or sent
     f = start(0.45);
     f.c.lamports = 0.05e9;
@@ -883,7 +883,8 @@ test("speed: the status tells the two ways of making an order apart, and what la
     row({ slotsBehind: 6, pipe: 2, preMs: 5, warm: false, pipelineMs: 170, quoteMs: 70, buildMs: 40, sendMs: 40, netSol: -0.01, quoteGapPct: 30, fillGapPct: 45 }),
     row({ buy: "not sent", pipe: 2, preMs: 4, warm: false }),
   ];
-  assert.deepEqual(speedOf(rows.filter((r) => (r as { pipe?: number }).pipe === 2)), { copies: 2, pipelineMsMedian: 130, preMsMedian: 3, quoteMsMedian: 30, quoteMsWarmMedian: 30, quoteMsColdMedian: 70, buildMsMedian: 40, sendMsMedian: 40, landed: 2, nextBlock: 1, slotsBehindMedian: 1 });
+  assert.deepEqual(speedOf(rows.filter((r) => (r as { pipe?: number }).pipe === 2)), { copies: 2, pipelineMsMedian: 130, preMsMedian: 3, quoteMsMedian: 30, quoteMsWarmMedian: 30, quoteMsColdMedian: 70, buildMsMedian: 40, sendMsMedian: 40, slow: 0, landed: 2, nextBlock: 1, slotsBehindMedian: 1 });
+  assert.equal(speedOf([...rows, row({ pipe: 2, pipelineMs: 400 })]).slow, 1, "a median hides a slow half: how many took over 250 ms is counted");
   assert.deepEqual(byLanding(rows), [
     { blocksBehind: "1", copies: 2, won: 2, netSol: 0.006, slipPctMedian: 0.43 },
     { blocksBehind: "2", copies: 1, won: 0, netSol: -0.003, slipPctMedian: 3.33 },
@@ -1025,4 +1026,75 @@ test("stop: off unless set; a copy that stays 20% down for two looks is sold at 
   run.setNet(fetch);
   _test.setConfig(null);
   _test.reset();
+});
+
+test("fees: the network fees inside the results are shown apart, and a buy may get its own lower limit", () => {
+  const row = (over: object) => ({ t: 1, name: "x", mint: MINT, leaderSlot: 100, buy: "landed" as const, netSol: 0, sigs: ["a", "b"], ...over });
+  const rows = [
+    row({ netSol: -0.004, feeSol: 0.0021, buyFeeSol: 0.001005, feeTx: 2 }),
+    row({ netSol: 0.003, feeSol: 0.0011, buyFeeSol: 0.000505, feeTx: 3 }),
+    row({ netSol: -0.002, feeSol: 0.0017, buyFeeSol: 0.000705, feeTx: 2 }),
+    row({ netSol: -0.001 }), // not read back yet: in neither sum
+    row({ buy: "not sent", feeSol: 0 }), // nothing was sent: not a copy
+  ];
+  const f = feesOf(rows, { stakeSol: 0.05, maxFeeLamports: 1_000_000, maxBuyFeeLamports: 400_000 });
+  assert.equal(f.copiesRead, 3);
+  assert.equal(f.copiesNotReadYet, 1);
+  assert.equal(f.feesSol, 0.0049);
+  assert.equal(f.resultSol, -0.003);
+  assert.equal(f.resultBeforeFeesSol, 0.0019, "what the same copies would show had the network been free");
+  assert.equal(f.perCopySolMedian, 0.0017);
+  assert.equal(f.perCopyPctOfStakeMedian, 3.4);
+  assert.equal(f.buyFeeSolMedian, 0.000705);
+  assert.equal(f.txPerCopyMedian, 2);
+  assert.equal(f.limitSol, 0.001);
+  assert.equal(f.buyLimitSol, 0.0004);
+  assert.equal(feesOf([], { stakeSol: 0.05, maxFeeLamports: 1_000_000, maxBuyFeeLamports: 1_000_000 }).perCopySolMedian, null);
+
+  const live = (o: object) => parseLive(JSON.stringify({ solanaCopy: { on: true, maxLossSol: 0.5, ...o } }));
+  assert.equal(live({}).maxBuyFeeLamports, live({}).maxFeeLamports, "unset: a buy bids as before");
+  assert.equal(live({ maxBuyFeeLamports: 300_000 }).maxBuyFeeLamports, 300_000);
+  assert.equal(live({ maxBuyFeeLamports: 300_000 }).maxFeeLamports, 1_000_000, "sales keep their limit: getting out must not wait");
+  assert.equal(live({ maxFeeLamports: 500_000, maxBuyFeeLamports: 9_000_000 }).maxBuyFeeLamports, 500_000, "never above the limit of every other transaction");
+  assert.equal(live({ maxBuyFeeLamports: 1 }).maxBuyFeeLamports, 10_000);
+  assert.equal(live({ maxBuyFeeLamports: "300000" }).maxBuyFeeLamports, 1_000_000, "a text is not a number: unchanged");
+});
+
+test("fees: read back from the chain once per copy, never while a coin is out, and a failed read is tried again", async () => {
+  _test.reset();
+  _test.ready();
+  const st = _test.state();
+  const old = Date.now() - 600_000;
+  const fees: Record<string, number | null | "fail"> = { buy1: 1_005_000, sell1: 705_000, gone1: null, buy2: 505_000, sell2: "fail", buy3: 205_000 };
+  const asked: string[] = [];
+  run.setNet((async (_url: string, init?: { body?: string }) => {
+    const { method, params } = JSON.parse(init!.body!) as { method: string; params: [string] };
+    assert.equal(method, "getTransaction", "nothing but a read");
+    asked.push(params[0]);
+    const fee = fees[params[0]];
+    if (fee === "fail") return new Response("busy", { status: 503 });
+    return new Response(JSON.stringify({ result: fee === null ? null : { meta: { fee, preBalances: [], postBalances: [] }, transaction: { message: { accountKeys: [] } } } }));
+  }) as never);
+  try {
+    st.rows.push({ ...blank(), t: old, sigs: ["buy2", "sell2"] }, { ...blank(), t: old + 1, sigs: ["buy1", "sell1", "gone1", "buy1"] }, { ...blank(), t: Date.now(), sigs: ["buy3"] }, { ...blank(), t: old + 2, buy: "not sent", sigs: [] });
+    st.opens.push({ mint: MINT, t: Date.now(), tries: 0, sigs: [] });
+    await readFees();
+    assert.deepEqual(asked, [], "a coin is out: the line is left alone");
+    st.opens.length = 0;
+    await readFees();
+    // newest first; the copy made a moment ago waits (its transactions may not be readable yet)
+    assert.deepEqual(asked, ["buy1", "sell1", "gone1", "buy2", "sell2"]);
+    const [second, first, recent] = st.rows;
+    assert.deepEqual({ feeSol: first.feeSol, buyFeeSol: first.buyFeeSol, feeTx: first.feeTx }, { feeSol: 0.00171, buyFeeSol: 0.001005, feeTx: 2 }, "a transaction that never landed cost nothing");
+    assert.equal(second.feeSol, undefined, "one of its transactions could not be read: nothing is written, it is read again later");
+    assert.equal(recent.feeSol, undefined);
+    fees.sell2 = 705_000;
+    asked.length = 0;
+    await readFees();
+    assert.deepEqual(asked, ["buy2", "sell2"], "what is read is not asked again");
+    assert.equal(second.feeSol, 0.00121);
+  } finally {
+    run.setNet(fetch);
+    _test.reset();
+  }
 });

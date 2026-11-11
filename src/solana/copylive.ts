@@ -51,8 +51,10 @@ const MANY_GAP_MS = 200;
  * How a copy's order is made, so the speed of each way can be told apart in the status.
  * 1: balance read, then price, then order (to 12 Nov 2026).
  * 2: the balance is read while the price is asked and the order is built; connections are kept open between copies.
+ * 3: as 2, but only the price service's connections are kept open (the RPC's went slow: send 81 ms against 40 on
+ *    the first 9 copies), and the paper test's price requests no longer leave in one burst beside a real copy.
  */
-export const PIPE = 2;
+export const PIPE = 3;
 const STUCK = "could not sell a position: tokens are still in the wallet";
 const UNREAD = "a transaction of a finished copy could not be read back: the books may be short, so nothing new is bought";
 const STATE = () => join(DATA, "solana-copylive.json");
@@ -94,8 +96,14 @@ export interface LiveConfig {
   slippageBps: number;
   /** most we will pay in priority fee per transaction, lamports */
   maxFeeLamports: number;
+  /**
+   * The most a buy may bid in priority fee (lamports). The bid buys a place near the front of the next block; of
+   * our first 138 landed copies the ones that landed soonest lost the most, and at 0.05 SOL a copy the fees are a
+   * large part of every result. Sales keep maxFeeLamports: getting out must not wait.
+   */
+  maxBuyFeeLamports: number;
 }
-const OFF: LiveConfig = { on: false, stakeSol: 0, maxLossSol: 0, holdSec: 5, targetPct: 0, stopPct: 0, maxPerDay: 0, minGapPct: 0, maxOpen: 1, traders: "all", slippageBps: 1500, maxFeeLamports: 0 };
+const OFF: LiveConfig = { on: false, stakeSol: 0, maxLossSol: 0, holdSec: 5, targetPct: 0, stopPct: 0, maxPerDay: 0, minGapPct: 0, maxOpen: 1, traders: "all", slippageBps: 1500, maxFeeLamports: 0, maxBuyFeeLamports: 0 };
 const num = (v: unknown, d: number) => (typeof v === "number" && Number.isFinite(v) ? v : d);
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 
@@ -107,6 +115,7 @@ export function parseLive(text: string): LiveConfig {
     const maxLossSol = clamp(num(p.maxLossSol, 0), 0, HARD_MAX_LOSS_SOL);
     const stakeSol = clamp(num(p.stakeSol, HARD_STAKE_SOL), 0, HARD_STAKE_SOL);
     if (!(maxLossSol > 0) || !(stakeSol >= 0.01)) return OFF;
+    const maxFeeLamports = clamp(Math.floor(num(p.maxFeeLamports, 1_000_000)), 10_000, 2_000_000);
     return {
       on: true, stakeSol, maxLossSol,
       holdSec: clamp(num(p.holdSec, 5), 1, 60),
@@ -120,7 +129,9 @@ export function parseLive(text: string): LiveConfig {
       maxOpen: clamp(Math.floor(num(p.maxOpen, 1)), 1, HARD_MAX_OPEN),
       traders: p.traders === "cut-bad" || p.traders === "good-only" || p.traders === "cut-busy" ? p.traders : "all",
       slippageBps: clamp(Math.floor(num(p.slippageBps, 1500)), 100, 3000),
-      maxFeeLamports: clamp(Math.floor(num(p.maxFeeLamports, 1_000_000)), 10_000, 2_000_000),
+      maxFeeLamports,
+      // the most a BUY may bid; unset = the same as every other transaction. Never above maxFeeLamports.
+      maxBuyFeeLamports: clamp(Math.floor(num(p.maxBuyFeeLamports, maxFeeLamports)), 10_000, maxFeeLamports),
     };
   } catch {
     return OFF;
@@ -154,6 +165,10 @@ export interface Row {
   preMs?: number;
   /** which way the order was made (see PIPE); absent = 1 */
   pipe?: number;
+  /** network fees of this copy's own transactions that landed, SOL (fixed fee + priority fee), read back later; the buy's alone; how many */
+  feeSol?: number;
+  buyFeeSol?: number;
+  feeTx?: number;
   /** the connection to the price service was still open from an earlier call when this copy asked for its price */
   warm?: boolean;
   /** "interrupted": the bot restarted during the copy; the row is the clean-up after the restart */
@@ -305,9 +320,9 @@ function save() {
 // ---- network (its own calls: never queued behind the paper test's requests) ---------------------------------------
 /**
  * Node closes a connection that has been idle for 4 s, and copies come minutes apart: nearly every copy began by
- * opening new connections (TCP and TLS) to the price service and to the RPC. This is Node's own connection pool with
- * a longer idle time, used for the real test's calls only. undefined (this Node has none, or it failed too often)
- * = the calls go out exactly as before.
+ * opening a new connection (TCP and TLS) to the price service. This is Node's own connection pool with a longer
+ * idle time, used for the real test's calls to the price service only. undefined (this Node has none, or it
+ * failed too often) = the calls go out exactly as before.
  */
 export const KEEP_IDLE_MS = 120_000;
 let kept: object | undefined = (() => {
@@ -341,7 +356,10 @@ async function call(url: string, init: RequestInit): Promise<Response> {
   }
 }
 async function rpc<T>(method: string, params: unknown[], ms = 6000): Promise<T> {
-  const res = await call(shared.rpcUrl(), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }), signal: AbortSignal.timeout(ms) });
+  // The RPC is asked on Node's normal pool again (12 Nov 2026 01:20 KST): of the first 8 copies with kept
+  // connections, 5 had a slow send (median 81 ms against 40). The balance read at the start of a copy opens the
+  // connection the send then uses, so nothing is lost by it. Kept connections stay for the price service only.
+  const res = await shared.fetch()(shared.rpcUrl(), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }), signal: AbortSignal.timeout(ms) });
   if (!res.ok) throw new Error(`rpc ${method} http ${res.status}`);
   const j = (await res.json()) as { result?: T; error?: { message: string } };
   if (j.error) throw new Error(`rpc ${method}: ${j.error.message}`);
@@ -404,7 +422,7 @@ async function swapTx(quoteResponse: unknown, address: string, maxLamports: numb
  */
 async function buildBuy(q: { outAmount?: string }, b: StreamBuy, c: LiveConfig, address: string, row: Row): Promise<string | null> {
   try {
-    return await swapTx(q, address, c.maxFeeLamports);
+    return await swapTx(q, address, c.maxBuyFeeLamports);
   } catch (e) {
     if (!/ http 5\d\d/.test(String((e as Error).message))) throw e;
     state.rebuilt = (state.rebuilt ?? 0) + 1;
@@ -413,7 +431,7 @@ async function buildBuy(q: { outAmount?: string }, b: StreamBuy, c: LiveConfig, 
     const gap = b.leaderPrice > 0 && b.decimals !== undefined ? (c.stakeSol / (Number(again.outAmount) / 10 ** b.decimals) / b.leaderPrice - 1) * 100 : null;
     row.quoteGapPct = gap !== null && Number.isFinite(gap) ? Math.round(gap * 100) / 100 : undefined;
     if (c.minGapPct > 0 && !(row.quoteGapPct !== undefined && row.quoteGapPct >= c.minGapPct)) return null;
-    return await swapTx(again, address, c.maxFeeLamports);
+    return await swapTx(again, address, c.maxBuyFeeLamports);
   }
 }
 /** Why a buy was never sent, in our own fixed words (the raw text stays in the server's file). */
@@ -892,7 +910,7 @@ export async function recover() {
 //  - The loss cap must hold even if every copy that is out, and the new one, is lost in full, so the number of
 //    copies that may be out shrinks as the loss grows. With nothing out the rule is the same as before.
 //  - One copy of a coin at a time: a sale sells all of that coin the wallet holds.
-type TxRead = { meta: { preBalances: number[]; postBalances: number[] } | null; transaction: { message: { accountKeys: (string | { pubkey: string })[] } } };
+type TxRead = { meta: { fee?: number; preBalances: number[]; postBalances: number[] } | null; transaction: { message: { accountKeys: (string | { pubkey: string })[] } } };
 /** What these transactions of ours did to the wallet's SOL (fees and rent included), and how many that landed could not be read. */
 async function booked(w: Wallet, sigs: string[]): Promise<{ sol: number; unread: string[] }> {
   const list = [...new Set(sigs)];
@@ -1226,6 +1244,8 @@ export function speedOf(list: Row[]) {
     quoteMsColdMedian: m((r) => r.quoteMs, sent.filter((r) => r.warm === false)),
     buildMsMedian: m((r) => r.buildMs),
     sendMsMedian: m((r) => r.sendMs),
+    // how many of them took more than 250 ms from knowing to sent: a median hides a slow half
+    slow: sent.filter((r) => (r.pipelineMs ?? 0) > 250).length,
     landed: land.length,
     nextBlock: land.filter((r) => r.slotsBehind === 1).length,
     slotsBehindMedian: m((r) => r.slotsBehind, land),
@@ -1248,6 +1268,27 @@ export function byLanding(rows: Row[]) {
       slipPctMedian: med(nums(l.map((r) => (r.fillGapPct !== undefined && r.quoteGapPct !== undefined ? Math.round(((100 + r.fillGapPct) / (100 + r.quoteGapPct) - 1) * 10000) / 100 : undefined)))),
     };
   });
+}
+/** The network fees inside the results (see readFees): how much of what was lost went to fees. Numbers only. */
+export function feesOf(rows: Row[], c: { stakeSol: number; maxFeeLamports: number; maxBuyFeeLamports: number }) {
+  const read = rows.filter((r) => r.feeSol !== undefined && r.buy !== "not sent");
+  const sum = (f: (r: Row) => number) => Math.round(read.reduce((a, r) => a + f(r), 0) * 1e6) / 1e6;
+  const r6 = (v: number | null) => (v === null ? null : Math.round(v * 1e6) / 1e6);
+  const perCopy = med(read.map((r) => r.feeSol!));
+  return {
+    note: "Network fees of our own transactions (the fixed fee plus the priority fee we bid), read back from the chain. They are already inside every result; this shows how much of it they are.",
+    copiesRead: read.length,
+    copiesNotReadYet: rows.filter((r) => r.feeSol === undefined && r.buy !== "not sent").length,
+    feesSol: sum((r) => r.feeSol!),
+    resultSol: sum((r) => r.netSol),
+    resultBeforeFeesSol: sum((r) => r.netSol + r.feeSol!),
+    perCopySolMedian: r6(perCopy),
+    perCopyPctOfStakeMedian: perCopy === null || !(c.stakeSol > 0) ? null : Math.round((perCopy / c.stakeSol) * 10000) / 100,
+    buyFeeSolMedian: r6(med(nums(read.map((r) => r.buyFeeSol)))),
+    txPerCopyMedian: med(nums(read.map((r) => r.feeTx))),
+    limitSol: c.maxFeeLamports / 1e9,
+    buyLimitSol: c.maxBuyFeeLamports / 1e9,
+  };
 }
 function tally(list: Row[]) {
   const sol = (l: Row[]) => Math.round(l.reduce((a, r) => a + r.netSol, 0) * 1e6) / 1e6;
@@ -1349,10 +1390,13 @@ export function solanaCopyLiveSummary() {
     rebuiltBuys: state.rebuilt ?? 0,
     // buy quotes the price service refused for asking too fast (http 429) and that were asked again
     requotedBuys: state.requoted ?? 0,
-    // the speed of each way of making the order, side by side (way 2 since 12 Nov 2026), and what a block costs
-    speedByWay: [1, 2].map((way) => ({ way, ...speedOf(rows.filter((r) => (r.pipe ?? 1) === way)) })).filter((x) => x.copies),
+    // the speed of each way of making the order, side by side (see PIPE), and what a block costs
+    speedByWay: Array.from({ length: PIPE }, (_, i) => i + 1).map((way) => ({ way, ...speedOf(rows.filter((r) => (r.pipe ?? 1) === way)) })).filter((x) => x.copies),
     byLanding: byLanding(rows),
     keptConnections: kept ? "on" : "off",
+    // calls on a kept connection that failed at once and were asked again on a new one
+    keptRetries: keptFailed,
+    fees: feesOf(rows, c),
     // buys that were never sent (nothing bought, no fee), with the reason in fixed words
     notSent: { n: unsent.length, why: unsent.reduce<Record<string, number>>((a, r) => ((a[whyNotSent(r.error)] = (a[whyNotSent(r.error)] ?? 0) + 1), a), {}) },
     // The copies made under the entry rule in force, counted here over every row kept (the last 200), because the
@@ -1419,6 +1463,56 @@ export function solanaCopyLiveSummary() {
   };
 }
 
+/**
+ * What our own transactions cost in network fees. Every result already has them inside (a copy's result is what its
+ * transactions did to the wallet's SOL); this reads them out so they can be seen on their own: at 0.05 SOL a copy,
+ * a priority bid of up to 0.001 SOL on the buy and again on the sale is up to 4% of the stake.
+ * Read-only, a few transactions a minute, newest copies first, and only while no coin is out.
+ */
+let feeBusy = false;
+export async function readFees(max = 60) {
+  if (feeBusy || !loaded || !walletReady || !shared.helius() || quiet || busy || recovering || state.open || state.opens.length || entering) return;
+  feeBusy = true;
+  let changed = false;
+  try {
+    let left = max;
+    // a copy that starts meanwhile has the line to itself: the read stops and carries on a minute later
+    const wanted = () => quiet || busy || recovering || entering > 0 || state.opens.length > 0;
+    for (const row of [...state.rows].reverse()) {
+      if (left <= 0 || wanted()) break;
+      if (row.feeSol !== undefined || !row.sigs?.length || Date.now() - row.t < 180_000) continue;
+      const sigs = [...new Set(row.sigs)];
+      let lamports = 0;
+      let n = 0;
+      let first: number | undefined;
+      let ok = true;
+      for (const sig of sigs) {
+        left--;
+        const tx = wanted() ? undefined : await rpc<TxRead | null>("getTransaction", [sig, { encoding: "json", maxSupportedTransactionVersion: 1, commitment: "confirmed" }]).catch(() => undefined);
+        if (tx === undefined) {
+          ok = false; // the request failed: this copy is read again on a later pass
+          break;
+        }
+        if (tx?.meta) {
+          const fee = tx.meta.fee ?? 0;
+          lamports += fee;
+          n++;
+          if (sig === row.sigs[0] && row.buy === "landed") first = fee;
+        }
+        await sleep(100);
+      }
+      if (!ok) break;
+      row.feeSol = lamports / 1e9;
+      row.feeTx = n;
+      if (first !== undefined) row.buyFeeSol = first / 1e9;
+      changed = true;
+    }
+  } finally {
+    feeBusy = false;
+    if (changed) save();
+  }
+}
+
 export function startSolanaCopyLive() {
   if (process.env.SOLANA_LIVE === "off") return null;
   if (!loaded) load();
@@ -1435,6 +1529,7 @@ export function startSolanaCopyLive() {
   if (walletReady && state.open) void recover();
   else if (walletReady && state.opens.length) void recoverMany();
   else if (walletReady) setTimeout(() => void tidy(), 20_000).unref();
+  setInterval(() => void readFees().catch(() => undefined), 60_000).unref();
   // a position that could not be closed is tried again every 10 minutes (at most MAX_RECOVERIES times in all)
   setInterval(() => {
     if (!walletReady || busy) return;

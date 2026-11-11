@@ -343,14 +343,16 @@ export function roundTrip(s: Signal): number | null {
 
 /**
  * Return of one copy as a fraction of the stake, after transaction costs. undefined = cannot be scored.
- * A missing sell quote counts as a total loss when the last quote of that entry is missing too (the token could
- * not be sold at all); when a later quote exists it was only a failed request and the trade is left out.
+ * A missing sell quote counts as a total loss when the price service had no price at the last check of that entry
+ * either (null there: the token could not be sold at all). A check that was never made, or whose request failed
+ * (the key is absent), proves nothing and the trade is left out: on 12 Nov 2026 refused requests at 120 s were
+ * being read as total losses.
  */
 export function ret(s: Signal, d: number, x: number): number | undefined {
   if (!s.entries[`d${d}`]) return undefined;
   const ex = s.exits[`d${d}`] ?? {};
   const out = ex[`x${x}`];
-  if (out == null) return ex[`x${EXITS[EXITS.length - 1]}`] == null ? -1 : undefined;
+  if (out == null) return ex[`x${EXITS[EXITS.length - 1]}`] === null ? -1 : undefined;
   return (out - 2 * TX_SOL) / STAKE_SOL - 1;
 }
 
@@ -406,7 +408,7 @@ export function sameBlockRet(s: Signal, x: number): number | undefined {
   const e = s.entries.d0;
   const out = s.exits.d0?.[`x${x}`];
   if (!e || !(s.leaderPrice > 0)) return undefined;
-  if (out == null) return s.exits.d0?.[`x${EXITS[EXITS.length - 1]}`] == null ? -1 : undefined;
+  if (out == null) return s.exits.d0?.[`x${EXITS[EXITS.length - 1]}`] === null ? -1 : undefined;
   const at = s.near?.price ?? s.leaderPrice * (1 + SAME_BLOCK_SLIP);
   return (out * (e.price / at) - 2 * TX_SOL) / STAKE_SOL - 1;
 }

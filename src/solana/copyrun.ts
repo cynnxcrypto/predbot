@@ -52,7 +52,7 @@ export function scrub(s: string): string {
 const health = {
   startedAt: 0, feed: "public", stream: "not tried", streamTx: 0, quotes: "none", wsUp: false, wallets: 0, found: 0, fomo: 0, tails: 0, subs: 0, badWallets: [] as string[],
   senderPingMs: {} as Record<string, number | null>, quoteMsMedian: null as number | null,
-  txSeen: 0, buys: 0, skippedBusy: 0, active: 0, rpcErrors: 0, quoteErrors: 0, quoteOk: 0, quoteRefused: 0, quoteHeld: 0, lastError: "",
+  txSeen: 0, buys: 0, skippedBusy: 0, active: 0, rpcErrors: 0, quoteErrors: 0, quoteOk: 0, quoteRefused: 0, quoteHeld: 0, quoteLost: 0, lastError: "",
 };
 const fail = (e: unknown) => (health.lastError = scrub(String((e as Error)?.message ?? e)));
 
@@ -91,36 +91,66 @@ async function rpc<T>(method: string, params: unknown[]): Promise<T> {
 let holdUntil = 0;
 export const realFirst = (ms: number) => void (holdUntil = Math.max(holdUntil, Date.now() + Math.min(ms, 5000)));
 const PAPER_BACKOFF_MS = 1500;
+/**
+ * Paper quotes leave one at a time, PAPER_GAP_MS apart. Before 12 Nov 2026 01:20 KST every quote that had been held
+ * left at the same instant when the hold ended; the price service refused them in the hundreds (321 refusals in
+ * half an hour) and each refusal held the rest again.
+ */
+export const PAPER_GAP_MS = 25;
+/** How often a paper quote the price service refused for asking too fast is asked again. */
+export const PAPER_RETRIES = 2;
+let lane: Promise<void> = Promise.resolve();
+function paperTurn(): Promise<void> {
+  const mine = lane.then(async () => {
+    if (Date.now() < holdUntil) {
+      health.quoteHeld++;
+      // at most 6 s in all, so a string of real copies can delay a paper check but never stop it
+      for (let waited = 0; Date.now() < holdUntil && waited < 6000; waited += 50) await sleep(50);
+    }
+    await sleep(PAPER_GAP_MS);
+  });
+  lane = mine.catch(() => undefined);
+  return mine;
+}
 
-/** Jupiter quote: raw output amount for a raw input amount, fees and price impact included. null = no quote. */
-async function quote(inMint: string, outMint: string, amount: string, now = false): Promise<bigint | null> {
+/**
+ * Jupiter quote: raw output amount for a raw input amount, fees and price impact included.
+ * null = the price service answered and has no price (no route: the token cannot be traded that way now).
+ * undefined = the request itself failed (refused for asking too fast, time-out, network, server error): nothing
+ * was measured, and nothing may be concluded from it.
+ */
+async function quote(inMint: string, outMint: string, amount: string, now = false): Promise<bigint | null | undefined> {
   const k = jupiter();
   const base = k ? "https://api.jup.ag" : "https://lite-api.jup.ag";
-  if (!now && Date.now() < holdUntil) {
-    health.quoteHeld++;
-    // at most 6 s in all, so a string of real copies can delay a paper check but never lose it
-    for (let waited = 0; Date.now() < holdUntil && waited < 6000; waited += 50) await sleep(50);
-  }
-  const t0 = performance.now();
-  try {
-    const res = await net(`${base}/swap/v1/quote?inputMint=${inMint}&outputMint=${outMint}&amount=${amount}&slippageBps=2000&restrictIntermediateTokens=true`, { headers: k ? { "x-api-key": k } : {}, signal: AbortSignal.timeout(4000) });
-    if (res.status === 429) {
-      health.quoteRefused++;
-      holdUntil = Math.max(holdUntil, Date.now() + PAPER_BACKOFF_MS);
+  for (let attempt = 0; ; attempt++) {
+    // the fastest entry of a buy goes out at once, as the real test's own quote does; everything else takes its turn
+    if (!now || attempt > 0) await paperTurn();
+    const t0 = performance.now();
+    try {
+      const res = await net(`${base}/swap/v1/quote?inputMint=${inMint}&outputMint=${outMint}&amount=${amount}&slippageBps=2000&restrictIntermediateTokens=true`, { headers: k ? { "x-api-key": k } : {}, signal: AbortSignal.timeout(4000) });
+      if (res.status === 429) {
+        health.quoteRefused++;
+        holdUntil = Math.max(holdUntil, Date.now() + PAPER_BACKOFF_MS);
+        if (attempt < PAPER_RETRIES) continue;
+      }
+      if (!res.ok) throw new Error(`quote http ${res.status}`);
+      const j = (await res.json()) as { outAmount?: string };
+      if (!j.outAmount) throw new Error("quote: no outAmount");
+      health.quoteOk++;
+      quoteMs.push(performance.now() - t0);
+      if (quoteMs.length > 100) quoteMs.shift();
+      health.quoteMsMedian = Math.round([...quoteMs].sort((a, b) => a - b)[quoteMs.length >> 1]);
+      health.quotes = k ? "jupiter (key)" : "jupiter (no key)";
+      return BigInt(j.outAmount);
+    } catch (e) {
+      health.quoteErrors++;
+      fail(e);
+      // "http 400" and an answer without an amount are the price service saying no; anything else was not an answer
+      const m = String((e as Error)?.message ?? e);
+      if (/quote http 40[04]\b|no outAmount/.test(m)) return null;
+      health.quoteLost++;
+      return undefined;
     }
-    if (!res.ok) throw new Error(`quote http ${res.status}`);
-    const j = (await res.json()) as { outAmount?: string };
-    if (!j.outAmount) throw new Error("quote: no outAmount");
-    health.quoteOk++;
-    quoteMs.push(performance.now() - t0);
-    if (quoteMs.length > 100) quoteMs.shift();
-    health.quoteMsMedian = Math.round([...quoteMs].sort((a, b) => a - b)[quoteMs.length >> 1]);
-    health.quotes = k ? "jupiter (key)" : "jupiter (no key)";
-    return BigInt(j.outAmount);
-  } catch (e) {
-    health.quoteErrors++;
-    fail(e);
-    return null;
   }
 }
 
@@ -346,13 +376,14 @@ async function onTx(w: Tracked, sig: string, seenMs: number, ready: ParsedTx | n
     // the size check: the same copy at other stakes, priced now and sold again at a few fixed times
     const sized = SIZES.map(async (sol) => {
       const out = await quote(SOL, buy.mint, String(Math.round(sol * 1e9)));
-      if (out === null || out === 0n) return;
+      if (!out) return;
       const t = Date.now();
       const got: Record<string, number | null> = {};
       await Promise.all(SIZE_EXITS.map(async (x) => {
         await sleep(Math.max(0, t + x * 1000 - Date.now()));
         const back = await quote(buy.mint, SOL, out.toString());
-        got[`x${x}`] = back === null ? null : Number(back) / 1e9;
+        // a request that failed is left out (not measured); only an answer of "no price" is written down as none
+        if (back !== undefined) got[`x${x}`] = back === null ? null : Number(back) / 1e9;
       }));
       (s.sizes ??= {})[String(sol)] = got;
     });
@@ -362,7 +393,7 @@ async function onTx(w: Tracked, sig: string, seenMs: number, ready: ParsedTx | n
       const out = await quote(SOL, buy.mint, stake, d === 0);
       const key = `d${d}`;
       s.exits[key] = {};
-      if (out === null || out === 0n) {
+      if (!out) {
         s.entries[key] = null;
         return;
       }
@@ -375,7 +406,7 @@ async function onTx(w: Tracked, sig: string, seenMs: number, ready: ParsedTx | n
         if (x === 0 && d !== 0) return;
         await sleep(Math.max(0, e.t + x * 1000 - Date.now()));
         const back = await quote(buy.mint, SOL, e.tokens);
-        (extra.includes(x) ? s.path! : s.exits[key])[`x${x}`] = back === null ? null : Number(back) / 1e9;
+        if (back !== undefined) (extra.includes(x) ? s.path! : s.exits[key])[`x${x}`] = back === null ? null : Number(back) / 1e9;
       }));
     })]);
     await sleep(Math.max(0, knownMs + 70_000 - Date.now()));
@@ -416,7 +447,7 @@ async function tail(s: Signal) {
     await Promise.all(PATH.filter((x) => x > EXITS[EXITS.length - 1]).map(async (x) => {
       await sleep(Math.max(0, e.t + x * 1000 - Date.now()));
       const back = await quote(s.mint, SOL, e.tokens);
-      (s.path ??= {})[`x${x}`] = back === null ? null : Number(back) / 1e9;
+      if (back !== undefined) (s.path ??= {})[`x${x}`] = back === null ? null : Number(back) / 1e9;
     }));
     appendFileSync(SIGNALS(), JSON.stringify(s) + "\n");
     publish();
