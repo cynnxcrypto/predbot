@@ -527,6 +527,7 @@ ${SEC_NAV}
       <div><div class="k">trades</div><div class="v big" id="ltr">—</div></div>
       <div><div class="k" id="lwonk" title="win rate of the rules listed below (all time); every real trade ever is in the trades and all-time columns">won</div><div class="v big" id="lwon">—</div></div>
     </div>
+    <div id="alltime" style="font-size:13px;margin-bottom:6px"></div>
     <div class="mut" id="ledger" style="font-size:12px;margin-bottom:12px"></div>
     <div id="pop" class="pop" style="display:none"></div><table style="margin-bottom:12px" class="rules"><thead><tr class="gh"><th></th><th></th><th colspan="3" class="grp-today">today</th><th colspan="3" class="grp-all">all time</th><th></th></tr><tr><th>strategy</th><th class="r">size</th><th class="r">net</th><th class="r">trades</th><th class="r">won</th><th class="r">net</th><th class="r">trades</th><th class="r">won</th><th></th></tr></thead><tbody id="lrules"></tbody></table><div class="note" id="lsince"></div>
     <div class="wps" id="lstate"></div>
@@ -645,6 +646,7 @@ el("sol-pm").innerHTML=pt("today",signed(pmT),cls(pmT),"real net of everything s
 el("sol-pmnote").textContent="All time counts every real trade the bot recorded (crypto rules, pair tests, tennis)."+(WH&&WH.allTimeNet!=null?" Whole wallet history is everything this Polymarket wallet ever did, including trades from before the bot ran on the server.":"")+" These markets keep running; nothing is hidden.";
 el("grp-n").innerHTML='today <span class="'+cls(pmT)+'">'+signed(pmT)+'</span>';
 var SO=s.solana||null;if(SO){el("sol-state").textContent=SO.on?"trading":(SO.state||"not trading yet");if(SO.note)el("sol-note").textContent=String(SO.note);el("sol-on").textContent=SO.rulesOn!=null?SO.rulesOn:(SO.on?1:0);el("sol-open").textContent=SO.open||0;el("sol-today").textContent=signed(SO.todayNet||0);el("sol-today").className="v big "+cls(SO.todayNet||0);el("sol-net").textContent=signed(SO.net||0);el("sol-net").className="v big "+cls(SO.net||0);el("sol-tr").textContent=SO.trades||0}}catch(e){console.error(e)}
+(function(){var W=s.walletHistory,a=el("alltime");if(!a)return;if(!W||W.allTimeNet==null){a.innerHTML=W&&W.error?"<span class=mut>wallet all-time result: could not be read ("+esc(W.error)+")</span>":"";return}var d=function(t){return new Date(t+9*3600000).toISOString().slice(0,10)};a.innerHTML="<b>Wallet all time</b> (since "+d(W.firstAt)+"): <b class="+cls(W.allTimeNet)+">"+signed(W.allTimeNet)+"</b> <span class=mut>= before the server "+signed(W.beforeNet)+" + since the server (31 Oct) "+signed(W.sinceNet)+""+(W.netDeposited!=null?" · money put in "+money(W.netDeposited)+", worth now "+money(W.worth):"")+"</span>";a.title="From the whole Polymarket history of this wallet ("+W.rows+" buys and payouts). Fees charged outside those rows are not in it. Read "+hhmm(W.at/1000)+" KST."})();
 var tn=sumV("todayNet")+plSum("today","net"),an=sumV("net")+plSum("all","net"),tr=sumV("trades")+plSum("all","trades"),wn=sumV("won")+plSum("all","won");
 el("today").textContent=signed(tn);el("today").className="v big "+cls(tn);
 el("net").textContent=signed(an);el("net").className="v big "+cls(an);

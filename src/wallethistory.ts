@@ -50,7 +50,7 @@ export function flow(r: Row): { kind: string; usd: number } | null {
   if (type === "REDEEM") return { kind: "redeem", usd: a };
   if (type === "MERGE") return { kind: "merge", usd: a };
   if (type === "SPLIT") return { kind: "split", usd: -a };
-  if (type === "REWARD" || type === "MAKER_REBATE" || type === "REBATE" || type === "YIELD") return { kind: "reward", usd: a };
+  if (type === "REWARD" || type === "TAKER_REBATE" || type === "MAKER_REBATE" || type === "REBATE" || type === "YIELD") return { kind: "reward", usd: a };
   if (type === "CONVERSION") return { kind: "conversion", usd: 0 };
   return null;
 }
