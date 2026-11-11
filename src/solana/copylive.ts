@@ -59,7 +59,7 @@ const STATE = () => join(DATA, "solana-copylive.json");
 const ROWS = () => join(DATA, "solana", "copylive-trades.jsonl");
 const sleep = (ms: number) => new Promise((res) => setTimeout(res, ms));
 
-export type TraderRule = "all" | "cut-bad" | "good-only";
+export type TraderRule = "all" | "cut-bad" | "good-only" | "cut-busy";
 export interface LiveConfig {
   on: boolean;
   stakeSol: number;
@@ -87,7 +87,8 @@ export interface LiveConfig {
    * Which traders are copied (enrique, 12 Nov 2026 00:05 KST: "keep finding traders and keep only the ones that
    * favour us"). "all" = every listed trader (as before); "cut-bad" = not the ones whose earlier copies were bad;
    * "good-only" = only the ones whose earlier copies were good. The verdict is the paper record's (copy.ts,
-   * verdictOf), asked before anything is quoted, so a skipped buy costs nothing.
+   * verdictOf), asked before anything is quoted, so a skipped buy costs nothing. "cut-busy" = not the traders who
+   * bought 3 or more times in the 3 hours before (copy.ts, paceAt): what told the buys apart when the record did not.
    */
   traders: TraderRule;
   slippageBps: number;
@@ -117,7 +118,7 @@ export function parseLive(text: string): LiveConfig {
       maxPerDay: p.maxPerDay == null ? Number.MAX_SAFE_INTEGER : clamp(Math.floor(num(p.maxPerDay, 80)), 1, 1_000_000),
       minGapPct: clamp(num(p.minGapPct, 0), 0, 50),
       maxOpen: clamp(Math.floor(num(p.maxOpen, 1)), 1, HARD_MAX_OPEN),
-      traders: p.traders === "cut-bad" || p.traders === "good-only" ? p.traders : "all",
+      traders: p.traders === "cut-bad" || p.traders === "good-only" || p.traders === "cut-busy" ? p.traders : "all",
       slippageBps: clamp(Math.floor(num(p.slippageBps, 1500)), 100, 3000),
       maxFeeLamports: clamp(Math.floor(num(p.maxFeeLamports, 1_000_000)), 10_000, 2_000_000),
     };
@@ -170,6 +171,8 @@ export interface Row {
   exitKey?: string;
   /** what the trader's earlier copies said when this one was bought: "good" | "mixed" | "bad" | "new" */
   trader?: string;
+  /** how often the trader had bought in the hours before this copy: "calm" | "busy" (see paceAt in copy.ts) */
+  pace?: string;
   /** when the coin began to be held, ms (several at once; older rows have only `t`, the moment the copy started) */
   heldAt?: number;
   /** the best a sale would have brought back while we held, % over the stake */
@@ -677,7 +680,9 @@ export async function trade(b: StreamBuy) {
   if (!c.on || state.halted || !walletReady) return;
   if (quiet) return void (state.missedRestart = (state.missedRestart ?? 0) + 1);
   // the trader rule: asked of the paper record before anything is quoted, so letting a buy go costs nothing
-  if (c.traders !== "all") {
+  if (c.traders === "cut-busy") {
+    if (shared.pace(b.wallet) === "busy") return void (state.skippedTrader = (state.skippedTrader ?? 0) + 1);
+  } else if (c.traders !== "all") {
     const v = shared.verdict(b.wallet);
     if (v === "bad" || (c.traders === "good-only" && v !== "good")) return void (state.skippedTrader = (state.skippedTrader ?? 0) + 1);
   }
@@ -703,7 +708,7 @@ export async function trade(b: StreamBuy) {
   const prevAt = lastAt;
   lastAt = Date.now();
   const w = wallet();
-  const row: Row = { t: Date.now(), name: b.name, mint: b.mint, leaderSlot: b.leaderSlot, buy: "not sent", exitKey: exitKey(c), trader: shared.verdict(b.wallet), netSol: 0, sigs: [] };
+  const row: Row = { t: Date.now(), name: b.name, mint: b.mint, leaderSlot: b.leaderSlot, buy: "not sent", exitKey: exitKey(c), trader: shared.verdict(b.wallet), pace: shared.pace(b.wallet), netSol: 0, sigs: [] };
   let bal0: number | null = null;
   let sent = false;
   let closed = true;
@@ -987,7 +992,7 @@ async function tradeMany(b: StreamBuy, c: LiveConfig) {
   const prevAt = lastAt;
   lastAt = Date.now();
   const w = wallet();
-  const row: Row = { t: Date.now(), name: b.name, mint: b.mint, leaderSlot: b.leaderSlot, buy: "not sent", exitKey: exitKey(c), trader: shared.verdict(b.wallet), netSol: 0, sigs: [] };
+  const row: Row = { t: Date.now(), name: b.name, mint: b.mint, leaderSlot: b.leaderSlot, buy: "not sent", exitKey: exitKey(c), trader: shared.verdict(b.wallet), pace: shared.pace(b.wallet), netSol: 0, sigs: [] };
   let pos: OpenPos | null = null;
   let closed = true;
   try {
@@ -1309,7 +1314,7 @@ export function solanaCopyLiveSummary() {
     skippedLowGap: state.skippedLowGap,
     skippedNoPrice: state.skippedNoPrice,
     // which traders are copied, in words, and the buys let go because of it
-    traderRule: c.traders === "cut-bad" ? "does not copy traders whose earlier copies lost" : c.traders === "good-only" ? "copies only traders whose earlier copies won" : "copies every listed trader",
+    traderRule: c.traders === "cut-bad" ? "does not copy traders whose earlier copies lost" : c.traders === "good-only" ? "copies only traders whose earlier copies won" : c.traders === "cut-busy" ? "does not copy traders who bought 3 or more times in the 3 hours before" : "copies every listed trader",
     skippedTrader: state.skippedTrader ?? 0,
     // buys that were never looked at: a copy was under way (one coin at a time) / the last copy began under 10 s before
     missedWhileBusy: state.missedBusy ?? 0,
@@ -1378,6 +1383,7 @@ export function solanaCopyLiveSummary() {
       byExit: [...new Set(gapped.map((r) => r.exitKey ?? "earlier"))].map((k) => ({ exit: k, ...tally(gapped.filter((r) => (r.exitKey ?? "earlier") === k)) })),
       // ... and by what the trader's earlier copies said when each was bought (written on the row from 12 Nov 2026)
       byTrader: [...new Set(gapped.map((r) => r.trader ?? "earlier"))].map((k) => ({ trader: k, ...tally(gapped.filter((r) => (r.trader ?? "earlier") === k)) })),
+      byPace: [...new Set(gapped.map((r) => r.pace ?? "earlier"))].map((k) => ({ pace: k, ...tally(gapped.filter((r) => (r.pace ?? "earlier") === k)) })),
     } : null,
     targetExit: {
       copies: aimed.length,

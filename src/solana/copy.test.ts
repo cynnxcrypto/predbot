@@ -9,7 +9,7 @@ process.env.DATA_DIR = dir;
 process.env.HELIUS_API_KEY = "SECRETHELIUS";
 process.env.JUPITER_API_KEY = "SECRETJUP";
 
-const { crowd, exitStudy, followerPrice, fomoStudy, GRID, lateStudy, parseBuy, parseDollarBuy, pathRet, ret, rising, roundTrip, sameBlockRet, SAME_BLOCK_SLIP, scalp, scalpCut, sizeStudy, STAKE_SOL, summarize, trail, TX_SOL, traderRet, verdictAt, verdictOf, verdictsBefore } = await import("./copy.js");
+const { crowd, exitStudy, followerPrice, fomoStudy, GRID, lateStudy, parseBuy, parseDollarBuy, pathRet, ret, rising, roundTrip, sameBlockRet, SAME_BLOCK_SLIP, scalp, scalpCut, sizeStudy, STAKE_SOL, summarize, trail, TX_SOL, traderRet, verdictAt, verdictOf, paceAt, verdictsBefore } = await import("./copy.js");
 const { SOL, USDC } = await import("./pools.js");
 const { validAddress, WALLETS } = await import("./wallets.js");
 const { _test, buildCopySummary, onStreamBuy, scrub } = await import("./copyrun.js");
@@ -201,7 +201,7 @@ test("summary: speed first, rules counted, wallets ranked by follow-through", ()
   assert.equal(sum.speed.noWavePct, 50);
   assert.equal(sum.speed.entryGapPctMedian, 10);
   assert.ok(sum.speed.breakEvenPctMedian! > 4);
-  assert.equal(sum.rulesTried, 84);
+  assert.equal(sum.rulesTried, 88);
   assert.equal(sum.wallets[0].name, "Chairman");
   assert.deepEqual(sum.qualified, []);
 });
@@ -388,6 +388,13 @@ test("traders: a verdict from the earlier copies only, and rules that never see 
   assert.deepEqual([rule("copy-d0-tp10-t30").n, rule("copy-d0-trader-new-tp10-t30").n, rule("copy-d0-trader-bad-tp10-t30").n, rule("copy-d0-trader-good-tp10-t30").n, rule("copy-d0-trader-mixed-tp10-t30").n], [10, 8, 1, 1, 0]);
   assert.deepEqual([rule("copy-d0-trader-bad-tp10-t30").won, rule("copy-d0-trader-good-tp10-t30").won], [0, 1]);
   assert.deepEqual([rule("copy-d0-trader-notbad-tp10-t30").n, rule("copy-d0-trader-notbad-tp10-t30").won], [9, 5]);
+  // pace: a trader's third buy inside three hours is still calm, the fourth and later are busy; buys older than three
+  // hours no longer count, and another trader's buys never do
+  assert.deepEqual([0, 1, 2, 3, 4].map((i) => paceAt(bad.slice(0, i), W, bad[i].knownMs)), ["calm", "calm", "calm", "busy", "busy"]);
+  assert.equal(paceAt(bad, W, bad[4].knownMs + 3 * 3600_000 + 1), "calm");
+  assert.equal(paceAt(bad, "someone else", bad[4].knownMs + 1), "calm");
+  assert.deepEqual([rule("copy-d0-calm-tp10-t30").n, rule("copy-d0-busy-tp10-t30").n, rule("copy-d0-busy-tp10-t30").won], [6, 4, 2]);
+  assert.deepEqual([rule("copy-d0-gap15-calm-tp10-t30").n, rule("copy-d0-gap15-busy-tp10-t30").n], [0, 0]);
   // with the 15% bar: the sample buys are 10% above the wallet, so none passes; at 16% above they split the same way
   assert.equal(rule("copy-d0-gap15-trader-notbad-tp10-t30").n, 0);
   const far = (x: Signal): Signal => ({ ...x, entries: { ...x.entries, d0: { ...x.entries.d0!, price: 1.16e-6 } } });

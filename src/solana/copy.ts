@@ -283,6 +283,29 @@ export function verdictsBefore(sigs: Signal[]): Map<Signal, Verdict> {
   return out;
 }
 
+/**
+ * 12 Nov 2026 00:35 KST. A trader's own record did not hold: judged walk-forward over 418 paper buys, the buys of
+ * "good" traders lost 5.4% each (60 buys) and those of "bad" traders 0.1% (88). What did separate the buys was how
+ * OFTEN a trader buys: the 7 traders with 15 or more buys in twelve hours lost 1.9% a buy over 158 buys, all the
+ * others made 1.8% over 260. That count looks at the whole twelve hours, the future included, so the rules ask it
+ * the honest way: how many buys of this trader had we seen in the PACE_HOURS before this one.
+ */
+export const PACE_HOURS = 3;
+export const PACE_BUSY = 3;
+export type Pace = "calm" | "busy";
+export const PACES: readonly Pace[] = ["calm", "busy"];
+/** A trader's pace at the moment `atMs`: busy = PACE_BUSY or more of their buys seen in the PACE_HOURS before it. */
+export const paceAt = (sigs: Signal[], wallet: string, atMs: number): Pace =>
+  sigs.filter((s) => s.wallet === wallet && s.knownMs < atMs && s.knownMs >= atMs - PACE_HOURS * 3600_000).length >= PACE_BUSY ? "busy" : "calm";
+/** Every signal with the pace its trader had just before it. */
+export function pacesBefore(sigs: Signal[]): Map<Signal, Pace> {
+  const by = new Map<string, Signal[]>();
+  for (const s of sigs) by.set(s.wallet, [...(by.get(s.wallet) ?? []), s]);
+  const out = new Map<Signal, Pace>();
+  for (const s of sigs) out.set(s, paceAt(by.get(s.wallet)!, s.wallet, s.knownMs));
+  return out;
+}
+
 export const cutId = (tp: number, c: number) => `copy-d0-tp${tp}-cut${c}-t${TIME_STOP}`;
 export const cutText = (tp: number, c: number) =>
   `When a tracked wallet buys, buy ${STAKE_SOL} SOL of the same token the moment we know, sell as soon as it is up ${tp}% after costs, sell at ${c} s if it is not up after costs by then, and sell anyway after ${TIME_STOP} s.`;
@@ -577,6 +600,7 @@ export function summarize(sigs: Signal[], solUsd: number | null) {
     })(),
   };
   const before = verdictsBefore(sigs);
+  const pace = pacesBefore(sigs);
   const rules = [
     ...DELAYS.flatMap((d) => EXITS.map((x) => ({ id: ruleId(d, x), text: ruleText(d, x), ...score(sigs, (s) => ret(s, d, x), solUsd) }))),
     ...DELAYS.flatMap((d) => TARGETS.map((tp) => ({ id: scalpId(d, tp), text: scalpText(d, tp), ...score(sigs, (s) => scalp(s, d, tp), solUsd) }))),
@@ -648,6 +672,9 @@ export function summarize(sigs: Signal[], solUsd: number | null) {
     ...VERDICTS.map((v) => ({ id: `copy-d0-trader-${v}-tp10-t${TRADER_EXIT_SEC}`, text: `The same, but only buys of traders whose earlier copies were ${v === "new" ? `too few to judge (under ${TRADER_MIN})` : v}.`, ...score(sigs, (s) => (before.get(s) === v ? traderRet(s) : undefined), solUsd) })),
     { id: `copy-d0-trader-notbad-tp10-t${TRADER_EXIT_SEC}`, text: `The same, but leaving out the buys of traders whose earlier copies were bad (${TRADER_MIN}+ copies, lost on average, fewer than half won).`, ...score(sigs, (s) => (before.get(s) !== "bad" ? traderRet(s) : undefined), solUsd) },
     ...(["notbad", "bad", "good"] as const).map((v) => ({ id: `copy-d0-gap15-trader-${v}-tp10-t${TRADER_EXIT_SEC}`, text: `When a tracked wallet buys and our price is already 15% or more above what the wallet paid, and the trader's earlier copies were ${v === "notbad" ? "not bad" : v}, buy ${STAKE_SOL} SOL the moment we know, sell as soon as it is up 10% after costs, and sell anyway after ${TRADER_EXIT_SEC} s.`, ...score(sigs, (s) => ((gapOf(s) ?? -1) >= 0.15 && (v === "notbad" ? before.get(s) !== "bad" : before.get(s) === v) ? traderRet(s) : undefined), solUsd) })),
+    // Pace (see paceAt): the same copy, split by how often the trader had bought in the hours before
+    ...PACES.map((v) => ({ id: `copy-d0-${v}-tp10-t${TRADER_EXIT_SEC}`, text: `When a tracked wallet buys and that trader had bought ${v === "busy" ? `${PACE_BUSY} or more` : `fewer than ${PACE_BUSY}`} times in the ${PACE_HOURS} hours before, buy ${STAKE_SOL} SOL of the same token the moment we know, sell as soon as it is up 10% after costs, and sell anyway after ${TRADER_EXIT_SEC} s.`, ...score(sigs, (s) => (pace.get(s) === v ? traderRet(s) : undefined), solUsd) })),
+    ...PACES.map((v) => ({ id: `copy-d0-gap15-${v}-tp10-t${TRADER_EXIT_SEC}`, text: `The same, but only when our price is already 15% or more above what the wallet paid.`, ...score(sigs, (s) => ((gapOf(s) ?? -1) >= 0.15 && pace.get(s) === v ? traderRet(s) : undefined), solUsd) })),
     ...[300, 600].map((x) => ({ id: ruleId(0, x), text: ruleText(0, x), ...score(sigs, (s) => pathRet(s, x), solUsd) })),
     ...TRAILS.map((t) => ({ id: trailId(t), text: trailText(t), ...score(sigs, (s) => trail(s, t), solUsd) })),
   ];

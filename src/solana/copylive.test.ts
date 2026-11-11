@@ -696,8 +696,9 @@ test("a buy order the price service fails to build is tried once more, with a fr
   const e = solanaCopyLiveSummary().entryRuleCopies!;
   const [won, lost] = [st().rows[0].netSol, st().rows[1].netSol];
   assert.ok(won > 0 && lost < 0);
-  const { byGap, byExit, byTrader, ...flat } = e;
+  const { byGap, byExit, byTrader, byPace, ...flat } = e;
   assert.deepEqual(byTrader.map((x) => [x.trader, x.copies]), [["new", 2]]);
+  assert.deepEqual(byPace.map((x) => [x.pace, x.copies]), [["calm", 2]]);
   assert.deepEqual({ ...flat, netSol: 0 }, { minGapPct: 9, copies: 2, landed: 2, won: 1, netSol: 0, targetSales: 1, targetSalesSol: Math.round(won * 1e6) / 1e6, timeUps: 1, timeUpsWon: 0, timeUpsSol: Math.round(lost * 1e6) / 1e6, stops: 0, stopsSol: 0, otherSol: 0, rowsKept: 2 });
   // the same two copies by entry gap (the first was bought 15% above the wallet, the second 12%) ...
   const [w6, l6] = [Math.round(won * 1e6) / 1e6, Math.round(lost * 1e6) / 1e6];
@@ -893,6 +894,7 @@ test("traders: off unless the file says so; a bad trader's buy is let go at no c
   const live = (o: object) => parseLive(JSON.stringify({ solanaCopy: { on: true, maxLossSol: 0.5, ...o } }));
   assert.deepEqual([live({}).traders, live({ traders: "cut-bad" }).traders, live({ traders: "good-only" }).traders, live({ traders: "anything" }).traders], ["all", "cut-bad", "good-only", "all"]);
   const verdict = shared.verdict;
+  const pace = shared.pace;
   const start = (traders: "all" | "cut-bad" | "good-only", v: string) => {
     _test.reset();
     _test.ready();
@@ -941,7 +943,26 @@ test("traders: off unless the file says so; a bad trader's buy is let go at no c
     shared.verdict = () => "bad";
     await trade(signal({ mint: COIN.c, wallet: "trader-1", knownMs: old() }));
     assert.deepEqual({ rows: st().rows.length, skipped: st().skippedTrader }, { rows: 0, skipped: 1 });
+    // "cut-busy": a trader who has bought often lately is let go, whatever the record says; a calm one is copied
+    assert.equal(live({ traders: "cut-busy" }).traders, "cut-busy");
+    shared.pace = () => "busy";
+    c = start("cut-busy" as never, "good");
+    assert.deepEqual({ ...(await buy()), sends: c.sends, quotes: c.quotes }, { rows: 0, skipped: 1, sends: 0, quotes: 0 });
+    assert.equal(solanaCopyLiveSummary().traderRule, "does not copy traders who bought 3 or more times in the 3 hours before");
+    shared.pace = () => "calm";
+    c = start("cut-busy" as never, "bad");
+    c.buyOut = [raw(20)];
+    assert.deepEqual(await buy(), { rows: 1, skipped: 0 });
+    assert.deepEqual([st().rows[0].pace, st().rows[0].trader], ["calm", "bad"]);
+    assert.deepEqual(solanaCopyLiveSummary().entryRuleCopies!.byPace.map((x) => [x.pace, x.copies]), [["calm", 1]]);
+    // "all": a busy trader is still copied, and the row says busy
+    shared.pace = () => "busy";
+    c = start("all", "new");
+    c.buyOut = [raw(20)];
+    assert.deepEqual(await buy(), { rows: 1, skipped: 0 });
+    assert.equal(st().rows[0].pace, "busy");
   } finally {
+    shared.pace = pace;
     shared.verdict = verdict;
     run.setNet(fetch);
     _test.setConfig(null);

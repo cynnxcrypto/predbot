@@ -11,7 +11,7 @@ import { appendFileSync, mkdirSync, readFileSync, renameSync, writeFileSync } fr
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { DATA } from "../config.js";
-import { crowd, DELAYS, EXITS, followerPrice, fomoStudy, LATE, parseBuy, parseDollarBuy, PATH, SIZE_EXITS, SIZES, STAKE_SOL, summarize, TX_SOL, verdictAt, type Entry, type ParsedTx, type Signal, type Verdict } from "./copy.js";
+import { crowd, DELAYS, EXITS, followerPrice, fomoStudy, LATE, parseBuy, parseDollarBuy, PATH, SIZE_EXITS, SIZES, STAKE_SOL, paceAt, summarize, TX_SOL, verdictAt, type Entry, type Pace, type ParsedTx, type Signal, type Verdict } from "./copy.js";
 import { SOL, USDC } from "./pools.js";
 import { discoverSummary, foundWallets, startDiscover, stopDiscover } from "./discover.js";
 import { historySummary, startHistory, stopHistory } from "./history.js";
@@ -265,7 +265,12 @@ export function traderVerdict(wallet: string | undefined, atMs = Date.now()): Ve
   if (!wallet) return "new";
   return verdictAt(signals.filter((x) => !x.fomo && x.feed === "helius transaction stream" && x.leaderTime > 0 && x.knownMs - x.leaderTime * 1000 <= 30_000), wallet, atMs);
 }
-export const shared = { verdict: (wallet: string | undefined) => traderVerdict(wallet), realFirst: (ms: number) => realFirst(ms), helius: () => helius(), jupiter: () => jupiter(), rpcUrl: () => rpcUrl(), slot: () => slotNow, waveAfter: (mint: string, sig: string, slot: number) => waveAfter(mint, sig, slot), fetch: () => net };
+/** How often the trader has bought lately (see paceAt in copy.ts), from the same buys. */
+export function traderPace(wallet: string | undefined, atMs = Date.now()): Pace {
+  if (!wallet) return "calm";
+  return paceAt(signals.filter((x) => !x.fomo && x.feed === "helius transaction stream" && x.leaderTime > 0 && x.knownMs - x.leaderTime * 1000 <= 30_000), wallet, atMs);
+}
+export const shared = { verdict: (wallet: string | undefined) => traderVerdict(wallet), pace: (wallet: string | undefined) => traderPace(wallet), realFirst: (ms: number) => realFirst(ms), helius: () => helius(), jupiter: () => jupiter(), rpcUrl: () => rpcUrl(), slot: () => slotNow, waveAfter: (mint: string, sig: string, slot: number) => waveAfter(mint, sig, slot), fetch: () => net };
 
 // ---- one signal -------------------------------------------------------------------------------------------------
 async function tokenDecimals(mint: string): Promise<number> {
