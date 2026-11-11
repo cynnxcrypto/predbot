@@ -179,6 +179,8 @@ interface State {
   /** buys let go because that coin was already held, and because the open copies left no room under the loss cap */
   missedSame: number;
   missedCap: number;
+  /** buys let go because an update was about to restart the bot */
+  missedRestart: number;
   unreadTx: number;
   rows: Row[];
 }
@@ -194,7 +196,7 @@ interface OpenPos {
   nowPct?: number;
   bestPct?: number;
 }
-const fresh = (): State => ({ netSol: 0, trades: 0, day: "", dayCount: 0, halted: "", note: "", balanceSol: null, skippedLowGap: 0, skippedNoPrice: 0, missedBusy: 0, missedSpacing: 0, rentBackSol: 0, spareClosed: 0, open: null, opens: [], baseSol: null, driftSol: null, missedSame: 0, missedCap: 0, unreadTx: 0, rows: [] });
+const fresh = (): State => ({ netSol: 0, trades: 0, day: "", dayCount: 0, halted: "", note: "", balanceSol: null, skippedLowGap: 0, skippedNoPrice: 0, missedBusy: 0, missedSpacing: 0, rentBackSol: 0, spareClosed: 0, open: null, opens: [], baseSol: null, driftSol: null, missedSame: 0, missedCap: 0, missedRestart: 0, unreadTx: 0, rows: [] });
 let state: State = fresh();
 let loaded = false;
 let busy = false;
@@ -208,6 +210,27 @@ let recovering = false;
 let recoverWaitMs = 5000;
 /** the clean-up of empty token accounts is running: no copy starts meanwhile */
 let sweeping = false;
+/**
+ * A restart is coming (every update restarts the bot): no new copy is started, so the ones that are out are sold
+ * before the bot stops instead of being cut off and finished late. enrique, 11 Nov 2026 21:47 KST: "temporarily halt
+ * new trades, wait for the trades to close and then send the update, after the update we resume trading". Not kept
+ * on disk: the new bot starts trading again by itself.
+ */
+let quiet = false;
+/** From now on no new copy is started; the copies that are out, and the recovery of left-over ones, carry on. */
+export const solanaCopyLiveQuiet = () => void (quiet = true);
+/**
+ * What a stop right now would cut off, in plain words; "" when nothing of ours is in flight. A marker nobody is
+ * working on (a coin that could not be sold, a transaction that could not be read back) does not count: the start
+ * after a restart picks it up at once, sooner than waiting here would.
+ */
+export function solanaCopyLiveWaiting(): string {
+  const coins = entering + live.size + (busy && state.open ? 1 : 0);
+  if (coins) return `waiting for ${coins} open coin${coins === 1 ? "" : "s"}`;
+  if (recovering) return "waiting for left-over coins to be sold";
+  if (busy || sweeping) return "waiting for a step under way to finish";
+  return "";
+}
 let walletReady = false;
 let walletError = "";
 
@@ -450,7 +473,7 @@ async function closeSpareNow(w: Wallet, sigs: string[]): Promise<number> {
  */
 export async function tidy() {
   if (!loaded) load();
-  if (!cfg().on || busy || state.open || state.opens.length || entering || recovering || !walletReady || !shared.helius()) return;
+  if (!cfg().on || quiet || busy || state.open || state.opens.length || entering || recovering || !walletReady || !shared.helius()) return;
   busy = true;
   try {
     const w = wallet();
@@ -501,6 +524,7 @@ export async function trade(b: StreamBuy) {
   if (!loaded) load();
   const c = cfg();
   if (!c.on || state.halted || !walletReady) return;
+  if (quiet) return void (state.missedRestart = (state.missedRestart ?? 0) + 1);
   if (c.maxOpen > 1) return tradeMany(b, c);
   // one copy at a time: a buy that comes while another copy is under way is let go, and counted
   if (state.open || busy || state.opens.length || recovering) return void (state.missedBusy = (state.missedBusy ?? 0) + 1);
@@ -997,6 +1021,9 @@ export function solanaCopyLiveSummary() {
     switch: c.on ? "on" : "off",
     halted: state.halted,
     note: state.note || walletError,
+    // set only in the last minute or so before an update restarts the bot: no new copy is started and the restart
+    // waits for the coins that are out, so it is never a silent stop
+    restartPending: quiet ? `restart pending: ${solanaCopyLiveWaiting() || "nothing open"}` : null,
     walletReady,
     stakeSol: c.stakeSol || HARD_STAKE_SOL,
     capSol: c.maxLossSol || HARD_MAX_LOSS_SOL,
@@ -1034,6 +1061,8 @@ export function solanaCopyLiveSummary() {
     // buys let go because that coin was already held / because the open copies left no room under the loss cap
     missedSameCoin: state.missedSame ?? 0,
     missedNearCap: state.missedCap ?? 0,
+    // buys let go in the last minute or so before an update restarted the bot (so that no copy is cut off)
+    missedBeforeRestart: state.missedRestart ?? 0,
     targetExit: {
       copies: aimed.length,
       atTarget: aimed.filter((r) => r.exit === "target").length,
@@ -1103,6 +1132,7 @@ export const _test = {
     live.clear();
     recovering = false;
     sweeping = false;
+    quiet = false;
   },
   setRecoverWait: (ms: number) => (recoverWaitMs = ms),
   state: () => state,

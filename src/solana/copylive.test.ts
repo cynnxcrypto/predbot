@@ -13,7 +13,7 @@ const { HARD_MAX_LOSS_SOL, HARD_STAKE_SOL, parseLive, solanaCopyLiveSummary, tra
 const { _test: run } = await import("./copyrun.js");
 const { buildSigned, wallet } = await import("./keys.js");
 const { base58 } = await import("./whirlpool.js");
-const { recoverMany, HARD_MAX_OPEN } = await import("./copylive.js");
+const { recoverMany, HARD_MAX_OPEN, solanaCopyLiveQuiet, solanaCopyLiveWaiting } = await import("./copylive.js");
 type Row = import("./copylive.js").Row;
 type LiveConfig = import("./copylive.js").LiveConfig;
 
@@ -604,5 +604,47 @@ test("several at once: a transaction that cannot be read back yet is counted lat
   run.setNet(fetch);
   _test.setConfig(null);
   _test.setRecoverWait(5000);
+  _test.reset();
+});
+
+test("before a restart: no new copy is started, the coins that are out are sold, and only then is it clear to stop", async () => {
+  _test.reset();
+  _test.ready();
+  _test.forgetCloses();
+  _test.setPoll(20);
+  _test.setConfig({ ...MANY, holdSec: 1 });
+  const c = chain(() => 0.045);
+  const st = _test.state;
+  assert.equal(solanaCopyLiveWaiting(), "");
+  assert.equal(solanaCopyLiveSummary().restartPending, null);
+  const a = trade(signal({ mint: COIN.a, knownMs: old() }));
+  await wait(250);
+  const b = trade(signal({ mint: COIN.b, knownMs: old() }));
+  await wait(250);
+  assert.equal(st().opens.length, 2);
+  assert.equal(solanaCopyLiveWaiting(), "waiting for 2 open coins", "not a moment to stop");
+  solanaCopyLiveQuiet();
+  await trade(signal({ mint: COIN.c, knownMs: old() }));
+  assert.deepEqual({ opens: st().opens.length, missed: st().missedRestart, bought: c.held.has(COIN.c) }, { opens: 2, missed: 1, bought: false });
+  assert.equal(solanaCopyLiveSummary().restartPending, "restart pending: waiting for 2 open coins");
+  await Promise.all([a, b]);
+  assert.equal(solanaCopyLiveWaiting(), "", "sold, counted, accounts closed");
+  assert.equal(solanaCopyLiveSummary().restartPending, "restart pending: nothing open");
+  assert.deepEqual({ opens: st().opens.length, sold: st().rows.map((r) => r.sold), drift: st().driftSol }, { opens: 0, sold: [true, true], drift: 0 });
+  // left-over coins are still finished while no new copy starts: the switch does not stop the recovery
+  _test.setRecoverWait(0);
+  st().opens.push({ mint: COIN.c, t: Date.now() - 200_000, tries: 0, sigs: [c.bought(COIN.c)] });
+  await recoverMany();
+  _test.setRecoverWait(5000);
+  assert.deepEqual({ opens: st().opens.length, held: c.held.get(COIN.c) ?? 0n, drift: st().driftSol }, { opens: 0, held: 0n, drift: 0 });
+  // one at a time: the same switch
+  _test.reset();
+  _test.setConfig(CFG);
+  solanaCopyLiveQuiet();
+  const sends = c.sends;
+  await trade(signal({ mint: COIN.c, knownMs: old() }));
+  assert.deepEqual({ trades: _test.state().trades, missed: _test.state().missedRestart, sends: c.sends - sends }, { trades: 0, missed: 1, sends: 0 });
+  run.setNet(fetch);
+  _test.setConfig(null);
   _test.reset();
 });

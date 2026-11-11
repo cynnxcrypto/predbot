@@ -15,7 +15,8 @@ import { pairfastliveQuiet, startPairfastlive } from "./pairfastlive.js";
 import { startWalletHistory } from "./wallethistory.js";
 import { startSolanaLp } from "./solana/run.js";
 import { startSolanaCopy, stopSolanaCopy } from "./solana/copyrun.js";
-import { startSolanaCopyLive } from "./solana/copylive.js";
+import { solanaCopyLiveQuiet, solanaCopyLiveWaiting, startSolanaCopyLive } from "./solana/copylive.js";
+import { DRAIN_SEC, extraSec, whenClear } from "./restart.js";
 import { pairliveQuiet, startPairlive } from "./pairlive.js";
 
 function build() {
@@ -205,5 +206,16 @@ process.on("SIGUSR2", () => {
   // The real pair test pulls its resting bids 20 s before the restart (orders left behind are also cancelled on start).
   setTimeout(pairliveQuiet, Math.max(0, wait - 20) * 1000);
   setTimeout(pairfastliveQuiet, Math.max(0, wait - 20) * 1000);
-  setTimeout(stop, wait * 1000);
+  // The real Solana test (enrique, 11 Nov 2026 21:47 KST: "temporarily halt new trades, wait for the trades to close
+  // and then send the update, after the update we resume trading"): no new copy in the last 90 s, so the coins that
+  // are out are sold by the window edge. If one is still out then, the stop waits for it, at most 75 s more and never
+  // past the supervisor's 330 s; what is left after that is finished by the recovery at the next start. Only this
+  // planned restart waits: SIGTERM and SIGINT stay immediate.
+  setTimeout(solanaCopyLiveQuiet, Math.max(0, wait - DRAIN_SEC) * 1000);
+  setTimeout(() => {
+    whenClear(solanaCopyLiveWaiting, (left) => {
+      if (left) console.log(`restarting with real Solana work unfinished (${left}); the next start finishes it`);
+      stop();
+    }, extraSec(wait) * 1000);
+  }, wait * 1000);
 });
