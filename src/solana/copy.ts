@@ -233,10 +233,10 @@ export const STOPS: readonly [number, number][] = [[10, 5], [10, 10], [5, 5], [1
 export const stopId = (tp: number, sl: number) => `copy-d0-tp${tp}-sl${sl}-t${TIME_STOP}`;
 export const stopText = (tp: number, sl: number) =>
   `When a tracked wallet buys, buy ${STAKE_SOL} SOL of the same token the moment we know, sell as soon as it is up ${tp}% after costs or down ${sl}%, and sell anyway after ${TIME_STOP} s.`;
-export function scalpStop(s: Signal, tp: number, sl: number): number | undefined {
+export function scalpStop(s: Signal, tp: number, sl: number, d = 0): number | undefined {
   for (const x of EXITS) {
     if (x > TIME_STOP) break;
-    const v = ret(s, 0, x);
+    const v = ret(s, d, x);
     if (v === undefined) continue;
     if (v >= tp / 100 || v <= -sl / 100 || x === TIME_STOP) return v;
   }
@@ -541,15 +541,28 @@ export const WALK_BANDS: readonly [string, number, number][] = [["under 9%", -In
 export function walkStudy(sigs: Signal[], pace: Map<Signal, Pace>, from = WALK_FROM) {
   const after = sigs.filter((s) => s.knownMs >= from && gapOf(s) !== null);
   const cell = (list: Signal[]) => {
-    const one = (stop: number) => {
-      const { n, won, netSol, medianRetPct, avgRetPct } = score(list, (s) => scalp(s, 0, 10, stop), null);
+    const one = (f: (s: Signal) => number | undefined) => {
+      const { n, won, netSol, medianRetPct, avgRetPct } = score(list, f, null);
       return { n, won, netSol, medianRetPct, avgRetPct };
     };
-    return { t30: one(30), t60: one(60) };
+    return {
+      t30: one((s) => scalp(s, 0, 10, 30)),
+      t60: one((s) => scalp(s, 0, 10, 60)),
+      // 12 Nov 2026 05:00 KST: the real test's whole loss is in copies that run out the clock 25% or more down
+      // (77 time-ups -1.016 SOL against 83 target sales +0.791), so the 60 s rule is also scored with a stop
+      t60sl10: one((s) => scalpStop(s, 10, 10)),
+      t60sl15: one((s) => scalpStop(s, 10, 15)),
+      t60sl20: one((s) => scalpStop(s, 10, 20)),
+      // and bought 1 s after we know: the real test's fills ran 1 to 3 points above its own quote (12 copies), so
+      // its entry lies between the fastest paper entry and this one
+      late1t60: one((s) => scalp(s, 1, 10, 60)),
+      late1t60sl10: one((s) => scalpStop(s, 10, 10, 1)),
+      late1t60sl15: one((s) => scalpStop(s, 10, 15, 1)),
+    };
   };
   const paces: readonly (Pace | "all")[] = [...PACES, "all"];
   return {
-    note: `Paper. Only buys known since ${new Date(from).toISOString()} (after the pace rule was written), ${STAKE_SOL} SOL each, bought the moment we know, sold at +10% or after 30 s (t30) and 60 s (t60). calm = the trader had bought fewer than ${PACE_BUSY} times in the ${PACE_HOURS} hours before; gap = how far our price already was above the wallet's.`,
+    note: `Paper. Only buys known since ${new Date(from).toISOString()} (after the pace rule was written), ${STAKE_SOL} SOL each, bought the moment we know, sold at +10% or after 30 s (t30) and 60 s (t60). t60sl10 / t60sl15 / t60sl20 = the 60 s rule, sold sooner at the first check (2, 5, 10, 20, 30 s) where the copy is 10% / 15% / 20% down (the real test looks every 0.75 s, so it stops sooner and more often than this). late1... = the same rules bought 1 s after we know, nearer to where the real test's buy lands (its gap is still the one of the moment we know). calm = the trader had bought fewer than ${PACE_BUSY} times in the ${PACE_HOURS} hours before; gap = how far our price already was above the wallet's.`,
     since: new Date(from).toISOString(),
     buys: after.length,
     cells: paces.flatMap((p) => [...WALK_BANDS, ["any", -Infinity, Infinity] as [string, number, number]].map(([gap, lo, hi]) => ({

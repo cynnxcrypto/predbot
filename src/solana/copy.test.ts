@@ -582,4 +582,14 @@ test("walk-forward: only buys made after the pace rule was written are scored, b
   assert.ok(cell("calm", "under 9%").t30.avgRetPct! > 15);
   assert.equal(w.cells.length, 12);
   assert.equal(JSON.stringify(w).includes("calm2"), false, "numbers only");
+  // the 60 s rule with a stop: the busy trader's copy (sold for 0.2 of 0.25) is cut at the first check in every case
+  assert.deepEqual([cell("busy", "under 9%").t60sl10.n, cell("busy", "under 9%").t60sl10.won, cell("calm", "under 9%").t60sl10.won], [1, 0, 1]);
+  assert.equal(cell("busy", "under 9%").t60sl10.avgRetPct, cell("busy", "under 9%").t60.avgRetPct, "flat path: the stop sells at the same price the clock would");
+  // bought 1 s late: these signals have no late entry, so nothing is scored there
+  assert.deepEqual([cell("all", "any").late1t60.n, cell("all", "any").late1t60sl10.n], [0, 0]);
+  // a copy that is 12% down at 5 s and back up at 60 s: the stop takes the 12%, the clock would have won
+  const dip = sig({ sig: "dip", wallet: "calm9", knownMs: WALK_FROM + 9 * 60_000, entries: { d0: { t: 0, slot: 1, tokens: "1", price: 1.05e-6 }, d1: { t: 0, slot: 1, tokens: "1", price: 1.06e-6 }, d3: null }, exits: { d0: { x0: 0.24, x2: 0.24, x5: 0.218, x10: 0.24, x20: 0.25, x30: 0.26, x60: 0.262, x120: 0.3 }, d1: { x2: 0.24, x5: 0.218, x10: 0.24, x20: 0.25, x30: 0.26, x60: 0.262, x120: 0.3 }, d3: {} } });
+  const w2 = walkStudy([dip], pacesBefore([dip])).cells.find((c) => c.pace === "calm" && c.gap === "under 9%")!;
+  assert.deepEqual([w2.t60.won, w2.t60sl10.won, w2.t60sl15.won, w2.t60sl20.won, w2.late1t60.won, w2.late1t60sl10.won, w2.late1t60sl15.won], [1, 0, 1, 1, 1, 0, 1]);
+  assert.ok(w2.t60sl10.avgRetPct! < -12 && w2.t60sl10.avgRetPct! > -14);
 });
