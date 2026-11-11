@@ -154,6 +154,7 @@ test("public summary shows what is held in numbers only, and counts the new exit
   st.open = { mint: MINT, bal0: 0.45, t: Date.now() - 12_000, tries: 0, worthSol: 0.04845, nowPct: -3.1, bestPct: 2.4 };
   const s = solanaCopyLiveSummary();
   assert.equal(s.exitRule, "sells at +10% or after 60 s");
+  assert.deepEqual(s.exit, { targetPct: 10, holdSec: 60, stopPct: 0 });
   assert.deepEqual(s.open, { stakeSol: 0.05, heldSec: 12, tries: 0, worthSol: 0.04845, nowPct: -3.1, bestPct: 2.4 });
   assert.deepEqual(s.targetExit, { copies: 2, atTarget: 1, atTimeUp: 1, atStop: 0, won: 1, netSol: -0.003, bestPctMedian: 4, missedTargetSales: 1 });
   assert.equal(s.recent[1].exit, "target");

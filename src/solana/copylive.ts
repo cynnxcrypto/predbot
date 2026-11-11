@@ -1168,6 +1168,8 @@ export function solanaCopyLiveSummary() {
     spareAccountsClosed: state.spareClosed ?? 0,
     dailyLimit: c.on && c.maxPerDay < Number.MAX_SAFE_INTEGER ? c.maxPerDay : null,
     exitRule: `${c.targetPct > 0 ? `sells at +${c.targetPct}% or after ${c.holdSec} s` : `sells after ${c.holdSec} s`}${c.stopPct > 0 ? `, and sooner if it is ${c.stopPct}% down` : ""}`,
+    // the same rule in numbers, for a countdown and a price bar on the dashboard (0 = no target / no stop)
+    exit: { targetPct: c.targetPct, holdSec: c.holdSec, stopPct: c.stopPct },
     /**
      * What is held right now, in numbers only (the dashboard's "holding now" block reads these names). The token is
      * left out on purpose: a token and a moment are enough to find our transaction, and with it the wallet.
