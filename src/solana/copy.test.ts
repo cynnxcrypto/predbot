@@ -575,7 +575,7 @@ test("other readings of the stored buys: hour of the day, repeat buyers, and sel
   assert.deepEqual(rep.rows.map((x) => [x.buyer, x.buys]), [["first", 2], ["second", 1], ["third or later", 0]]);
   const w = secondWaveStudy([a, b, c]);
   const row = (sec: number, end: number, buyers: string) => w.rows.find((x) => x.entrySec === sec && x.endSec === end && x.buyers === buyers)!;
-  assert.equal(w.rows.length, 2 * 2 * 4);
+  assert.equal(w.rows.length, 2 * 2 * 6);
   // bought 2 min after A at 0.2 per 1000 (in-and-out cost 4.8%), sold 2 s after B's buy at 0.3 per 1000; A was the
   // coin's first listed buyer
   assert.deepEqual([row(120, 600, "1").all.n, row(120, 600, "1").withNext.n, row(120, 600, "1").nextPct, row(120, 600, "1").waitSecMedian], [1, 1, 100, 80]);
@@ -583,7 +583,9 @@ test("other readings of the stored buys: hour of the day, repeat buyers, and sel
   assert.equal(row(120, 600, "1").withNextAt5.avgRetPct, 33.28);
   // B is the coin's second listed buyer and nobody follows: held to 10 min, 0.25 -> 0.2 less the cost
   assert.deepEqual([row(120, 600, "2").all.n, row(120, 600, "2").noNext.n, row(120, 600, "2").noNext.avgRetPct], [1, 1, -23.84]);
-  assert.deepEqual([row(120, 600, "any").all.n, row(120, 600, "any").nextPct, row(120, 600, "3 or more").all.n], [2, 50, 0]);
+  assert.deepEqual([row(120, 600, "any").all.n, row(120, 600, "any").nextPct, row(120, 600, "3 or more").all.n, row(120, 600, "3").all.n, row(120, 600, "4 or more").all.n], [2, 50, 0, 0, 0]);
+  // the earlier and the later half of the copies apart: A's trade first, B's second
+  assert.deepEqual([row(120, 600, "any").firstHalfAvgPct, row(120, 600, "any").secondHalfAvgPct, row(120, 600, "3").firstHalfAvgPct], [42.8, -23.84, null]);
   // C's later checks were never made (no price at 5 or 10 min): it is not counted at all
   assert.equal(row(60, 300, "any").all.n, 2);
   // a listed buy that comes before our own purchase moves the purchase behind it: A is then no entry
@@ -591,6 +593,80 @@ test("other readings of the stored buys: hour of the day, repeat buyers, and sel
   const w2 = secondWaveStudy([a, soon]);
   assert.deepEqual([w2.rows.find((x) => x.entrySec === 60 && x.endSec === 600 && x.buyers === "any")!.all.n, w2.rows.find((x) => x.entrySec === 60 && x.endSec === 600 && x.buyers === "2")!.noNext.n], [1, 1]);
   assert.equal(JSON.stringify([h, rep, w]).includes('"M"'), false, "numbers only");
+});
+
+test("second wave measured with quotes: followed from the coin's second listed buyer, sold into the next one, written down only when the window is over", async () => {
+  const { waveQuotedStudy, WAVE_FEE, WAVE_STAKE_SOL } = await import("./copy.js");
+  type WaveTrade = Parameters<typeof waveQuotedStudy>[0][number];
+  // the table, from finished trades
+  const lot = (o: object) => ({ tokens: "1000", late: 0.9, ...o });
+  const trades: WaveTrade[] = [
+    // coin P, third listed buyer; the next one came 200 s later: sold into it for 0.06
+    { mint: "P", t: 1000, buyers: 3, nextSec: 200, lots: { e60: lot({ next2: 0.06, next5: 0.058 }), e120: lot({ next2: 0.055 }) } },
+    // coin Q, fourth buyer; the next one came after 400 s: at 5 min it was still held (0.04), at 10 min it was sold into the buyer (0.07)
+    { mint: "Q", t: 2000, buyers: 4, nextSec: 400, lots: { e60: lot({ end300: 0.04, next2: 0.07 }) } },
+    // coin R, second buyer; nobody came, and the coin could not be sold at 10 min
+    { mint: "R", t: 3000, buyers: 2, nextSec: null, lots: { e60: { tokens: "1000", end300: 0.045, end600: null } } },
+    // coin S: no route for the buy; coin U: its sale was never priced
+    { mint: "S", t: 4000, buyers: 3, nextSec: null, lots: { e60: { tokens: null } } },
+    { mint: "U", t: 5000, buyers: 3, nextSec: null, lots: { e60: { tokens: "1000" } } },
+  ];
+  const q = waveQuotedStudy(trades);
+  const row = (sec: number, end: number, buyers: string) => q.rows.find((x) => x.entrySec === sec && x.endSec === end && x.buyers === buyers)!;
+  const pct = (sol: number) => Math.round((sol / WAVE_STAKE_SOL - 1 - WAVE_FEE) * 10000) / 100;
+  assert.deepEqual([q.followed, q.rows.length], [5, 2 * 2 * 4]);
+  assert.deepEqual([row(60, 300, "3").all.n, row(60, 300, "3").withNext.avgRetPct, row(60, 300, "3").nextPct, row(60, 300, "3").waitSecMedian, row(60, 300, "3").noRoute], [1, pct(0.06), 100, 140, 1]);
+  assert.equal(row(60, 300, "3").late1.avgRetPct, pct(0.06 * 0.9), "a buy that lands a second later gets fewer tokens");
+  assert.deepEqual([row(60, 300, "4 or more").noNext.avgRetPct, row(60, 600, "4 or more").withNext.avgRetPct], [pct(0.04), pct(0.07)], "a next buyer after 5 min counts only for the 10 min window");
+  assert.deepEqual([row(60, 300, "3 or more").all.n, row(60, 300, "3 or more").nextPct, row(60, 300, "3 or more").firstHalfAvgPct, row(60, 300, "3 or more").secondHalfAvgPct], [2, 50, pct(0.06), pct(0.04)]);
+  assert.deepEqual([row(60, 300, "2").noNext.avgRetPct, row(60, 600, "2").noNext.avgRetPct, row(60, 600, "2").late1.n], [pct(0.045), pct(0), 0], "no price at the end is a total loss; without a late quote there is no late trade");
+  assert.deepEqual([row(120, 600, "3").all.n, row(120, 600, "3").withNext.avgRetPct, row(120, 600, "2").all.n], [1, pct(0.055), 0]);
+  assert.equal(JSON.stringify(q).includes('"P"'), false, "numbers only");
+
+  // the runner: timers run at once, so the next buyer is announced before the follower takes its first step
+  const realSet = globalThis.setTimeout;
+  (globalThis as { setTimeout: unknown }).setTimeout = ((f: () => void) => realSet(f, 0)) as never;
+  try {
+    const asked: string[] = [];
+    _test.setNet((async (url: string) => {
+      const buying = String(url).includes(`inputMint=${SOL}`);
+      asked.push(buying ? "buy" : "sell");
+      return new Response(JSON.stringify({ outAmount: buying ? "1000" : "60000000" }));
+    }) as never);
+    const before = _test.waves().length;
+    const t = Date.now();
+    const W1 = "MintW111111111111111111111111111111111111111";
+    _test.waveOnBuy(W1, "w1", t - 120_000); // a coin's first listed buyer: not followed
+    await _test.waveIdle();
+    assert.deepEqual([asked.length, _test.waves().length - before], [0, 0]);
+    _test.waveOnBuy(W1, "w2", t); // the second listed wallet: followed
+    _test.waveOnBuy(W1, "w3", t + 90_000); // the third buys 90 s later: w2's trade is sold into it, and w3's own is followed
+    _test.waveOnBuy(W1, "w3", t + 95_000 + 31 * 60_000); // long after: nobody is told, and a single buyer is no trade
+    await _test.waveIdle();
+    const [second, third] = _test.waves().slice(before);
+    // bought 60 s after w2 (the 120 s entry was overtaken by w3), sold 2 s and 5 s after w3's buy
+    assert.deepEqual(second, { mint: W1, t, buyers: 2, nextSec: 90, lots: { e60: { tokens: "1000", late: 1, next2: 0.06, next5: 0.06 } } });
+    // w3 is the coin's third buyer in the half hour; nobody follows in time: both entries held to 5 and to 10 min
+    assert.deepEqual(third, { mint: W1, t: t + 90_000, buyers: 3, nextSec: null, lots: { e60: { tokens: "1000", late: 1, end300: 0.06, end600: 0.06 }, e120: { tokens: "1000", late: 1, end300: 0.06, end600: 0.06 } } });
+    assert.deepEqual([asked.filter((x) => x === "buy").length, asked.filter((x) => x === "sell").length], [6, 6], "two quotes per purchase, and only the sales that happen");
+    assert.equal(_test.health().waveLive, 0);
+    const sum = buildCopySummary();
+    assert.equal(sum.waveQuoted.followed, _test.waves().length);
+    assert.equal(sum.waveQuoted.rows.find((x) => x.entrySec === 60 && x.endSec === 300 && x.buyers === "2")!.withNext.avgRetPct, pct(0.06));
+    // kept across a restart, and switched off by SOLANA_WAVE=off
+    assert.ok(readFileSync(join(dir, "solana", "copy-waves.jsonl"), "utf8").trim().split("\n").length >= 2);
+    _test.load();
+    assert.deepEqual(_test.waves().slice(-2), [second, third]);
+    process.env.SOLANA_WAVE = "off";
+    _test.waveOnBuy("MintW222222222222222222222222222222222222222", "w1", t);
+    _test.waveOnBuy("MintW222222222222222222222222222222222222222", "w2", t);
+    await _test.waveIdle();
+    assert.equal(_test.waves().length, before + 2);
+  } finally {
+    delete process.env.SOLANA_WAVE;
+    globalThis.setTimeout = realSet;
+    _test.setNet(fetch);
+  }
 });
 
 test("walk-forward: only buys made after the pace rule was written are scored, by pace and by price gap", async () => {

@@ -5,13 +5,14 @@
  * Keys (data API keys, never in the repo, never logged or published):
  *   Helius:  env HELIUS_API_KEY, else data/helius-key.txt. Without it the slow public RPC is used.
  *   Jupiter: env JUPITER_API_KEY, else data/jupiter-key.txt. Without it the keyless host is tried (may be shut).
- * Files: data/solana/copy-signals.jsonl (one finished signal per line), data/solana-copy-summary.json.
+ * Files: data/solana/copy-signals.jsonl (one finished signal per line), data/solana/copy-waves.jsonl (one finished
+ * second-wave trade per line; SOLANA_WAVE=off stops that measurement), data/solana-copy-summary.json.
  */
 import { appendFileSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { DATA } from "../config.js";
-import { crowd, EXITS, followerPrice, fomoStudy, LATE_CHECK_MS, LATE_ENTRY_MS, parseBuy, parseDollarBuy, PATH, SIZE_EXITS, SIZES, STAKE_SOL, paceAt, summarize, TX_SOL, unlate, unrefuse, verdictAt, type Entry, type Pace, type ParsedTx, type Signal, type Verdict } from "./copy.js";
+import { crowd, EXITS, followerPrice, fomoStudy, LATE_CHECK_MS, LATE_ENTRY_MS, parseBuy, parseDollarBuy, PATH, REPEAT_MIN, SIZE_EXITS, SIZES, STAKE_SOL, paceAt, summarize, TX_SOL, unlate, unrefuse, verdictAt, WAVE_ENDS, WAVE_ENTRIES, WAVE_MIN_BUYERS, WAVE_STAKE_SOL, waveQuotedStudy, type Entry, type Pace, type ParsedTx, type Signal, type Verdict, type WaveLot, type WaveTrade } from "./copy.js";
 import { SOL, USDC } from "./pools.js";
 import { discoverSummary, foundWallets, startDiscover, stopDiscover } from "./discover.js";
 import { historySummary, startHistory, stopHistory } from "./history.js";
@@ -21,6 +22,8 @@ import { validAddress, WALLETS, type Tracked } from "./wallets.js";
 
 const SIGNALS = () => join(DATA, "solana", "copy-signals.jsonl");
 const SUMMARY = () => join(DATA, "solana-copy-summary.json");
+const WAVES = () => join(DATA, "solana", "copy-waves.jsonl");
+const WAVE_KEEP = 3000;
 const MAX_ACTIVE = 25;
 const KEEP = 5000;
 const sleep = (ms: number) => new Promise((res) => setTimeout(res, ms));
@@ -52,7 +55,7 @@ export function scrub(s: string): string {
 const health = {
   startedAt: 0, feed: "public", stream: "not tried", streamTx: 0, quotes: "none", wsUp: false, wallets: 0, found: 0, fomo: 0, tails: 0, subs: 0, badWallets: [] as string[],
   senderPingMs: {} as Record<string, number | null>, quoteMsMedian: null as number | null,
-  txSeen: 0, buys: 0, skippedBusy: 0, active: 0, rpcErrors: 0, quoteErrors: 0, quoteOk: 0, quoteRefused: 0, quoteHeld: 0, quoteLost: 0, quoteLate: 0, lateTakenOut: null as ReturnType<typeof unlate> | null, quoteWaitMsMedian: null as number | null, quoteWaitMsP90: null as number | null, lastError: "",
+  txSeen: 0, buys: 0, skippedBusy: 0, active: 0, rpcErrors: 0, quoteErrors: 0, quoteOk: 0, quoteRefused: 0, quoteHeld: 0, quoteLost: 0, quoteLate: 0, lateTakenOut: null as ReturnType<typeof unlate> | null, quoteWaitMsMedian: null as number | null, quoteWaitMsP90: null as number | null, waveLive: 0, waveSaved: 0, lastError: "",
 };
 const fail = (e: unknown) => (health.lastError = scrub(String((e as Error)?.message ?? e)));
 
@@ -223,6 +226,14 @@ function load() {
   } catch {
     signals = [];
   }
+  try {
+    waves = readFileSync(WAVES(), "utf8").split("\n").filter(Boolean).slice(-WAVE_KEEP).map((l) => JSON.parse(l) as WaveTrade);
+  } catch {
+    waves = [];
+  }
+  // who bought which coin in the last half hour, so a coin's count of listed buyers is not zero after a restart
+  mintBuys.clear();
+  for (const x of signals) if (!x.fomo && x.feed === "helius transaction stream" && Date.now() - x.knownMs <= REPEAT_MIN * 60_000) mintBuys.set(x.mint, [...(mintBuys.get(x.mint) ?? []), { wallet: x.wallet, t: x.knownMs }]);
 }
 
 /** With a Helius key, how many wallets also get the slower signature feed (each of its buys costs a second request). */
@@ -280,6 +291,7 @@ export function buildCopySummary() {
     links: linksSummary(),
     preconf: preconfSummary(),
     fomo: fomoStudy(signals.filter((x) => x.fomo), solUsd),
+    waveQuoted: waveQuotedStudy(waves),
     ...(() => {
       // With the Helius key, score only buys read on the Helius feed and known within 30 s. Buys from the keyless
       // period, or read late out of a backlog, say nothing about our speed and would poison the medians.
@@ -396,6 +408,8 @@ async function onTx(w: Tracked, sig: string, seenMs: number, ready: ParsedTx | n
   const pair = `${w.address}:${buy.mint}`;
   if (Date.now() - (recentPair.get(pair) ?? 0) < 30 * 60_000) return; // only the wallet's first buy of a token
   recentPair.set(pair, Date.now());
+  // the second-wave measurement counts the same buys the real test would see: listed wallets on the fast stream
+  if (ready && !w.found && !w.fomo) waveOnBuy(buy.mint, w.address, Date.now());
   if (health.active >= MAX_ACTIVE) {
     health.skippedBusy++;
     return;
@@ -500,6 +514,100 @@ async function tail(s: Signal) {
   } finally {
     health.tails--;
   }
+}
+
+// ---- second wave, measured with quotes (paper) ---------------------------------------------------------------------
+// Not chasing a wallet: holding a coin several listed wallets are already in when the NEXT one buys it, and selling
+// into that buyer's followers. The table secondWave models it from stored checks; this asks for the real quotes.
+let waves: WaveTrade[] = [];
+/** listed buys of each coin in the last REPEAT_MIN */
+const mintBuys = new Map<string, { wallet: string; t: number }[]>();
+/** the trade being followed on each coin, and how its follower is told that the next listed buy came */
+const waveLive = new Map<string, { row: WaveTrade; came: () => void }>();
+const waveJobs = new Set<Promise<void>>();
+
+function waveOnBuy(mint: string, wallet: string, t: number) {
+  if (process.env.SOLANA_WAVE === "off") return;
+  const list = [...(mintBuys.get(mint) ?? []).filter((x) => t - x.t <= REPEAT_MIN * 60_000), { wallet, t }];
+  mintBuys.set(mint, list);
+  if (mintBuys.size > 5000) for (const [k, v] of mintBuys) if (t - v[v.length - 1].t > REPEAT_MIN * 60_000) mintBuys.delete(k);
+  // this buy is the next listed buyer of the trade followed on the coin: that position is sold into it
+  const cur = waveLive.get(mint);
+  if (cur && cur.row.nextSec === null && t - cur.row.t <= WAVE_ENDS[WAVE_ENDS.length - 1] * 1000) {
+    cur.row.nextSec = (t - cur.row.t) / 1000;
+    cur.came();
+  }
+  waveLive.delete(mint);
+  const buyers = new Set(list.map((x) => x.wallet)).size;
+  if (buyers < WAVE_MIN_BUYERS) return;
+  const row: WaveTrade = { mint, t, buyers, nextSec: null, lots: {} };
+  let came = () => {};
+  const next = new Promise<void>((res) => (came = res));
+  waveLive.set(mint, { row, came });
+  health.waveLive++;
+  const job: Promise<void> = waveFollow(row, next).catch(fail).then(() => {
+    health.waveLive--;
+    waveJobs.delete(job);
+    if (waveLive.get(mint)?.row === row) waveLive.delete(mint);
+  });
+  waveJobs.add(job);
+}
+
+async function waveFollow(row: WaveTrade, next: Promise<void>) {
+  const stake = String(Math.round(WAVE_STAKE_SOL * 1e9));
+  const last = WAVE_ENDS[WAVE_ENDS.length - 1];
+  /** waits until `sec` after the trigger; false when the next listed buy came before that moment */
+  const until = async (sec: number) => {
+    const at = row.t + sec * 1000;
+    if (row.nextSec === null && Date.now() < at) await Promise.race([sleep(at - Date.now()), next]);
+    return row.nextSec === null || row.nextSec >= sec;
+  };
+  const sell = async (tokens: string) => {
+    const back = await quote(row.mint, SOL, tokens);
+    return back === undefined ? undefined : back === null ? null : Number(back) / 1e9;
+  };
+  await Promise.all(WAVE_ENTRIES.map(async (entry) => {
+    if (!(await until(entry))) return; // a listed buy came first: the purchase moves behind that buy
+    const asked = Date.now();
+    const out = await quote(SOL, row.mint, stake);
+    if (out === undefined) return; // the buy was not priced in time: nothing to follow
+    const lot: WaveLot = { tokens: out === null ? null : out.toString() };
+    row.lots[`e${entry}`] = lot;
+    if (!out) return;
+    const tokens = out.toString();
+    await Promise.all([
+      (async () => {
+        // the same buy a second later: how far the price runs from an order that lands late
+        await sleep(Math.max(0, asked + 1000 - Date.now()));
+        const again = await quote(SOL, row.mint, stake, false, LATE_ENTRY_MS);
+        if (again !== undefined) lot.late = again === null ? null : Number(again) / Number(out);
+      })(),
+      (async () => {
+        for (const end of WAVE_ENDS) {
+          if (!(await until(end))) break;
+          const back = await sell(tokens);
+          if (back !== undefined) lot[`end${end}`] = back;
+        }
+        if (row.nextSec === null || row.nextSec > last) return;
+        const at = row.t + row.nextSec * 1000;
+        await sleep(Math.max(0, at + 2000 - Date.now()));
+        const at2 = await sell(tokens);
+        if (at2 !== undefined) lot.next2 = at2;
+        await sleep(Math.max(0, at + 5000 - Date.now()));
+        const at5 = await sell(tokens);
+        if (at5 !== undefined) lot.next5 = at5;
+      })(),
+    ]);
+  }));
+  // written down only when the whole window has passed, whether it was sold early or not: a restart then drops
+  // winners and losers alike (the first count of the modelled table kept the early sales and lost the rest)
+  await sleep(Math.max(0, row.t + last * 1000 + 6000 - Date.now()));
+  if (!Object.keys(row.lots).length) return;
+  waves.push(row);
+  if (waves.length > WAVE_KEEP) waves.shift();
+  mkdirSync(join(DATA, "solana"), { recursive: true });
+  appendFileSync(WAVES(), JSON.stringify(row) + "\n");
+  health.waveSaved++;
 }
 
 // ---- live feed --------------------------------------------------------------------------------------------------
@@ -706,7 +814,7 @@ export function stopSolanaCopy() {
 }
 
 /** Test hooks. */
-export const _test = { quote, health: () => health, onTx, setNet: (f: Fetch) => (net = f), setSlot: (n: number) => (slotNow = n), setSolUsd: (v: number | null) => (solUsd = v), signals: () => signals, load: () => load(), lane: () => lane };
+export const _test = { quote, health: () => health, onTx, setNet: (f: Fetch) => (net = f), setSlot: (n: number) => (slotNow = n), setSolUsd: (v: number | null) => (solUsd = v), signals: () => signals, load: () => load(), lane: () => lane, waveOnBuy, waves: () => waves, waveIdle: () => Promise.all([...waveJobs]) };
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   console.log(`solana copy test: ${WALLETS.length} wallets, helius key ${helius() ? "yes" : "no"}, jupiter key ${jupiter() ? "yes" : "no"}`);
