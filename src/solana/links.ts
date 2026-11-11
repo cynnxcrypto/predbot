@@ -62,7 +62,7 @@ const TOK_PAGES = 3; // the short stretch of everything that touched its token a
 const BIG_USD = 10_000;
 const BIG_SOL = 50;
 /** a result made by an older way of reading is read again */
-const VERSION = 4;
+const VERSION = 5;
 const PRE_PAGES = 4;
 const POST_PAGES = 2;
 const MAX_BUYS = 40;
@@ -262,16 +262,22 @@ export function poolPrice(it: Item, mint: string): { sol?: number; usd?: number 
 }
 
 export interface ReplayRow {
-  /** how much above (+) the seed's own price the next blocks traded, as a fraction; null when nobody traded there */
+  /** how much above (+) the seed's own price the next blocks traded, as a fraction; null when either is unknown */
   gap: number | null;
-  /** return after costs of a copy sold at each of REPLAY_SECS, as a fraction of the stake */
+  /** return after costs of a copy sold at each of REPLAY_SECS, as a fraction of the stake: bought at the middle price of the next blocks */
   rets: number[];
+  /** the same copy bought at the HIGHEST price of the next blocks: what a crowd in front of us would cost */
+  hard: number[];
 }
+/** A price this many times off the middle of all the coin's trades in the window is a misread transaction, not a trade. */
+const FAR = 10;
+/** ... and one this many times off both the trades just before it and the trade before it. */
+const JUMP = 3;
 /**
  * One past buy of a seed, replayed from the coin's transactions from that buy on (`after`, any order; for each
  * time in REPLAY_SECS it must hold the last trade at or before it). Enter at the middle price of the trades in the
  * next ENTRY_SLOTS blocks (nobody traded there: the seed's own price); sell at the price of the last trade at or
- * before each time. null = the seed's own trade cannot be priced.
+ * before each time. Prices are in the money most of the coin's trades are in. null = nothing to price it with.
  */
 export function replayOf(lead: At & { mint: string }, after: Item[]): ReplayRow | null {
   const seen = new Set<string>();
@@ -286,41 +292,61 @@ export function replayOf(lead: At & { mint: string }, after: Item[]): ReplayRow 
     if (it.slot === lead.slot && it.transactionIndex === lead.index) own = p;
     else if (earlier(lead, { slot: it.slot, index: it.transactionIndex })) trades.push({ slot: it.slot, index: it.transactionIndex, ...p });
   }
-  if (!own) return null;
-  const cur = own.sol !== undefined ? "sol" : "usd";
-  const p0 = own[cur]!;
-  const priced = trades.filter((t) => t[cur] !== undefined).sort((a, b) => a.slot - b.slot || a.index - b.index);
-  const near = median(priced.filter((t) => t.slot > lead.slot && t.slot <= lead.slot + ENTRY_SLOTS).map((t) => t[cur]!));
-  const entry = near ?? p0;
-  const r4 = (x: number) => Math.round(x * 1e4) / 1e4;
+  const inSol = trades.filter((t) => t.sol !== undefined).length;
+  const cur = trades.length ? (inSol * 2 >= trades.length ? "sol" : "usd") : own?.sol !== undefined ? "sol" : "usd";
+  const p0 = own?.[cur];
+  const raw = trades.filter((t) => t[cur] !== undefined).sort((a, b) => a.slot - b.slot || a.index - b.index);
+  const mid = median([...raw.map((t) => t[cur]!), ...(p0 !== undefined ? [p0] : [])]);
+  if (mid === null) return null;
+  const priced: (At & { p: number })[] = [];
+  let before: number | null = null;
+  for (const t of raw) {
+    const p = t[cur]!;
+    const fits = (q: number | null, by: number) => q !== null && p < q * by && p > q / by;
+    const recent = median(priced.slice(-5).map((x) => x.p));
+    if (fits(mid, FAR) && (recent === null || fits(recent, JUMP) || fits(before, JUMP))) priced.push({ slot: t.slot, index: t.index, p });
+    before = p;
+  }
+  const near = priced.filter((t) => t.slot > lead.slot && t.slot <= lead.slot + ENTRY_SLOTS).map((t) => t.p);
+  const entry = median(near) ?? p0;
+  if (entry === undefined) return null; // nobody traded right after it and its own trade cannot be priced
+  const worst = near.length ? Math.max(...near) : entry;
+  const r4 = (x: number) => Math.round(Math.max(-1, Math.min(10, x)) * 1e4) / 1e4;
+  const at = REPLAY_SECS.map((sec) => {
+    const to = lead.slot + Math.round(sec / SLOT_SEC);
+    let last = entry;
+    for (const t of priced) {
+      if (t.slot > to) break;
+      last = t.p;
+    }
+    return last;
+  });
   return {
-    gap: near === null ? null : r4(near / p0 - 1),
-    rets: REPLAY_SECS.map((sec) => {
-      const to = lead.slot + Math.round(sec / SLOT_SEC);
-      let last = p0;
-      for (const t of priced) {
-        if (t.slot > to) break;
-        last = t[cur]!;
-      }
-      return r4(last / entry - 1 - REPLAY_COST);
-    }),
+    gap: near.length && p0 !== undefined ? r4(median(near)! / p0 - 1) : null,
+    rets: at.map((p) => r4(p / entry - 1 - REPLAY_COST)),
+    hard: at.map((p) => r4(p / worst - 1 - REPLAY_COST)),
   };
 }
 
 /** The replayed buys put together: at each hold how many copies ended above zero, the typical and the average return. */
-export function replaySummary(rows: ReplayRow[]) {
+export function replaySummary(rows: ReplayRow[], checked = rows.length) {
   const pct = (x: number | null) => (x === null ? null : Math.round(x * 1e4) / 100);
   const cell = (rs: number[]) => ({ n: rs.length, won: rs.filter((v) => v > 0).length, medianPct: pct(median(rs)), avgPct: rs.length ? pct(rs.reduce((a, b) => a + b, 0) / rs.length) : null });
   const i60 = REPLAY_SECS.indexOf(60);
+  const target = (rs: number[]) => rs.slice(0, i60 + 1).find((v) => v >= 0.1) ?? rs[i60];
   const gaps = rows.map((r) => r.gap).filter((g): g is number => g !== null);
   return {
+    /** buys looked at, and those that could be priced from the coin's record */
+    checked,
     buys: rows.length,
-    /** buys where somebody traded in the next blocks, and how much above the seed's price they traded (median) */
+    /** buys where somebody traded in the next blocks and the seed's own price is known: how much above it they traded (median) */
     followedAtOnce: gaps.length,
     entryAboveTraderPct: pct(median(gaps)),
     holds: REPLAY_SECS.map((sec, i) => ({ sec, ...cell(rows.map((r) => r.rets[i])) })),
     /** sold at the first of these times where it is up 10% after costs, else at 60 s */
-    target10: cell(rows.map((r) => r.rets.slice(0, i60 + 1).find((v) => v >= 0.1) ?? r.rets[i60])),
+    target10: cell(rows.map((r) => target(r.rets))),
+    /** the same, bought at the highest price of the next blocks instead of the middle one */
+    hardEntry: { holds: REPLAY_SECS.map((sec, i) => ({ sec, ...cell(rows.map((r) => (r.hard ?? r.rets)[i])) })), target10: cell(rows.map((r) => target(r.hard ?? r.rets))) },
   };
 }
 
@@ -467,6 +493,8 @@ interface SeedResult {
   after30: number | null;
   /** its checked buys replayed (see replayOf) */
   replay?: ReplayRow[];
+  /** of the checked buys: how many had no transaction of the coin after the buy in what was read */
+  noRecord?: number;
   linked: Linked[];
 }
 interface State {
@@ -617,6 +645,7 @@ async function doSeed(seed: Tracked): Promise<SeedResult | null> {
   const b30: number[] = [];
   const a30: number[] = [];
   const replay: ReplayRow[] = [];
+  let noRecord = 0;
   for (const [mint, b] of buys) {
     if (stopped) return null;
     const pre = await pages(mint, { slot: { gte: b.slot - PRE_SLOTS, lte: b.slot } }, "desc", PRE_PAGES);
@@ -644,6 +673,7 @@ async function doSeed(seed: Tracked): Promise<SeedResult | null> {
     }
     const row = replayOf({ mint, slot: b.slot, index: b.index }, after);
     if (row) replay.push(row);
+    else if (!after.some((x) => x.slot > b.slot || (x.slot === b.slot && x.transactionIndex > b.index))) noRecord++;
   }
   const ok = (a: string) => a !== seed.address && !SERVICE.has(a) && validAddress(a);
   const n = (c: Cp) => c.out + c.in;
@@ -694,7 +724,7 @@ async function doSeed(seed: Tracked): Promise<SeedResult | null> {
     span: ago.length ? [r1(Math.min(...ago)), r1(Math.max(...ago))] : null, accounts: s.accounts,
     txs: s.txs, days: r1(s.days), buys: bought.length,
     buysUsd: bought.filter((b) => b.usd > 0).length, buysSol: bought.filter((b) => b.usd === 0).length,
-    checked: buys.length, before30: median(b30), after30: median(a30), replay, linked: [...linked.values()],
+    checked: buys.length, before30: median(b30), after30: median(a30), replay, noRecord, linked: [...linked.values()],
   };
 }
 
@@ -751,7 +781,7 @@ export function stopLinks() {
   save();
 }
 
-const REPLAY_NOTE = `REPLAY of the seeds' own past buys, from each coin's record: an estimate, not a result. A copy enters at the middle price the coin traded at in the ${ENTRY_SLOTS} blocks after the seed's buy (the seed's own price when nobody traded there) and is sold at the price of the last trade at or before each hold. ${REPLAY_COST * 100}% is taken off for buying and selling (what the real test's 0.05 SOL copies lose in and out). Not in it: our own order moving the price, a sale that fails, a coin that cannot be sold. target10 = sold at the first hold up 10%, else at 60 s.`;
+const REPLAY_NOTE = `REPLAY of the seeds' own past buys, from each coin's record: an estimate, not a result. A copy enters at the middle price the coin traded at in the ${ENTRY_SLOTS} blocks after the seed's buy (the seed's own price when nobody traded there) and is sold at the price of the last trade at or before each hold. ${REPLAY_COST * 100}% is taken off for buying and selling (what the real test's 0.05 SOL copies lose in and out). Likely KINDER than reality: our own order moves nothing here, and when a crowd follows a real copy pays more than the middle price (the real test paid a median 2.5% over the wallet, far more in a crowd). hardEntry = the same copies bought at the highest price of those blocks. Not in it: a sale that fails, a coin that cannot be sold. target10 = sold at the first hold up 10%, else at 60 s. checked = buys looked at, buys = those that could be priced, noRecordAfter = the coin's record held nothing after the buy. A return is capped at +1000%.`;
 const ORDER = ["likely", "possible: buys ahead, no money link", "possible: money link, few shared coins", "money link only", "no sign", "service or bot"];
 /** Every linked wallet with its verdict, strongest first. A wallet tied to 3+ seeds is a shared service, not a person. */
 function judged() {
@@ -794,10 +824,10 @@ export function linksSummary() {
     likely: all.reduce((a, s) => a + s.linked.filter((l) => l.verdict === "likely").length, 0),
     possible: all.reduce((a, s) => a + s.linked.filter((l) => l.verdict.startsWith("possible")).length, 0),
     /** all seeds' replayed buys together */
-    replay: { note: REPLAY_NOTE, ...replaySummary(all.flatMap((s) => s.r.replay ?? [])) },
+    replay: { note: REPLAY_NOTE, ...replaySummary(all.flatMap((s) => s.r.replay ?? []), all.reduce((a, s) => a + s.r.checked, 0)) },
     seeds: all.map((s) => ({
       name: s.name, address: s.address, redo: s.r.v !== VERSION, transactionsRead: s.r.read ?? null, daysCovered: s.r.days, daysRead: s.r.reach ? { own: s.r.reach[0], dollar: s.r.reach[1] } : null, buysFromDaysAgo: s.r.span ?? null, coinsBought: s.r.buys, paidInDollars: s.r.buysUsd, paidInSol: s.r.buysSol,
-      buysChecked: s.r.checked, newHolders30sBefore: s.r.before30, newHolders30sAfter: s.r.after30, replay: replaySummary(s.r.replay ?? []),
+      buysChecked: s.r.checked, newHolders30sBefore: s.r.before30, newHolders30sAfter: s.r.after30, replay: { ...replaySummary(s.r.replay ?? [], s.r.checked), noRecordAfter: s.r.noRecord ?? null },
       linked: s.linked.slice(0, 20).map(({ address, through, ...l }) => ({ wallet: tag(address), ...(through ? { through: tag(through) } : {}), ...l })),
     })),
     calls: health.calls,
