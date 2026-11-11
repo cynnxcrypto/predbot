@@ -41,9 +41,11 @@ def collect(coins, sigf, K, tp=None):
 
 
 def report(title, coins, sigf, K, tp=None):
+    """tp: None, or a function coin -> take-profit"""
     print(f"\n== {title}")
     c = lambda s: si.COST[s]
-    tr = collect(coins, sigf, K, tp)
+    collect_ = lambda coins, f, K, tp: [t for s in coins for t in collect([s], f, K, tp(s) if tp else None)]
+    tr = collect_(coins, sigf, K, tp)
     line("all", tr, c)
     line("DEV 2021-24", [t for t in tr if t[1] < si.SPLIT], c)
     line("HOLD 2025-26", [t for t in tr if t[1] >= si.SPLIT], c)
@@ -51,8 +53,8 @@ def report(title, coins, sigf, K, tp=None):
         line(f"year {y}", [t for t in tr if year(t[1]) == y], c)
     for s in coins:
         line(f"coin {s}", [t for t in tr if t[0] == s], c)
-    line("an hour late", collect(coins, lambda s: late(sigf(s), 1), K, tp), c)
-    line("3 hours late", collect(coins, lambda s: late(sigf(s), 3), K, tp), c)
+    line("an hour late", collect_(coins, lambda s: late(sigf(s), 1), K, tp), c)
+    line("3 hours late", collect_(coins, lambda s: late(sigf(s), 3), K, tp), c)
     line("cost 0.25% a side (majors)", tr, lambda s: max(0.0025, si.COST[s]))
     return tr
 
@@ -66,7 +68,7 @@ report("A1 mkt-dip-5: BTC fell 5% in 24 h -> buy SOL and ETH, 24 h", BIG2, lambd
 report("A3 both-dip: coin fell 10% and BTC 5% -> buy the coin, 24 h", BIG2, lambda s: (r24[s] <= -0.10) & (btc24 <= -0.05), 24)
 report("A2 own-dip (failed): coin fell 10%, BTC less than 3%", BIG2, lambda s: (r24[s] <= -0.10) & (btc24 > -0.03), 24)
 X = {"BTCUSDT": 0.06, "ETHUSDT": 0.08, "SOLUSDT": 0.10}
-report("F5 dip-scaled: BTC 6% / ETH 8% / SOL 10%, sell at the same size up or 24 h", BIG3, lambda s: r24[s] <= -X[s], 24)
+report("F5 dip-scaled: BTC 6% / ETH 8% / SOL 10%, sell at the same size up or 24 h", BIG3, lambda s: r24[s] <= -X[s], 24, lambda s: X[s])
 
 print("\n== neighbours of mkt-dip (SOL and ETH; BTC fall x hold), DEV / HOLD average after costs and trades")
 for x in (3, 4, 5, 6, 7, 8, 10):
