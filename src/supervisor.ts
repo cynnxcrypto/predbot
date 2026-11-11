@@ -124,11 +124,15 @@ async function checkForUpdate() {
     }
     say(`update ${remote.slice(0, 7)} ready; the bot restarts at the next window edge`);
     restarting = true;
-    child.kill("SIGUSR2");
+    const asked = child;
+    asked.kill("SIGUSR2");
     setTimeout(() => {
-      if (restarting && child) {
+      // Only the bot that was asked. This timer is never cancelled, so without the check the timer of an earlier
+      // update stopped the bot started since, while it waited for its own window edge and for its open Solana coins
+      // (11 Nov 2026, 22:08:50 and 22:23:50 KST: two updates within 5.5 minutes).
+      if (restarting && child === asked) {
         say("the bot did not stop on its own; stopping it now");
-        child.kill("SIGTERM");
+        asked.kill("SIGTERM");
       }
     }, 330_000);
   } finally {
