@@ -1,10 +1,8 @@
-run start 2026-11-11T06:44:30Z args: --budget-min 290 --start 2025-01-01
-pm: 2 days to do (1 re-pulls)
-2026-11-03 final esports:321/145/0 finance_daily:294/122/0 football:2225/764/0 other:79/66/0 other_sports:429/10/0 politics:694/353/0 sports_futures:1553/49/0 temperature:1034/569/0 tennis:712/278/0 us_sports:1896/838/0 weather_other:41/0/0 119s
-2026-11-09 first esports:316/171/0 finance_daily:294/113/0 football:727/227/0 other:58/43/0 other_sports:1925/14/0 politics:62/54/0 temperature:1034/557/0 tennis:870/203/0 us_sports:1051/545/0 weather_other:16/9/0 193s
+run start 2026-11-11T19:43:25Z args: --budget-min 290 --start 2025-01-01
+pm: 0 days to do (0 re-pulls)
 results football-data files: 67
 results nfl games: 842
 results nhl games: 2690
 results mlb games: 5933
-results finance rows: 24076
+results finance rows: 24089
 results temperature stations: 68 updated 68
