@@ -19,6 +19,12 @@
  * (every dollar-paid trade, deposit and withdrawal, and no dropped coin), and only a short stretch of everything
  * that touched any of its token accounts. A coin received for nothing is not counted as a money link.
  *
+ * Second pass, 11 Nov 2026: the dollar account of a well-known fomo trader is busy too (many small payments in), so
+ * 3,000 of its transactions stopped short of the 30 days while the status said 30. Now the pages are read one at a
+ * time and only what the wallet did is kept, so a read can go ten times deeper; the status says how far each read
+ * really got (daysRead) and how old the buys it found are (buysFromDaysAgo). daysCovered is the shorter of the two
+ * reads. A candidate that turns out to be an exchange or a bot is not read past its first pages.
+ *
  * This is evidence, not proof of who owns a wallet. The public status carries short tags only; the full addresses
  * stay in data/solana/wallet-links.json on the server. "Likely" and "possible" wallets are handed to the PAPER copy
  * test (never the real one). Nothing is sent. SOLANA_LINKS=off disables.
@@ -42,11 +48,15 @@ const PRE_SLOTS = 4500; // half an hour before the seed's buy
 const POST_SLOTS = 750; // five minutes after it
 const NEAR_SLOTS = 75; // 30 s: the wave around the seed's own buy
 const HOUR_SLOTS = 9000;
-const SEED_PAGES = 30; // x100 transactions, for each of: what names the wallet, what touched its dollar accounts
-const CAND_PAGES = 10;
+/** x100 transactions. seed = what names a seed wallet, deep = each of its dollar accounts, cand = either, for a candidate */
+const depth = { seed: 100, deep: 150, cand: 10 };
+const BUSY_PAGES = 3; // a candidate this many pages in and plainly a service is not read further
 const TOK_PAGES = 3; // the short stretch of everything that touched its token accounts (mostly dropped coins)
+/** a single plain transfer this large is a money link by itself */
+const BIG_USD = 10_000;
+const BIG_SOL = 50;
 /** a result made by an older way of reading is read again */
-const VERSION = 2;
+const VERSION = 3;
 const PRE_PAGES = 4;
 const POST_PAGES = 2;
 const MAX_BUYS = 40;
@@ -239,11 +249,12 @@ export function tokenAccountsOf(items: Item[], wallet: string, mints: Set<string
 
 /** `days` = the stretch the transactions cover; `txs` = how many of them count toward how busy the wallet is. */
 export function digest(wallet: string, items: Item[], days: number, txs = items.length): WalletRead {
+  return digestActs(wallet, items.map((it) => actOf(it, wallet)).filter((a): a is Act => !!a), days, txs);
+}
+/** The same from what the wallet did in each transaction (see actOf), in any order. */
+export function digestActs(wallet: string, acts: Act[], days: number, txs: number): WalletRead {
   const r: WalletRead = { txs, days, txPerDay: txs / Math.max(days, 1 / 24), buys: new Map(), sells: new Map(), cps: new Map() };
-  const sorted = [...items].sort((a, b) => a.slot - b.slot || a.transactionIndex - b.transactionIndex);
-  for (const it of sorted) {
-    const a = actOf(it, wallet);
-    if (!a) continue;
+  for (const a of [...acts].sort((x, y) => x.slot - y.slot || x.index - y.index)) {
     if (a.buy && !r.buys.has(a.buy.mint)) r.buys.set(a.buy.mint, { slot: a.slot, index: a.index, t: a.t, sol: a.buy.sol, usd: a.buy.usd });
     if (a.sell && r.buys.has(a.sell) && !r.sells.has(a.sell)) r.sells.set(a.sell, { slot: a.slot, index: a.index });
     for (const mv of a.moves) {
@@ -285,9 +296,9 @@ export function compare(seed: WalletRead, cand: WalletRead) {
   return { shared, before, beforeWithin1h: near, after, soldInto, medianLeadSec: med === null ? null : Math.round(med), overlapPct: cand.buys.size ? Math.round((shared / cand.buys.size) * 100) : null };
 }
 
-export function judge(x: { transfers: number; twoStep: boolean; before: number; after: number; overlapPct: number | null; txPerDay: number; seeds: number }): string {
+export function judge(x: { transfers: number; big?: boolean; twoStep: boolean; before: number; after: number; overlapPct: number | null; txPerDay: number; seeds: number }): string {
   if (x.txPerDay > BOT_TX_DAY || x.seeds >= 3) return "service or bot";
-  const money = x.transfers >= 2 || x.twoStep;
+  const money = x.transfers >= 2 || x.twoStep || !!x.big;
   const ahead = x.before >= 3 && x.before >= 2 * x.after;
   if (money && ahead) return "likely";
   if (ahead && x.before >= 5 && (x.overlapPct ?? 0) >= 20) return "possible: buys ahead, no money link";
@@ -327,6 +338,10 @@ interface SeedResult {
   doneAt: number;
   /** transactions read: naming the wallet / touching its dollar accounts / the short stretch of all its token accounts */
   read: [number, number, number];
+  /** how many days back the read naming the wallet got, and the read of its dollar accounts (null = it has none) */
+  reach?: [number, number | null];
+  /** how many days ago its newest and its oldest buy in the read were */
+  span?: [number, number] | null;
   txs: number;
   days: number;
   buys: number;
@@ -385,64 +400,99 @@ function seeds(): Tracked[] {
   return list.filter((w) => validAddress(w.address));
 }
 
-/** All pages of a filter, up to `max`. null = out of credit for today. */
-async function pages(address: string, filters: Record<string, unknown>, order: "asc" | "desc", max: number): Promise<{ items: Item[]; more: boolean } | null> {
-  const items: Item[] = [];
+interface Reach {
+  n: number;
+  /** true = stopped at the page limit, so there is more further back */
+  more: boolean;
+  oldest: number | null;
+}
+/**
+ * Pages of a filter, handed on one at a time and not kept, up to `max` (or until `enough` says so). null = out of
+ * credit for today, or stopped.
+ */
+async function scan(address: string, filters: Record<string, unknown>, order: "asc" | "desc", max: number, each: (items: Item[]) => void, enough?: (r: Reach) => boolean): Promise<Reach | null> {
+  const r: Reach = { n: 0, more: false, oldest: null };
   let token: string | null = null;
   for (let p = 0; p < max; p++) {
+    if (stopped) return null;
     const pg: Page = await page(address, filters, order, token);
     if (!pg) return null;
-    items.push(...pg.data);
+    r.n += pg.data.length;
+    for (const it of pg.data) if (it.blockTime != null && (r.oldest === null || it.blockTime < r.oldest)) r.oldest = it.blockTime;
+    each(pg.data);
     token = pg.paginationToken;
-    if (!token || !pg.data.length) return { items, more: false };
+    if (!token || !pg.data.length) return r;
+    if (enough?.(r)) break;
   }
-  return { items, more: true };
+  r.more = true;
+  return r;
+}
+/** All pages of a filter, kept, up to `max`. null = out of credit for today. */
+async function pages(address: string, filters: Record<string, unknown>, order: "asc" | "desc", max: number): Promise<{ items: Item[]; more: boolean } | null> {
+  const items: Item[] = [];
+  const r = await scan(address, filters, order, max, (xs) => items.push(...xs));
+  return r && { items, more: r.more };
 }
 
-const reads = new Map<string, WalletRead & { read: [number, number, number] }>();
+type Read = WalletRead & { read: [number, number, number]; reach: [number, number | null] };
+const reads = new Map<string, Read>();
 const sigOf = (it: Item) => it.transaction.signatures?.[0] ?? `${it.slot}:${it.transactionIndex}`;
 /**
- * One wallet, read three ways (see the note at the top) and merged. Its dollar accounts are followed too, because a
- * trade that somebody else signs (fomo's relayer) need not name the wallet at all. null = out of credit for today.
+ * One wallet, read three ways (see the note at the top) and merged: what names it, a short stretch of everything
+ * that changed a token balance it owns, and its dollar accounts (a trade that fomo's relayer signs need not name
+ * the wallet at all). Only what the wallet did in each transaction is kept. `quick` = a candidate: stop once it is
+ * plainly an exchange, a relayer or a bot. null = out of credit for today.
  */
-async function readWallet(address: string, ownPages: number): Promise<(WalletRead & { read: [number, number, number] }) | null> {
+async function readWallet(address: string, ownPages: number, deepPages: number, quick = false): Promise<Read | null> {
   const hit = reads.get(address);
   if (hit) return hit;
   const now = Math.floor(Date.now() / 1000);
   const since = now - DAYS_BACK * 86_400;
-  const own = await pages(address, { blockTime: { gt: since } }, "desc", ownPages);
-  if (!own) return null;
-  const tok = await pages(address, { blockTime: { gt: since }, tokenAccounts: "balanceChanged" }, "desc", TOK_PAGES);
-  if (!tok) return null;
-  const far: { items: Item[]; more: boolean }[] = [own];
-  for (const acc of tokenAccountsOf([...own.items, ...tok.items], address, STABLE).slice(0, 2)) {
-    const d = await pages(acc, { blockTime: { gt: since } }, "desc", ownPages);
-    if (!d) return null;
-    far.push(d);
-  }
   const seen = new Set<string>();
-  const items: Item[] = [];
-  for (const it of [...far.flatMap((f) => f.items), ...tok.items]) {
-    const k = sigOf(it);
-    if (seen.has(k)) continue;
-    seen.add(k);
-    items.push(it);
+  const acts: Act[] = [];
+  const accounts = new Set<string>();
+  const take = (items: Item[]) => {
+    for (const it of items) {
+      const k = sigOf(it);
+      if (seen.has(k)) continue;
+      seen.add(k);
+      const a = actOf(it, address);
+      if (a) acts.push(a);
+    }
+    for (const a of tokenAccountsOf(items, address, STABLE)) accounts.add(a);
+  };
+  // how far back a read got: to the start of the window when it was read to its end, else to its oldest transaction
+  const daysOf = (r: Reach) => (now - (r.more ? (r.oldest ?? now) : since)) / 86_400;
+  const rate = (r: Reach) => r.n / Math.max(daysOf(r), 1 / 24);
+  const busy = (r: Reach) => quick && r.n >= BUSY_PAGES * 100 && rate({ ...r, more: true }) > BOT_TX_DAY;
+  const own = await scan(address, { blockTime: { gt: since } }, "desc", ownPages, take, busy);
+  if (!own) return null;
+  let tokN = 0;
+  let dollarN = 0;
+  let dollarDays: number | null = null;
+  if (!(quick && rate(own) > BOT_TX_DAY)) {
+    const tok = await scan(address, { blockTime: { gt: since }, tokenAccounts: "balanceChanged" }, "desc", TOK_PAGES, take);
+    if (!tok) return null;
+    tokN = tok.n;
+    for (const acc of [...accounts].slice(0, 2)) {
+      const d = await scan(acc, { blockTime: { gt: since } }, "desc", deepPages, take);
+      if (!d) return null;
+      dollarN += d.n;
+      dollarDays = Math.min(dollarDays ?? Infinity, daysOf(d));
+    }
   }
-  // How far back the wallet's own doings are known: the deepest of the far reads that was read to its end, else
-  // back to the oldest transaction of the one that reached furthest.
-  const oldest = (f: { items: Item[]; more: boolean }) => (f.more ? Math.min(...f.items.map((x) => x.blockTime ?? now)) : since);
-  const days = (now - Math.min(...far.map(oldest))) / 86_400;
-  const dollar = far.slice(1).reduce((a, f) => a + f.items.length, 0);
+  const ownDays = daysOf(own);
+  // what can be said for sure: a SOL-paid trade names the wallet, a dollar-paid one touches its dollar account
+  const days = dollarDays === null ? ownDays : Math.min(ownDays, dollarDays);
+  const r: Read = { ...digestActs(address, acts, days, own.n), read: [own.n, dollarN, tokN], reach: [ownDays, dollarDays] };
   // how busy it is: by what names the wallet itself (dropped coins and fomo's relayer say nothing about that)
-  const ownDays = (now - oldest(own)) / 86_400;
-  const r = { ...digest(address, items, days, own.items.length), read: [own.items.length, dollar, tok.items.length] as [number, number, number] };
-  r.txPerDay = own.items.length / Math.max(ownDays, 1 / 24);
+  r.txPerDay = rate(own);
   reads.set(address, r);
   return r;
 }
 
 async function doSeed(seed: Tracked): Promise<SeedResult | null> {
-  const s = await readWallet(seed.address, SEED_PAGES);
+  const s = await readWallet(seed.address, depth.seed, depth.deep);
   if (!s) return null;
   const now = Math.floor(Date.now() / 1000);
   const buys = [...s.buys].filter(([, b]) => b.t < now - 600).sort((a, b) => b[1].slot - a[1].slot).slice(0, MAX_BUYS);
@@ -475,7 +525,7 @@ async function doSeed(seed: Tracked): Promise<SeedResult | null> {
   const linked = new Map<string, Linked>();
   const row = async (address: string, how: string, c: Cp | undefined, through?: string): Promise<WalletRead | null | undefined> => {
     if (linked.has(address)) return undefined;
-    const r = await readWallet(address, CAND_PAGES);
+    const r = await readWallet(address, depth.cand, depth.cand, true);
     if (!r) return null;
     const t = tally.get(address);
     linked.set(address, {
@@ -508,8 +558,12 @@ async function doSeed(seed: Tracked): Promise<SeedResult | null> {
     if ((await row(a, "timing", s.cps.get(a))) === null) return null;
   }
   const bought = [...s.buys.values()];
+  const r1 = (x: number) => Math.round(x * 10) / 10;
+  const ago = bought.map((b) => (now - b.t) / 86_400);
   return {
-    v: VERSION, doneAt: Date.now(), read: s.read, txs: s.txs, days: Math.round(s.days * 10) / 10, buys: bought.length,
+    v: VERSION, doneAt: Date.now(), read: s.read, reach: [r1(s.reach[0]), s.reach[1] === null ? null : r1(s.reach[1])],
+    span: ago.length ? [r1(Math.min(...ago)), r1(Math.max(...ago))] : null,
+    txs: s.txs, days: r1(s.days), buys: bought.length,
     buysUsd: bought.filter((b) => b.usd > 0).length, buysSol: bought.filter((b) => b.usd === 0).length,
     checked: buys.length, before30: median(b30), after30: median(a30), linked: [...linked.values()],
   };
@@ -577,7 +631,7 @@ function judged() {
   return Object.entries(state.seeds).filter(([a]) => names.has(a)).map(([a, r]) => ({
     name: names.get(a)!, address: a, r,
     linked: r.linked
-      .map((l) => ({ ...l, verdict: judge({ transfers: l.sent + l.received, twoStep: l.how === "money, 2 steps", before: l.before, after: l.after, overlapPct: l.overlapPct, txPerDay: l.txPerDay, seeds: tied.get(l.address) ?? 1 }) }))
+      .map((l) => ({ ...l, verdict: judge({ transfers: l.sent + l.received, big: l.usd >= BIG_USD || l.sol >= BIG_SOL, twoStep: l.how === "money, 2 steps", before: l.before, after: l.after, overlapPct: l.overlapPct, txPerDay: l.txPerDay, seeds: tied.get(l.address) ?? 1 }) }))
       .sort((x, y) => ORDER.indexOf(x.verdict) - ORDER.indexOf(y.verdict) || y.before - x.before || y.sent + y.received - (x.sent + x.received)),
   }));
 }
@@ -593,7 +647,7 @@ export function linkedWallets(): Tracked[] {
 export function linksSummary() {
   const all = judged();
   return {
-    note: `For each seed wallet (public fomo traders): MONEY = plain transfers of SOL, dollars or coins with another wallet, also one step further; TIMING = wallets that started holding the same coin in the half hour before the seed bought it, on 3+ coins. Each such wallet is then read itself: shared = coins both bought, before = it bought first (beforeWithin1h: within the hour before), soldInto = it sold within half an hour after the seed's buy, overlapPct = share of its own coins that the seed also bought. "likely" = a money link AND first on 3+ shared coins (twice as often as second). Evidence, not proof of ownership. Looks back up to ${DAYS_BACK} days (daysCovered says how far it got); transactionsRead = [naming the wallet, touching its dollar accounts, a short stretch of all its token accounts]; a coin received for nothing is not a money link. Wallets shown as short tags.`,
+    note: `For each seed wallet (public fomo traders): MONEY = plain transfers of SOL, dollars or coins with another wallet, also one step further; TIMING = wallets that started holding the same coin in the half hour before the seed bought it, on 3+ coins. Each such wallet is then read itself: shared = coins both bought, before = it bought first (beforeWithin1h: within the hour before), soldInto = it sold within half an hour after the seed's buy, overlapPct = share of its own coins that the seed also bought. "likely" = a money link AND first on 3+ shared coins (twice as often as second). A money link = 2+ plain transfers, or one of $${BIG_USD}+ or ${BIG_SOL}+ SOL. Evidence, not proof of ownership. Looks back up to ${DAYS_BACK} days: daysRead says how far the read naming the wallet and the read of its dollar accounts each got, daysCovered is the shorter of the two, buysFromDaysAgo is how old its newest and oldest buy in the read are. transactionsRead = [naming the wallet, touching its dollar accounts, a short stretch of all its token accounts]; a coin received for nothing is not a money link. Wallets shown as short tags.`,
     state: health.state,
     working: health.working,
     seedsDone: all.length,
@@ -601,7 +655,7 @@ export function linksSummary() {
     likely: all.reduce((a, s) => a + s.linked.filter((l) => l.verdict === "likely").length, 0),
     possible: all.reduce((a, s) => a + s.linked.filter((l) => l.verdict.startsWith("possible")).length, 0),
     seeds: all.map((s) => ({
-      name: s.name, address: s.address, redo: s.r.v !== VERSION, transactionsRead: s.r.read ?? null, daysCovered: s.r.days, coinsBought: s.r.buys, paidInDollars: s.r.buysUsd, paidInSol: s.r.buysSol,
+      name: s.name, address: s.address, redo: s.r.v !== VERSION, transactionsRead: s.r.read ?? null, daysCovered: s.r.days, daysRead: s.r.reach ? { own: s.r.reach[0], dollar: s.r.reach[1] } : null, buysFromDaysAgo: s.r.span ?? null, coinsBought: s.r.buys, paidInDollars: s.r.buysUsd, paidInSol: s.r.buysSol,
       buysChecked: s.r.checked, newHolders30sBefore: s.r.before30, newHolders30sAfter: s.r.after30,
       linked: s.linked.slice(0, 20).map(({ address, through, ...l }) => ({ wallet: tag(address), ...(through ? { through: tag(through) } : {}), ...l })),
     })),
@@ -614,4 +668,4 @@ export function linksSummary() {
 }
 
 /** Test hooks. */
-export const _test = { doSeed, setCfg: (c: typeof cfg) => ((stopped = !c), (cfg = c)), state: () => state, reset: () => ((state = { day: "", credits: 0, seeds: {} }), reads.clear()) };
+export const _test = { doSeed, setDepth: (d: Partial<typeof depth>) => Object.assign(depth, d), setCfg: (c: typeof cfg) => ((stopped = !c), (cfg = c)), state: () => state, reset: () => ((state = { day: "", credits: 0, seeds: {} }), reads.clear()) };
