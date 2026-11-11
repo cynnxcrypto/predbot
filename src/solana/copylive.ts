@@ -8,7 +8,8 @@
  *
  * The exit (enrique, 11 Nov 2026 18:13 KST, on a decision card: "Switch to +10% or 60 s"): while holding, ask every
  * moment what a sale would bring back; sell as soon as that is `targetPct` above the stake, and sell anyway after
- * `holdSec`. With targetPct 0 it is the old fixed hold. No stop: on paper the stops cost more than they saved.
+ * `holdSec`. With targetPct 0 it is the old fixed hold. No stop unless `stopPct` is set (see LiveConfig): on the
+ * first paper read the stops cost more than they saved; for the 9% band a wide one later looked better.
  *
  * Guards, all in code:
  *  - OFF unless deploy/live-rules.json has "solanaCopy": { "on": true, ... } (MAIN owns that file). SOLANA_LIVE=off
@@ -59,6 +60,13 @@ export interface LiveConfig {
   holdSec: number;
   /** sell as soon as a sale would bring back this much more than the stake, %; 0 = hold the full time */
   targetPct: number;
+  /**
+   * Off unless set (0). With it, a copy is sold when what a sale would bring back is this many % under the stake on
+   * STOP_READINGS looks in a row. Asked for by MAIN on 11 Nov 2026 22:38 KST after the 9% band's time-ups: 9 real
+   * copies that ran the full 60 s lost 0.135 SOL together (17% to 64% of the stake each), and on paper (77 buys) a
+   * 20% stop kept every winner and made +0.54 SOL where the plain 60 s clock made +0.13.
+   */
+  stopPct: number;
   /** most copies in one KST day; none set in the file = no daily limit (the loss cap is the stop) */
   maxPerDay: number;
   /**
@@ -72,7 +80,7 @@ export interface LiveConfig {
   /** most we will pay in priority fee per transaction, lamports */
   maxFeeLamports: number;
 }
-const OFF: LiveConfig = { on: false, stakeSol: 0, maxLossSol: 0, holdSec: 5, targetPct: 0, maxPerDay: 0, minGapPct: 0, maxOpen: 1, slippageBps: 1500, maxFeeLamports: 0 };
+const OFF: LiveConfig = { on: false, stakeSol: 0, maxLossSol: 0, holdSec: 5, targetPct: 0, stopPct: 0, maxPerDay: 0, minGapPct: 0, maxOpen: 1, slippageBps: 1500, maxFeeLamports: 0 };
 const num = (v: unknown, d: number) => (typeof v === "number" && Number.isFinite(v) ? v : d);
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 
@@ -88,6 +96,8 @@ export function parseLive(text: string): LiveConfig {
       on: true, stakeSol, maxLossSol,
       holdSec: clamp(num(p.holdSec, 5), 1, 60),
       targetPct: clamp(num(p.targetPct, 0), 0, 50),
+      // an instant in-and-out already costs 3% to 6% of the stake, so a stop tighter than 5% would sell every copy
+      stopPct: num(p.stopPct, 0) > 0 ? clamp(num(p.stopPct, 0), MIN_STOP_PCT, 90) : 0,
       // 11 Nov 2026 21:02 KST, enrique: "why a limit on amount of trades ... it makes sense maybe to stop if u lose hard".
       // No daily count unless the repo file sets one; the 0.5 SOL loss cap is the stop.
       maxPerDay: p.maxPerDay == null ? Number.MAX_SAFE_INTEGER : clamp(Math.floor(num(p.maxPerDay, 80)), 1, 1_000_000),
@@ -134,7 +144,7 @@ export interface Row {
   sellTries?: number;
   heldSec?: number;
   /** how the position was closed: at the profit target, or because the time was up (absent = the old fixed hold) */
-  exit?: "target" | "time";
+  exit?: "target" | "time" | "stop";
   /** the best a sale would have brought back while we held, % over the stake */
   bestPct?: number;
   /** sales tried at the target (one that fails, because the price fell back first, costs a fee and the watch goes on) */
@@ -383,6 +393,12 @@ async function sellAll(w: Wallet, mint: string, maxFee: number, row: Row): Promi
 /** How often the held position is priced, and how much of the quoted amount a target sale may give back. */
 let pollMs = 750;
 const TARGET_SLIP_BPS = 500;
+export const MIN_STOP_PCT = 5;
+/**
+ * The stop needs this many looks in a row under its level (the looks are pollMs apart). One look can be a single bad
+ * quote or a dip of a moment; paper only looks at 2, 5, 10, 20, 30 and 60 s, so it never sees those either.
+ */
+export const STOP_READINGS = 2;
 /**
  * Most target sales tried per copy (MAIN review, 11 Nov 2026). A sale that fails on chain still pays its fee, and a
  * price hovering at the target could otherwise fail many times in a minute: three tries, then the copy waits for
@@ -398,6 +414,7 @@ export const MAX_TARGET_TRIES = 3;
  * Never throws.
  */
 async function watch(w: Wallet, mint: string, amount: bigint, c: LiveConfig, row: Row, until: number, pos?: OpenPos): Promise<boolean> {
+  let under = 0;
   while (Date.now() < until) {
     const t = Date.now();
     try {
@@ -408,6 +425,13 @@ async function watch(w: Wallet, mint: string, amount: bigint, c: LiveConfig, row
         row.bestPct = Math.round(Math.max(row.bestPct ?? -100, up) * 10) / 10;
         if (pos) Object.assign(pos, { worthSol: Math.round(out / 1e3) / 1e6, nowPct: Math.round(up * 10) / 10, bestPct: row.bestPct });
         else if (state.open) state.open = { ...state.open, worthSol: Math.round(out / 1e3) / 1e6, nowPct: Math.round(up * 10) / 10, bestPct: row.bestPct };
+        // the stop: nothing is sold in here. The watch ends early and the caller sells exactly as it does when the
+        // time is up (fresh quote, wider slippage, several tries), because a falling coin must go, not be haggled over
+        under = c.stopPct > 0 && up <= -c.stopPct ? under + 1 : 0;
+        if (under >= STOP_READINGS) {
+          row.exit = "stop";
+          return false;
+        }
         if (c.targetPct > 0 && up >= c.targetPct && (row.targetTries ?? 0) < MAX_TARGET_TRIES) {
           row.targetTries = (row.targetTries ?? 0) + 1;
           row.sellTries = (row.sellTries ?? 0) + 1;
@@ -659,7 +683,7 @@ export async function trade(b: StreamBuy) {
       const heldFrom = Date.now();
       if (await watch(w, b.mint, h.amount, c, row, heldFrom + c.holdSec * 1000)) row.sold = true;
       else {
-        if (c.targetPct > 0) row.exit = "time";
+        if (c.targetPct > 0 && row.exit !== "stop") row.exit = "time";
         row.sold = await sellAll(w, b.mint, c.maxFeeLamports, row);
       }
       row.heldSec = Math.round((Date.now() - heldFrom) / 100) / 10;
@@ -931,7 +955,7 @@ async function tradeMany(b: StreamBuy, c: LiveConfig) {
       const heldFrom = Date.now();
       if (await watch(w, b.mint, h.amount, c, row, heldFrom + c.holdSec * 1000, pos)) row.sold = true;
       else {
-        if (c.targetPct > 0) row.exit = "time";
+        if (c.targetPct > 0 && row.exit !== "stop") row.exit = "time";
         row.sold = await sellAll(w, b.mint, c.maxFeeLamports, row);
       }
       row.heldSec = Math.round((Date.now() - heldFrom) / 100) / 10;
@@ -1098,7 +1122,7 @@ export function solanaCopyLiveSummary() {
     rentBackSol: state.rentBackSol ?? 0,
     spareAccountsClosed: state.spareClosed ?? 0,
     dailyLimit: c.on && c.maxPerDay < Number.MAX_SAFE_INTEGER ? c.maxPerDay : null,
-    exitRule: c.targetPct > 0 ? `sells at +${c.targetPct}% or after ${c.holdSec} s` : `sells after ${c.holdSec} s`,
+    exitRule: `${c.targetPct > 0 ? `sells at +${c.targetPct}% or after ${c.holdSec} s` : `sells after ${c.holdSec} s`}${c.stopPct > 0 ? `, and sooner if it is ${c.stopPct}% down` : ""}`,
     /**
      * What is held right now, in numbers only (the dashboard's "holding now" block reads these names). The token is
      * left out on purpose: a token and a moment are enough to find our transaction, and with it the wallet.
@@ -1135,13 +1159,16 @@ export function solanaCopyLiveSummary() {
       timeUps: gapped.filter((r) => r.exit === "time").length,
       timeUpsWon: gapped.filter((r) => r.exit === "time" && r.netSol > 0).length,
       timeUpsSol: sol(gapped.filter((r) => r.exit === "time")),
-      otherSol: sol(gapped.filter((r) => r.exit !== "target" && r.exit !== "time")),
+      stops: gapped.filter((r) => r.exit === "stop").length,
+      stopsSol: sol(gapped.filter((r) => r.exit === "stop")),
+      otherSol: sol(gapped.filter((r) => r.exit !== "target" && r.exit !== "time" && r.exit !== "stop")),
       rowsKept: rows.length,
     } : null,
     targetExit: {
       copies: aimed.length,
       atTarget: aimed.filter((r) => r.exit === "target").length,
       atTimeUp: aimed.filter((r) => r.exit === "time").length,
+      atStop: aimed.filter((r) => r.exit === "stop").length,
       won: aimed.filter((r) => r.netSol > 0).length,
       netSol: Math.round(aimed.reduce((a, r) => a + r.netSol, 0) * 1e6) / 1e6,
       bestPctMedian: med(nums(aimed.map((r) => r.bestPct))),
