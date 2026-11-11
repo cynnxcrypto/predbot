@@ -46,6 +46,7 @@ test("deploy/live-rules.json: the tennis test stays inside enrique's limits", ()
   const cfg = parseEventLive(readFileSync(join(process.cwd(), "deploy", "live-rules.json"), "utf8"), { mode: "live", funder: "0xabc" });
   const g = cfg.groups.tennis;
   if (!g) return;
-  assert.ok(g.size <= 5 && g.size * g.maxOpen <= 20 && g.maxLoss <= 20);
+  // 11 Nov 2026, enrique: "extend tennis budget risk to 30 so there can be 10 different bets online"
+  assert.ok(g.size <= 5 && g.size * g.maxOpen <= 30 && g.maxLoss <= 30);
   assert.ok(g.rules.every((r) => r.startsWith("tennis-")));
 });
