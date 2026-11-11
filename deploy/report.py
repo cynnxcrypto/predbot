@@ -103,6 +103,10 @@ def summary():
     out["pairlock"] = s.get("pairlock")
     out["pairfastlive"] = s.get("pairfastlive")  # 11 Nov 2026: REAL fast pair bot on BTC 5m, own $15 budget (src/pairfastlive.ts)
     out["pairfast"] = s.get("pairfast")  # 11 Nov 2026: feed-driven paper pair bot (src/pairfast.ts)
+    # 11 Nov 2026: the wallet's all-time result from its whole history (src/wallethistory.ts). Profit and loss only:
+    # what the wallet is worth and the money put in stay on the password-protected dashboard.
+    wh = s.get("walletHistory") or {}
+    out["walletHistory"] = {k: wh.get(k) for k in ("at", "source", "error", "rows", "truncated", "firstAt", "lastAt", "serverStart", "beforeNet", "sinceNet", "allTimeNet", "kinds", "unknown", "months")} if wh else None
     out["pairlive"] = s.get("pairlive")  # 10 Nov 2026: budget, lost, open and left per real-money category
     out["realTrades"] = sorted(rows, key=lambda r: r.get("t") or 0)[-200:]
     return out

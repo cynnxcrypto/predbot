@@ -12,6 +12,7 @@ import { startPreopen } from "./preopen.js";
 import { startPairlock } from "./pairlock.js";
 import { startPairfast } from "./pairfast.js";
 import { pairfastliveQuiet, startPairfastlive } from "./pairfastlive.js";
+import { startWalletHistory } from "./wallethistory.js";
 import { pairliveQuiet, startPairlive } from "./pairlive.js";
 
 function build() {
@@ -86,6 +87,7 @@ const reportTimer = startServerReport();
 const pairliveTimer = startPairlive(); // REAL: two-sided pair test (src/pairlive.ts), guarded by deploy/live-rules.json "pairs"
 const pairlockTimer = startPairlock(); // paper only: two-sided pair locking on BTC/ETH/SOL 15m (src/pairlock.ts)
 const pairfastliveTimer = startPairfastlive(); // REAL: fast pair bot on BTC 5m (src/pairfastlive.ts), off unless deploy/live-rules.json has "pairfast" with on: true
+const walletHistoryTimer = startWalletHistory(); // read-only: the wallet's all-time result from its whole Polymarket activity (src/wallethistory.ts)
 const pairfastTimer = startPairfast(); // paper only: feed-driven pair bot with resting bids on ETH 15m and BTC 5m (src/pairfast.ts)
 const preopenTimer = startPreopen(); // paper only: 49c bids on both sides of the next 15m window (src/preopen.ts)
 console.log(`Pred bot recorder ${build()}. Status: http://127.0.0.1:${STATUS_PORT}. Recording ${recorders.map((r) => r.series.label).join(", ")}.`);
@@ -173,6 +175,7 @@ function stop() {
   if (preopenTimer) clearInterval(preopenTimer);
   if (pairlockTimer) clearInterval(pairlockTimer);
   if (pairfastTimer) clearInterval(pairfastTimer);
+  if (walletHistoryTimer) clearInterval(walletHistoryTimer);
   if (pairfastliveTimer) clearInterval(pairfastliveTimer);
   if (pairliveTimer) clearInterval(pairliveTimer);
   if (reportTimer) clearInterval(reportTimer);
