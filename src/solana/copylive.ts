@@ -143,11 +143,14 @@ interface State {
   /** buys left alone by the entry filter: the quote was not far enough above the wallet's price / no price to compare */
   skippedLowGap: number;
   skippedNoPrice: number;
+  /** rent that came back from closing left-over empty token accounts at a start, and how many: part of netSol, in no copy's row */
+  rentBackSol: number;
+  spareClosed: number;
   /** a copy that is under way or could not be closed: the token, the balance it is counted from, when, clean-up tries */
   open: { mint: string; bal0: number; t: number; tries: number; worthSol?: number; nowPct?: number; bestPct?: number } | null;
   rows: Row[];
 }
-const fresh = (): State => ({ netSol: 0, trades: 0, day: "", dayCount: 0, halted: "", note: "", balanceSol: null, skippedLowGap: 0, skippedNoPrice: 0, open: null, rows: [] });
+const fresh = (): State => ({ netSol: 0, trades: 0, day: "", dayCount: 0, halted: "", note: "", balanceSol: null, skippedLowGap: 0, skippedNoPrice: 0, rentBackSol: 0, spareClosed: 0, open: null, rows: [] });
 let state: State = fresh();
 let loaded = false;
 let busy = false;
@@ -330,6 +333,78 @@ async function closeEmpty(w: Wallet, mint: string, row: Row) {
   }
 }
 
+const TOKEN_PROGRAMS = ["TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA", "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"];
+/** The most accounts closed in one pass, and the accounts whose close did not go through (not tried again until a restart). */
+const SPARE_MAX = 12;
+const noClose = new Set<string>();
+/**
+ * Close the empty token accounts the wallet is left with, whatever coin they are for. A swap that is routed through
+ * another coin opens an account for that coin and leaves it behind, and each one locks its rent (11 Nov 2026: ten
+ * such accounts, about 0.015 SOL, found when enrique compared the wallet on Solscan with the dashboard). Closing an
+ * account sends its rent back to the wallet. Only accounts that hold nothing and are not frozen: the chain itself
+ * refuses to close one that holds anything. Best effort; returns how many were closed.
+ */
+async function closeSpare(w: Wallet, sigs: string[]): Promise<number> {
+  type Acc = { pubkey: string; account: { owner: string; data: { parsed: { info: { state?: string; tokenAmount: { amount: string } } } } } };
+  const empty: { pubkey: string; program: string }[] = [];
+  for (const programId of TOKEN_PROGRAMS) {
+    const r = await rpc<{ value: Acc[] }>("getTokenAccountsByOwner", [w.address, { programId }, { encoding: "jsonParsed", commitment: "confirmed" }]).catch(() => null);
+    for (const a of r?.value ?? []) {
+      const info = a.account.data.parsed.info;
+      if (info.tokenAmount.amount === "0" && info.state !== "frozen" && !noClose.has(a.pubkey)) empty.push({ pubkey: a.pubkey, program: a.account.owner });
+    }
+  }
+  if (!empty.length) return 0;
+  const sent: { pubkey: string; sig: string }[] = [];
+  try {
+    const bh = (await rpc<{ value: { blockhash: string } }>("getLatestBlockhash", [{ commitment: "confirmed" }])).value.blockhash;
+    for (const a of empty.slice(0, SPARE_MAX)) {
+      const sig = await send(buildSigned(w, bh, a.program, [{ pubkey: a.pubkey, writable: true }, { pubkey: w.address, writable: true }, { pubkey: w.address, writable: false }], [9])).catch(() => null);
+      if (sig) sent.push({ pubkey: a.pubkey, sig });
+      else noClose.add(a.pubkey);
+    }
+  } catch {
+    return 0; // no blockhash: nothing was sent, the next pass tries again
+  }
+  let closed = 0;
+  for (const x of sent) {
+    sigs.push(x.sig);
+    const st = await landed(x.sig, 10_000);
+    if (st && !st.err) closed++;
+    else noClose.add(x.pubkey); // a close that fails costs a fee each time: once is enough
+  }
+  return closed;
+}
+
+/**
+ * The clean-up on its own, at the start: whatever rent comes back is added to the result and kept apart from the
+ * copies (rentBackSol), so that no single copy is credited with it. After this, the pass at the end of each copy
+ * only returns what that copy itself locked.
+ */
+export async function tidy() {
+  if (!loaded) load();
+  if (!cfg().on || busy || state.open || !walletReady || !shared.helius()) return;
+  busy = true;
+  try {
+    const w = wallet();
+    const bal0 = await balance(w.address);
+    const n = await closeSpare(w, []);
+    if (!n) return;
+    await sleep(800);
+    const bal1 = await balance(w.address);
+    const back = Math.round((bal1 - bal0) * 1e6) / 1e6;
+    state.balanceSol = bal1;
+    state.netSol = Math.round((state.netSol + back) * 1e6) / 1e6;
+    state.rentBackSol = Math.round(((state.rentBackSol ?? 0) + back) * 1e6) / 1e6;
+    state.spareClosed = (state.spareClosed ?? 0) + n;
+  } catch {
+    /* nothing booked: the balance could not be read, and the next copy's own count starts from the chain anyway */
+  } finally {
+    save();
+    busy = false;
+  }
+}
+
 function keep(row: Row) {
   state.rows.push(row);
   if (state.rows.length > 200) state.rows.shift();
@@ -456,7 +531,11 @@ export async function trade(b: StreamBuy) {
         state.halted = STUCK;
       }
     }
-    if (closed) await closeEmpty(w, b.mint, row);
+    if (closed) {
+      await closeEmpty(w, b.mint, row);
+      // and any account a routed swap left behind, so its rent is back before this copy is counted
+      await closeSpare(w, row.sigs).catch(() => 0);
+    }
   } catch (e) {
     row.error = scrub(String((e as Error).message));
     // whatever went wrong, never leave without knowing whether we hold the token
@@ -563,6 +642,9 @@ export function solanaCopyLiveSummary() {
     entryRule: c.minGapPct > 0 ? `buys only when our price is already ${c.minGapPct}% or more above what the wallet paid` : "buys every first buy of a listed wallet",
     skippedLowGap: state.skippedLowGap,
     skippedNoPrice: state.skippedNoPrice,
+    // rent returned by closing left-over empty token accounts: inside netSol, outside every copy's own result
+    rentBackSol: state.rentBackSol ?? 0,
+    spareAccountsClosed: state.spareClosed ?? 0,
     dailyLimit: c.on && c.maxPerDay < Number.MAX_SAFE_INTEGER ? c.maxPerDay : null,
     exitRule: c.targetPct > 0 ? `sells at +${c.targetPct}% or after ${c.holdSec} s` : `sells after ${c.holdSec} s`,
     /**
@@ -614,6 +696,7 @@ export function startSolanaCopyLive() {
   }
   onStreamBuy((b) => void trade(b));
   if (walletReady && state.open) void recover();
+  else if (walletReady) setTimeout(() => void tidy(), 20_000).unref();
   // a position that could not be closed is tried again every 10 minutes (at most MAX_RECOVERIES times in all)
   setInterval(() => void (walletReady && state.open && !busy && recover()), 600_000).unref();
   return null;
@@ -634,5 +717,7 @@ export const _test = {
     walletReady = true;
   },
   watch,
+  closeSpare,
+  forgetCloses: () => noClose.clear(),
   setPoll: (ms: number) => (pollMs = ms),
 };

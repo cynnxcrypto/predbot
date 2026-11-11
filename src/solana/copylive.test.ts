@@ -9,7 +9,7 @@ process.env.DATA_DIR = mkdtempSync(join(tmpdir(), "sollive-"));
 // made-up keys: the real test refuses to trade without both, and every network call here is faked
 process.env.HELIUS_API_KEY = "test-helius";
 process.env.JUPITER_API_KEY = "test-jupiter";
-const { HARD_MAX_LOSS_SOL, HARD_STAKE_SOL, parseLive, solanaCopyLiveSummary, trade, _test } = await import("./copylive.js");
+const { HARD_MAX_LOSS_SOL, HARD_STAKE_SOL, parseLive, solanaCopyLiveSummary, trade, tidy, _test } = await import("./copylive.js");
 const { _test: run } = await import("./copyrun.js");
 const { buildSigned, wallet } = await import("./keys.js");
 type Row = import("./copylive.js").Row;
@@ -236,6 +236,85 @@ test("daily count: stops the day only when a limit is set", async () => {
   await trade(signal());
   assert.equal(log.quotes, 1);
   assert.equal(_test.state().note, "");
+  run.setNet(fetch);
+  _test.setConfig(null);
+  _test.reset();
+});
+
+// ---- the clean-up: empty token accounts a routed swap leaves behind -------------------------------------------------
+const CLASSIC = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA";
+const T22 = "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb";
+// made-up token accounts (any valid address will do as a name)
+const ACC = { usdc: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", spam: "So11111111111111111111111111111111111111112", frozen: MINT, stuck: "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB" };
+/** A made-up wallet with four token accounts: one empty, one holding a dropped coin, one empty but frozen, one empty whose close fails. */
+function spare() {
+  const log = { sends: 0, balances: 0 };
+  const open = new Set(Object.values(ACC));
+  const sigAcc = new Map<string, string>();
+  const acc = (pubkey: string, owner: string, amount: string, state = "initialized") => ({ pubkey, account: { owner, data: { parsed: { info: { state, tokenAmount: { amount, decimals: 6 } } } } } });
+  run.setNet((async (_url: string, init?: { body?: string }) => {
+    const json = (x: unknown) => new Response(JSON.stringify({ result: x }));
+    const { method, params } = JSON.parse(init!.body!) as { method: string; params: unknown[] };
+    if (method === "getTokenAccountsByOwner") {
+      const prog = (params[1] as { programId: string }).programId;
+      const all = prog === CLASSIC ? [acc(ACC.usdc, CLASSIC, "0"), acc(ACC.spam, CLASSIC, "40")] : [acc(ACC.frozen, T22, "0", "frozen"), acc(ACC.stuck, T22, "0")];
+      return json({ value: all.filter((a) => open.has(a.pubkey)) });
+    }
+    if (method === "getLatestBlockhash") return json({ value: { blockhash: SYSTEM } });
+    if (method === "sendTransaction") {
+      // which account this close is for: the made-up chain reads it back from the order of the calls
+      const target = [ACC.usdc, ACC.stuck].filter((a) => open.has(a) && ![...sigAcc.values()].includes(a))[0];
+      const sig = `close-${++log.sends}`;
+      sigAcc.set(sig, target);
+      return json(sig);
+    }
+    if (method === "getSignatureStatuses") {
+      const a = sigAcc.get((params[0] as string[])[0]);
+      if (a === ACC.usdc) open.delete(a);
+      return json({ value: [{ slot: 9, err: a === ACC.usdc ? null : { InstructionError: [0, "Custom"] } }] });
+    }
+    if (method === "getBalance") return json({ value: log.balances++ === 0 ? 0.4e9 : 0.40149e9 });
+    throw new Error(`unexpected call ${method}`);
+  }) as never);
+  return { log, open };
+}
+
+test("clean-up: closes only empty, unfrozen token accounts, and does not keep paying for one that will not close", async () => {
+  _test.reset();
+  _test.ready();
+  _test.forgetCloses();
+  const f = spare();
+  const sigs: string[] = [];
+  assert.equal(await _test.closeSpare(wallet(), sigs), 1, "one closed; the other close failed on chain");
+  assert.equal(f.log.sends, 2, "the coin that was dropped in and the frozen account are left alone");
+  assert.deepEqual(sigs, ["close-1", "close-2"]);
+  assert.ok(!f.open.has(ACC.usdc) && f.open.has(ACC.spam) && f.open.has(ACC.frozen));
+  assert.equal(await _test.closeSpare(wallet(), sigs), 0);
+  assert.equal(f.log.sends, 2, "the account whose close failed is not tried again");
+  run.setNet(fetch);
+});
+
+test("clean-up at a start: the rent that comes back is in the result but in no copy's row", async () => {
+  _test.reset();
+  _test.ready();
+  _test.forgetCloses();
+  _test.setConfig(CFG);
+  const st = _test.state();
+  st.netSol = 0.02;
+  spare();
+  await tidy();
+  assert.deepEqual({ netSol: st.netSol, rentBackSol: st.rentBackSol, spareClosed: st.spareClosed, rows: st.rows.length }, { netSol: 0.02149, rentBackSol: 0.00149, spareClosed: 1, rows: 0 });
+  const s = solanaCopyLiveSummary();
+  assert.deepEqual({ rentBackSol: s.rentBackSol, spareAccountsClosed: s.spareAccountsClosed }, { rentBackSol: 0.00149, spareAccountsClosed: 1 });
+  // a copy under way, or the test switched off: nothing is touched
+  st.open = { mint: MINT, bal0: 0.4, t: Date.now(), tries: 0 };
+  const f = spare();
+  _test.forgetCloses();
+  await tidy();
+  st.open = null;
+  _test.setConfig({ ...CFG, on: false });
+  await tidy();
+  assert.equal(f.log.sends + f.log.balances, 0);
   run.setNet(fetch);
   _test.setConfig(null);
   _test.reset();
