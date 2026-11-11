@@ -72,12 +72,14 @@ export interface Buy {
   price: number;
   slot: number;
   blockTime: number;
+  /** decimal places of the token, when the transaction says (lets a raw quote amount be turned into a price) */
+  decimals?: number;
 }
 
 interface TokBal {
   mint: string;
   owner?: string;
-  uiTokenAmount: { uiAmountString?: string; uiAmount?: number | null };
+  uiTokenAmount: { uiAmountString?: string; uiAmount?: number | null; decimals?: number };
 }
 export interface ParsedTx {
   slot: number;
@@ -87,6 +89,10 @@ export interface ParsedTx {
 }
 
 const ui = (b: TokBal) => Number(b.uiTokenAmount.uiAmountString ?? b.uiTokenAmount.uiAmount ?? 0) || 0;
+const decimalsOf = (tx: ParsedTx, mint: string) => {
+  const d = (tx.meta?.postTokenBalances ?? []).find((b) => b.mint === mint)?.uiTokenAmount.decimals;
+  return typeof d === "number" && d >= 0 && d <= 18 ? { decimals: d } : {};
+};
 
 /** The wallet's buy in this transaction (SOL or wrapped SOL spent, exactly one other token received), or null. */
 export function parseBuy(tx: ParsedTx | null, wallet: string, minSol = MIN_BUY_SOL): Buy | null {
@@ -104,7 +110,7 @@ export function parseBuy(tx: ParsedTx | null, wallet: string, minSol = MIN_BUY_S
   sol = -sol;
   if (sol < minSol) return null;
   const [mint, tokens] = got[0];
-  return { mint, tokens, sol, price: sol / tokens, slot: tx.slot, blockTime: tx.blockTime ?? 0 };
+  return { mint, tokens, sol, price: sol / tokens, slot: tx.slot, blockTime: tx.blockTime ?? 0, ...decimalsOf(tx, mint) };
 }
 
 /**
@@ -123,7 +129,7 @@ export function parseDollarBuy(tx: ParsedTx | null, wallet: string, solUsd: numb
   if (coins.length !== 1 || coins[0][1] <= 0 || usd < minUsd) return null; // one coin in, dollars out, nothing else
   const [mint, tokens] = coins[0];
   const sol = usd / solUsd;
-  return { mint, tokens, sol, price: sol / tokens, slot: tx.slot, blockTime: tx.blockTime ?? 0 };
+  return { mint, tokens, sol, price: sol / tokens, slot: tx.slot, blockTime: tx.blockTime ?? 0, ...decimalsOf(tx, mint) };
 }
 
 export interface Entry {

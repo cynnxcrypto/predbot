@@ -225,6 +225,8 @@ export interface StreamBuy {
   mint: string;
   leaderSlot: number;
   leaderPrice: number;
+  /** decimal places of the token, when the wallet's transaction says */
+  decimals?: number;
   knownMs: number;
 }
 let buyHook: ((b: StreamBuy) => void) | null = null;
@@ -290,7 +292,7 @@ async function onTx(w: Tracked, sig: string, seenMs: number, ready: ParsedTx | n
   // the real test (copylive.ts) acts only on fast-stream buys, and first, before any paper quote is asked for
   if (ready && buyHook && !w.found && !w.fomo) {
     try {
-      buyHook({ sig, name: w.name, mint: buy.mint, leaderSlot: buy.slot, leaderPrice: buy.price, knownMs });
+      buyHook({ sig, name: w.name, mint: buy.mint, leaderSlot: buy.slot, leaderPrice: buy.price, decimals: buy.decimals, knownMs });
     } catch (e) {
       fail(e);
     }
