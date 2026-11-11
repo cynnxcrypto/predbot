@@ -17,7 +17,10 @@ export function startSolanaCopyLive() {
     wallet();
     state.walletReady = true;
   } catch (e) {
-    state.error = String((e as Error).message).slice(0, 120);
+    // Only our own fixed messages may reach status: a JSON parse error quotes the start of the file it read,
+    // and that file is the secret key.
+    const m = String((e as Error).message);
+    state.error = m.startsWith("solana-wallet.json") ? m.slice(0, 120) : "the wallet file could not be created or read";
   }
   return null;
 }

@@ -15,6 +15,7 @@ import { pairfastliveQuiet, startPairfastlive } from "./pairfastlive.js";
 import { startWalletHistory } from "./wallethistory.js";
 import { startSolanaLp } from "./solana/run.js";
 import { startSolanaCopy, stopSolanaCopy } from "./solana/copyrun.js";
+import { startSolanaCopyLive } from "./solana/copylive.js";
 import { pairliveQuiet, startPairlive } from "./pairlive.js";
 
 function build() {
@@ -91,6 +92,7 @@ const pairlockTimer = startPairlock(); // paper only: two-sided pair locking on 
 const pairfastliveTimer = startPairfastlive(); // REAL: fast pair bot on BTC 5m (src/pairfastlive.ts), off unless deploy/live-rules.json has "pairfast" with on: true
 const walletHistoryTimer = startWalletHistory(); // read-only: the wallet's all-time result from its whole Polymarket activity (src/wallethistory.ts)
 const solanaTimer = startSolanaLp(); // paper only, read-only: liquidity provision rules on Orca SOL/USDC (src/solana/); SOLANA=off disables
+startSolanaCopyLive(); // step 1 of the real Solana test: only makes sure the test wallet file exists on this machine; no trading, nothing sent (SOLANA_LIVE=off disables)
 const solanaCopyTimer = startSolanaCopy(); // paper only, read-only: wallet-copy speed test on Solana (src/solana/copyrun.ts); SOLANA_COPY=off disables
 const pairfastTimer = startPairfast(); // paper only: feed-driven pair bot with resting bids on ETH 15m and BTC 5m (src/pairfast.ts)
 const preopenTimer = startPreopen(); // paper only: 49c bids on both sides of the next 15m window (src/preopen.ts)
