@@ -19,6 +19,7 @@ import { historySummary, startHistory, stopHistory } from "./history.js";
 import { linkedWallets, linksSummary, seedWallets, startLinks, stopLinks } from "./links.js";
 import { preconfSeen, preconfSummary, startPreconf, stopPreconf } from "./preconf.js";
 import { startCandles } from "./candles.js";
+import { dipSummary, startDip, stopDip } from "./dip.js";
 import { validAddress, WALLETS, type Tracked } from "./wallets.js";
 
 const SIGNALS = () => join(DATA, "solana", "copy-signals.jsonl");
@@ -293,6 +294,7 @@ export function buildCopySummary() {
     preconf: preconfSummary(),
     fomo: fomoStudy(signals.filter((x) => x.fomo), solUsd),
     waveQuoted: waveQuotedStudy(waves),
+    dip: dipSummary(),
     ...(() => {
       // With the Helius key, score only buys read on the Helius feed and known within 30 s. Buys from the keyless
       // period, or read late out of a backlog, say nothing about our speed and would poison the medians.
@@ -786,6 +788,8 @@ export function startSolanaCopy(fetcher: Fetch = fetch) {
   startLinks({ rpcUrl: () => (helius() ? rpcUrl() : null), fetch: () => net });
   // the early-stream measurement (read-only, one short run with a credit budget); SOLANA_PRECONF=off disables
   startPreconf({ url: () => (helius() ? `wss://beta.helius-rpc.com/?api-key=${helius()}` : null), signers: () => listed().map((w) => w.address) });
+  // the dip rule on paper (read-only: hourly SOL candles and two quotes a trade); SOLANA_DIP=off disables
+  startDip({ fetch: () => net, quote: (a, b, amount) => quote(a, b, amount) });
   // price history for the slow-trade research (read-only, public market data, runs once); SOLANA_CANDLES=off disables
   setTimeout(() => void startCandles(), 120_000).unref();
   void refreshSolUsd();
@@ -814,6 +818,7 @@ export function stopSolanaCopy() {
   stopHistory();
   stopLinks();
   stopPreconf();
+  stopDip();
 }
 
 /** Test hooks. */
