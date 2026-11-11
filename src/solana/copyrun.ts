@@ -11,7 +11,7 @@ import { appendFileSync, mkdirSync, readFileSync, renameSync, writeFileSync } fr
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { DATA } from "../config.js";
-import { crowd, DELAYS, EXITS, followerPrice, fomoStudy, parseBuy, parseDollarBuy, PATH, SIZE_EXITS, SIZES, STAKE_SOL, paceAt, summarize, TX_SOL, unrefuse, verdictAt, type Entry, type Pace, type ParsedTx, type Signal, type Verdict } from "./copy.js";
+import { crowd, EXITS, followerPrice, fomoStudy, LATE_CHECK_MS, LATE_ENTRY_MS, parseBuy, parseDollarBuy, PATH, SIZE_EXITS, SIZES, STAKE_SOL, paceAt, summarize, TX_SOL, unlate, unrefuse, verdictAt, type Entry, type Pace, type ParsedTx, type Signal, type Verdict } from "./copy.js";
 import { SOL, USDC } from "./pools.js";
 import { discoverSummary, foundWallets, startDiscover, stopDiscover } from "./discover.js";
 import { historySummary, startHistory, stopHistory } from "./history.js";
@@ -52,7 +52,7 @@ export function scrub(s: string): string {
 const health = {
   startedAt: 0, feed: "public", stream: "not tried", streamTx: 0, quotes: "none", wsUp: false, wallets: 0, found: 0, fomo: 0, tails: 0, subs: 0, badWallets: [] as string[],
   senderPingMs: {} as Record<string, number | null>, quoteMsMedian: null as number | null,
-  txSeen: 0, buys: 0, skippedBusy: 0, active: 0, rpcErrors: 0, quoteErrors: 0, quoteOk: 0, quoteRefused: 0, quoteHeld: 0, quoteLost: 0, quoteWaitMsMedian: null as number | null, quoteWaitMsP90: null as number | null, lastError: "",
+  txSeen: 0, buys: 0, skippedBusy: 0, active: 0, rpcErrors: 0, quoteErrors: 0, quoteOk: 0, quoteRefused: 0, quoteHeld: 0, quoteLost: 0, quoteLate: 0, lateTakenOut: null as ReturnType<typeof unlate> | null, quoteWaitMsMedian: null as number | null, quoteWaitMsP90: null as number | null, lastError: "",
 };
 const fail = (e: unknown) => (health.lastError = scrub(String((e as Error)?.message ?? e)));
 
@@ -97,58 +97,78 @@ const PAPER_BACKOFF_MS = 1500;
  * half an hour) and each refusal held the rest again.
  * 12 Nov 2026 03:00 KST: at 25 ms apart (40 a second in a burst) the price service still refused 498 paper
  * requests in half an hour, and the REAL test, which shares the key, had 6 buys refused and 22 asked twice in
- * 40 minutes. Now 5 a second at most, and each buy asks for about half as much (see MEASURED_LATE and
- * MEASURED_SIZES). health.quoteWaitMs* says how long a paper request stands in line: if that grows, the checks
- * are being taken late and the paper test asks for too much again.
+ * 40 minutes. Now 5 a second at most, and each buy asks for about half as much (see MEASURED_DELAYS and
+ * MEASURED_SIZES). health.quoteWaitMs* says how long a paper request stands in line.
+ * 12 Nov 2026 03:45 KST: at 5 a second and about 420 buys an hour the line was 39 s long in busy minutes, and a
+ * check taken 39 s late was written down as the price of its moment. A request whose turn comes later than its
+ * limit (LATE_CHECK_MS, LATE_ENTRY_MS for an entry) is now not sent at all: the check counts as not measured
+ * (health.quoteLate), the line empties at once, and what is written down was taken on time.
  */
 export const PAPER_GAP_MS = 200;
 /** How often a paper quote the price service refused for asking too fast is asked again. */
-export const PAPER_RETRIES = 2;
+export const PAPER_RETRIES = 1;
 /**
  * What each buy is still measured for. The late entries (5, 10, 20 s after we know) and the stakes of 1 and 3 SOL
  * are settled questions: 579 buys say every late entry loses (5 s later: -5.5% a trade), and 625 say an in-and-out
  * costs 6% at 1 SOL and 12% at 3 SOL. They were 34 of the about 72 price requests a buy took. The buys measured
  * before keep their numbers; lateStudy and the 1 and 3 SOL rows of sizeStudy stand still from here.
+ * 12 Nov 2026 03:45 KST: the entry 3 s late goes the same way (1,110 buys: -6.6% a trade, the fastest +0.8%), 8 of
+ * the 37 requests a buy still put in the line. The entry 1 s late stays: the real test's own buy lands about that
+ * long after we know.
  */
-export const MEASURED_LATE: readonly number[] = [];
+export const MEASURED_DELAYS: readonly number[] = [0, 1];
 export const MEASURED_SIZES: readonly number[] = SIZES.filter((x) => x < 1);
 const waits: number[] = [];
 let lastOut = 0;
 let lane: Promise<void> = Promise.resolve();
-function paperTurn(): Promise<void> {
+/**
+ * A request's turn in the line. `since` is when the check was first asked for and `late` how long after that it may
+ * still leave. false = its turn came too late: it is not sent, and the next in line does not wait for it.
+ */
+function paperTurn(since: number, late: number): Promise<boolean> {
   const asked = Date.now();
   const mine = lane.then(async () => {
     if (Date.now() < holdUntil) {
       health.quoteHeld++;
       // at most 6 s in all, so a string of real copies can delay a paper check but never stop it
-      for (let waited = 0; Date.now() < holdUntil && waited < 6000; waited += 50) await sleep(50);
+      for (let waited = 0; Date.now() < holdUntil && waited < 6000; waited += 50) {
+        if (Date.now() - since > late) return false;
+        await sleep(50);
+      }
     }
     // the gap is between two requests going out, so a request that finds the line empty leaves at once
-    const wait = lastOut + PAPER_GAP_MS - Date.now();
-    if (wait > 0) await sleep(wait);
+    const out = Math.max(Date.now(), lastOut + PAPER_GAP_MS);
+    if (out - since > late) return false;
+    if (out > Date.now()) await sleep(out - Date.now());
     lastOut = Date.now();
     waits.push(lastOut - asked);
     if (waits.length > 500) waits.shift();
     const sorted = [...waits].sort((a, b) => a - b);
     health.quoteWaitMsMedian = sorted[sorted.length >> 1];
     health.quoteWaitMsP90 = sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * 0.9))];
+    return true;
   });
-  lane = mine.catch(() => undefined);
+  lane = mine.then(() => undefined, () => undefined);
   return mine;
 }
 
 /**
  * Jupiter quote: raw output amount for a raw input amount, fees and price impact included.
  * null = the price service answered and has no price (no route: the token cannot be traded that way now).
- * undefined = the request itself failed (refused for asking too fast, time-out, network, server error): nothing
- * was measured, and nothing may be concluded from it.
+ * undefined = the request itself failed (refused for asking too fast, time-out, network, server error) or was not
+ * sent because its turn came more than `late` ms after it was asked for: nothing was measured, and nothing may be
+ * concluded from it.
  */
-async function quote(inMint: string, outMint: string, amount: string, now = false): Promise<bigint | null | undefined> {
+async function quote(inMint: string, outMint: string, amount: string, now = false, late = LATE_CHECK_MS): Promise<bigint | null | undefined> {
   const k = jupiter();
   const base = k ? "https://api.jup.ag" : "https://lite-api.jup.ag";
+  const since = Date.now();
   for (let attempt = 0; ; attempt++) {
     // the fastest entry of a buy goes out at once, as the real test's own quote does; everything else takes its turn
-    if (!now || attempt > 0) await paperTurn();
+    if ((!now || attempt > 0) && !(await paperTurn(since, late))) {
+      health.quoteLate++;
+      return undefined;
+    }
     const t0 = performance.now();
     try {
       const res = await net(`${base}/swap/v1/quote?inputMint=${inMint}&outputMint=${outMint}&amount=${amount}&slippageBps=2000&restrictIntermediateTokens=true`, { headers: k ? { "x-api-key": k } : {}, signal: AbortSignal.timeout(4000) });
@@ -199,6 +219,7 @@ function load() {
       bySig.set(x.sig, x);
     }
     signals = [...bySig.values()].slice(-KEEP);
+    health.lateTakenOut = unlate(signals);
   } catch {
     signals = [];
   }
@@ -392,7 +413,7 @@ async function onTx(w: Tracked, sig: string, seenMs: number, ready: ParsedTx | n
   }
   const s: Signal = {
     sig, wallet: w.address, name: w.name, mint: buy.mint, leaderSlot: buy.slot, leaderTime: buy.blockTime, leaderSol: buy.sol, leaderPrice: buy.price,
-    seenMs, knownMs, lagSlots: slotNow ? slotNow - buy.slot : null, feed: ready ? "helius transaction stream" : health.feed, entries: {}, exits: {}, path: {}, crowd: null, ...(w.fomo ? { fomo: true } : {}),
+    seenMs, knownMs, lagSlots: slotNow ? slotNow - buy.slot : null, feed: ready ? "helius transaction stream" : health.feed, entries: {}, exits: {}, path: {}, crowd: null, onTime: true, ...(w.fomo ? { fomo: true } : {}),
   };
   try {
     const dec = await tokenDecimals(buy.mint).catch(() => 6);
@@ -411,10 +432,11 @@ async function onTx(w: Tracked, sig: string, seenMs: number, ready: ParsedTx | n
       }));
       (s.sizes ??= {})[String(sol)] = got;
     });
-    await Promise.all([...sized, ...[...DELAYS, ...MEASURED_LATE].map(async (d) => {
+    await Promise.all([...sized, ...MEASURED_DELAYS.map(async (d) => {
       const at = knownMs + d * 1000;
       await sleep(Math.max(0, at - Date.now()));
-      const out = await quote(SOL, buy.mint, stake, d === 0);
+      // an entry asked for late (the token's look-up took long) has that much less time left to be on time
+      const out = await quote(SOL, buy.mint, stake, d === 0, LATE_ENTRY_MS - (d === 0 ? 0 : Math.max(0, Date.now() - at)));
       const key = `d${d}`;
       s.exits[key] = {};
       if (!out) {

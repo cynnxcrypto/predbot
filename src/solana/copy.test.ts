@@ -9,7 +9,7 @@ process.env.DATA_DIR = dir;
 process.env.HELIUS_API_KEY = "SECRETHELIUS";
 process.env.JUPITER_API_KEY = "SECRETJUP";
 
-const { crowd, exitStudy, followerPrice, fomoStudy, GRID, lateStudy, parseBuy, parseDollarBuy, pathRet, ret, rising, roundTrip, sameBlockRet, SAME_BLOCK_SLIP, scalp, scalpCut, sizeStudy, STAKE_SOL, summarize, trail, TX_SOL, traderRet, verdictAt, verdictOf, paceAt, gapAt, verdictsBefore, unrefuse, REFUSED_FROM, REFUSED_TO } = await import("./copy.js");
+const { crowd, exitStudy, followerPrice, fomoStudy, GRID, lateStudy, parseBuy, parseDollarBuy, pathRet, ret, rising, roundTrip, sameBlockRet, SAME_BLOCK_SLIP, scalp, scalpCut, sizeStudy, STAKE_SOL, summarize, trail, TX_SOL, traderRet, verdictAt, verdictOf, paceAt, gapAt, verdictsBefore, unrefuse, REFUSED_FROM, REFUSED_TO, unlate, LATE_FROM, LATE_CHECK_MS } = await import("./copy.js");
 const { SOL, USDC } = await import("./pools.js");
 const { validAddress, WALLETS } = await import("./wallets.js");
 const { _test, buildCopySummary, onStreamBuy, scrub } = await import("./copyrun.js");
@@ -313,14 +313,16 @@ test("runner: a buy becomes a scored signal, and keys never leak", async () => {
     assert.equal(s[0].entries.d0!.price, STAKE_SOL / 1000);
     assert.equal(s[0].exits.d0.x0, 0.24);
     assert.equal(s[0].exits.d1.x120, 0.24);
-    assert.deepEqual(s[0].crowd, { same: 1, s10: 2, s25: 2, s150: 2, ahead: { d0: 2, d1: 2, d3: 2 } }, "the late entries (5, 10, 20 s) are no longer measured");
+    assert.deepEqual(s[0].crowd, { same: 1, s10: 2, s25: 2, s150: 2, ahead: { d0: 2, d1: 2 } }, "the late entries (3, 5, 10, 20 s) are no longer measured");
     assert.equal(s[0].entries.d20, undefined);
-    assert.equal(s[0].exits.d3.x60, 0.24);
-    assert.equal(s[0].exits.d3.x0, undefined, "only the fastest entry is priced for an instant round trip");
-    // 3 entries, 7 exits each, the instant round trip, the 5 extra early checks of the exit study; its 3 long
+    assert.equal(s[0].entries.d3, undefined);
+    assert.equal(s[0].exits.d1.x60, 0.24);
+    assert.equal(s[0].exits.d1.x0, undefined, "only the fastest entry is priced for an instant round trip");
+    assert.equal(s[0].onTime, true, "marked: no check of this buy was taken late");
+    // 2 entries, 7 exits each, the instant round trip, the 5 extra early checks of the exit study; its 3 long
     // checks follow after the signal is saved; plus the size check: one other stake, a buy quote and 4 sale quotes.
-    // About half of the 72 a buy took before 12 Nov 2026: the real test shares the price service's limit.
-    assert.ok(quotes >= 3 + 3 * 7 + 1 + 5 + 5 && quotes <= 3 + 3 * 7 + 1 + 8 + 5, `${quotes} price requests`);
+    // 29 with the long checks, where a buy took 72 before 12 Nov 2026: the real test shares the price service's limit.
+    assert.ok(quotes >= 2 + 2 * 7 + 1 + 5 + 5 && quotes <= 2 + 2 * 7 + 1 + 8 + 5, `${quotes} price requests`);
     assert.deepEqual(Object.keys(s[0].sizes!).sort(), ["0.05"], "of the other stakes only the real test's own is still measured");
     assert.deepEqual(s[0].sizes!["0.05"], { x0: 0.24, x10: 0.24, x30: 0.24, x60: 0.24 });
     assert.equal(s[0].path!.x1, 0.24);
@@ -480,6 +482,24 @@ test("the real test first: paper quotes wait while the real test is buying and a
     await sleep(1600); // past the last stand-back
     await Promise.all(Array.from({ length: 10 }, () => _test.quote(SOL, MINT, "1")));
     assert.ok(at[9] - at[0] >= 9 * PAPER_GAP_MS - 20, `spread over ${at[9] - at[0]} ms`);
+    // more than the line can send on time: a check whose turn would come later than LATE_CHECK_MS is not sent at
+    // all and counts as not measured, so nothing taken late is ever written down as the price of its moment
+    await sleep(PAPER_GAP_MS + 30);
+    at.length = 0;
+    const late0 = _test.health().quoteLate;
+    t = Date.now();
+    const got = await Promise.all(Array.from({ length: 16 }, () => _test.quote(SOL, MINT, "1")));
+    const sent = got.filter((x) => x === 1000n).length;
+    const fit = Math.floor(LATE_CHECK_MS / PAPER_GAP_MS) + 1;
+    assert.ok(sent >= fit - 2 && sent <= fit, `${sent} of 16 sent`);
+    assert.deepEqual(got.slice(sent), Array.from({ length: 16 - sent }, () => undefined), "the last in line are the ones left out");
+    assert.equal(at.length, sent, "a late check is never asked of the price service");
+    assert.equal(_test.health().quoteLate, late0 + 16 - sent);
+    assert.ok(Date.now() - t < LATE_CHECK_MS + 300, "and the line is empty again at once");
+    // an entry has less time: asked with a limit already used up, it is left out even with the line empty
+    await sleep(PAPER_GAP_MS + 30);
+    assert.equal(await _test.quote(SOL, MINT, "1", false, -1), undefined);
+    assert.equal(await _test.quote(SOL, MINT, "1", false, 500), 1000n);
   } finally {
     _test.setNet(fetch);
   }
@@ -501,6 +521,41 @@ test("refused checks: in the 80 minutes when refusals were written down as 'no p
   }
   assert.equal(new Date(REFUSED_FROM).toISOString(), "2026-11-11T15:23:26.000Z");
   assert.equal(new Date(REFUSED_TO).toISOString(), "2026-11-11T16:45:28.000Z");
+});
+
+test("late checks: a check proven to have left the line seconds late is taken out, the rest stays", () => {
+  const T = LATE_FROM + 600_000;
+  const e = (t: number) => ({ t, slot: 1, tokens: "1", price: 1.1e-6 });
+  const full = () => ({ x0: 0.24, x2: 0.26, x5: 0.27, x10: 0.25, x20: 0.2, x30: 0.2, x60: 0.15, x120: 0.1 });
+  // A: its entry 1 s late was asked at T+1 s and answered 40 s later: the line was 40 s long then
+  const a = sig({ sig: "a", knownMs: T, entries: { d0: e(T + 50), d1: e(T + 41_000), d3: null }, exits: { d0: full(), d1: { x2: 0.2, x30: 0.2 }, d3: {} }, path: { x1: 0.25, x45: 0.2, x90: 0.2 }, sizes: { "0.05": { x0: 0.048, x10: 0.049, x30: 0.05, x60: 0.05 } } });
+  // B: known 20 s after A, in the same jam: its checks asked up to T+38 s left after T+41 s, proven 3 s late or more
+  const b = sig({ sig: "b", knownMs: T + 20_000, entries: { d0: e(T + 20_050), d1: null, d3: null }, exits: { d0: full(), d1: {}, d3: {} }, path: { x1: 0.25, x15: 0.2, x45: 0.2 } });
+  // C: ten minutes later, entries answered on time
+  const c = sig({ sig: "c", knownMs: T + 600_000, entries: { d0: e(T + 600_050), d1: e(T + 601_100), d3: null }, exits: { d0: full(), d1: { x2: 0.2 }, d3: {} }, path: { x1: 0.25 } });
+  // D: in the jam as B, but measured by the runner that leaves late checks out: never touched
+  const d = sig({ sig: "d", knownMs: T + 20_000, onTime: true, entries: { d0: e(T + 20_050), d1: null, d3: null }, exits: { d0: full(), d1: {}, d3: {} } });
+  // E: before the line existed (same times, a day earlier): never touched
+  const day = 86_400_000;
+  const old = sig({ sig: "e", knownMs: T - day, entries: { d0: e(T - day + 50), d1: e(T - day + 41_000), d3: null }, exits: { d0: full(), d1: { x2: 0.2 }, d3: {} } });
+  const done = unlate([a, b, c, d, old]);
+  // A: the late entry goes with its checks; its own fastest checks asked from T+1 s on are behind that entry in line
+  assert.equal(a.entries.d1, undefined);
+  assert.equal(a.exits.d1, undefined);
+  assert.deepEqual(Object.keys(a.exits.d0), ["x0", "x60", "x120"], "x0 was asked before the jam is proven; x60 and x120 after it had cleared");
+  assert.deepEqual(a.path, { x45: 0.2, x90: 0.2 });
+  assert.deepEqual(a.sizes, { "0.05": { x0: 0.048, x60: 0.05 } });
+  // B: checks asked before T+38 s go, later ones stay (x20 was asked at T+40.05 s: under a second behind at most)
+  assert.deepEqual(Object.keys(b.exits.d0), ["x20", "x30", "x60", "x120"]);
+  assert.deepEqual(b.path, { x45: 0.2 });
+  assert.equal(ret(b, 0, 10), undefined, "a check taken out cannot be scored");
+  assert.ok(ret(b, 0, 30) !== undefined);
+  // C, D, E untouched
+  assert.deepEqual([Object.keys(c.exits.d0).length, c.exits.d1, c.path], [8, { x2: 0.2 }, { x1: 0.25 }]);
+  assert.equal(Object.keys(d.exits.d0).length, 8);
+  assert.deepEqual([Object.keys(old.exits.d0).length, old.entries.d1 !== undefined], [8, true]);
+  assert.deepEqual(done, { signals: 2, entries: 1, checks: 5 + 1 + 2 + 4 + 2 });
+  assert.equal(new Date(LATE_FROM).toISOString(), "2026-11-11T18:10:25.000Z");
 });
 
 test("walk-forward: only buys made after the pace rule was written are scored, by pace and by price gap", async () => {

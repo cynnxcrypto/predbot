@@ -172,6 +172,8 @@ export interface Signal {
   sizes?: Record<string, Record<string, number | null>>;
   /** a fomo trader's own buy (seeds.ts): scored apart from the listed wallets, never copied by the real test */
   fomo?: boolean;
+  /** measured by the runner that leaves a check out when its turn comes too late (see unlate) */
+  onTime?: boolean;
 }
 
 /** The fee payer's own buy of this token in a follower's transaction: the price somebody really got at that spot in line. */
@@ -360,6 +362,90 @@ export function unrefuse(s: Signal): Signal {
   clean(s.path);
   for (const got of Object.values(s.sizes ?? {})) clean(got);
   return s;
+}
+
+/**
+ * A paper check taken late is not a measurement of its moment. From 12 Nov 2026 03:10:25 KST (main f1a97a00) the
+ * paper test's price requests left one at a time, 5 a second at most, and about 420 buys an hour asked for more
+ * than that in busy minutes: at 03:25 KST a request stood in line for 39 s (median). A "30 s" price was then the
+ * price after a minute, and a target first seen then was counted for the 30 s rule.
+ * The runner (copyrun.ts) now leaves a check out when its turn comes later than LATE_CHECK_MS (LATE_ENTRY_MS for a
+ * later entry's own price) and marks the signal `onTime`. For the buys before that, unlate() works out from the
+ * signals themselves how far behind the line was: every later entry (1 s, 3 s after we knew) was asked at a known
+ * time and answered at a known time, and requests left in the order they were asked, so a check asked after one
+ * of them cannot have left before it. A check proven late that way is taken out and counts as never made; a later
+ * entry answered too late goes with all its checks. A check only a little late cannot be proven and stays.
+ */
+export const LATE_FROM = Date.UTC(2026, 10, 11, 18, 10, 25);
+export const LATE_ENTRY_MS = 1000;
+export const LATE_CHECK_MS = 2000;
+/** The answer time of an entry includes the price service's own answer (about 0.1 s, seldom more). */
+const LATE_ALLOW_MS = 1000;
+export function unlate(sigs: Signal[], from = LATE_FROM): { signals: number; checks: number; entries: number } {
+  const era = sigs.filter((s) => s.knownMs >= from);
+  // [asked no later than, answered at] of every later entry
+  const marks: [number, number][] = [];
+  for (const s of era) {
+    for (const [k, e] of Object.entries(s.entries ?? {})) {
+      const d = Number(k.slice(1));
+      // the entries of a buy are asked for once its token is looked up; the fastest entry's answer is after that
+      if (e && d > 0) marks.push([Math.max(s.knownMs + d * 1000, s.entries.d0?.t ?? 0), e.t]);
+    }
+  }
+  marks.sort((a, b) => a[0] - b[0]);
+  const asked = marks.map((m) => m[0]);
+  const left: number[] = [];
+  let hi = 0;
+  for (const m of marks) left.push((hi = Math.max(hi, m[1])));
+  /** how late, at least, a request asked at `due` left */
+  const behind = (due: number) => {
+    let lo = 0;
+    let up = asked.length;
+    while (lo < up) {
+      const mid = (lo + up) >> 1;
+      if (asked[mid] <= due) lo = mid + 1;
+      else up = mid;
+    }
+    return lo ? Math.max(0, left[lo - 1] - due) : 0;
+  };
+  const done = { signals: 0, checks: 0, entries: 0 };
+  for (const s of era) {
+    if (s.onTime) continue;
+    const before = done.checks + done.entries;
+    for (const [k, e] of Object.entries(s.entries ?? {})) {
+      if (!e) continue;
+      const d = Number(k.slice(1));
+      if (d > 0 && e.t - (s.knownMs + d * 1000) > LATE_ENTRY_MS + LATE_ALLOW_MS) {
+        delete s.entries[k];
+        delete s.exits[k];
+        done.entries++;
+        continue;
+      }
+      const cut = (m?: Record<string, number | null>) => {
+        for (const x of Object.keys(m ?? {})) {
+          if (behind(e.t + Number(x.slice(1)) * 1000) > LATE_CHECK_MS + LATE_ALLOW_MS) {
+            delete m![x];
+            done.checks++;
+          }
+        }
+      };
+      cut(s.exits?.[k]);
+      if (d === 0) cut(s.path);
+    }
+    // the size check keeps no times of its own: its purchase was asked for when the buy came, its sales x s later
+    for (const [sol, got] of Object.entries(s.sizes ?? {})) {
+      const late = behind(s.knownMs) > LATE_CHECK_MS + LATE_ALLOW_MS;
+      for (const x of Object.keys(got)) {
+        if (late || behind(s.knownMs + Number(x.slice(1)) * 1000) > LATE_CHECK_MS + LATE_ALLOW_MS) {
+          delete got[x];
+          done.checks++;
+        }
+      }
+      if (late) delete s.sizes![sol];
+    }
+    if (done.checks + done.entries > before) done.signals++;
+  }
+  return done;
 }
 
 /**
