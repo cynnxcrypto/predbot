@@ -9,7 +9,7 @@ process.env.DATA_DIR = dir;
 process.env.HELIUS_API_KEY = "SECRETHELIUS";
 process.env.JUPITER_API_KEY = "SECRETJUP";
 
-const { crowd, exitStudy, followerPrice, GRID, parseBuy, pathRet, ret, roundTrip, sameBlockRet, SAME_BLOCK_SLIP, scalp, sizeStudy, STAKE_SOL, summarize, trail, TX_SOL } = await import("./copy.js");
+const { crowd, exitStudy, followerPrice, GRID, lateStudy, parseBuy, pathRet, ret, rising, roundTrip, sameBlockRet, SAME_BLOCK_SLIP, scalp, scalpCut, sizeStudy, STAKE_SOL, summarize, trail, TX_SOL } = await import("./copy.js");
 const { SOL } = await import("./pools.js");
 const { validAddress, WALLETS } = await import("./wallets.js");
 const { _test, buildCopySummary, scrub } = await import("./copyrun.js");
@@ -76,6 +76,64 @@ test("scalp: first check at the target, else the time stop", () => {
   assert.equal(scalp(s, 0, 10), ret(s, 0, 60)); // never reached: out at 60 s
 });
 
+test("early cut: one timed look, a copy that is not up by then is sold", () => {
+  const out = (pct: number) => STAKE_SOL * (1 + pct / 100) + 2 * TX_SOL; // the sale that gives this return after costs
+  const path = (o: Record<string, number | null>) => sig({ exits: { d0: { x0: out(-2), ...o }, d1: {}, d3: {} } });
+  // down at 5 s and never back: cut at 5 s instead of riding it to 60 s
+  const down = path({ x2: out(-1), x5: out(-3), x10: out(-6), x20: out(-9), x30: out(-12), x60: out(-20), x120: out(-30) });
+  assert.equal(scalpCut(down, 10, 5), ret(down, 0, 5));
+  assert.equal(scalpCut(down, 10, 10), ret(down, 0, 10));
+  assert.equal(scalpCut(down, 10, 20), ret(down, 0, 20));
+  assert.equal(scalp(down, 0, 10), ret(down, 0, 60), "without the cut it rides to the time stop");
+  // up at the look: nothing is cut, the target or the time stop decides
+  const up = path({ x2: out(1), x5: out(4), x10: out(2), x20: out(-5), x30: out(12), x60: out(3), x120: out(0) });
+  assert.equal(scalpCut(up, 10, 5), ret(up, 0, 30));
+  assert.equal(scalpCut(up, 10, 20), ret(up, 0, 20), "down at the 20 s look: sold there, the later spike is missed");
+  // the target comes first when it is reached before the look
+  const fast = path({ x2: out(11), x5: out(-9), x10: out(-9), x20: out(-9), x30: out(-9), x60: out(-9), x120: out(-9) });
+  assert.equal(scalpCut(fast, 10, 5), ret(fast, 0, 2));
+  // a failed quote at the look is no cut; a coin that cannot be sold at all is a total loss
+  const gap = path({ x2: out(-1), x5: null, x10: out(-4), x20: out(-4), x30: out(-4), x60: out(-7), x120: out(-9) });
+  assert.equal(scalpCut(gap, 10, 5), ret(gap, 0, 60));
+  assert.equal(scalpCut(sig({ exits: { d0: { x0: out(-2), x2: out(1) }, d1: {}, d3: {} } }), 10, 5), -1);
+});
+
+test("late entries: followed from their own purchase, and compared only on buys priced at every entry time", () => {
+  const out = (pct: number) => STAKE_SOL * (1 + pct / 100) + 2 * TX_SOL;
+  const e = (price: number) => ({ t: 0, slot: 1010, tokens: "1", price });
+  const flat = (pct: number) => ({ x2: out(pct), x5: out(pct), x10: out(pct), x20: out(pct), x30: out(pct), x60: out(pct), x120: out(pct) });
+  // the price ran up during the wait: the late entry pays 8% more and is left holding the fall
+  const ran = sig({
+    entries: { d0: e(1e-6), d1: e(1e-6), d3: e(1e-6), d5: e(1.08e-6), d10: e(1.05e-6), d20: e(0.9e-6) },
+    exits: { d0: { x0: out(-2), ...flat(4), x5: out(12) }, d1: flat(0), d3: flat(0), d5: flat(-6), d10: flat(-3), d20: { ...flat(2), x30: out(11) } },
+  });
+  assert.equal(scalp(ran, 5, 10), ret(ran, 5, 60));
+  assert.equal(scalp(ran, 20, 10), ret(ran, 20, 30));
+  assert.equal(rising(ran, 5, 10), ret(ran, 5, 60), "price was higher after 5 s: the rising rule buys");
+  assert.equal(rising(ran, 10, 10), ret(ran, 10, 60));
+  const fell = sig({ entries: { ...ran.entries, d5: e(0.97e-6) }, exits: ran.exits });
+  assert.equal(rising(fell, 5, 10), undefined, "price was lower after 5 s: no trade");
+  // an older signal has no late entries: it is in none of the late rules and not in the study
+  const old = sig();
+  assert.equal(scalp(old, 5, 10), undefined);
+  assert.equal(rising(old, 5, 10), undefined);
+  const sum = summarize([ran, old], 80);
+  const rule = (id: string) => sum.rules.find((x) => x.id === id)!;
+  assert.equal(rule("copy-d5-tp10-t60").n, 1);
+  assert.equal(rule("copy-d20-x30").n, 1);
+  assert.equal(rule("copy-d5-rising-tp10-t60").n, 1);
+  assert.equal(rule("copy-d0-tp10-cut5-t60").n, 2);
+  assert.ok(rule("copy-d0-tp10-cut10-t60").text.includes("sell at 10 s if it is not up"));
+  const st = sum.lateStudy;
+  assert.equal(st.n, 1);
+  assert.deepEqual(st.entries.map((x) => x.sec), [0, 5, 10, 20]);
+  assert.deepEqual(st.entries.map((x) => x.priceVsFastestPct), [0, 8, 5, -10]);
+  assert.deepEqual(st.entries.map((x) => x.won), [1, 0, 0, 1]);
+  assert.deepEqual(st.entries.map((x) => x.avgRetPct), [12, -6, -3, 11]);
+  assert.deepEqual(st.entries[3].holdOnly, { n: 1, won: 1, avgRetPct: 2 });
+  assert.equal(lateStudy([old]).n, 0);
+});
+
 test("same-block what-if: the measured exit re-priced at the wallet's price plus slip", () => {
   const s = sig(); // we paid 1.1e-6, the wallet 1e-6
   const want = (0.27 * (1.1e-6 / (1e-6 * (1 + SAME_BLOCK_SLIP))) - 2 * TX_SOL) / STAKE_SOL - 1;
@@ -111,7 +169,7 @@ test("summary: speed first, rules counted, wallets ranked by follow-through", ()
   assert.equal(sum.speed.noWavePct, 50);
   assert.equal(sum.speed.entryGapPctMedian, 10);
   assert.ok(sum.speed.breakEvenPctMedian! > 4);
-  assert.equal(sum.rulesTried, 42);
+  assert.equal(sum.rulesTried, 56);
   assert.equal(sum.wallets[0].name, "Chairman");
   assert.deepEqual(sum.qualified, []);
 });
@@ -187,11 +245,15 @@ test("runner: a buy becomes a scored signal, and keys never leak", async () => {
     assert.equal(s[0].entries.d0!.price, STAKE_SOL / 1000);
     assert.equal(s[0].exits.d0.x0, 0.24);
     assert.equal(s[0].exits.d1.x120, 0.24);
-    assert.deepEqual(s[0].crowd, { same: 1, s10: 2, s25: 2, s150: 2, ahead: { d0: 2, d1: 2, d3: 2 } });
-    // 3 entries, 7 exits each, the instant round trip, the 5 extra early checks of the exit study; its 3 long
-    // checks follow after the signal is saved
+    assert.deepEqual(s[0].crowd, { same: 1, s10: 2, s25: 2, s150: 2, ahead: { d0: 2, d1: 2, d3: 2, d5: 2, d10: 2, d20: 2 } });
+    // the late entries are bought and followed like the others
+    assert.equal(s[0].entries.d20!.price, STAKE_SOL / 1000);
+    assert.equal(s[0].exits.d5.x60, 0.24);
+    assert.equal(s[0].exits.d20.x0, undefined, "only the fastest entry is priced for an instant round trip");
+    // 6 entries (3 of them late on purpose), 7 exits each, the instant round trip, the 5 extra early checks of the
+    // exit study; its 3 long checks follow after the signal is saved
     // plus the size check: 3 other stakes, each one buy quote and 4 sale quotes
-    assert.ok(quotes >= 3 + 3 * 7 + 1 + 5 + 15 && quotes <= 3 + 3 * 7 + 1 + 8 + 15);
+    assert.ok(quotes >= 6 + 6 * 7 + 1 + 5 + 15 && quotes <= 6 + 6 * 7 + 1 + 8 + 15);
     assert.deepEqual(Object.keys(s[0].sizes!).sort(), ["0.05", "1", "3"]);
     assert.deepEqual(s[0].sizes!["1"], { x0: 0.24, x10: 0.24, x30: 0.24, x60: 0.24 });
     assert.equal(s[0].path!.x1, 0.24);

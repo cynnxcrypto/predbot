@@ -45,6 +45,21 @@ export const SIZES = [0.05, 1, 3];
 export const SIZE_EXITS = [0, 10, 30, 60];
 /** Network fees of one in-and-out as the real test pays them (11 Nov 2026: a failed buy cost 0.00003 SOL). */
 export const SIZE_FEE_SOL = 0.0001;
+/**
+ * Late entries (11 Nov 2026 18:40 KST, asked by MAIN after the real test's first seven copies under "+10% or 60 s":
+ * the only two that reached the target had landed 4 s and 23 s behind the wallet). The same copy is also bought
+ * this many seconds after we know, on purpose, and each late entry is followed from its own purchase.
+ */
+export const LATE = [5, 10, 20] as const;
+export const LATE_HOLDS = [30, 60] as const;
+/** A late entry that uses what the wait showed: buy only when the price is then higher than at the moment we knew. */
+export const RISING = [5, 10] as const;
+/**
+ * Early cut (enrique, 11 Nov 2026 18:17 KST, on a stop for the real test: "up to you, experiment and try to find the
+ * best way"). At 72 buys a copy that was down at 5 s was up by 10 s in only 8 of 44, while stops that fire at any
+ * check did worse than none. So one timed look instead: at this many seconds, sell if the copy is not up.
+ */
+export const CUTS = [5, 10, 20] as const;
 /** The two rules shown per wallet, fixed in advance so nobody picks the best column afterwards. */
 export const REF_RULES = ["copy-d1-x10", "copy-d1-x30"] as const;
 
@@ -195,6 +210,30 @@ export function scalpStop(s: Signal, tp: number, sl: number): number | undefined
   return undefined;
 }
 
+export const cutId = (tp: number, c: number) => `copy-d0-tp${tp}-cut${c}-t${TIME_STOP}`;
+export const cutText = (tp: number, c: number) =>
+  `When a tracked wallet buys, buy ${STAKE_SOL} SOL of the same token the moment we know, sell as soon as it is up ${tp}% after costs, sell at ${c} s if it is not up after costs by then, and sell anyway after ${TIME_STOP} s.`;
+/** The scalp with one timed look: at `c` seconds a copy that is not up is sold. A missing check at `c` means no cut. */
+export function scalpCut(s: Signal, tp: number, c: number): number | undefined {
+  for (const x of EXITS) {
+    if (x > TIME_STOP) break;
+    const v = ret(s, 0, x);
+    if (v === undefined) continue;
+    if (v >= tp / 100 || (x === c && v <= 0) || x === TIME_STOP || v === -1) return v;
+  }
+  return undefined;
+}
+
+export const risingId = (d: number, tp: number) => `copy-d${d}-rising-tp${tp}-t${TIME_STOP}`;
+export const risingText = (d: number, tp: number) =>
+  `When a tracked wallet buys, wait ${d} s and buy ${STAKE_SOL} SOL of the same token only if its price is then higher than at the moment we knew; sell as soon as it is up ${tp}% after costs, and sell anyway after ${TIME_STOP} s.`;
+/** Late entry taken only when the price rose during the wait (both prices are our own buy quotes, so it is knowable in time). */
+export function rising(s: Signal, d: number, tp: number): number | undefined {
+  const first = s.entries.d0;
+  const late = s.entries[`d${d}`];
+  return first && late && late.price > first.price ? scalp(s, d, tp) : undefined;
+}
+
 /** What an instant round trip loses, as a fraction of the stake: the move needed just to break even. */
 export function roundTrip(s: Signal): number | null {
   const out = s.exits.d0?.x0;
@@ -284,6 +323,31 @@ function score(sigs: Signal[], f: (s: Signal) => number | undefined, solUsd: num
   const rs = nums(sigs.map(f));
   const net = rs.reduce((a, b) => a + b, 0) * STAKE_SOL;
   return { n: rs.length, won: rs.filter((v) => v > 0).length, netSol: r(net, 4), netUsd: solUsd ? r(net * solUsd) : null, medianRetPct: r((med(rs) ?? 0) * 100), avgRetPct: rs.length ? r((net / STAKE_SOL / rs.length) * 100) : null };
+}
+
+/**
+ * Early or late: the same buys entered at 0, 5, 10 and 20 s. Only buys priced at every one of those times count,
+ * so the rows compare like with like (the rule list cannot: late entries exist only since they were added).
+ */
+export function lateStudy(sigs: Signal[]) {
+  const ds = [0, ...LATE];
+  const ss = sigs.filter((s) => ds.every((d) => s.entries[`d${d}`]));
+  return {
+    note: `Paper. Only buys priced at every entry time (${ds.join(", ")} s after we know), so the rows compare like with like. Each entry is sold as soon as it is up 10% after costs, else ${TIME_STOP} s after its own purchase (holdOnly = no target, just the ${TIME_STOP} s). priceVsFastestPct = how much more (+) or less (-) that entry paid than the fastest one (median). risingPct = share of buys where it paid more.`,
+    n: ss.length,
+    entries: ds.map((d) => {
+      const rs = nums(ss.map((s) => scalp(s, d, 10)));
+      const hold = nums(ss.map((s) => ret(s, d, TIME_STOP)));
+      const gap = ss.map((s) => s.entries[`d${d}`]!.price / s.entries.d0!.price - 1);
+      const avg = (xs: number[]) => (xs.length ? r((xs.reduce((a, b) => a + b, 0) / xs.length) * 100) : null);
+      return {
+        sec: d, n: rs.length, won: rs.filter((v) => v > 0).length, medianRetPct: rs.length ? r((med(rs) ?? 0) * 100) : null, avgRetPct: avg(rs),
+        holdOnly: { n: hold.length, won: hold.filter((v) => v > 0).length, avgRetPct: avg(hold) },
+        priceVsFastestPct: gap.length ? r((med(gap) ?? 0) * 100) : null,
+        risingPct: gap.length ? r((gap.filter((g) => g > 0).length / gap.length) * 100, 0) : null,
+      };
+    }),
+  };
 }
 
 /**
@@ -406,6 +470,12 @@ export function summarize(sigs: Signal[], solUsd: number | null) {
     ...DELAYS.flatMap((d) => EXITS.map((x) => ({ id: ruleId(d, x), text: ruleText(d, x), ...score(sigs, (s) => ret(s, d, x), solUsd) }))),
     ...DELAYS.flatMap((d) => TARGETS.map((tp) => ({ id: scalpId(d, tp), text: scalpText(d, tp), ...score(sigs, (s) => scalp(s, d, tp), solUsd) }))),
     ...STOPS.map(([tp, sl]) => ({ id: stopId(tp, sl), text: stopText(tp, sl), ...score(sigs, (s) => scalpStop(s, tp, sl), solUsd) })),
+    ...CUTS.map((c) => ({ id: cutId(10, c), text: cutText(10, c), ...score(sigs, (s) => scalpCut(s, 10, c), solUsd) })),
+    ...LATE.flatMap((d) => [
+      { id: scalpId(d, 10), text: scalpText(d, 10), ...score(sigs, (s) => scalp(s, d, 10), solUsd) },
+      ...LATE_HOLDS.map((x) => ({ id: ruleId(d, x), text: ruleText(d, x), ...score(sigs, (s) => ret(s, d, x), solUsd) })),
+    ]),
+    ...RISING.map((d) => ({ id: risingId(d, 10), text: risingText(d, 10), ...score(sigs, (s) => rising(s, d, 10), solUsd) })),
     // Round 352 (18:10 KST 11 Nov 2026, MAIN). Exit study, 72 fast-stream buys: with 10+ follower transactions in ~4 s the
     // fastest copy is up at 5 s in 17 of 32 (avg +8.2% at 30 s); with fewer it is up in 7 of 30 and loses at every hold.
     // The fastest copy cannot know the wave yet, so these wait for it and pay the later price: buy 3 s after we know,
@@ -447,5 +517,5 @@ export function summarize(sigs: Signal[], solUsd: number | null) {
     rules: EXITS.map((x) => ({ id: sameId(x), ...score(sigs, (s) => sameBlockRet(s, x), solUsd) })),
   };
   const qualified = rules.filter((x) => x.n >= 100 && x.won / x.n >= 0.5 && (x.netSol ?? 0) > 0).map((x) => x.id);
-  return { speed, rulesTried: rules.length, inProfit: rules.filter((x) => (x.netSol ?? 0) > 0).length, qualified, rules, exitStudy: exitStudy(sigs), sizeStudy: sizeStudy(sigs), sameBlock, wallets, recent };
+  return { speed, rulesTried: rules.length, inProfit: rules.filter((x) => (x.netSol ?? 0) > 0).length, qualified, rules, exitStudy: exitStudy(sigs), sizeStudy: sizeStudy(sigs), lateStudy: lateStudy(sigs), sameBlock, wallets, recent };
 }

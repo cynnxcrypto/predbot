@@ -11,7 +11,7 @@ import { appendFileSync, mkdirSync, readFileSync, renameSync, writeFileSync } fr
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { DATA } from "../config.js";
-import { crowd, DELAYS, EXITS, followerPrice, parseBuy, PATH, SIZE_EXITS, SIZES, STAKE_SOL, summarize, TX_SOL, type Entry, type ParsedTx, type Signal } from "./copy.js";
+import { crowd, DELAYS, EXITS, followerPrice, LATE, parseBuy, PATH, SIZE_EXITS, SIZES, STAKE_SOL, summarize, TX_SOL, type Entry, type ParsedTx, type Signal } from "./copy.js";
 import { SOL, USDC } from "./pools.js";
 import { discoverSummary, foundWallets, startDiscover, stopDiscover } from "./discover.js";
 import { historySummary, startHistory, stopHistory } from "./history.js";
@@ -301,7 +301,7 @@ async function onTx(w: Tracked, sig: string, seenMs: number, ready: ParsedTx | n
       }));
       (s.sizes ??= {})[String(sol)] = got;
     });
-    await Promise.all([...sized, ...DELAYS.map(async (d) => {
+    await Promise.all([...sized, ...[...DELAYS, ...LATE].map(async (d) => {
       const at = knownMs + d * 1000;
       await sleep(Math.max(0, at - Date.now()));
       const out = await quote(SOL, buy.mint, stake);
