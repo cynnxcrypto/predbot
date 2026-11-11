@@ -133,7 +133,10 @@ export function buildCopySummary() {
       // With the Helius key, score only buys read on the Helius feed and known within 30 s. Buys from the keyless
       // period, or read late out of a backlog, say nothing about our speed and would poison the medians.
       const clean = helius() ? signals.filter((x) => x.feed.startsWith("helius") && x.leaderTime > 0 && x.knownMs - x.leaderTime * 1000 <= 30_000) : signals;
-      return { leftOut: signals.length - clean.length, ...summarize(clean, solUsd) };
+      // leftOutSlow = read on the Helius feed but known more than 30 s late. Those ARE about our speed: if this
+      // number keeps growing while the feed is healthy, the medians below flatter us.
+      const slow = helius() ? signals.filter((x) => x.feed.startsWith("helius") && x.leaderTime > 0 && x.knownMs - x.leaderTime * 1000 > 30_000).length : 0;
+      return { leftOut: signals.length - clean.length, leftOutSlow: slow, ...summarize(clean, solUsd) };
     })(),
   };
 }
