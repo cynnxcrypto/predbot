@@ -12,6 +12,8 @@ process.env.JUPITER_API_KEY = "test-jupiter";
 const { HARD_MAX_LOSS_SOL, HARD_STAKE_SOL, parseLive, solanaCopyLiveSummary, trade, tidy, _test } = await import("./copylive.js");
 const { _test: run } = await import("./copyrun.js");
 const { buildSigned, wallet } = await import("./keys.js");
+const { base58 } = await import("./whirlpool.js");
+const { recoverMany, HARD_MAX_OPEN } = await import("./copylive.js");
 type Row = import("./copylive.js").Row;
 type LiveConfig = import("./copylive.js").LiveConfig;
 
@@ -59,7 +61,7 @@ test("public summary carries numbers only", () => {
 // ---- the exit: sell at the target, else when the time is up --------------------------------------------------------
 const MINT = "9BB6NFEcjBCtnNLFko2FqVQBq8HHM13kCyYcdQbgpump";
 const SYSTEM = "11111111111111111111111111111111";
-const CFG: LiveConfig = { on: true, stakeSol: 0.05, maxLossSol: 0.5, holdSec: 60, targetPct: 10, maxPerDay: Number.MAX_SAFE_INTEGER, minGapPct: 0, slippageBps: 1500, maxFeeLamports: 1_000_000 };
+const CFG: LiveConfig = { on: true, stakeSol: 0.05, maxLossSol: 0.5, holdSec: 60, targetPct: 10, maxPerDay: Number.MAX_SAFE_INTEGER, minGapPct: 0, maxOpen: 1, slippageBps: 1500, maxFeeLamports: 1_000_000 };
 /** A made-up chain and Jupiter: `quotes` = what a sale would bring back at each ask (SOL); `fills` = whether each sale lands. */
 function fake(quotes: number[], fills: boolean[]) {
   const w = wallet();
@@ -322,5 +324,243 @@ test("clean-up at a start: the rent that comes back is in the result but in no c
   assert.equal(f.log.sends + f.log.balances, 0);
   run.setNet(fetch);
   _test.setConfig(null);
+  _test.reset();
+});
+
+// ---- several coins at once ------------------------------------------------------------------------------------------
+const SOLMINT = "So11111111111111111111111111111111111111112";
+const COIN = { a: MINT, b: "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB", c: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v" };
+const FEE = 5000;
+const RENT = 2_039_280;
+const sigOfTx = (b64: string) => base58(Buffer.from(b64, "base64").subarray(1, 65));
+/**
+ * A made-up chain and Jupiter that keep real books: a wallet with 0.5 SOL, a token account per coin (named by the
+ * coin's own address), every transaction with the wallet's SOL before and after it. `worth(mint)` = what selling
+ * the coin brings back now (SOL); a coin in `stuck` cannot be sold (the sale lands and fails); a transaction id in
+ * `hidden` has landed but cannot be read back.
+ */
+function chain(worth: (mint: string) => number) {
+  const w = wallet();
+  const c = {
+    lamports: 0.5e9, n: 0, quotes: 0, sends: 0,
+    held: new Map<string, bigint>(), // coin -> amount, for every token account that exists
+    built: new Map<string, { kind: "buy" | "sell"; mint: string; out: number }>(),
+    txs: new Map<string, { pre: number; post: number; ok: boolean }>(),
+    stuck: new Set<string>(), hidden: new Set<string>(),
+    apply(sig: string, delta: number, ok: boolean) {
+      c.txs.set(sig, { pre: c.lamports, post: c.lamports + delta, ok });
+      c.lamports += delta;
+    },
+    /** a buy that happened before a restart: returns its id */
+    bought(mint: string) {
+      const sig = sigOfTx(buildSigned(w, SYSTEM, SYSTEM, [{ pubkey: w.address, writable: true }], [200 + ++c.n]));
+      c.held.set(mint, 1000n);
+      c.apply(sig, -(0.05e9 + FEE + RENT), true);
+      return sig;
+    },
+  };
+  const acc = (mint: string) => ({ pubkey: mint, account: { owner: T22, data: { parsed: { info: { mint, state: "initialized", tokenAmount: { amount: c.held.get(mint)!.toString(), decimals: 6 } } } } } });
+  run.setNet((async (url: string, init?: { body?: string }) => {
+    const json = (x: unknown) => new Response(JSON.stringify(x));
+    if (url.includes("/swap/v1/quote")) {
+      c.quotes++;
+      const u = new URL(url).searchParams;
+      const [i, o] = [u.get("inputMint")!, u.get("outputMint")!];
+      return json(i === SOLMINT ? { outAmount: "5000000000", inputMint: i, outputMint: o } : { outAmount: String(Math.round(worth(i) * 1e9)), inputMint: i, outputMint: o });
+    }
+    if (url.includes("/swap/v1/swap")) {
+      const q = (JSON.parse(init!.body!) as { quoteResponse: { inputMint: string; outputMint: string; outAmount: string } }).quoteResponse;
+      const tx = buildSigned(w, SYSTEM, SYSTEM, [{ pubkey: w.address, writable: true }], [++c.n]);
+      c.built.set(sigOfTx(tx), q.inputMint === SOLMINT ? { kind: "buy", mint: q.outputMint, out: 0 } : { kind: "sell", mint: q.inputMint, out: Number(q.outAmount) });
+      return json({ swapTransaction: tx });
+    }
+    const { method, params } = JSON.parse(init!.body!) as { method: string; params: unknown[] };
+    const res = (x: unknown) => json({ result: x });
+    if (method === "getBalance") return res({ value: c.lamports });
+    if (method === "getLatestBlockhash") return res({ value: { blockhash: SYSTEM } });
+    if (method === "getSignaturesForAddress") return res([]);
+    if (method === "sendTransaction") {
+      c.sends++;
+      const raw = Buffer.from(params[0] as string, "base64");
+      const sig = base58(raw.subarray(1, 65));
+      const b = c.built.get(sig);
+      if (b?.kind === "buy") {
+        c.held.set(b.mint, 1000n);
+        c.apply(sig, -(0.05e9 + FEE + RENT), true);
+      } else if (b?.kind === "sell") {
+        const ok = !c.stuck.has(b.mint) && (c.held.get(b.mint) ?? 0n) > 0n;
+        if (ok) c.held.set(b.mint, 0n);
+        c.apply(sig, ok ? b.out - FEE : -FEE, ok);
+      } else {
+        // an account close: the account is the second key of the transaction
+        const mint = base58(raw.subarray(69 + 32, 69 + 64));
+        const ok = c.held.get(mint) === 0n;
+        if (ok) c.held.delete(mint);
+        c.apply(sig, ok ? RENT - FEE : -FEE, ok);
+      }
+      return res(sig);
+    }
+    if (method === "getSignatureStatuses") return res({ value: (params[0] as string[]).map((s) => (c.txs.has(s) ? { slot: 500, err: c.txs.get(s)!.ok ? null : { InstructionError: [0, "Custom"] } } : null)) });
+    if (method === "getTransaction") {
+      const t = c.txs.get(params[0] as string);
+      return res(t && !c.hidden.has(params[0] as string) ? { meta: { preBalances: [t.pre, 1], postBalances: [t.post, 1] }, transaction: { message: { accountKeys: [w.address, SYSTEM] } } } : null);
+    }
+    if (method === "getTokenAccountsByOwner") {
+      const f = params[1] as { mint?: string; programId?: string };
+      if (f.mint) return res({ value: c.held.has(f.mint) ? [acc(f.mint)] : [] });
+      return res({ value: f.programId === T22 ? [...c.held.keys()].map(acc) : [] });
+    }
+    throw new Error(`unexpected call ${method}`);
+  }) as never);
+  return c;
+}
+const MANY: LiveConfig = { ...CFG, maxOpen: 5, holdSec: 3 };
+const old = () => Date.now() - 80_000; // long known: the count of followers is not waited for
+const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+test("several at once: hard limit, and one at a time unless the file says otherwise", () => {
+  assert.equal(parseLive(JSON.stringify({ solanaCopy: { on: true, maxLossSol: 0.5 } })).maxOpen, 1);
+  assert.equal(parseLive(JSON.stringify({ solanaCopy: { on: true, maxLossSol: 0.5, maxOpen: 5 } })).maxOpen, 5);
+  assert.equal(parseLive(JSON.stringify({ solanaCopy: { on: true, maxLossSol: 0.5, maxOpen: 50 } })).maxOpen, HARD_MAX_OPEN);
+  assert.equal(parseLive(JSON.stringify({ solanaCopy: { on: true, maxLossSol: 0.5, maxOpen: 0 } })).maxOpen, 1);
+});
+
+test("several at once: two coins held together, each counted from its own transactions, and the books equal the wallet", async () => {
+  _test.reset();
+  _test.ready();
+  _test.forgetCloses();
+  _test.setPoll(20);
+  _test.setConfig(MANY);
+  const t0 = Date.now();
+  // coin a reaches +16% after 1.6 s; coin b never does and is sold when its time is up
+  const c = chain((m) => (m === COIN.a ? (Date.now() - t0 > 1600 ? 0.058 : 0.05) : 0.045));
+  const st = _test.state;
+  const a = trade(signal({ mint: COIN.a, sig: "lead-a", knownMs: old() }));
+  await wait(1100);
+  const b = trade(signal({ mint: COIN.b, sig: "lead-b", knownMs: old() }));
+  await wait(250);
+  assert.equal(st().opens.length, 2, "both coins are out at the same time");
+  const s1 = solanaCopyLiveSummary();
+  assert.deepEqual({ openCount: s1.openCount, maxOpen: s1.maxOpen, opens: s1.opens.length, openPosition: s1.openPosition }, { openCount: 2, maxOpen: 5, opens: 2, openPosition: true });
+  assert.ok(!JSON.stringify(s1).includes(COIN.a) && !JSON.stringify(s1).includes(COIN.b));
+  // the same coin again while it is held: let go (a sale sells all of a coin)
+  await trade(signal({ mint: COIN.a, sig: "lead-a2", knownMs: old() }));
+  assert.equal(st().missedSame, 1);
+  await Promise.all([a, b]);
+  const [ra, rb] = [st().rows.find((r) => r.mint === COIN.a)!, st().rows.find((r) => r.mint === COIN.b)!];
+  assert.deepEqual({ buy: ra.buy, sold: ra.sold, exit: ra.exit, netSol: ra.netSol }, { buy: "landed", sold: true, exit: "target", netSol: 0.007985 }, "0.058 back for 0.05, less three fees; the account's rent came back");
+  assert.deepEqual({ buy: rb.buy, sold: rb.sold, exit: rb.exit, netSol: rb.netSol }, { buy: "landed", sold: true, exit: "time", netSol: -0.005015 });
+  assert.equal(st().netSol, 0.00297);
+  assert.equal(c.lamports, 0.5e9 + 2_970_000, "the made-up wallet moved by exactly what the books say");
+  assert.deepEqual({ opens: st().opens.length, baseSol: st().baseSol, driftSol: st().driftSol, trades: st().trades, unread: st().unreadTx }, { opens: 0, baseSol: 0.5, driftSol: 0, trades: 2, unread: 0 });
+  assert.equal(c.held.size, 0, "both token accounts were closed");
+  assert.equal(solanaCopyLiveSummary().booksVsWalletSol, 0);
+  run.setNet(fetch);
+  _test.setConfig(null);
+  _test.reset();
+});
+
+test("several at once: the loss cap holds even if every coin that is out is lost in full", async () => {
+  _test.reset();
+  _test.ready();
+  _test.setConfig(MANY);
+  const c = chain(() => 0.05);
+  const st = _test.state();
+  // 0.30 SOL lost, two coins out: a third would make 0.30 + 3 x (0.05 + 0.03) = 0.54
+  st.netSol = -0.3;
+  st.opens.push({ mint: COIN.a, t: Date.now(), tries: 0, sigs: [] }, { mint: COIN.b, t: Date.now(), tries: 0, sigs: [] });
+  await trade(signal({ mint: COIN.c, knownMs: old() }));
+  assert.deepEqual({ missedCap: st.missedCap, quotes: c.quotes, halted: st.halted }, { missedCap: 1, quotes: 0, halted: "" });
+  // five out: the sixth is let go
+  st.netSol = 0;
+  st.opens.push({ mint: SOLMINT, t: Date.now(), tries: 0, sigs: [] }, { mint: SYSTEM, t: Date.now(), tries: 0, sigs: [] }, { mint: CLASSIC, t: Date.now(), tries: 0, sigs: [] });
+  await trade(signal({ mint: COIN.c, knownMs: old() }));
+  assert.deepEqual({ missedBusy: st.missedBusy, quotes: c.quotes }, { missedBusy: 1, quotes: 0 });
+  // at the cap with a coin still out: no new buy, and the stop for good waits until nothing is out
+  st.opens.length = 1;
+  st.netSol = -0.43;
+  await trade(signal({ mint: COIN.c, knownMs: old() }));
+  assert.equal(st.halted, "");
+  st.opens.length = 0;
+  await trade(signal({ mint: COIN.c, knownMs: old() }));
+  assert.match(st.halted, /loss cap reached/);
+  assert.equal(c.quotes + c.sends, 0);
+  run.setNet(fetch);
+  _test.setConfig(null);
+  _test.reset();
+});
+
+test("several at once: after a restart every open coin is finished and counted once; one that cannot be sold stops new buys only", async () => {
+  _test.reset();
+  _test.ready();
+  _test.forgetCloses();
+  _test.setRecoverWait(0);
+  _test.setConfig(MANY);
+  const c = chain(() => 0.052);
+  const st = _test.state;
+  st().baseSol = 0.5;
+  // two coins were out when the bot stopped; their buys are on the chain and their ids on the markers
+  st().opens.push({ mint: COIN.a, t: Date.now() - 200_000, tries: 0, sigs: [c.bought(COIN.a)] }, { mint: COIN.b, t: Date.now() - 200_000, tries: 0, sigs: [c.bought(COIN.b)] });
+  c.stuck.add(COIN.b);
+  await recoverMany();
+  const [ra, rb] = [st().rows.find((r) => r.mint === COIN.a)!, st().rows.find((r) => r.mint === COIN.b)!];
+  assert.deepEqual({ buy: ra.buy, sold: ra.sold, netSol: ra.netSol }, { buy: "interrupted", sold: true, netSol: 0.001985 }, "the buy from before the restart is in the result");
+  assert.deepEqual({ sold: rb.sold, netSol: rb.netSol }, { sold: false, netSol: -0.05207428 }, "the buy, the rent and six failed sales");
+  assert.equal(st().opens.length, 1, "the sold coin's marker is gone, the other stays");
+  assert.deepEqual({ mint: st().opens[0].mint, tries: st().opens[0].tries, sigs: st().opens[0].sigs.length }, { mint: COIN.b, tries: 1, sigs: 0 });
+  assert.match(st().halted, /could not sell/);
+  assert.equal(Math.round(st().netSol * 1e9), c.lamports - 0.5e9, "books and wallet agree to the lamport");
+  // new buys are stopped ...
+  await trade(signal({ mint: COIN.c, knownMs: old() }));
+  assert.equal(c.held.has(COIN.c), false);
+  // ... and when the coin can be sold again, the next pass sells it and counts only what is new
+  c.stuck.delete(COIN.b);
+  await recoverMany();
+  assert.equal(st().opens.length, 0);
+  assert.equal(st().halted, "");
+  assert.equal(Math.round(st().netSol * 1e9), c.lamports - 0.5e9);
+  assert.equal(st().driftSol, 0);
+  assert.equal(st().rows.filter((r) => r.mint === COIN.b).length, 2);
+  run.setNet(fetch);
+  _test.setConfig(null);
+  _test.setRecoverWait(5000);
+  _test.reset();
+});
+
+test("several at once: a transaction that cannot be read back yet is counted later, never lost", async () => {
+  _test.reset();
+  _test.ready();
+  _test.forgetCloses();
+  _test.setPoll(20);
+  _test.setRecoverWait(0);
+  _test.setConfig({ ...MANY, holdSec: 1 });
+  const c = chain(() => 0.058);
+  const st = _test.state;
+  // the sale lands, but the node will not show it for a while
+  const seen = new Set<string>();
+  const hide = setInterval(() => {
+    for (const [sig, b] of c.built) if (b.kind === "sell" && !seen.has(sig)) (seen.add(sig), c.hidden.add(sig));
+  }, 5);
+  await trade(signal({ mint: COIN.a, knownMs: old() }));
+  clearInterval(hide);
+  const first = st().rows[0];
+  assert.deepEqual({ sold: first.sold, unread: first.unread, netSol: first.netSol }, { sold: true, unread: 1, netSol: -0.05001 }, "the buy and the close are counted, the sale is not yet");
+  assert.equal(st().opens.length, 1, "the marker stays, holding the id that is still to be read");
+  assert.equal(st().opens[0].sigs.length, 1);
+  assert.deepEqual({ done: st().opens[0].done, halted: st().halted }, { done: true, halted: "" });
+  // still not readable: it stays, and after three tries nothing new is bought until it is
+  await recoverMany();
+  await recoverMany();
+  await recoverMany();
+  assert.match(st().halted, /could not be read back/);
+  assert.equal(st().opens.length, 1);
+  c.hidden.clear();
+  await recoverMany();
+  assert.deepEqual({ opens: st().opens.length, halted: st().halted, rows: st().rows.length }, { opens: 0, halted: "", rows: 1 });
+  assert.equal(Math.round(st().netSol * 1e9), c.lamports - 0.5e9, "now the books equal the wallet");
+  assert.deepEqual({ netSol: first.netSol, unread: first.unread, total: st().netSol, drift: st().driftSol }, { netSol: 0.007985, unread: undefined, total: 0.007985, drift: 0 }, "the sale went into the copy's own row");
+  run.setNet(fetch);
+  _test.setConfig(null);
+  _test.setRecoverWait(5000);
   _test.reset();
 });
