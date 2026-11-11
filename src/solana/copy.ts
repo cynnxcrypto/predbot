@@ -55,7 +55,7 @@ export interface ParsedTx {
 const ui = (b: TokBal) => Number(b.uiTokenAmount.uiAmountString ?? b.uiTokenAmount.uiAmount ?? 0) || 0;
 
 /** The wallet's buy in this transaction (SOL or wrapped SOL spent, exactly one other token received), or null. */
-export function parseBuy(tx: ParsedTx | null, wallet: string): Buy | null {
+export function parseBuy(tx: ParsedTx | null, wallet: string, minSol = MIN_BUY_SOL): Buy | null {
   if (!tx?.meta || tx.meta.err) return null;
   const keys = tx.transaction.message.accountKeys.map((k) => (typeof k === "string" ? k : k.pubkey));
   const i = keys.indexOf(wallet);
@@ -68,7 +68,7 @@ export function parseBuy(tx: ParsedTx | null, wallet: string): Buy | null {
   const sold = [...delta].some(([m, d]) => m !== SOL && d < 0);
   if (got.length !== 1 || sold) return null; // token-to-token and stablecoin buys are skipped
   sol = -sol;
-  if (sol < MIN_BUY_SOL) return null;
+  if (sol < minSol) return null;
   const [mint, tokens] = got[0];
   return { mint, tokens, sol, price: sol / tokens, slot: tx.slot, blockTime: tx.blockTime ?? 0 };
 }
@@ -102,6 +102,16 @@ export interface Signal {
   /** SOL received selling the entry's tokens, by delay then exit; null = no quote */
   exits: Record<string, Record<string, number | null>>;
   crowd: Crowd | null;
+  /** MEASURED: what the first followers really paid, those that landed in the wallet's block or the next one (median SOL per token over n of them, at most 5) */
+  near?: { n: number; price: number } | null;
+}
+
+/** The fee payer's own buy of this token in a follower's transaction: the price somebody really got at that spot in line. */
+export function followerPrice(tx: ParsedTx | null, mint: string): number | null {
+  const k = tx?.transaction.message.accountKeys[0];
+  if (!k) return null;
+  const b = parseBuy(tx, typeof k === "string" ? k : k.pubkey, 0.01);
+  return b && b.mint === mint ? b.price : null;
 }
 
 export interface Crowd {
@@ -167,16 +177,18 @@ export const sameId = (x: number) => `same-block-x${x}`;
 
 /**
  * WHAT IF we had landed right behind the wallet: the measured copy (fastest entry, same exit quote) re-priced as if
- * the entry had been at the wallet's average price plus SAME_BLOCK_SLIP. A best case, not a measurement: the
- * wallet's own buy moves the price, other same-block buyers exist, and a bigger token amount sells a little worse.
- * It answers one thing only: is there money in the first seconds that our delay is giving away?
+ * the entry had been at the price the first followers REALLY paid in the wallet's block or the next one (s.near).
+ * Where no such follower exists it falls back to the wallet's average price plus SAME_BLOCK_SLIP, which is a best
+ * case. Still an estimate: a bigger token amount sells a little worse, and our own order would have had to win
+ * that spot. It answers one thing only: is there money in the first second that our delay is giving away?
  */
 export function sameBlockRet(s: Signal, x: number): number | undefined {
   const e = s.entries.d0;
   const out = s.exits.d0?.[`x${x}`];
   if (!e || !(s.leaderPrice > 0)) return undefined;
   if (out == null) return s.exits.d0?.[`x${EXITS[EXITS.length - 1]}`] == null ? -1 : undefined;
-  return (out * (e.price / (s.leaderPrice * (1 + SAME_BLOCK_SLIP))) - 2 * TX_SOL) / STAKE_SOL - 1;
+  const at = s.near?.price ?? s.leaderPrice * (1 + SAME_BLOCK_SLIP);
+  return (out * (e.price / at) - 2 * TX_SOL) / STAKE_SOL - 1;
 }
 
 const med = (xs: number[]) => {
@@ -247,7 +259,10 @@ export function summarize(sigs: Signal[], solUsd: number | null) {
     breakEvenPct: r((roundTrip(s) ?? NaN) * 100), ret10Pct: r((ret(s, 1, 10) ?? NaN) * 100), ret30Pct: r((ret(s, 1, 30) ?? NaN) * 100),
   }));
   const sameBlock = {
-    note: `What if: entry right behind the wallet at its own price +${SAME_BLOCK_SLIP * 100}%, same exits. Best case, not measured.`,
+    note: `What if we had landed right behind the wallet: entry at the price the first followers really paid in its block or the next (where none, the wallet's price +${SAME_BLOCK_SLIP * 100}%), same exits. An estimate, kept apart from the real rules.`,
+    /** how many signals have a measured same-block follower price, and what those followers paid over the wallet's price (median, %), to set beside speed.entryGapPctMedian (what we would pay) */
+    measured: sigs.filter((s) => s.near).length,
+    nearGapPctMedian: r((med(nums(sigs.map((s) => (s.near ? s.near.price / s.leaderPrice - 1 : null)))) ?? NaN) * 100),
     rules: EXITS.map((x) => ({ id: sameId(x), ...score(sigs, (s) => sameBlockRet(s, x), solUsd) })),
   };
   const qualified = rules.filter((x) => x.n >= 100 && x.won / x.n >= 0.5 && (x.netSol ?? 0) > 0).map((x) => x.id);

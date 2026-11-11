@@ -11,7 +11,7 @@ import { appendFileSync, mkdirSync, readFileSync, renameSync, writeFileSync } fr
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { DATA } from "../config.js";
-import { crowd, DELAYS, EXITS, parseBuy, STAKE_SOL, summarize, TX_SOL, type Entry, type ParsedTx, type Signal } from "./copy.js";
+import { crowd, DELAYS, EXITS, followerPrice, parseBuy, STAKE_SOL, summarize, TX_SOL, type Entry, type ParsedTx, type Signal } from "./copy.js";
 import { SOL, USDC } from "./pools.js";
 import { validAddress, WALLETS, type Tracked } from "./wallets.js";
 
@@ -170,14 +170,14 @@ async function tokenDecimals(mint: string): Promise<number> {
   return r.value.decimals;
 }
 
-async function waveAfter(mint: string, sig: string, leaderSlot: number): Promise<{ slot: number; ok: boolean }[] | null> {
+async function waveAfter(mint: string, sig: string, leaderSlot: number): Promise<{ slot: number; ok: boolean; sig: string }[] | null> {
   type Row = { signature: string; slot: number; err: unknown };
   const all: Row[] = [];
   let before: string | undefined;
   for (let page = 0; page < 5; page++) {
     const rows = await rpc<Row[]>("getSignaturesForAddress", [mint, { until: sig, limit: 1000, ...(before ? { before } : {}), commitment: "confirmed" }]);
     all.push(...rows);
-    if (rows.length < 1000) return all.reverse().filter((x) => x.slot >= leaderSlot).map((x) => ({ slot: x.slot, ok: !x.err }));
+    if (rows.length < 1000) return all.reverse().filter((x) => x.slot >= leaderSlot).map((x) => ({ slot: x.slot, ok: !x.err, sig: x.signature }));
     before = rows[rows.length - 1].signature;
   }
   return null; // too busy to count from the start
@@ -244,7 +244,19 @@ async function onTx(w: Tracked, sig: string, seenMs: number, ready: ParsedTx | n
     await sleep(Math.max(0, knownMs + 70_000 - Date.now()));
     if (!s.leaderTime) s.leaderTime = (await rpc<number | null>("getBlockTime", [buy.slot]).catch(() => null)) ?? 0;
     const wave = await waveAfter(buy.mint, sig, buy.slot).catch((e) => (health.rpcErrors++, fail(e), null));
-    if (wave) s.crowd = crowd(wave, buy.slot, s.entries);
+    if (wave) {
+      s.crowd = crowd(wave, buy.slot, s.entries);
+      // What the first followers really paid: up to 5 buys that landed in the wallet's block or the next one.
+      const prices: number[] = [];
+      for (const f of wave.filter((x) => x.ok && x.slot <= buy.slot + 1).slice(0, 12)) {
+        if (prices.length >= 5) break;
+        const ftx = await rpc<ParsedTx | null>("getTransaction", [f.sig, { encoding: "jsonParsed", maxSupportedTransactionVersion: 1, commitment: "confirmed" }]).catch(() => null);
+        const p = followerPrice(ftx, buy.mint);
+        if (p) prices.push(p);
+      }
+      prices.sort((a, b) => a - b);
+      s.near = prices.length ? { n: prices.length, price: prices[(prices.length - 1) >> 1] } : null;
+    }
     signals.push(s);
     if (signals.length > KEEP) signals.shift();
     mkdirSync(join(DATA, "solana"), { recursive: true });
