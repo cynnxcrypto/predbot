@@ -18,6 +18,7 @@ import { discoverSummary, foundWallets, startDiscover, stopDiscover } from "./di
 import { historySummary, startHistory, stopHistory } from "./history.js";
 import { linkedWallets, linksSummary, seedWallets, startLinks, stopLinks } from "./links.js";
 import { preconfSeen, preconfSummary, startPreconf, stopPreconf } from "./preconf.js";
+import { startCandles } from "./candles.js";
 import { validAddress, WALLETS, type Tracked } from "./wallets.js";
 
 const SIGNALS = () => join(DATA, "solana", "copy-signals.jsonl");
@@ -785,6 +786,8 @@ export function startSolanaCopy(fetcher: Fetch = fetch) {
   startLinks({ rpcUrl: () => (helius() ? rpcUrl() : null), fetch: () => net });
   // the early-stream measurement (read-only, one short run with a credit budget); SOLANA_PRECONF=off disables
   startPreconf({ url: () => (helius() ? `wss://beta.helius-rpc.com/?api-key=${helius()}` : null), signers: () => listed().map((w) => w.address) });
+  // price history for the slow-trade research (read-only, public market data, runs once); SOLANA_CANDLES=off disables
+  setTimeout(() => void startCandles(), 120_000).unref();
   void refreshSolUsd();
   void pingSenders();
   let n = 0;

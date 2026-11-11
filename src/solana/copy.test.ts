@@ -669,6 +669,25 @@ test("second wave measured with quotes: followed from the coin's second listed b
   }
 });
 
+test("price history for the slow-trade research: started once, only where the publishing token is, and switchable off", async () => {
+  const { startCandles } = await import("./candles.js");
+  const { writeFileSync } = await import("node:fs");
+  const calls: { cmd: string; args: string[]; detached: boolean }[] = [];
+  const run = ((cmd: string, args: string[], o: { detached: boolean }) => (calls.push({ cmd, args, detached: o.detached }), { unref() {} })) as never;
+  const home = mkdtempSync(join(tmpdir(), "solhome-"));
+  assert.equal(startCandles(home, run), false, "no token on this machine: not started");
+  assert.equal(startCandles("", run), false);
+  writeFileSync(join(home, ".predbot-github-token"), "t");
+  process.env.SOLANA_CANDLES = "off";
+  assert.equal(startCandles(home, run), false);
+  delete process.env.SOLANA_CANDLES;
+  assert.equal(startCandles(home, run), true);
+  assert.equal(calls.length, 1);
+  assert.deepEqual([calls[0].cmd, calls[0].args[0].endsWith(join("research", "sol-candles.py")), calls[0].detached], ["python3", true, true]);
+  const script = readFileSync(calls[0].args[0], "utf8");
+  assert.ok(script.includes("api.binance.com") && !/order|apiKey|X-MBX-APIKEY|signature/i.test(script.replace(/no order|no key, no account, no order/gi, "")), "public market data only: no key, no order");
+});
+
 test("walk-forward: only buys made after the pace rule was written are scored, by pace and by price gap", async () => {
   const { walkStudy, WALK_FROM, pacesBefore } = await import("./copy.js");
   const exits = (v: number) => ({ d0: { x0: 0.24, x2: v, x5: v, x10: v, x20: v, x30: v, x60: v, x120: v }, d1: {}, d3: {} });
