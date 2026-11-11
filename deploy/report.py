@@ -110,7 +110,12 @@ def summary():
     out["solanaCopy"] = s.get("solanaCopy")  # 11 Nov 2026: paper wallet-copy speed test on Solana (src/solana/copyrun.ts), read-only; keys are scrubbed there
     out["withdraw"] = s.get("withdraw")  # one-off withdrawal: stage, tries, confirmed, amounts; never an address or a transaction id
     # numbers only: never an address, token, signature or key; the wallet's balance stays off the public file too
-    out["solanaCopyLive"] = {k: v for k, v in (s.get("solanaCopyLive") or {}).items() if k != "balanceSol"} or None
+    scl = {k: v for k, v in (s.get("solanaCopyLive") or {}).items() if k != "balanceSol"}
+    # 11 Nov 2026: each copy's time (recent[].at) is for the password-protected dashboard only. On the public file the
+    # moment of a trade would be enough to find the wallet that made it.
+    if isinstance(scl.get("recent"), list):
+        scl["recent"] = [{k: v for k, v in r.items() if k != "at"} for r in scl["recent"] if isinstance(r, dict)]
+    out["solanaCopyLive"] = scl or None
     out["solana"] = s.get("solana")  # 11 Nov 2026: paper liquidity provision on Orca SOL/USDC (src/solana/), read-only
     out["pairlive"] = s.get("pairlive")  # 10 Nov 2026: budget, lost, open and left per real-money category
     out["realTrades"] = sorted(rows, key=lambda r: r.get("t") or 0)[-200:]

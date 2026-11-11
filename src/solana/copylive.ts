@@ -510,7 +510,10 @@ export async function recover() {
 const med = (xs: number[]) => (xs.length ? [...xs].sort((a, b) => a - b)[(xs.length - 1) >> 1] : null);
 const nums = (xs: (number | undefined)[]) => xs.filter((x): x is number => typeof x === "number");
 
-/** For the public status: numbers only. No address, token, signature or time that could identify the wallet. */
+/**
+ * For the status: numbers only. No address, token or signature. The one thing that could identify the wallet, the
+ * time of each copy (recent[].at), is shown on the password-protected dashboard and removed from the public file.
+ */
 export function solanaCopyLiveSummary() {
   if (!loaded) load();
   const c = cfg();
@@ -559,7 +562,9 @@ export function solanaCopyLiveSummary() {
     buildMsMedian: med(nums(rows.map((r) => r.buildMs))),
     sendMsMedian: med(nums(rows.map((r) => r.sendMs))),
     fillGapPctMedian: med(nums(land.map((r) => r.fillGapPct))),
-    recent: rows.slice(-15).reverse().map((r) => ({ buy: r.buy, slotsBehind: r.slotsBehind ?? null, ahead: r.ahead ?? null, pipelineMs: r.pipelineMs ?? null, fillGapPct: r.fillGapPct ?? null, sold: r.sold ?? null, heldSec: r.heldSec ?? null, exit: r.exit ?? null, bestPct: r.bestPct ?? null, netSol: r.netSol })),
+    // `at` (when the copy started) is for the password-protected dashboard only: deploy/report.py takes it off the
+    // public file, because the moment of a trade is enough to find the wallet that made it
+    recent: rows.slice(-40).reverse().map((r) => ({ at: new Date(r.t).toISOString(), buy: r.buy, slotsBehind: r.slotsBehind ?? null, ahead: r.ahead ?? null, pipelineMs: r.pipelineMs ?? null, fillGapPct: r.fillGapPct ?? null, sold: r.sold ?? null, heldSec: r.heldSec ?? null, exit: r.exit ?? null, bestPct: r.bestPct ?? null, netSol: r.netSol })),
   };
 }
 
