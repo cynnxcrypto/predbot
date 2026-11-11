@@ -314,6 +314,7 @@ function connect() {
       const keys = new Set(tx.transaction.message.accountKeys.map((k) => (typeof k === "string" ? k : k.pubkey)));
       const w = list.find((x) => keys.has(x.address) && parseBuy(tx, x.address));
       if (!w) {
+        if (seen.size > 20_000) seen.clear(); // same bound as in onTx, which these never reach
         seen.add(r.signature); // not a buy by a tracked wallet: nothing to look up when the signature feed repeats it
         return;
       }
