@@ -181,9 +181,17 @@ async function onTx(w: Tracked, sig: string, seenMs: number) {
   let tx: ParsedTx | null = null;
   // Without the Helius key the public RPC refuses most of these (11 Nov 2026: 2,534 errors and 3 buys read in 45
   // min), so only two tries there: more would just add to a limit the liquidity reader shares.
-  for (let i = 0; i < (helius() ? 8 : 2) && !tx; i++) {
-    tx = await rpc<ParsedTx | null>("getTransaction", [sig, { encoding: "jsonParsed", maxSupportedTransactionVersion: 0, commitment: "confirmed" }]).catch((e) => (health.rpcErrors++, fail(e), null));
-    if (!tx) await sleep(250);
+  // Version 1 transactions exist on mainnet (11 Nov 2026: asking for version 0 only made Helius refuse them, 787
+  // errors in a minute). A refusal like that will not change on a retry, so only "not found yet" is retried.
+  let refused = false;
+  for (let i = 0; i < (helius() ? 8 : 2) && !tx && !refused; i++) {
+    tx = await rpc<ParsedTx | null>("getTransaction", [sig, { encoding: "jsonParsed", maxSupportedTransactionVersion: 1, commitment: "confirmed" }]).catch((e) => {
+      health.rpcErrors++;
+      fail(e);
+      refused = /not supported|invalid param/i.test(String((e as Error)?.message ?? e));
+      return null;
+    });
+    if (!tx && !refused) await sleep(250);
   }
   const buy = parseBuy(tx, w.address);
   if (!buy) return;
