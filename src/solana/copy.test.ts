@@ -558,6 +558,34 @@ test("late checks: a check proven to have left the line seconds late is taken ou
   assert.equal(new Date(LATE_FROM).toISOString(), "2026-11-11T18:10:25.000Z");
 });
 
+test("other readings of the stored buys: hour of the day, repeat buyers, and selling into the next buyer's wave", async () => {
+  const { hourStudy, repeatStudy, secondWaveStudy } = await import("./copy.js");
+  const T = Date.UTC(2026, 10, 11, 10, 30, 0); // 19:30 KST
+  const e = (tokens: string) => ({ t: 0, slot: 1, tokens, price: 1.05e-6 });
+  const flat = (v: number) => ({ x0: 0.24, x2: v, x5: v, x10: v, x20: v, x30: v, x60: v, x120: v });
+  // A: wallet a buys coin M; 200 s later wallet b buys it too (B); C is another coin, four hours later
+  const a = sig({ sig: "A", wallet: "a", mint: "M", knownMs: T, entries: { d0: e("1000"), d1: e("1000"), d3: null }, exits: { d0: flat(0.2), d1: { x2: 0.2, x5: 0.2, x10: 0.2, x20: 0.2, x30: 0.2, x60: 0.2, x120: 0.2 }, d3: {} }, path: { x300: 0.18, x600: 0.15 } });
+  const b = sig({ sig: "B", wallet: "b", mint: "M", knownMs: T + 200_000, entries: { d0: e("1000"), d1: null, d3: null }, exits: { d0: { ...flat(0.25), x2: 0.3, x5: 0.28 }, d1: {}, d3: {} }, path: { x300: 0.2, x600: 0.2 } });
+  const c = sig({ sig: "C", wallet: "a", mint: "N", knownMs: T + 4 * 3_600_000, entries: { d0: e("1000"), d1: null, d3: null }, exits: { d0: flat(0.3), d1: {}, d3: {} } });
+  const h = hourStudy([a, b, c]);
+  assert.equal(h.rows.length, 8);
+  assert.deepEqual(h.rows.filter((x) => x.buys).map((x) => [x.kst, x.buys, x.days, x.t60.n, x.late1t60.n]), [["18-21", 2, 1, 2, 1], ["21-24", 1, 1, 1, 0]]);
+  assert.ok(h.rows.find((x) => x.kst === "18-21")!.late1t60.avgRetPct! < -20, "bought 1 s late and sold for 0.2 of 0.25");
+  const rep = repeatStudy([c, b, a]);
+  assert.deepEqual(rep.rows.map((x) => [x.buyer, x.buys]), [["first", 2], ["second", 1], ["third or later", 0]]);
+  const w = secondWaveStudy([a, b, c]);
+  const row = (sec: number) => w.rows.find((x) => x.entrySec === sec)!;
+  // bought 2 min after A at 0.2 per 1000 (in-and-out cost 4.8%), sold 2 s after B's buy at 0.3 per 1000
+  assert.deepEqual([row(120).all.n, row(120).withSecond.n, row(120).noSecond.n, row(120).secondPct, row(120).waitSecMedian], [2, 1, 1, 50, 80]);
+  assert.equal(row(120).withSecond.avgRetPct, 42.8);
+  assert.equal(row(120).withSecondAt5.avgRetPct, 33.28);
+  // B itself has no later buyer: held to 10 min, 0.25 -> 0.2 less the cost
+  assert.equal(row(120).noSecond.avgRetPct, -23.84);
+  // bought 5 min after A: B's buy is already past, so A too is held to 10 min (0.18 -> 0.15)
+  assert.deepEqual([row(300).withSecond.n, row(300).noSecond.n], [0, 2]);
+  assert.equal(JSON.stringify([h, rep, w]).includes('"M"'), false, "numbers only");
+});
+
 test("walk-forward: only buys made after the pace rule was written are scored, by pace and by price gap", async () => {
   const { walkStudy, WALK_FROM, pacesBefore } = await import("./copy.js");
   const exits = (v: number) => ({ d0: { x0: 0.24, x2: v, x5: v, x10: v, x20: v, x30: v, x60: v, x120: v }, d1: {}, d3: {} });

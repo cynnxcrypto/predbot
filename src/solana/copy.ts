@@ -573,6 +573,106 @@ export function walkStudy(sigs: Signal[], pace: Map<Signal, Pace>, from = WALK_F
   };
 }
 
+/**
+ * 12 Nov 2026 05:30 KST. The copy test's answer is in: bought 1 s late, which is where the real test's buy lands,
+ * every pace and gap group loses (621 fresh buys, -6.5% a trade). Three other readings of the same stored buys,
+ * paper only, each at an entry the real test could actually get:
+ *  - hourStudy: is there a time of day when the copy bought 1 s late wins? The real test made +0.097 SOL between
+ *    18:24 and 22:50 KST on 11 Nov and lost 0.39 SOL between 22:50 and 05:20.
+ *  - repeatStudy: is a coin that another listed wallet bought in the half hour before a better copy than a first buy?
+ *  - secondWaveStudy: the other side of the trade. Not chasing a wallet, but already holding the coin when the NEXT
+ *    listed wallet buys it, and selling into that buyer's followers. Bought some time after a wallet's buy, when its
+ *    wave is over (priced from the sale quote of that moment plus the coin's own in-and-out cost), sold 2 s after
+ *    another listed wallet buys the coin, or 10 min after the first buy if nobody does.
+ * None of this is a result: it says where to look next.
+ */
+const tally = (rs: number[]) => ({ n: rs.length, won: rs.filter((v) => v > 0).length, avgRetPct: rs.length ? r((rs.reduce((a, b) => a + b, 0) / rs.length) * 100) : null, medianRetPct: rs.length ? r((med(rs) ?? 0) * 100) : null });
+const three = (list: Signal[]) => ({
+  t60: tally(nums(list.map((s) => scalp(s, 0, 10, 60)))),
+  late1t60: tally(nums(list.map((s) => scalp(s, 1, 10, 60)))),
+  late1t60sl15: tally(nums(list.map((s) => scalpStop(s, 10, 15, 1)))),
+});
+const KST_MS = 9 * 3_600_000;
+export function hourStudy(sigs: Signal[]) {
+  return {
+    note: "Paper, every stored buy. By the hour of the day in KST (3 hour blocks): the copy sold at +10% or 60 s, bought the moment we know (t60), bought 1 s later (late1t60, about where the real test lands) and that with a 15% stop. days = on how many different days the block has buys: one day is not a pattern.",
+    rows: Array.from({ length: 8 }, (_, i) => i * 3).map((h) => {
+      const list = sigs.filter((s) => Math.floor(new Date(s.knownMs + KST_MS).getUTCHours() / 3) * 3 === h);
+      return { kst: `${String(h).padStart(2, "0")}-${String(h + 3).padStart(2, "0")}`, buys: list.length, days: new Set(list.map((s) => new Date(s.knownMs + KST_MS).toISOString().slice(0, 10))).size, ...three(list) };
+    }),
+  };
+}
+
+export const REPEAT_MIN = 30;
+export function repeatStudy(sigs: Signal[]) {
+  const sorted = [...sigs].sort((a, b) => a.knownMs - b.knownMs);
+  const seen = new Map<string, Signal[]>();
+  const nth = new Map<Signal, number>();
+  for (const s of sorted) {
+    const list = seen.get(s.mint) ?? [];
+    nth.set(s, new Set(list.filter((x) => x.wallet !== s.wallet && s.knownMs - x.knownMs <= REPEAT_MIN * 60_000).map((x) => x.wallet)).size);
+    list.push(s);
+    seen.set(s.mint, list);
+  }
+  const row = (label: string, ok: (n: number) => boolean) => {
+    const list = sorted.filter((s) => ok(nth.get(s)!));
+    return { buyer: label, buys: list.length, ...three(list) };
+  };
+  return {
+    note: `Paper, every stored buy. first = no other listed wallet bought the coin in the ${REPEAT_MIN} min before; second = one other did; third or later = two or more did. Same three ways of buying as in hours.`,
+    rows: [row("first", (n) => n === 0), row("second", (n) => n === 1), row("third or later", (n) => n >= 2)],
+  };
+}
+
+export const WAVE_ENTRIES = [60, 120, 300] as const;
+export const WAVE_END = 600;
+export function secondWaveStudy(sigs: Signal[]) {
+  const sorted = [...sigs].sort((a, b) => a.knownMs - b.knownMs);
+  const byMint = new Map<string, Signal[]>();
+  for (const s of sorted) byMint.set(s.mint, [...(byMint.get(s.mint) ?? []), s]);
+  /** SOL per raw token a sale brings `x` s after the signal's fastest entry; undefined = not checked, null = no price */
+  const price = (s: Signal, x: number) => {
+    const out = outAt(s, x);
+    const tokens = Number(s.entries.d0?.tokens ?? 0);
+    return out === undefined || !(tokens > 0) ? undefined : out === null ? null : out / tokens;
+  };
+  return {
+    note: `Paper, every stored buy, 10 min at most. Buy the coin entrySec after a listed wallet bought it (at the sale price of that moment plus the coin's own in-and-out cost, fees included). If another listed wallet buys the same coin before ${WAVE_END / 60} min are over, sell 2 s after it (at5 = 5 s after it); if nobody does, sell at ${WAVE_END / 60} min. withSecond / noSecond split the same copies by whether that second buyer came. waitSecMedian = from our buy to the second buyer.`,
+    rows: WAVE_ENTRIES.map((entry) => {
+      const all: number[] = [];
+      const with2: number[] = [];
+      const with5: number[] = [];
+      const none: number[] = [];
+      const waits: number[] = [];
+      for (const list of byMint.values()) {
+        list.forEach((a, i) => {
+          const cost = roundTrip(a);
+          const p0 = price(a, entry);
+          if (cost === null || !p0 || !(cost < 1)) return;
+          const from = a.knownMs + entry * 1000;
+          const b = list.slice(i + 1).find((x) => x.wallet !== a.wallet && x.knownMs > from && x.knownMs <= a.knownMs + WAVE_END * 1000 && x.entries.d0);
+          const back = (p: number | null | undefined) => (p === undefined ? undefined : ((p ?? 0) / p0) * (1 - cost) - 1);
+          if (b) {
+            const v = back(price(b, 2) ?? price(b, 3));
+            const v5 = back(price(b, 5));
+            if (v === undefined) return;
+            all.push(v);
+            with2.push(v);
+            if (v5 !== undefined) with5.push(v5);
+            waits.push((b.knownMs - from) / 1000);
+          } else {
+            const v = back(price(a, WAVE_END));
+            if (v === undefined) return;
+            all.push(v);
+            none.push(v);
+          }
+        });
+      }
+      return { entrySec: entry, all: tally(all), withSecond: tally(with2), withSecondAt5: tally(with5), noSecond: tally(none), secondPct: all.length ? r((with2.length / all.length) * 100, 0) : null, waitSecMedian: med(waits) === null ? null : r(med(waits)!, 0) };
+    }),
+  };
+}
+
 function score(sigs: Signal[], f: (s: Signal) => number | undefined, solUsd: number | null) {
   const rs = nums(sigs.map(f));
   const net = rs.reduce((a, b) => a + b, 0) * STAKE_SOL;
@@ -883,5 +983,5 @@ export function summarize(sigs: Signal[], solUsd: number | null) {
     rules: EXITS.map((x) => ({ id: sameId(x), ...score(sigs, (s) => sameBlockRet(s, x), solUsd) })),
   };
   const qualified = rules.filter((x) => x.n >= 100 && x.won / x.n >= 0.5 && (x.netSol ?? 0) > 0).map((x) => x.id);
-  return { speed, rulesTried: rules.length, inProfit: rules.filter((x) => (x.netSol ?? 0) > 0).length, qualified, rules, exitStudy: exitStudy(sigs), sizeStudy: sizeStudy(sigs), lateStudy: lateStudy(sigs), walk: walkStudy(sigs, pace), sameBlock, traders, wallets, recent };
+  return { speed, rulesTried: rules.length, inProfit: rules.filter((x) => (x.netSol ?? 0) > 0).length, qualified, rules, exitStudy: exitStudy(sigs), sizeStudy: sizeStudy(sigs), lateStudy: lateStudy(sigs), walk: walkStudy(sigs, pace), hours: hourStudy(sigs), repeats: repeatStudy(sigs), secondWave: secondWaveStudy(sigs), sameBlock, traders, wallets, recent };
 }
