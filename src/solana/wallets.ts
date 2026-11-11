@@ -9,6 +9,10 @@ export interface Tracked {
   address: string;
   /** found by the wallet finder (discover.ts), not from a list: watched on paper only */
   found?: boolean;
+  /** a fomo-app trader's own wallet (seeds.ts): its buys are paid in dollars and signed by fomo's relayer. Paper only. */
+  fomo?: boolean;
+  /** its dollar token accounts, once known: a relayed trade may name only these, not the wallet */
+  accounts?: string[];
 }
 
 export const WALLETS: Tracked[] = [

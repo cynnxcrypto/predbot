@@ -22,6 +22,7 @@ export const STAKE_SOL = 0.25;
 /** Priority fee plus tip for one transaction, in SOL (assumed; a competitive tip in a hot token is often higher). */
 export const TX_SOL = 0.001;
 export const MIN_BUY_SOL = 0.1;
+export const MIN_BUY_USD = 20;
 export const DELAYS = [0, 1, 3] as const;
 export const EXITS = [2, 5, 10, 20, 30, 60, 120] as const;
 /**
@@ -106,6 +107,25 @@ export function parseBuy(tx: ParsedTx | null, wallet: string, minSol = MIN_BUY_S
   return { mint, tokens, sol, price: sol / tokens, slot: tx.slot, blockTime: tx.blockTime ?? 0 };
 }
 
+/**
+ * A buy paid in dollars (USDC or USDT) by `wallet`, whoever signed and paid the fee: how the fomo app trades (its
+ * relayer signs, and the transaction may name only the wallet's token accounts). Read from token balances by
+ * owner. The dollars are turned into SOL at `solUsd` so the rest of the paper test can treat it like any buy.
+ */
+export function parseDollarBuy(tx: ParsedTx | null, wallet: string, solUsd: number | null, minUsd = MIN_BUY_USD): Buy | null {
+  if (!tx?.meta || tx.meta.err || !(solUsd && solUsd > 0)) return null;
+  const delta = new Map<string, number>();
+  for (const b of tx.meta.postTokenBalances ?? []) if (b.owner === wallet) delta.set(b.mint, (delta.get(b.mint) ?? 0) + ui(b));
+  for (const b of tx.meta.preTokenBalances ?? []) if (b.owner === wallet) delta.set(b.mint, (delta.get(b.mint) ?? 0) - ui(b));
+  const dollar = (m: string) => m === USDC || m === USDT;
+  const usd = -[...delta].filter(([m]) => dollar(m)).reduce((a, [, d]) => a + d, 0);
+  const coins = [...delta].filter(([m, d]) => m !== SOL && !dollar(m) && Math.abs(d) > 1e-9);
+  if (coins.length !== 1 || coins[0][1] <= 0 || usd < minUsd) return null; // one coin in, dollars out, nothing else
+  const [mint, tokens] = coins[0];
+  const sol = usd / solUsd;
+  return { mint, tokens, sol, price: sol / tokens, slot: tx.slot, blockTime: tx.blockTime ?? 0 };
+}
+
 export interface Entry {
   t: number;
   /** the slot a buy sent at that moment would land in at the earliest */
@@ -141,6 +161,8 @@ export interface Signal {
   near?: { n: number; price: number } | null;
   /** the size check: stake in SOL -> SOL received selling that stake's tokens at the SIZE_EXITS times; null = no quote */
   sizes?: Record<string, Record<string, number | null>>;
+  /** a fomo trader's own buy (seeds.ts): scored apart from the listed wallets, never copied by the real test */
+  fomo?: boolean;
 }
 
 /** The fee payer's own buy of this token in a follower's transaction: the price somebody really got at that spot in line. */
@@ -323,6 +345,43 @@ function score(sigs: Signal[], f: (s: Signal) => number | undefined, solUsd: num
   const rs = nums(sigs.map(f));
   const net = rs.reduce((a, b) => a + b, 0) * STAKE_SOL;
   return { n: rs.length, won: rs.filter((v) => v > 0).length, netSol: r(net, 4), netUsd: solUsd ? r(net * solUsd) : null, medianRetPct: r((med(rs) ?? 0) * 100), avgRetPct: rs.length ? r((net / STAKE_SOL / rs.length) * 100) : null };
+}
+
+/**
+ * The fomo traders' own buys (enrique, 11 Nov 2026: famous traders on the fomo app buy "and then it pumps"; the
+ * tracer measured it: a median of 50 new holders in the 30 s after frankdegods' buys against 5 before). Their
+ * followers are people in an app, not bots, so the crowd may arrive slower than behind the listed wallets: the
+ * holds go out to 10 minutes. Scored apart from the listed wallets.
+ */
+export function fomoStudy(sigs: Signal[], solUsd: number | null) {
+  const pick: [string, (s: Signal) => number | undefined][] = [
+    [scalpId(0, 10), (s) => scalp(s, 0, 10)],
+    ...[10, 30, 60, 120].map((x): [string, (s: Signal) => number | undefined] => [ruleId(0, x), (s) => ret(s, 0, x)]),
+    ...[300, 600].map((x): [string, (s: Signal) => number | undefined] => [ruleId(0, x), (s) => pathRet(s, x)]),
+    [scalpId(5, 10), (s) => scalp(s, 5, 10)],
+  ];
+  const row = (ss: Signal[]) => ({
+    buys: ss.length,
+    /** other buyers' transactions in the ~4 s and ~60 s after the trader's buy (median) */
+    follow4s: med(nums(ss.map((s) => s.crowd?.s10))),
+    follow60s: med(nums(ss.map((s) => s.crowd?.s150))),
+    lagSecMedian: r(med(nums(ss.map((s) => (s.leaderTime ? s.knownMs / 1000 - s.leaderTime : null)))), 1),
+    entryGapPct: r((med(nums(ss.map((s) => (s.entries.d0 ? s.entries.d0.price / s.leaderPrice - 1 : null)))) ?? NaN) * 100),
+    rules: Object.fromEntries(pick.map(([id, f]) => [id, score(ss, f, solUsd)])),
+  });
+  const by = new Map<string, Signal[]>();
+  for (const s of sigs) by.set(s.name, [...(by.get(s.name) ?? []), s]);
+  return {
+    note: `Paper only, never copied by the real test. Buys of the fomo traders' own public wallets (paid in dollars, signed by fomo), copied with ${STAKE_SOL} SOL the moment we know and sold at +10% or 60 s (${scalpId(0, 10)}), after a fixed 10 s to 10 min (${ruleId(0, 10)} ... ${ruleId(0, 600)}), or bought 5 s late (${scalpId(5, 10)}). Scored apart from the listed wallets. entryGapPct is rough: the trader paid in dollars, turned into SOL at the price of the moment.`,
+    n: sigs.length,
+    all: row(sigs),
+    traders: [...by].map(([name, ss]) => ({ name, ...row(ss) })).sort((a, b) => b.buys - a.buys),
+    recent: sigs.slice(-10).reverse().map((s) => ({
+      t: s.knownMs, name: s.name, leaderSol: r(s.leaderSol), lagSec: s.leaderTime ? r(s.knownMs / 1000 - s.leaderTime, 1) : null,
+      follow4s: s.crowd?.s10 ?? null, follow60s: s.crowd?.s150 ?? null,
+      ret10Pct: r((ret(s, 0, 10) ?? NaN) * 100), ret60Pct: r((ret(s, 0, 60) ?? NaN) * 100), ret300Pct: r((pathRet(s, 300) ?? NaN) * 100),
+    })),
+  };
 }
 
 /**

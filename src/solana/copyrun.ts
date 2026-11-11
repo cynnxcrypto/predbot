@@ -11,11 +11,11 @@ import { appendFileSync, mkdirSync, readFileSync, renameSync, writeFileSync } fr
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { DATA } from "../config.js";
-import { crowd, DELAYS, EXITS, followerPrice, LATE, parseBuy, PATH, SIZE_EXITS, SIZES, STAKE_SOL, summarize, TX_SOL, type Entry, type ParsedTx, type Signal } from "./copy.js";
+import { crowd, DELAYS, EXITS, followerPrice, fomoStudy, LATE, parseBuy, parseDollarBuy, PATH, SIZE_EXITS, SIZES, STAKE_SOL, summarize, TX_SOL, type Entry, type ParsedTx, type Signal } from "./copy.js";
 import { SOL, USDC } from "./pools.js";
 import { discoverSummary, foundWallets, startDiscover, stopDiscover } from "./discover.js";
 import { historySummary, startHistory, stopHistory } from "./history.js";
-import { linkedWallets, linksSummary, startLinks, stopLinks } from "./links.js";
+import { linkedWallets, linksSummary, seedWallets, startLinks, stopLinks } from "./links.js";
 import { validAddress, WALLETS, type Tracked } from "./wallets.js";
 
 const SIGNALS = () => join(DATA, "solana", "copy-signals.jsonl");
@@ -49,7 +49,7 @@ export function scrub(s: string): string {
 }
 
 const health = {
-  startedAt: 0, feed: "public", stream: "not tried", streamTx: 0, quotes: "none", wsUp: false, wallets: 0, found: 0, tails: 0, subs: 0, badWallets: [] as string[],
+  startedAt: 0, feed: "public", stream: "not tried", streamTx: 0, quotes: "none", wsUp: false, wallets: 0, found: 0, fomo: 0, tails: 0, subs: 0, badWallets: [] as string[],
   senderPingMs: {} as Record<string, number | null>, quoteMsMedian: null as number | null,
   txSeen: 0, buys: 0, skippedBusy: 0, active: 0, rpcErrors: 0, quoteErrors: 0, quoteOk: 0, lastError: "",
 };
@@ -148,13 +148,24 @@ function listed(): Tracked[] {
   return list.filter((w) => validAddress(w.address));
 }
 
-/** Listed wallets first (their order matters: the first LOGS_MAX keep the signature feed), then the found ones. */
+/** The fomo traders' own wallets (seeds.ts), watched on paper only. SOLANA_FOMO=off leaves them out. */
+const fomoWallets = (): Tracked[] => (process.env.SOLANA_FOMO === "off" ? [] : seedWallets());
+/** A wallet's buy in this transaction. A fomo trader's is paid in dollars and need not name the wallet at all. */
+const buyOf = (tx: ParsedTx | null, w: Tracked) => (w.fomo ? parseDollarBuy(tx, w.address, solUsd) : null) ?? parseBuy(tx, w.address);
+/** Every address the stream should listen on for these wallets. */
+const feedOf = (list: Tracked[]) => [...new Set(list.flatMap((w) => [w.address, ...(w.accounts ?? [])]))];
+
+/** Listed wallets first (their order matters: the first LOGS_MAX keep the signature feed), then the fomo traders, then the found ones. */
 function tracked(): Tracked[] {
   const list = [...listed()];
   const have = new Set(list.map((w) => w.address));
+  const fomo = fomoWallets().filter((w) => !have.has(w.address));
+  for (const w of fomo) have.add(w.address);
+  list.push(...fomo);
   const found = extra().filter((a) => !have.has(a) && validAddress(a)).slice(0, FOUND_MAX).map(foundAs);
   list.push(...found);
   health.wallets = list.length;
+  health.fomo = fomo.length;
   health.found = found.length;
   return list;
 }
@@ -169,20 +180,23 @@ export function buildCopySummary() {
     discovery: discoverSummary(),
     history: historySummary(),
     links: linksSummary(),
+    fomo: fomoStudy(signals.filter((x) => x.fomo), solUsd),
     ...(() => {
       // With the Helius key, score only buys read on the Helius feed and known within 30 s. Buys from the keyless
       // period, or read late out of a backlog, say nothing about our speed and would poison the medians.
-      const clean = helius() ? signals.filter((x) => x.feed.startsWith("helius") && x.leaderTime > 0 && x.knownMs - x.leaderTime * 1000 <= 30_000) : signals;
+      // The fomo traders' own buys are a different thing (people in an app follow them, not bots) and are scored apart.
+      const own = signals.filter((x) => !x.fomo);
+      const clean = helius() ? own.filter((x) => x.feed.startsWith("helius") && x.leaderTime > 0 && x.knownMs - x.leaderTime * 1000 <= 30_000) : own;
       // leftOutSlow = read on the Helius feed but known more than 30 s late. Those ARE about our speed: if this
       // number keeps growing while the feed is healthy, the medians below flatter us.
-      const slow = helius() ? signals.filter((x) => x.feed.startsWith("helius") && x.leaderTime > 0 && x.knownMs - x.leaderTime * 1000 > 30_000).length : 0;
+      const slow = helius() ? own.filter((x) => x.feed.startsWith("helius") && x.leaderTime > 0 && x.knownMs - x.leaderTime * 1000 > 30_000).length : 0;
       // Speed per feed, so the fast stream and the slower signature feed are never averaged together.
       const byFeed = [...new Set(clean.map((x) => x.feed))].map((feed) => ({ feed, ...summarize(clean.filter((x) => x.feed === feed), solUsd).speed }));
       // Once the fast stream has delivered buys, rules and wallets are scored on stream buys only: that is the setup
       // we would trade with, and mixing in the slower feed's entries would blur exactly what we are trying to see.
       const fast = clean.filter((x) => x.feed === "helius transaction stream");
       const scored = fast.length ? fast : clean;
-      return { leftOut: signals.length - scored.length, leftOutSlow: slow, scoredFeed: fast.length ? "helius transaction stream" : "all clean feeds", byFeed, ...summarize(scored, solUsd) };
+      return { leftOut: own.length - scored.length, leftOutSlow: slow, scoredFeed: fast.length ? "helius transaction stream" : "all clean feeds", byFeed, ...summarize(scored, solUsd) };
     })(),
   };
 }
@@ -261,7 +275,7 @@ async function onTx(w: Tracked, sig: string, seenMs: number, ready: ParsedTx | n
     });
     if (!tx && !refused) await sleep(250);
   }
-  const buy = parseBuy(tx, w.address);
+  const buy = buyOf(tx, w);
   if (!buy) return;
   const pair = `${w.address}:${buy.mint}`;
   if (Date.now() - (recentPair.get(pair) ?? 0) < 30 * 60_000) return; // only the wallet's first buy of a token
@@ -274,7 +288,7 @@ async function onTx(w: Tracked, sig: string, seenMs: number, ready: ParsedTx | n
   health.buys++;
   const knownMs = Date.now();
   // the real test (copylive.ts) acts only on fast-stream buys, and first, before any paper quote is asked for
-  if (ready && buyHook && !w.found) {
+  if (ready && buyHook && !w.found && !w.fomo) {
     try {
       buyHook({ sig, name: w.name, mint: buy.mint, leaderSlot: buy.slot, leaderPrice: buy.price, knownMs });
     } catch (e) {
@@ -283,7 +297,7 @@ async function onTx(w: Tracked, sig: string, seenMs: number, ready: ParsedTx | n
   }
   const s: Signal = {
     sig, wallet: w.address, name: w.name, mint: buy.mint, leaderSlot: buy.slot, leaderTime: buy.blockTime, leaderSol: buy.sol, leaderPrice: buy.price,
-    seenMs, knownMs, lagSlots: slotNow ? slotNow - buy.slot : null, feed: ready ? "helius transaction stream" : health.feed, entries: {}, exits: {}, path: {}, crowd: null,
+    seenMs, knownMs, lagSlots: slotNow ? slotNow - buy.slot : null, feed: ready ? "helius transaction stream" : health.feed, entries: {}, exits: {}, path: {}, crowd: null, ...(w.fomo ? { fomo: true } : {}),
   };
   try {
     const dec = await tokenDecimals(buy.mint).catch(() => 6);
@@ -385,12 +399,22 @@ let current: Tracked[] = [];
 function watchFound() {
   if (!ws || ws.readyState !== WebSocket.OPEN || !helius()) return;
   const have = new Set(current.map((w) => w.address));
-  const room = FOUND_MAX - current.filter((w) => w.found).length;
+  const room = FOUND_MAX - current.filter((w) => w.found && !w.fomo).length;
   const fresh = extra().filter((a) => !have.has(a) && validAddress(a)).slice(0, Math.max(0, room));
-  if (!fresh.length) return;
   current.push(...fresh.map(foundAs));
+  // a fomo trader's dollar accounts become known once the tracer has read the wallet: listen on those too
+  for (const f of fomoWallets()) {
+    const w = current.find((x) => x.fomo && x.address === f.address);
+    if (!w) continue;
+    for (const a of f.accounts ?? []) {
+      if ((w.accounts ??= []).includes(a)) continue;
+      w.accounts.push(a);
+      fresh.push(a);
+    }
+  }
+  if (!fresh.length) return;
   health.wallets = current.length;
-  health.found = current.filter((w) => w.found).length;
+  health.found = current.filter((w) => w.found && !w.fomo).length;
   ws.send(JSON.stringify({ jsonrpc: "2.0", id: 4, method: "transactionSubscribe", params: [{ accountInclude: fresh, vote: false, failed: false }, { commitment: "processed", encoding: "jsonParsed", transactionDetails: "full", showRewards: false, maxSupportedTransactionVersion: 1 }] }));
 }
 
@@ -417,7 +441,7 @@ function connect() {
     // Fast path (Helius only): one subscription that pushes the whole transaction as soon as it is processed, so we
     // know the token without a second request. If the plan or the endpoint refuses it, the reply is an error, the
     // stream stays off and the signature feed below carries on as before.
-    if (helius()) sock.send(JSON.stringify({ jsonrpc: "2.0", id: 3, method: "transactionSubscribe", params: [{ accountInclude: list.map((w) => w.address), vote: false, failed: false }, { commitment: "processed", encoding: "jsonParsed", transactionDetails: "full", showRewards: false, maxSupportedTransactionVersion: 1 }] }));
+    if (helius()) sock.send(JSON.stringify({ jsonrpc: "2.0", id: 3, method: "transactionSubscribe", params: [{ accountInclude: feedOf(list), vote: false, failed: false }, { commitment: "processed", encoding: "jsonParsed", transactionDetails: "full", showRewards: false, maxSupportedTransactionVersion: 1 }] }));
     // The signature feed is kept only as the comparison (and as the fallback when there is no key): with a key the
     // stream above carries every wallet, so only the first LOGS_MAX get the slower per-wallet subscription too.
     (helius() ? list.slice(0, LOGS_MAX) : list).forEach((w, i) => {
@@ -444,7 +468,7 @@ function connect() {
       health.streamTx++;
       const tx: ParsedTx = { slot: r.slot, blockTime: null, meta: t.meta, transaction: t.transaction };
       const keys = new Set(tx.transaction.message.accountKeys.map((k) => (typeof k === "string" ? k : k.pubkey)));
-      const w = list.find((x) => keys.has(x.address) && parseBuy(tx, x.address));
+      const w = list.find((x) => (x.fomo || keys.has(x.address)) && buyOf(tx, x));
       if (!w) {
         if (seen.size > 20_000) seen.clear(); // same bound as in onTx, which these never reach
         seen.add(r.signature); // not a buy by a tracked wallet: nothing to look up when the signature feed repeats it
@@ -558,7 +582,7 @@ export function stopSolanaCopy() {
 }
 
 /** Test hooks. */
-export const _test = { onTx, setNet: (f: Fetch) => (net = f), setSlot: (n: number) => (slotNow = n), signals: () => signals, load: () => load() };
+export const _test = { onTx, setNet: (f: Fetch) => (net = f), setSlot: (n: number) => (slotNow = n), setSolUsd: (v: number | null) => (solUsd = v), signals: () => signals, load: () => load() };
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   console.log(`solana copy test: ${WALLETS.length} wallets, helius key ${helius() ? "yes" : "no"}, jupiter key ${jupiter() ? "yes" : "no"}`);

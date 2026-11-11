@@ -9,10 +9,10 @@ process.env.DATA_DIR = dir;
 process.env.HELIUS_API_KEY = "SECRETHELIUS";
 process.env.JUPITER_API_KEY = "SECRETJUP";
 
-const { crowd, exitStudy, followerPrice, GRID, lateStudy, parseBuy, pathRet, ret, rising, roundTrip, sameBlockRet, SAME_BLOCK_SLIP, scalp, scalpCut, sizeStudy, STAKE_SOL, summarize, trail, TX_SOL } = await import("./copy.js");
-const { SOL } = await import("./pools.js");
+const { crowd, exitStudy, followerPrice, fomoStudy, GRID, lateStudy, parseBuy, parseDollarBuy, pathRet, ret, rising, roundTrip, sameBlockRet, SAME_BLOCK_SLIP, scalp, scalpCut, sizeStudy, STAKE_SOL, summarize, trail, TX_SOL } = await import("./copy.js");
+const { SOL, USDC } = await import("./pools.js");
 const { validAddress, WALLETS } = await import("./wallets.js");
-const { _test, buildCopySummary, scrub } = await import("./copyrun.js");
+const { _test, buildCopySummary, onStreamBuy, scrub } = await import("./copyrun.js");
 type Signal = import("./copy.js").Signal;
 
 const W = WALLETS[0].address;
@@ -49,6 +49,38 @@ test("ignores sells, failed, tiny, token-to-token and other wallets' transaction
   // paying with wrapped SOL counts as SOL
   const b = parseBuy(tx({ post: 10e9, preTok: [tok(SOL, W, 2)], postTok: [tok(SOL, W, 1.5), tok(MINT, W, 100)] }), W)!;
   assert.ok(Math.abs(b.sol - 0.5) < 1e-5);
+});
+
+/** A fomo-style buy: the relayer pays the fee, the wallet pays dollars and is named nowhere but as the owner of its balances. */
+const F = "FomoTrader111111111111111111111111111111111";
+const dollarTx = (o: Partial<{ usd: number; mint: string; preTok: unknown[]; postTok: unknown[]; err: unknown }> = {}) => ({
+  slot: 2000, blockTime: 1_800_000_500,
+  meta: {
+    err: o.err ?? null, fee: 5000, preBalances: [10e9, 0], postBalances: [10e9 - 5000, 0],
+    preTokenBalances: o.preTok ?? [tok(USDC, F, 5000)],
+    postTokenBalances: o.postTok ?? [tok(USDC, F, 5000 - (o.usd ?? 800)), tok(o.mint ?? MINT, F, 400_000)],
+  },
+  transaction: { message: { accountKeys: [{ pubkey: "relayer" }, { pubkey: "atokenaccount" }] } },
+}) as never;
+
+test("fomo buys: paid in dollars, read by owner whoever signed", () => {
+  const b = parseDollarBuy(dollarTx(), F, 160)!;
+  assert.equal(b.mint, MINT);
+  assert.equal(b.sol, 5); // $800 at $160 a SOL
+  assert.equal(b.tokens, 400_000);
+  assert.equal(b.price, 5 / 400_000);
+  assert.equal(b.slot, 2000);
+  assert.equal(parseBuy(dollarTx(), F), null, "the SOL parser cannot see it: the wallet is not even named");
+  assert.equal(parseDollarBuy(dollarTx(), F, null), null, "no SOL price yet: no guess");
+  assert.equal(parseDollarBuy(dollarTx({ usd: 5 }), F, 160), null, "tiny");
+  assert.equal(parseDollarBuy(dollarTx({ err: {} }), F, 160), null);
+  assert.equal(parseDollarBuy(dollarTx(), "someoneelse", 160), null);
+  // a sale: coin out, dollars in
+  assert.equal(parseDollarBuy(dollarTx({ preTok: [tok(USDC, F, 100), tok(MINT, F, 400_000)], postTok: [tok(USDC, F, 900), tok(MINT, F, 0)] }), F, 160), null);
+  // dollars out and two coins in, or a coin swapped for a coin: not a plain buy
+  assert.equal(parseDollarBuy(dollarTx({ postTok: [tok(USDC, F, 4200), tok(MINT, F, 5), tok("Other", F, 5)] }), F, 160), null);
+  // dollars only (a transfer): nothing bought
+  assert.equal(parseDollarBuy(dollarTx({ postTok: [tok(USDC, F, 4200)] }), F, 160), null);
 });
 
 const sig = (o: Partial<Signal> = {}): Signal => ({
@@ -269,6 +301,28 @@ test("runner: a buy becomes a scored signal, and keys never leak", async () => {
     assert.equal(sum.speed.buysSeen, 1); // only the stream buy is scored; the non-Helius one is left out
     assert.equal(sum.byFeed[0].feed, "helius transaction stream");
     assert.equal(sum.leftOut, 1);
+    // a fomo trader's own buy: taken from the stream, kept apart from the listed wallets, never offered to the real test
+    let offered = 0;
+    onStreamBuy(() => offered++);
+    const fomo = { name: "fomo frankdegods", address: F, found: true, fomo: true };
+    _test.setSolUsd(null);
+    await _test.onTx(fomo, "sigF0", Date.now(), dollarTx());
+    assert.equal(_test.signals().length, 2, "without a SOL price a dollar buy is not guessed at");
+    _test.setSolUsd(160);
+    await _test.onTx(fomo, "sigF", Date.now(), dollarTx({ mint: "Mint3333333333333333333333333333333333333333" }));
+    onStreamBuy(null);
+    assert.equal(offered, 0);
+    const f = _test.signals()[2];
+    assert.deepEqual({ fomo: f.fomo, name: f.name, leaderSol: f.leaderSol, feed: f.feed }, { fomo: true, name: "fomo frankdegods", leaderSol: 5, feed: "helius transaction stream" });
+    const after = buildCopySummary();
+    assert.equal(after.speed.buysSeen, 1, "the listed wallets' numbers do not move");
+    assert.equal(after.leftOut, 1);
+    assert.equal(after.fomo.n, 1);
+    assert.equal(after.fomo.traders[0].name, "fomo frankdegods");
+    assert.equal(after.fomo.all.rules["copy-d0-tp10-t60"].n, 1);
+    assert.equal(after.fomo.all.rules["copy-d0-x60"].n, 1);
+    assert.equal(after.fomo.recent[0].leaderSol, 5);
+    assert.equal(fomoStudy([], 160).n, 0);
     const files = readFileSync(join(dir, "solana", "copy-signals.jsonl"), "utf8") + readFileSync(join(dir, "solana-copy-summary.json"), "utf8");
     assert.ok(!files.includes("SECRET"));
   } finally {
