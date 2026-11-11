@@ -546,6 +546,13 @@ export function summarize(sigs: Signal[], solUsd: number | null) {
     // ones that did had gone on to +16% to +48% at best; the 7 that ran out of time lost more each than a target win
     // gains. So does a higher target pay for the copies it misses? Same copy, target 15% and 20%.
     ...[15, 20].map((tp) => ({ id: scalpId(0, tp), text: scalpText(0, tp), ...score(sigs, (s) => scalp(s, 0, tp), solUsd) })),
+    // Round 354 (20:20 KST 11 Nov 2026, MAIN). Real test, 30 landed copies with a queue count: where we paid 9%+ over
+    // the wallet's price (others had already bought in between) 10 of 11 won, +0.101 SOL; where we paid less than 9%
+    // over, 6 of 19 won, -0.092 SOL. The price gap is known from the quote BEFORE the order leaves, unlike the wave
+    // count. 30 copies is small, so on paper first: the same copy, taken only when the quote is 9%+ over the wallet's
+    // price, and its mirror (under 3% over: we are nearly alone).
+    { id: "copy-d0-gap9-tp10-t60", text: `When a tracked wallet buys and our price is already 9% or more above what the wallet paid, buy ${STAKE_SOL} SOL the moment we know, sell as soon as it is up 10% after costs, and sell anyway after ${TIME_STOP} s.`, ...score(sigs, (s) => (s.entries.d0 && s.leaderPrice > 0 && s.entries.d0.price / s.leaderPrice - 1 >= 0.09 ? scalp(s, 0, 10) : undefined), solUsd) },
+    { id: "copy-d0-gap3under-tp10-t60", text: `When a tracked wallet buys and our price is less than 3% above what the wallet paid, buy ${STAKE_SOL} SOL the moment we know, sell as soon as it is up 10% after costs, and sell anyway after ${TIME_STOP} s.`, ...score(sigs, (s) => (s.entries.d0 && s.leaderPrice > 0 && s.entries.d0.price / s.leaderPrice - 1 < 0.03 ? scalp(s, 0, 10) : undefined), solUsd) },
     ...[300, 600].map((x) => ({ id: ruleId(0, x), text: ruleText(0, x), ...score(sigs, (s) => pathRet(s, x), solUsd) })),
     ...TRAILS.map((t) => ({ id: trailId(t), text: trailText(t), ...score(sigs, (s) => trail(s, t), solUsd) })),
   ];
