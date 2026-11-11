@@ -359,29 +359,46 @@ test("replay of one past buy: in at what the next blocks paid, out at the last t
     routedBuy(1000, 5, SEED, M, 800, 5, 1000), // the seed: 0.005 SOL a token
     tradeAt(1001, 0, A("F1"), M, 0.0052),
     tradeAt(1002, 0, A("F2"), M, 0.0054),
-    tradeAt(1003, 0, A("F3"), M, 0.0056),
+    tradeAt(1003, 0, A("F3"), M, 0.0058),
     tradeAt(1010, 0, A("F4"), M, 0.0065), // 4 s
     tradeAt(1040, 0, A("F5"), M, 0.0050, true), // 16 s
     tradeAt(1700, 0, A("F6"), M, 0.0027, true), // 280 s
   ];
   const r = replayOf(lead, [...after, after[3]])!; // a transaction read twice counts once
-  // entry = middle of the three trades in the next 3 blocks = 0.0054, 8% over the seed
+  // entry = middle of the three trades in the next 3 blocks = 0.0054, 8% over the seed; the worst of them paid 0.0058
   assert.equal(r.gap, 0.08);
-  const want = (p: number) => Math.round((p / 0.0054 - 1 - REPLAY_COST) * 1e4) / 1e4;
+  const want = (p: number, entry = 0.0054) => Math.round((p / entry - 1 - REPLAY_COST) * 1e4) / 1e4;
   assert.deepEqual(REPLAY_SECS, [5, 10, 20, 30, 60, 120, 300]);
   assert.deepEqual(r.rets, [want(0.0065), want(0.0065), want(0.005), want(0.005), want(0.005), want(0.005), want(0.0027)]);
+  assert.deepEqual(r.hard, [0.0065, 0.0065, 0.005, 0.005, 0.005, 0.005, 0.0027].map((p) => want(p, 0.0058)));
   // nobody trades after the seed: in at the seed's price, the price stays, only the cost is lost
   const quiet = replayOf(lead, after.slice(0, 2))!;
   assert.equal(quiet.gap, null);
   assert.deepEqual(quiet.rets, REPLAY_SECS.map(() => -REPLAY_COST));
-  // the seed's own trade is not in what was read: nothing is made up
-  assert.equal(replayOf(lead, after.slice(2)), null);
-  const sum = replaySummary([r, quiet]);
+  assert.deepEqual(quiet.hard, quiet.rets);
+  // the seed's own trade cannot be priced (a fill from somebody's stock, say): the followers' trades still price the copy
+  const blind = replayOf(lead, after.slice(2))!;
+  assert.equal(blind.gap, null);
+  assert.deepEqual(blind.rets, r.rets);
+  // nothing after the buy and no price for it: nothing is made up
+  assert.equal(replayOf(lead, [after[0]]), null);
+  // a misread transaction (a price thousands of times off, or one lone trade 4 times off) is not a trade
+  const wild = replayOf(lead, [...after, tradeAt(1012, 0, A("Odd"), M, 40), tradeAt(1045, 0, A("Odd2"), M, 0.021)])!;
+  assert.deepEqual(wild.rets, r.rets);
+  // but a real move that the next trade confirms is kept
+  const moved = replayOf(lead, [...after.slice(0, 6), tradeAt(1040, 0, A("Up1"), M, 0.021), tradeAt(1041, 0, A("Up2"), M, 0.022)])!;
+  assert.equal(moved.rets[2], want(0.022));
+  // and nothing is ever worth more than the cap
+  assert.ok(Math.max(...replayOf(lead, [...after.slice(0, 6), ...[1, 2, 3, 4, 5, 6, 7, 8].map((i) => tradeAt(1040 + i, 0, A(`Run${i}`), M, 0.0065 * 2.5 ** i))])!.rets) <= 10);
+  const sum = replaySummary([r, quiet], 5);
+  assert.equal(sum.checked, 5);
   assert.equal(sum.buys, 2);
   assert.equal(sum.followedAtOnce, 1);
   assert.equal(sum.entryAboveTraderPct, 8);
-  assert.deepEqual(sum.holds[0], { sec: 5, n: 2, won: 1, medianPct: Math.round(((want(0.0065) - REPLAY_COST) / 2) * 1e4) / 100, avgPct: Math.round(((want(0.0065) - REPLAY_COST) / 2) * 1e4) / 100 });
-  assert.deepEqual(sum.target10, { n: 2, won: 1, medianPct: Math.round(((want(0.0065) - REPLAY_COST) / 2) * 1e4) / 100, avgPct: Math.round(((want(0.0065) - REPLAY_COST) / 2) * 1e4) / 100 });
+  const half = (x: number) => Math.round(((x - REPLAY_COST) / 2) * 1e4) / 100;
+  assert.deepEqual(sum.holds[0], { sec: 5, n: 2, won: 1, medianPct: half(want(0.0065)), avgPct: half(want(0.0065)) });
+  assert.deepEqual(sum.target10, { n: 2, won: 1, medianPct: half(want(0.0065)), avgPct: half(want(0.0065)) });
+  assert.deepEqual(sum.hardEntry.holds[0], { sec: 5, n: 2, won: 1, medianPct: half(want(0.0065, 0.0058)), avgPct: half(want(0.0065, 0.0058)) });
   assert.equal(replaySummary([]).holds[0].n, 0);
 });
 
