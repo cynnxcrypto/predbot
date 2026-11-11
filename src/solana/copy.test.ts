@@ -9,7 +9,7 @@ process.env.DATA_DIR = dir;
 process.env.HELIUS_API_KEY = "SECRETHELIUS";
 process.env.JUPITER_API_KEY = "SECRETJUP";
 
-const { crowd, exitStudy, followerPrice, GRID, parseBuy, pathRet, ret, roundTrip, sameBlockRet, SAME_BLOCK_SLIP, scalp, STAKE_SOL, summarize, trail, TX_SOL } = await import("./copy.js");
+const { crowd, exitStudy, followerPrice, GRID, parseBuy, pathRet, ret, roundTrip, sameBlockRet, SAME_BLOCK_SLIP, scalp, sizeStudy, STAKE_SOL, summarize, trail, TX_SOL } = await import("./copy.js");
 const { SOL } = await import("./pools.js");
 const { validAddress, WALLETS } = await import("./wallets.js");
 const { _test, buildCopySummary, scrub } = await import("./copyrun.js");
@@ -144,6 +144,21 @@ test("exit study: long path, trailing exit, and nothing invented for times never
   assert.deepEqual(st.byStart.map((g) => g.n), [1, 1, 1], "dead token down, old signal up moderately, full one up strongly");
 });
 
+test("size check: the same copies at four stakes, compared like with like", () => {
+  const exits = { d0: { x0: 0.24, x2: 0.26, x5: 0.3, x10: 0.26, x20: 0.3, x30: 0.27, x60: 0.25, x120: 0.27 }, d1: {}, d3: {} };
+  const sized = sig({ exits, sizes: { "0.05": { x0: 0.0485, x10: 0.053, x30: 0.055, x60: 0.051 }, "1": { x0: 0.9, x10: 0.98, x30: 1.02, x60: 0.95 }, "3": { x0: 2.1, x10: 2.4, x30: 2.5, x60: null } } });
+  const st = sizeStudy([sized, sig()]); // the second signal has no size check: left out of every row
+  assert.equal(st.n, 1);
+  assert.deepEqual(st.sizes.map((x) => x.sol), [0.05, 0.25, 1, 3]);
+  const by = (sol: number) => st.sizes.find((x) => x.sol === sol)!;
+  // buying and selling straight back costs more the bigger the stake
+  assert.deepEqual(st.sizes.map((x) => x.inAndOutCostPct), [3.2, 4.04, 10.01, 30]);
+  assert.deepEqual(by(1).holds.map((h) => [h.sec, h.won, h.avgRetPct]), [[10, 0, -2.01], [30, 1, 1.99], [60, 0, -5.01]]);
+  assert.equal(by(1).holds[1].avgSolPerTrade, 0.0199);
+  assert.equal(by(0.25).holds[1].avgRetPct, 7.96, "the standard stake comes from the normal checks, with the same fee");
+  assert.equal(by(3).holds[2].n, 0, "no quote at 60 s for 3 SOL: left out, not counted as a loss");
+});
+
 test("runner: a buy becomes a scored signal, and keys never leak", async () => {
   assert.ok(!scrub("fail https://mainnet.helius-rpc.com/?api-key=SECRETHELIUS x SECRETJUP").includes("SECRET"));
   const realSet = globalThis.setTimeout;
@@ -175,7 +190,10 @@ test("runner: a buy becomes a scored signal, and keys never leak", async () => {
     assert.deepEqual(s[0].crowd, { same: 1, s10: 2, s25: 2, s150: 2, ahead: { d0: 2, d1: 2, d3: 2 } });
     // 3 entries, 7 exits each, the instant round trip, the 5 extra early checks of the exit study; its 3 long
     // checks follow after the signal is saved
-    assert.ok(quotes >= 3 + 3 * 7 + 1 + 5 && quotes <= 3 + 3 * 7 + 1 + 8);
+    // plus the size check: 3 other stakes, each one buy quote and 4 sale quotes
+    assert.ok(quotes >= 3 + 3 * 7 + 1 + 5 + 15 && quotes <= 3 + 3 * 7 + 1 + 8 + 15);
+    assert.deepEqual(Object.keys(s[0].sizes!).sort(), ["0.05", "1", "3"]);
+    assert.deepEqual(s[0].sizes!["1"], { x0: 0.24, x10: 0.24, x30: 0.24, x60: 0.24 });
     assert.equal(s[0].path!.x1, 0.24);
     assert.equal(s[0].path!.x90, 0.24);
     void 0;
