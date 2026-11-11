@@ -303,6 +303,8 @@ export function pairliveSummary() {
     rejects: state.rejects ?? 0,
     note: state.note,
     now: Object.values(state.cur).map((w) => ({ series: w.key, up: r2(w.up.shares), down: r2(w.down.shares), cost: r2(w.up.cost + w.down.cost), bidUp: w.orders.U?.price ?? null, bidDown: w.orders.D?.price ?? null, orders: w.orderCount })),
+    // Windows that have closed and wait for their result (shown on the dashboard between open and settled).
+    pending: state.pending.map((w) => ({ series: nameOf({ key: w.key }), start: w.start, up: Math.round(w.up.shares * 100) / 100, down: Math.round(w.down.shares * 100) / 100, cost: Math.round((w.up.cost + w.down.cost) * 100) / 100 })),
     recent: state.done.slice(-12).map((d) => ({ series: d.key, start: d.start, up: d.up, down: d.down, cost: d.cost, net: d.net })),
   };
 }

@@ -387,6 +387,8 @@ export function pairfastliveSummary() {
     rejects: state.rejects,
     note: state.note,
     now: state.cur ? { start: state.cur.start, up: r2(state.cur.up.shares), down: r2(state.cur.down.shares), cost: r2(state.cur.up.cost + state.cur.down.cost), bidUp: state.cur.orders.U?.price ?? null, bidDown: state.cur.orders.D?.price ?? null, orders: state.cur.orderCount } : null,
+    // Windows that have closed and wait for their result (11 Nov 2026: shown on the dashboard so a trade does not vanish between open and settled).
+    pending: state.pending.map((w) => ({ series: NAME, start: w.start, up: r2(w.up.shares), down: r2(w.down.shares), cost: r2(w.up.cost + w.down.cost) })),
     recent: state.done.slice(-12).map((d) => ({ series: NAME, start: d.start, up: d.up, down: d.down, cost: d.cost, net: d.net })),
   };
 }
