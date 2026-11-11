@@ -252,6 +252,12 @@ async function sellAll(w: Wallet, mint: string, maxFee: number, row: Row): Promi
 /** How often the held position is priced, and how much of the quoted amount a target sale may give back. */
 let pollMs = 750;
 const TARGET_SLIP_BPS = 500;
+/**
+ * Most target sales tried per copy (MAIN review, 11 Nov 2026). A sale that fails on chain still pays its fee, and a
+ * price hovering at the target could otherwise fail many times in a minute: three tries, then the copy waits for
+ * the time stop. Keeps one copy's fees inside FEE_ROOM_SOL.
+ */
+export const MAX_TARGET_TRIES = 3;
 
 /**
  * Hold a position until `until`: every pollMs ask what selling all of it would bring back now. With a target, sell
@@ -270,7 +276,7 @@ async function watch(w: Wallet, mint: string, amount: bigint, c: LiveConfig, row
         const up = (out / 1e9 / c.stakeSol - 1) * 100;
         row.bestPct = Math.round(Math.max(row.bestPct ?? -100, up) * 10) / 10;
         if (state.open) state.open = { ...state.open, worthSol: Math.round(out / 1e3) / 1e6, nowPct: Math.round(up * 10) / 10, bestPct: row.bestPct };
-        if (c.targetPct > 0 && up >= c.targetPct) {
+        if (c.targetPct > 0 && up >= c.targetPct && (row.targetTries ?? 0) < MAX_TARGET_TRIES) {
           row.targetTries = (row.targetTries ?? 0) + 1;
           row.sellTries = (row.sellTries ?? 0) + 1;
           const tx = signTransaction(await swapTx(q, w.address, c.maxFeeLamports), w);
