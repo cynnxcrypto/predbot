@@ -172,6 +172,20 @@ export function solanaCopySummary(): unknown {
   }
 }
 
+export interface StreamBuy {
+  sig: string;
+  name: string;
+  mint: string;
+  leaderSlot: number;
+  leaderPrice: number;
+  knownMs: number;
+}
+let buyHook: ((b: StreamBuy) => void) | null = null;
+/** copylive.ts registers here to be told of each fast-stream buy the moment it is known. */
+export const onStreamBuy = (f: ((b: StreamBuy) => void) | null) => (buyHook = f);
+/** What the real test shares with this runner: the keys, the RPC address, the current slot, the follower count. */
+export const shared = { helius: () => helius(), jupiter: () => jupiter(), rpcUrl: () => rpcUrl(), slot: () => slotNow, waveAfter: (mint: string, sig: string, slot: number) => waveAfter(mint, sig, slot), fetch: () => net };
+
 // ---- one signal -------------------------------------------------------------------------------------------------
 async function tokenDecimals(mint: string): Promise<number> {
   const c = decimals.get(mint);
@@ -226,6 +240,14 @@ async function onTx(w: Tracked, sig: string, seenMs: number, ready: ParsedTx | n
   health.active++;
   health.buys++;
   const knownMs = Date.now();
+  // the real test (copylive.ts) acts only on fast-stream buys, and first, before any paper quote is asked for
+  if (ready && buyHook) {
+    try {
+      buyHook({ sig, name: w.name, mint: buy.mint, leaderSlot: buy.slot, leaderPrice: buy.price, knownMs });
+    } catch (e) {
+      fail(e);
+    }
+  }
   const s: Signal = {
     sig, wallet: w.address, name: w.name, mint: buy.mint, leaderSlot: buy.slot, leaderTime: buy.blockTime, leaderSol: buy.sol, leaderPrice: buy.price,
     seenMs, knownMs, lagSlots: slotNow ? slotNow - buy.slot : null, feed: ready ? "helius transaction stream" : health.feed, entries: {}, exits: {}, crowd: null,
