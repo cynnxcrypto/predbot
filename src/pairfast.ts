@@ -52,6 +52,11 @@ export const PAIRFAST: Spec[] = [
   // The paper twin of the REAL rule (src/pairfastlive.ts, BTC 5m): one resting bid a side, a pair never over 99c, new
   // pairs only while both best bids are 17-83c, one pair a window. Compare `pairfast-top-lock-5m` with real fill by fill.
   ...base("pairfast-top-lock", [0], 3, 1, true, { band: [0.17, 0.83], maxPairs: 1 }),
+  // Round 343 (11 Nov 2026 09:15 KST): first real hour of the fast rule: 7 windows, 5 full pairs at +6c to +18c, 2 lone
+  // parts -$2.30 and -$3.00, net -$4.88. On paper 77-90% of fills come from a sweep and the price is 2c lower 30 s
+  // later; the unlocked styles pay 104-107c a pair, the locked ones 97-98c but keep lone clips. This copy is the real
+  // rule bidding 2c UNDER the best bid on both sides: it only fills on a sweep, but at the price the sweep ends at.
+  ...base("pairfast-deep2-lock", [2], 3, 1, true, { band: [0.17, 0.83], maxPairs: 1 }),
   // Three resting levels a side: best bid, 1c and 2c under.
   ...base("pairfast-lad3", [0, 1, 2], 2, 3),
   // Same, but the side that is behind never bids more than 99c minus the average paid on the other side.
