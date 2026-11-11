@@ -68,7 +68,9 @@ export function parseLive(text: string): LiveConfig {
       on: true, stakeSol, maxLossSol,
       holdSec: clamp(num(p.holdSec, 5), 1, 60),
       targetPct: clamp(num(p.targetPct, 0), 0, 50),
-      maxPerDay: clamp(Math.floor(num(p.maxPerDay, 80)), 1, 200),
+      // 11 Nov 2026 21:02 KST, enrique: "why a limit on amount of trades ... it makes sense maybe to stop if u lose hard".
+      // No daily count unless the repo file sets one; the 0.5 SOL loss cap is the stop.
+      maxPerDay: p.maxPerDay == null ? Number.MAX_SAFE_INTEGER : clamp(Math.floor(num(p.maxPerDay, 80)), 1, 1_000_000),
       slippageBps: clamp(Math.floor(num(p.slippageBps, 1500)), 100, 3000),
       maxFeeLamports: clamp(Math.floor(num(p.maxFeeLamports, 1_000_000)), 10_000, 2_000_000),
     };

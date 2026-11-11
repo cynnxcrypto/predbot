@@ -27,7 +27,7 @@ test("real copy test is off unless switched on, and hard limits hold", () => {
   assert.equal(parseLive(JSON.stringify({ solanaCopy: { on: true, maxLossSol: 0.5, holdSec: 60, targetPct: 10 } })).targetPct, 10);
   assert.equal(parseLive(JSON.stringify({ solanaCopy: { on: true, maxLossSol: 0.5, targetPct: 900 } })).targetPct, 50);
   assert.equal(parseLive(JSON.stringify({ solanaCopy: { on: true, maxLossSol: 0.5, targetPct: -5 } })).targetPct, 0);
-  assert.equal(c.maxPerDay, 200);
+  assert.equal(c.maxPerDay, 1e6);
   assert.equal(c.slippageBps, 3000);
   assert.equal(c.maxFeeLamports, 2_000_000);
 });
