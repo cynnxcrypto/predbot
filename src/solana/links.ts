@@ -13,6 +13,12 @@
  * fomo trades are signed and paid for by fomo's own relayer and mostly paid in USDC, so nothing here relies on the
  * fee payer or on SOL being spent: everything is read from balance changes by owner.
  *
+ * A well-known wallet is flooded with coins that strangers drop on it (first pass, 11 Nov 2026: 3,000 transactions
+ * of a seed reached back 5 hours to 3 days and held 0 to 5 of its own buys). So a wallet is read three ways and the
+ * results merged: what names the wallet itself (its own transfers and trades), what touched its dollar accounts
+ * (every dollar-paid trade, deposit and withdrawal, and no dropped coin), and only a short stretch of everything
+ * that touched any of its token accounts. A coin received for nothing is not counted as a money link.
+ *
  * This is evidence, not proof of who owns a wallet. The public status carries short tags only; the full addresses
  * stay in data/solana/wallet-links.json on the server. "Likely" and "possible" wallets are handed to the PAPER copy
  * test (never the real one). Nothing is sent. SOLANA_LINKS=off disables.
@@ -35,8 +41,12 @@ const SLOT_SEC = 0.4;
 const PRE_SLOTS = 4500; // half an hour before the seed's buy
 const POST_SLOTS = 750; // five minutes after it
 const NEAR_SLOTS = 75; // 30 s: the wave around the seed's own buy
-const SEED_PAGES = 30; // x100 transactions
-const CAND_PAGES = 12;
+const HOUR_SLOTS = 9000;
+const SEED_PAGES = 30; // x100 transactions, for each of: what names the wallet, what touched its dollar accounts
+const CAND_PAGES = 10;
+const TOK_PAGES = 3; // the short stretch of everything that touched its token accounts (mostly dropped coins)
+/** a result made by an older way of reading is read again */
+const VERSION = 2;
 const PRE_PAGES = 4;
 const POST_PAGES = 2;
 const MAX_BUYS = 40;
@@ -50,6 +60,7 @@ const SERVICE = new Set(["AgmLJBMDCqWynYnQiPCuj9ewsNNsBJXyzoUhD9LJzN51", "R4rNJH
 const STABLE = new Set([USDC, USDT]);
 
 interface TokBal {
+  accountIndex?: number;
   mint: string;
   owner?: string;
   uiTokenAmount: { uiAmountString?: string; uiAmount?: number | null };
@@ -210,9 +221,25 @@ export interface WalletRead {
   cps: Map<string, Cp>;
 }
 
-/** `days` = the stretch the transactions cover. */
-export function digest(wallet: string, items: Item[], days: number): WalletRead {
-  const r: WalletRead = { txs: items.length, days, txPerDay: items.length / Math.max(days, 1 / 24), buys: new Map(), sells: new Map(), cps: new Map() };
+/** The wallet's own token accounts for these mints, as the transactions name them (a balance carries its account's place in the key list). */
+export function tokenAccountsOf(items: Item[], wallet: string, mints: Set<string>): string[] {
+  const out = new Set<string>();
+  for (const it of items) {
+    const m = it.meta;
+    if (!m) continue;
+    const keys = it.transaction.message.accountKeys.map((k) => (typeof k === "string" ? k : k.pubkey));
+    if (keys.length < (m.preBalances?.length ?? 0)) keys.push(...(m.loadedAddresses?.writable ?? []), ...(m.loadedAddresses?.readonly ?? []));
+    for (const b of [...(m.preTokenBalances ?? []), ...(m.postTokenBalances ?? [])] as TokBal[]) {
+      const a = typeof b.accountIndex === "number" ? keys[b.accountIndex] : undefined;
+      if (b.owner === wallet && mints.has(b.mint) && a && validAddress(a)) out.add(a);
+    }
+  }
+  return [...out];
+}
+
+/** `days` = the stretch the transactions cover; `txs` = how many of them count toward how busy the wallet is. */
+export function digest(wallet: string, items: Item[], days: number, txs = items.length): WalletRead {
+  const r: WalletRead = { txs, days, txPerDay: txs / Math.max(days, 1 / 24), buys: new Map(), sells: new Map(), cps: new Map() };
   const sorted = [...items].sort((a, b) => a.slot - b.slot || a.transactionIndex - b.transactionIndex);
   for (const it of sorted) {
     const a = actOf(it, wallet);
@@ -221,6 +248,7 @@ export function digest(wallet: string, items: Item[], days: number): WalletRead 
     if (a.sell && r.buys.has(a.sell) && !r.sells.has(a.sell)) r.sells.set(a.sell, { slot: a.slot, index: a.index });
     for (const mv of a.moves) {
       if (mv.address === wallet || !validAddress(mv.address)) continue;
+      if (mv.mint && !mv.out) continue; // a coin that arrived for nothing: strangers drop these on well-known wallets
       let c = r.cps.get(mv.address);
       if (!c) r.cps.set(mv.address, (c = { out: 0, in: 0, sol: 0, usd: 0, coins: 0 }));
       if (mv.out) c.out++;
@@ -239,6 +267,7 @@ export function compare(seed: WalletRead, cand: WalletRead) {
   let before = 0;
   let after = 0;
   let soldInto = 0;
+  let near = 0;
   const leads: number[] = [];
   for (const [mint, s] of seed.buys) {
     const c = cand.buys.get(mint);
@@ -247,12 +276,13 @@ export function compare(seed: WalletRead, cand: WalletRead) {
     if (earlier(c, s)) {
       before++;
       leads.push((s.slot - c.slot) * SLOT_SEC);
+      if (s.slot - c.slot <= HOUR_SLOTS) near++;
       const out = cand.sells.get(mint);
       if (out && earlier(s, out) && out.slot - s.slot <= PRE_SLOTS) soldInto++;
     } else after++;
   }
   const med = median(leads);
-  return { shared, before, after, soldInto, medianLeadSec: med === null ? null : Math.round(med), overlapPct: cand.buys.size ? Math.round((shared / cand.buys.size) * 100) : null };
+  return { shared, before, beforeWithin1h: near, after, soldInto, medianLeadSec: med === null ? null : Math.round(med), overlapPct: cand.buys.size ? Math.round((shared / cand.buys.size) * 100) : null };
 }
 
 export function judge(x: { transfers: number; twoStep: boolean; before: number; after: number; overlapPct: number | null; txPerDay: number; seeds: number }): string {
@@ -284,6 +314,8 @@ export interface Linked {
   /** from its own record: coins both bought, on how many it was first / second, seconds ahead, sold after the seed's buy */
   shared: number;
   before: number;
+  /** of `before`, bought within the hour before the seed did */
+  beforeWithin1h: number;
   after: number;
   soldInto: number;
   medianLeadSec: number | null;
@@ -291,7 +323,10 @@ export interface Linked {
   txPerDay: number;
 }
 interface SeedResult {
+  v: number;
   doneAt: number;
+  /** transactions read: naming the wallet / touching its dollar accounts / the short stretch of all its token accounts */
+  read: [number, number, number];
   txs: number;
   days: number;
   buys: number;
@@ -364,18 +399,44 @@ async function pages(address: string, filters: Record<string, unknown>, order: "
   return { items, more: true };
 }
 
-const reads = new Map<string, WalletRead>();
-async function readWallet(address: string, maxPages: number): Promise<WalletRead | null> {
+const reads = new Map<string, WalletRead & { read: [number, number, number] }>();
+const sigOf = (it: Item) => it.transaction.signatures?.[0] ?? `${it.slot}:${it.transactionIndex}`;
+/**
+ * One wallet, read three ways (see the note at the top) and merged. Its dollar accounts are followed too, because a
+ * trade that somebody else signs (fomo's relayer) need not name the wallet at all. null = out of credit for today.
+ */
+async function readWallet(address: string, ownPages: number): Promise<(WalletRead & { read: [number, number, number] }) | null> {
   const hit = reads.get(address);
   if (hit) return hit;
   const now = Math.floor(Date.now() / 1000);
   const since = now - DAYS_BACK * 86_400;
-  const got = await pages(address, { blockTime: { gt: since }, tokenAccounts: "balanceChanged" }, "desc", maxPages);
-  if (!got) return null;
-  const times = got.items.map((x) => x.blockTime ?? 0).filter(Boolean);
-  // the pages ran out before the 30 days did: the transactions cover only back to the oldest one read
-  const days = (now - (got.more && times.length ? Math.min(...times) : since)) / 86_400;
-  const r = digest(address, got.items, days);
+  const own = await pages(address, { blockTime: { gt: since } }, "desc", ownPages);
+  if (!own) return null;
+  const tok = await pages(address, { blockTime: { gt: since }, tokenAccounts: "balanceChanged" }, "desc", TOK_PAGES);
+  if (!tok) return null;
+  const far: { items: Item[]; more: boolean }[] = [own];
+  for (const acc of tokenAccountsOf([...own.items, ...tok.items], address, STABLE).slice(0, 2)) {
+    const d = await pages(acc, { blockTime: { gt: since } }, "desc", ownPages);
+    if (!d) return null;
+    far.push(d);
+  }
+  const seen = new Set<string>();
+  const items: Item[] = [];
+  for (const it of [...far.flatMap((f) => f.items), ...tok.items]) {
+    const k = sigOf(it);
+    if (seen.has(k)) continue;
+    seen.add(k);
+    items.push(it);
+  }
+  // How far back the wallet's own doings are known: the deepest of the far reads that was read to its end, else
+  // back to the oldest transaction of the one that reached furthest.
+  const oldest = (f: { items: Item[]; more: boolean }) => (f.more ? Math.min(...f.items.map((x) => x.blockTime ?? now)) : since);
+  const days = (now - Math.min(...far.map(oldest))) / 86_400;
+  const dollar = far.slice(1).reduce((a, f) => a + f.items.length, 0);
+  // how busy it is: by what names the wallet itself (dropped coins and fomo's relayer say nothing about that)
+  const ownDays = (now - oldest(own)) / 86_400;
+  const r = { ...digest(address, items, days, own.items.length), read: [own.items.length, dollar, tok.items.length] as [number, number, number] };
+  r.txPerDay = own.items.length / Math.max(ownDays, 1 / 24);
   reads.set(address, r);
   return r;
 }
@@ -407,8 +468,9 @@ async function doSeed(seed: Tracked): Promise<SeedResult | null> {
   }
   const ok = (a: string) => a !== seed.address && !SERVICE.has(a) && validAddress(a);
   const n = (c: Cp) => c.out + c.in;
+  const worth = (c: Cp) => c.usd + c.sol * 150; // rough dollars, only to put the biggest flows first
   // MONEY: repeated or large plain transfers
-  const money = [...s.cps].filter(([a, c]) => ok(a) && (n(c) >= 2 || c.sol >= 5 || c.usd >= 500)).sort((a, b) => n(b[1]) - n(a[1]) || b[1].sol * 150 + b[1].usd - (a[1].sol * 150 + a[1].usd)).slice(0, MONEY_MAX);
+  const money = [...s.cps].filter(([a, c]) => ok(a) && (n(c) >= 2 || c.sol >= 5 || c.usd >= 500)).sort((a, b) => worth(b[1]) - worth(a[1]) || n(b[1]) - n(a[1])).slice(0, MONEY_MAX);
   const early = [...tally].filter(([a, t]) => ok(a) && t.coins >= 3).sort((a, b) => b[1].coins - a[1].coins).slice(0, EARLY_MAX);
   const linked = new Map<string, Linked>();
   const row = async (address: string, how: string, c: Cp | undefined, through?: string): Promise<WalletRead | null | undefined> => {
@@ -447,7 +509,7 @@ async function doSeed(seed: Tracked): Promise<SeedResult | null> {
   }
   const bought = [...s.buys.values()];
   return {
-    doneAt: Date.now(), txs: s.txs, days: Math.round(s.days * 10) / 10, buys: bought.length,
+    v: VERSION, doneAt: Date.now(), read: s.read, txs: s.txs, days: Math.round(s.days * 10) / 10, buys: bought.length,
     buysUsd: bought.filter((b) => b.usd > 0).length, buysSol: bought.filter((b) => b.usd === 0).length,
     checked: buys.length, before30: median(b30), after30: median(a30), linked: [...linked.values()],
   };
@@ -459,7 +521,7 @@ async function loop() {
     for (const w of seeds()) {
       if (stopped) return;
       const st = state.seeds[w.address];
-      if (st && Date.now() - st.doneAt < REFRESH_MS) continue;
+      if (st && st.v === VERSION && Date.now() - st.doneAt < REFRESH_MS) continue;
       health.working = w.name;
       try {
         const r = await doSeed(w);
@@ -483,7 +545,7 @@ async function loop() {
     }
     health.working = "";
     reads.clear();
-    if (!did && health.state === "reading") health.state = "up to date";
+    if (!did && (health.state === "reading" || health.state === "starting")) health.state = "up to date";
     await sleep(did ? 5000 : 60_000);
   }
 }
@@ -531,7 +593,7 @@ export function linkedWallets(): Tracked[] {
 export function linksSummary() {
   const all = judged();
   return {
-    note: `For each seed wallet (public fomo traders): MONEY = plain transfers of SOL, dollars or coins with another wallet, also one step further; TIMING = wallets that started holding the same coin in the half hour before the seed bought it, on 3+ coins. Each such wallet is then read itself: shared = coins both bought, before = it bought first, soldInto = it sold within half an hour after the seed's buy, overlapPct = share of its own coins that the seed also bought. "likely" = a money link AND first on 3+ shared coins (twice as often as second). Evidence, not proof of ownership. Looks back ${DAYS_BACK} days; wallets shown as short tags.`,
+    note: `For each seed wallet (public fomo traders): MONEY = plain transfers of SOL, dollars or coins with another wallet, also one step further; TIMING = wallets that started holding the same coin in the half hour before the seed bought it, on 3+ coins. Each such wallet is then read itself: shared = coins both bought, before = it bought first (beforeWithin1h: within the hour before), soldInto = it sold within half an hour after the seed's buy, overlapPct = share of its own coins that the seed also bought. "likely" = a money link AND first on 3+ shared coins (twice as often as second). Evidence, not proof of ownership. Looks back up to ${DAYS_BACK} days (daysCovered says how far it got); transactionsRead = [naming the wallet, touching its dollar accounts, a short stretch of all its token accounts]; a coin received for nothing is not a money link. Wallets shown as short tags.`,
     state: health.state,
     working: health.working,
     seedsDone: all.length,
@@ -539,7 +601,7 @@ export function linksSummary() {
     likely: all.reduce((a, s) => a + s.linked.filter((l) => l.verdict === "likely").length, 0),
     possible: all.reduce((a, s) => a + s.linked.filter((l) => l.verdict.startsWith("possible")).length, 0),
     seeds: all.map((s) => ({
-      name: s.name, address: s.address, transactionsRead: s.r.txs, daysCovered: s.r.days, coinsBought: s.r.buys, paidInDollars: s.r.buysUsd, paidInSol: s.r.buysSol,
+      name: s.name, address: s.address, redo: s.r.v !== VERSION, transactionsRead: s.r.read ?? null, daysCovered: s.r.days, coinsBought: s.r.buys, paidInDollars: s.r.buysUsd, paidInSol: s.r.buysSol,
       buysChecked: s.r.checked, newHolders30sBefore: s.r.before30, newHolders30sAfter: s.r.after30,
       linked: s.linked.slice(0, 20).map(({ address, through, ...l }) => ({ wallet: tag(address), ...(through ? { through: tag(through) } : {}), ...l })),
     })),

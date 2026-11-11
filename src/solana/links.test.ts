@@ -37,19 +37,32 @@ const POOL = A("PooL");
 const COIN = (i: number) => A(`Co${i}n`);
 
 type Tok = [mint: string, owner: string, pre: number, post: number];
-/** One transaction: `sol` = [address, change in SOL] with the fee payer first; `tok` = token balances before and after. */
+/** the token account of one owner for one coin */
+const ATA = (mint: string, owner: string) => A(`ata:${mint}:${owner}`);
+/**
+ * One transaction: `sol` = [address, change in SOL] with the fee payer first; `tok` = token balances before and after.
+ * Token accounts follow in the key list, as on the chain, so a wallet can hold a balance without being named itself.
+ */
 function tx(slot: number, index: number, sol: [string, number][], tok: Tok[], t = 1_794_000_000 + slot): Item {
   const fee = 5000;
-  const bal = (o: number) => ({ uiTokenAmount: { uiAmountString: String(o) } });
+  const keys = sol.map(([a]) => a);
+  const at = (mint: string, owner: string) => {
+    const a = ATA(mint, owner);
+    const j = keys.indexOf(a);
+    return j >= 0 ? j : keys.push(a) - 1;
+  };
+  const bal = (mint: string, owner: string, o: number) => ({ accountIndex: at(mint, owner), mint, owner, uiTokenAmount: { uiAmountString: String(o) } });
+  const pre = tok.filter(([, , p]) => p >= 0).map(([mint, owner, p]) => bal(mint, owner, p));
+  const post = tok.map(([mint, owner, , q]) => bal(mint, owner, q));
   return {
     slot, transactionIndex: index, blockTime: t,
-    transaction: { signatures: [`s${slot}-${index}`], message: { accountKeys: sol.map(([a]) => a) } },
+    transaction: { signatures: [`s${slot}-${index}`], message: { accountKeys: keys } },
     meta: {
       err: null, fee,
-      preBalances: sol.map(() => 10e9),
-      postBalances: sol.map(([, d], j) => 10e9 + Math.round(d * 1e9) - (j === 0 ? fee : 0)),
-      preTokenBalances: tok.filter(([, , pre]) => pre >= 0).map(([mint, owner, pre]) => ({ mint, owner, ...bal(pre) })),
-      postTokenBalances: tok.map(([mint, owner, , post]) => ({ mint, owner, ...bal(post) })),
+      preBalances: keys.map(() => 10e9),
+      postBalances: keys.map((_, j) => 10e9 + Math.round((sol[j]?.[1] ?? 0) * 1e9) - (j === 0 ? fee : 0)),
+      preTokenBalances: pre,
+      postTokenBalances: post,
     },
   };
 }
@@ -59,6 +72,42 @@ const solBuy = (slot: number, index: number, who: string, mint: string, sol = 1)
 const solSell = (slot: number, index: number, who: string, mint: string, sol = 1.2) => tx(slot, index, [[who, sol], [POOL, -sol]], [[mint, who, 1000, 0], [mint, POOL, 5e6, 5e6 + 1000]]);
 const usdSend = (slot: number, index: number, from: string, to: string, usd: number) => tx(slot, index, [[RELAYER, 0], [from, 0]], [[USDC, from, 5000, 5000 - usd], [USDC, to, 100, 100 + usd]]);
 const solSend = (slot: number, index: number, from: string, to: string, sol: number) => tx(slot, index, [[from, -sol], [to, sol]], []);
+/** A buy that names only the relayer and token accounts: the wallet shows up as the owner of a balance, nowhere else. */
+const hiddenBuy = (slot: number, index: number, who: string, mint: string, usd = 500) => tx(slot, index, [[RELAYER, 0]], [[USDC, who, 5000, 5000 - usd], [USDC, POOL, 9e5, 9e5 + usd], [mint, who, -1, 1000], [mint, POOL, 5e6, 5e6 - 1000]]);
+/** A stranger drops a worthless coin on a wallet. */
+const drop = (slot: number, index: number, from: string, to: string, mint: string) => tx(slot, index, [[from, 0]], [[mint, from, 1e6, 1e6 - 1000], [mint, to, -1, 1000]]);
+
+/**
+ * A made-up chain behind getTransactionsForAddress. An address finds the transactions that name it (a wallet, a
+ * token account or a coin); with tokenAccounts "balanceChanged" also those that changed a balance it owns.
+ */
+function fakeChain(items: Item[]) {
+  type TB = { mint: string; owner?: string; accountIndex?: number; uiTokenAmount: { uiAmountString?: string } };
+  const index = items.map((it) => {
+    const post = (it.meta!.postTokenBalances ?? []) as TB[];
+    const pre = (it.meta!.preTokenBalances ?? []) as TB[];
+    const was = new Map(pre.map((b) => [b.accountIndex, b.uiTokenAmount.uiAmountString]));
+    return {
+      it,
+      named: new Set([...it.transaction.message.accountKeys.map(String), ...post.map((b) => b.mint)]),
+      changed: new Set(post.filter((b) => was.get(b.accountIndex) !== b.uiTokenAmount.uiAmountString).map((b) => b.owner ?? "")),
+    };
+  });
+  const asked: { address: string; tokenAccounts?: string }[] = [];
+  const fetch = (async (_url: string, init: { body: string }) => {
+    const { params } = JSON.parse(init.body) as { params: [string, { sortOrder: string; paginationToken?: string; filters: { slot?: { gte: number; lte: number }; blockTime?: { gt: number }; tokenAccounts?: string } }] };
+    const [address, o] = params;
+    asked.push({ address, tokenAccounts: o.filters.tokenAccounts });
+    let hits = index.filter((x) => x.named.has(address) || (o.filters.tokenAccounts === "balanceChanged" && x.changed.has(address))).map((x) => x.it);
+    if (o.filters.slot) hits = hits.filter((x) => x.slot >= o.filters.slot!.gte && x.slot <= o.filters.slot!.lte);
+    if (o.filters.blockTime) hits = hits.filter((x) => (x.blockTime ?? 0) > o.filters.blockTime!.gt);
+    hits.sort((a, b) => (o.sortOrder === "asc" ? a.slot - b.slot || a.transactionIndex - b.transactionIndex : b.slot - a.slot || b.transactionIndex - a.transactionIndex));
+    const from = Number(o.paginationToken ?? 0);
+    const data = hits.slice(from, from + 100);
+    return new Response(JSON.stringify({ result: { data, paginationToken: from + 100 < hits.length ? String(from + 100) : null } }));
+  }) as never;
+  return { fetch, asked };
+}
 
 test("the seeds are well-formed addresses", () => {
   assert.ok(SEEDS.length >= 4);
@@ -122,7 +171,7 @@ test("a side wallet shows up on both counts; an exchange and a stranger do not",
   assert.equal(s.buys.size, 4);
   assert.deepEqual(s.cps.get(SIDE), { out: 2, in: 1, sol: 4, usd: 1600, coins: 0 });
   const cmp = compare(s, c);
-  assert.deepEqual(cmp, { shared: 4, before: 3, after: 1, soldInto: 3, medianLeadSec: 12, overlapPct: 100 });
+  assert.deepEqual(cmp, { shared: 4, before: 3, beforeWithin1h: 3, after: 1, soldInto: 3, medianLeadSec: 12, overlapPct: 100 });
   const base = { transfers: 3, twoStep: false, before: 3, after: 1, overlapPct: 100, txPerDay: 20, seeds: 1 };
   assert.equal(judge(base), "likely");
   assert.equal(judge({ ...base, txPerDay: 5000 }), "service or bot");
@@ -154,24 +203,8 @@ test("runner: traces a seed on a made-up chain; the public summary carries tags,
   stamp(usdSend(350, 0, CEX, SEED, 5000));
   // the exchange is busy: far more transactions than a person makes
   const busy: Item[] = Array.from({ length: 1200 }, (_, k) => ({ ...usdSend(90_000 + k, 0, CEX, A(`U${k % 7}`), 50), blockTime: now - 3600 + k }));
-  const refs = (it: Item) => new Set([...it.transaction.message.accountKeys.map(String), ...(it.meta!.postTokenBalances ?? []).flatMap((b) => [b.mint, b.owner ?? ""])]);
-  const index = [...chain, ...busy].map((it) => ({ it, refs: refs(it) }));
-  let calls = 0;
-  _test.setCfg({
-    rpcUrl: () => "https://mainnet.helius-rpc.com/?api-key=SECRET",
-    fetch: () => (async (_url: string, init: { body: string }) => {
-      calls++;
-      const { params } = JSON.parse(init.body) as { params: [string, { sortOrder: string; paginationToken?: string; filters: { slot?: { gte: number; lte: number }; blockTime?: { gt: number } } }] };
-      const [address, o] = params;
-      let hits = index.filter((x) => x.refs.has(address)).map((x) => x.it);
-      if (o.filters.slot) hits = hits.filter((x) => x.slot >= o.filters.slot!.gte && x.slot <= o.filters.slot!.lte);
-      if (o.filters.blockTime) hits = hits.filter((x) => (x.blockTime ?? 0) > o.filters.blockTime!.gt);
-      hits.sort((a, b) => (o.sortOrder === "asc" ? a.slot - b.slot || a.transactionIndex - b.transactionIndex : b.slot - a.slot || b.transactionIndex - a.transactionIndex));
-      const from = Number(o.paginationToken ?? 0);
-      const data = hits.slice(from, from + 100);
-      return new Response(JSON.stringify({ result: { data, paginationToken: from + 100 < hits.length ? String(from + 100) : null } }));
-    }) as never,
-  });
+  const net = fakeChain([...chain, ...busy]);
+  _test.setCfg({ rpcUrl: () => "https://mainnet.helius-rpc.com/?api-key=SECRET", fetch: () => net.fetch });
   const r = await _test.doSeed(SEEDS[0]);
   assert.ok(r);
   assert.equal(r.buys, 4);
@@ -193,5 +226,52 @@ test("runner: traces a seed on a made-up chain; the public summary carries tags,
   assert.ok(!text.includes(SIDE) && !text.includes(CEX) && !text.includes("SECRET"));
   assert.ok(text.includes(`${SIDE.slice(0, 4)}…${SIDE.slice(-4)}`));
   assert.deepEqual(linkedWallets(), [{ name: `side of ${SEEDS[0].name} ${SIDE.slice(0, 4)}`, address: SIDE, found: true }]);
-  assert.ok(_test.state().credits > 0 && calls > 10);
+  assert.ok(_test.state().credits > 0 && net.asked.length > 10);
+});
+
+test("dropped coins: a stranger's coin is not a money link, a coin the wallet passes on is", () => {
+  const JUNK = A("Junk");
+  const items = [drop(100, 0, A("Spam"), SEED, JUNK), drop(101, 0, A("Spam"), SEED, A("Junk2")), tx(200, 0, [[SEED, 0]], [[COIN(1), SEED, 1000, 0], [COIN(1), SIDE, -1, 1000]])];
+  const r = digest(SEED, items, 30);
+  assert.equal(r.cps.has(A("Spam")), false);
+  assert.deepEqual(r.cps.get(SIDE), { out: 1, in: 0, sol: 0, usd: 0, coins: 1 });
+});
+
+test("runner: a seed buried under dropped coins is still read, through its dollar account", async () => {
+  _test.reset();
+  const now = Math.floor(Date.now() / 1000);
+  const chain: Item[] = [];
+  const put = (it: Item, ago: number) => ((it.blockTime = now - ago), chain.push(it), it);
+  // five dollar-paid buys three weeks ago that never name the wallet, each with the side wallet in just before
+  for (const i of [1, 2, 3, 4, 5]) {
+    put(solBuy(1000 * i - 30, 0, SIDE, COIN(i)), 21 * 86_400 - 1000 * i + 30);
+    put(hiddenBuy(1000 * i, 5, SEED, COIN(i)), 21 * 86_400 - 1000 * i);
+  }
+  put(usdSend(20_000, 0, SEED, SIDE, 900), 10 * 86_400);
+  put(usdSend(30_000, 0, SEED, SIDE, 700), 5 * 86_400);
+  // and since then 400 coins dropped on it by one stranger: more than the short read holds
+  const SPAM = A("Spam");
+  for (let k = 0; k < 400; k++) put(drop(50_000 + k, 0, SPAM, SEED, A(`Junk${k}`)), 3600 - k);
+  const net = fakeChain(chain);
+  _test.setCfg({ rpcUrl: () => "https://mainnet.helius-rpc.com/?api-key=SECRET", fetch: () => net.fetch });
+  const r = await _test.doSeed(SEEDS[0]);
+  assert.ok(r);
+  // [naming the wallet, touching its dollar account, the short stretch of all its token accounts]
+  assert.deepEqual(r.read, [2, 7, 300]);
+  assert.equal(r.buys, 5, "found through the dollar account, not through the flooded read");
+  assert.equal(r.buysUsd, 5);
+  assert.equal(r.days, 30);
+  assert.ok(net.asked.some((q) => q.address === SEED && q.tokenAccounts === "balanceChanged"));
+  assert.ok(net.asked.some((q) => q.address === ATA(USDC, SEED)), "its dollar account was read by its own address");
+  assert.ok(!r.linked.some((l) => l.address === SPAM), "the stranger who dropped the coins is not a lead");
+  const side = r.linked.find((l) => l.address === SIDE)!;
+  assert.deepEqual({ how: side.how, sent: side.sent, usd: side.usd, before: side.before, beforeWithin1h: side.beforeWithin1h, after: side.after }, { how: "money", sent: 2, usd: 1600, before: 5, beforeWithin1h: 5, after: 0 });
+  _test.state().seeds[SEED] = r;
+  const row = linksSummary().seeds.find((s) => s.name === SEEDS[0].name)!;
+  assert.equal(row.redo, false);
+  assert.deepEqual(row.transactionsRead, [2, 7, 300]);
+  assert.equal(row.linked[0].verdict, "likely");
+  // a result from the first way of reading is marked to be read again
+  _test.state().seeds[SEED] = { ...r, v: 1 };
+  assert.equal(linksSummary().seeds[0].redo, true);
 });
