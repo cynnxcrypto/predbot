@@ -195,13 +195,30 @@ function stop() {
   setTimeout(() => process.exit(0), 300);
 }
 process.on("SIGINT", stop);
-process.on("SIGTERM", stop);
+/**
+ * A real server stop is immediate. One exception: a SIGTERM that arrives while a planned restart is pending. The
+ * supervisor forces a stop 330 s after an update signal with a timer that was not tied to the bot it was meant for,
+ * so with two updates inside 5.5 minutes the first one's timer stopped the bot started for the second in the middle
+ * of its wait, coins open or not (11 Nov 2026, 22:08:50 and 22:23:50 KST). Such a stop is taken as "restart now":
+ * no new Solana copy, the open coins are sold (60 s at most), then the usual stop.
+ */
+let planned = false;
+let draining = false;
+process.on("SIGTERM", () => {
+  // asked a second time: stop at once
+  if (!planned || stopping || draining) return stop();
+  draining = true;
+  console.log("stop requested while a planned restart is pending: finishing the open Solana coins first");
+  solanaCopyLiveQuiet();
+  whenClear(solanaCopyLiveWaiting, () => stop(), 60_000);
+});
 
 /** The supervisor asks "is now a good moment to restart?" by sending SIGUSR2; we answer by exiting cleanly at the next window edge. */
 process.on("SIGUSR2", () => {
   const sec = Math.floor(Date.now() / 1000);
   // Ten seconds past the edge, so the closing window is queued for settlement before we exit (3s was sometimes too soon).
   const wait = ((300 - (sec % 300)) % 300) + 10;
+  planned = true;
   console.log(`update requested; restarting in ${wait}s, at the next window edge`);
   // The real pair test pulls its resting bids 20 s before the restart (orders left behind are also cancelled on start).
   setTimeout(pairliveQuiet, Math.max(0, wait - 20) * 1000);
