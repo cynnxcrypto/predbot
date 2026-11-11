@@ -47,12 +47,18 @@ export interface LiveConfig {
   holdSec: number;
   /** sell as soon as a sale would bring back this much more than the stake, %; 0 = hold the full time */
   targetPct: number;
+  /** most copies in one KST day; none set in the file = no daily limit (the loss cap is the stop) */
   maxPerDay: number;
+  /**
+   * Entry filter: copy only when the buy quote is already this much above the price the wallet paid, %; 0 = copy
+   * every buy. Decided from the quote, before anything is signed, so a skipped buy costs nothing.
+   */
+  minGapPct: number;
   slippageBps: number;
   /** most we will pay in priority fee per transaction, lamports */
   maxFeeLamports: number;
 }
-const OFF: LiveConfig = { on: false, stakeSol: 0, maxLossSol: 0, holdSec: 5, targetPct: 0, maxPerDay: 0, slippageBps: 1500, maxFeeLamports: 0 };
+const OFF: LiveConfig = { on: false, stakeSol: 0, maxLossSol: 0, holdSec: 5, targetPct: 0, maxPerDay: 0, minGapPct: 0, slippageBps: 1500, maxFeeLamports: 0 };
 const num = (v: unknown, d: number) => (typeof v === "number" && Number.isFinite(v) ? v : d);
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 
@@ -71,6 +77,7 @@ export function parseLive(text: string): LiveConfig {
       // 11 Nov 2026 21:02 KST, enrique: "why a limit on amount of trades ... it makes sense maybe to stop if u lose hard".
       // No daily count unless the repo file sets one; the 0.5 SOL loss cap is the stop.
       maxPerDay: p.maxPerDay == null ? Number.MAX_SAFE_INTEGER : clamp(Math.floor(num(p.maxPerDay, 80)), 1, 1_000_000),
+      minGapPct: clamp(num(p.minGapPct, 0), 0, 50),
       slippageBps: clamp(Math.floor(num(p.slippageBps, 1500)), 100, 3000),
       maxFeeLamports: clamp(Math.floor(num(p.maxFeeLamports, 1_000_000)), 10_000, 2_000_000),
     };
@@ -104,6 +111,8 @@ export interface Row {
   sendMs?: number;
   /** "interrupted": the bot restarted during the copy; the row is the clean-up after the restart */
   buy: "landed" | "failed on chain" | "did not land" | "not sent" | "interrupted";
+  /** what the buy quote said we would pay over the wallet's price, %: known before the order is signed */
+  quoteGapPct?: number;
   /** what we really paid over the wallet's price, % */
   fillGapPct?: number;
   sold?: boolean;
@@ -131,11 +140,15 @@ interface State {
   halted: string;
   note: string;
   balanceSol: number | null;
+  /** buys left alone by the entry filter: the quote was not far enough above the wallet's price / no price to compare */
+  skippedLowGap: number;
+  skippedNoPrice: number;
   /** a copy that is under way or could not be closed: the token, the balance it is counted from, when, clean-up tries */
   open: { mint: string; bal0: number; t: number; tries: number; worthSol?: number; nowPct?: number; bestPct?: number } | null;
   rows: Row[];
 }
-let state: State = { netSol: 0, trades: 0, day: "", dayCount: 0, halted: "", note: "", balanceSol: null, open: null, rows: [] };
+const fresh = (): State => ({ netSol: 0, trades: 0, day: "", dayCount: 0, halted: "", note: "", balanceSol: null, skippedLowGap: 0, skippedNoPrice: 0, open: null, rows: [] });
+let state: State = fresh();
 let loaded = false;
 let busy = false;
 let lastAt = 0;
@@ -354,6 +367,7 @@ export async function trade(b: StreamBuy) {
     state.dayCount = 0;
   }
   if (state.dayCount >= c.maxPerDay) return void (state.note = "daily count reached");
+  if (state.note === "daily count reached") state.note = "";
   // the most one copy can cost: the stake plus every fee of one buy, six sale tries and an unclosed token account
   if (-state.netSol + c.stakeSol + FEE_ROOM_SOL > c.maxLossSol) {
     state.halted = `loss cap reached: ${(-state.netSol).toFixed(4)} of ${c.maxLossSol} SOL`;
@@ -361,6 +375,7 @@ export async function trade(b: StreamBuy) {
     return;
   }
   busy = true;
+  const prevAt = lastAt;
   lastAt = Date.now();
   const w = wallet();
   const row: Row = { t: Date.now(), name: b.name, mint: b.mint, leaderSlot: b.leaderSlot, buy: "not sent", netSol: 0, sigs: [] };
@@ -384,6 +399,16 @@ export async function trade(b: StreamBuy) {
     const t0 = performance.now();
     const q = await quote(SOL, b.mint, String(Math.round(c.stakeSol * 1e9)), c.slippageBps);
     if (!q.outAmount || q.outAmount === "0") throw new Error("no buy quote");
+    // how far this quote already is above what the wallet paid: known here, before anything is signed
+    const gap = b.leaderPrice > 0 && b.decimals !== undefined ? (c.stakeSol / (Number(q.outAmount) / 10 ** b.decimals) / b.leaderPrice - 1) * 100 : null;
+    if (gap !== null && Number.isFinite(gap)) row.quoteGapPct = Math.round(gap * 100) / 100;
+    if (c.minGapPct > 0 && !(row.quoteGapPct !== undefined && row.quoteGapPct >= c.minGapPct)) {
+      // the entry filter said no: nothing was sent, so it is not a copy, costs nothing and does not delay the next buy
+      if (row.quoteGapPct === undefined) state.skippedNoPrice++;
+      else state.skippedLowGap++;
+      lastAt = prevAt;
+      return;
+    }
     const t1 = performance.now();
     const tx = signTransaction(await swapTx(q, w.address, c.maxFeeLamports), w);
     const t2 = performance.now();
@@ -535,6 +560,10 @@ export function solanaCopyLiveSummary() {
     netSol: state.netSol,
     balanceSol: state.balanceSol,
     openPosition: state.open != null,
+    entryRule: c.minGapPct > 0 ? `buys only when our price is already ${c.minGapPct}% or more above what the wallet paid` : "buys every first buy of a listed wallet",
+    skippedLowGap: state.skippedLowGap,
+    skippedNoPrice: state.skippedNoPrice,
+    dailyLimit: c.on && c.maxPerDay < Number.MAX_SAFE_INTEGER ? c.maxPerDay : null,
     exitRule: c.targetPct > 0 ? `sells at +${c.targetPct}% or after ${c.holdSec} s` : `sells after ${c.holdSec} s`,
     /**
      * What is held right now, in numbers only (the dashboard's "holding now" block reads these names). The token is
@@ -564,9 +593,10 @@ export function solanaCopyLiveSummary() {
     buildMsMedian: med(nums(rows.map((r) => r.buildMs))),
     sendMsMedian: med(nums(rows.map((r) => r.sendMs))),
     fillGapPctMedian: med(nums(land.map((r) => r.fillGapPct))),
+    quoteGapPctMedian: med(nums(land.map((r) => r.quoteGapPct))),
     // `at` (when the copy started) is for the password-protected dashboard only: deploy/report.py takes it off the
     // public file, because the moment of a trade is enough to find the wallet that made it
-    recent: rows.slice(-40).reverse().map((r) => ({ at: new Date(r.t).toISOString(), buy: r.buy, slotsBehind: r.slotsBehind ?? null, ahead: r.ahead ?? null, pipelineMs: r.pipelineMs ?? null, fillGapPct: r.fillGapPct ?? null, sold: r.sold ?? null, heldSec: r.heldSec ?? null, exit: r.exit ?? null, bestPct: r.bestPct ?? null, netSol: r.netSol })),
+    recent: rows.slice(-40).reverse().map((r) => ({ at: new Date(r.t).toISOString(), buy: r.buy, slotsBehind: r.slotsBehind ?? null, ahead: r.ahead ?? null, pipelineMs: r.pipelineMs ?? null, quoteGapPct: r.quoteGapPct ?? null, fillGapPct: r.fillGapPct ?? null, sold: r.sold ?? null, heldSec: r.heldSec ?? null, exit: r.exit ?? null, bestPct: r.bestPct ?? null, netSol: r.netSol })),
   };
 }
 
@@ -593,7 +623,7 @@ export function startSolanaCopyLive() {
 export const _test = {
   setConfig: (c: LiveConfig | null) => (cfgOverride = c),
   reset: () => {
-    state = { netSol: 0, trades: 0, day: "", dayCount: 0, halted: "", note: "", balanceSol: null, open: null, rows: [] };
+    state = fresh();
     loaded = true;
     busy = false;
     lastAt = 0;
