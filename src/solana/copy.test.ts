@@ -9,7 +9,7 @@ process.env.DATA_DIR = dir;
 process.env.HELIUS_API_KEY = "SECRETHELIUS";
 process.env.JUPITER_API_KEY = "SECRETJUP";
 
-const { crowd, parseBuy, ret, roundTrip, sameBlockRet, SAME_BLOCK_SLIP, scalp, STAKE_SOL, summarize, TX_SOL } = await import("./copy.js");
+const { crowd, followerPrice, parseBuy, ret, roundTrip, sameBlockRet, SAME_BLOCK_SLIP, scalp, STAKE_SOL, summarize, TX_SOL } = await import("./copy.js");
 const { SOL } = await import("./pools.js");
 const { validAddress, WALLETS } = await import("./wallets.js");
 const { _test, buildCopySummary, scrub } = await import("./copyrun.js");
@@ -82,6 +82,15 @@ test("same-block what-if: the measured exit re-priced at the wallet's price plus
   assert.ok(Math.abs(sameBlockRet(s, 5)! - want) < 1e-12);
   assert.ok(sameBlockRet(s, 5)! > ret(s, 0, 5)!);
   assert.equal(summarize([s], 80).sameBlock.rules.length, 7);
+  // with a measured follower price the what-if uses it instead of the assumption
+  const m = sig({ near: { n: 3, price: 1.05e-6 } });
+  assert.ok(Math.abs(sameBlockRet(m, 5)! - ((0.27 * (1.1e-6 / 1.05e-6) - 2 * TX_SOL) / STAKE_SOL - 1)) < 1e-12);
+  const sm = summarize([m], 80).sameBlock;
+  assert.equal(sm.measured, 1);
+  assert.equal(sm.nearGapPctMedian, 5);
+  // a follower's own buy gives the price at that spot in line
+  assert.ok(Math.abs(followerPrice(tx({ post: 9.5e9, postTok: [tok(MINT, W, 400_000)] }), MINT)! - (0.5 - 5000 / 1e9) / 400_000) < 1e-15);
+  assert.equal(followerPrice(tx(), "othermint"), null);
 });
 
 test("crowd: who lands before us", () => {
