@@ -72,6 +72,11 @@ export const PAIRFAST: Spec[] = [
   // two join the ideas: first leg only on the favourite AND 2c under the best bid; and a stricter favourite (70c+).
   ...base("pairfast-fav60-deep2-lock", [2], 3, 1, true, { band: [0.17, 0.83], maxPairs: 1, minBid: 0.6 }),
   ...base("pairfast-fav70-lock", [0], 3, 1, true, { band: [0.17, 0.83], maxPairs: 1, minBid: 0.7 }),
+  // Round 346 (12:15 KST 11 Nov 2026). BTC 5m after ~4 h: the real rule's twin top-lock 42 windows, 11 lone clips
+  // (26%), -$18.89; fav60-lock 24 windows, 2 lone (8%), -$0.78: the favourite-first filter cuts lone clips by two
+  // thirds but is still not green (break-even needs ~3-4%). late-lock alone did not help (6 lone in 18). This joins
+  // the two: favourite-first AND no new pair in the first 60 s, when the favourite is least settled.
+  ...base("pairfast-fav60-from60-lock", [0], 3, 1, true, { band: [0.17, 0.83], maxPairs: 1, minBid: 0.6, from: 60 }),
   // No new pair in the first 2 minutes; new pairs until 60 s before the close.
   ...base("pairfast-late-lock", [0], 3, 1, true, { band: [0.17, 0.83], maxPairs: 1, from: 120, stop: 60 }),
   // What 1-second data cannot test: pull the first-leg bid on a side the moment Binance spot has moved 1.5 bp against
