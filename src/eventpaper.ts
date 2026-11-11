@@ -16,7 +16,7 @@
  * Every rule is $5 at the real ask (walking the book), taker fee rate x p x (1-p) per share, held to settlement.
  */
 import { loadJson, saveJson } from "./store.js";
-import { eventLiveBuy, eventLiveConfig, eventLiveRows, eventLiveSettle, eventLiveSummary } from "./eventlive.js";
+import { eventLiveBusy, eventLiveBuy, eventLiveConfig, eventLiveRows, eventLiveSettle, eventLiveSummary, eventLiveStop } from "./eventlive.js";
 import { JEV_CONTEXT, headlines, jevKey, jevStake, type JevStake } from "./jev.js";
 
 const GAMMA = "https://gamma-api.polymarket.com";
@@ -1529,4 +1529,18 @@ async function main() {
     await sleep(10_000);
   }
 }
-if (process.argv[1] && /eventpaper\.ts$/.test(process.argv[1])) void main();
+/**
+ * The bot stops this process with SIGTERM on every restart. A real order that is being sent at that moment is finished
+ * first, so that its outcome is on file instead of unknown (seconds; 40 s at most), and no new one is started. With no
+ * order in flight the stop is immediate, as before.
+ */
+export function stopWhenOrderDone(exit: () => void, limitMs = 40_000, pollMs = 100) {
+  eventLiveStop();
+  const until = Date.now() + limitMs;
+  const go = () => (!eventLiveBusy() || Date.now() > until ? exit() : void setTimeout(go, pollMs));
+  go();
+}
+if (process.argv[1] && /eventpaper\.ts$/.test(process.argv[1])) {
+  process.on("SIGTERM", () => stopWhenOrderDone(() => process.exit(0)));
+  void main();
+}
