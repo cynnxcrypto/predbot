@@ -24,7 +24,8 @@
  *    is the early, honest read (top wallets about +0.8c a fill, small bots about -0.3c).
  * Result per window = payout of the side that won minus everything paid, booked only after Polymarket resolves it.
  */
-import { SERIES } from "./config.js";
+import { SERIES, type Symbol } from "./config.js";
+import { feedsFor } from "./feeds/index.js";
 import { bookFeed, type TradePrint } from "./feeds/book.js";
 import { resolution, type Book } from "./polymarket.js";
 import { currentMarket } from "./recorder.js";
@@ -37,7 +38,7 @@ const MAX_SIDE = 60; // most shares bought on one side in one window
 const FILE = "pairfast.json";
 const EPS = 1e-9;
 
-export type Spec = { name: string; key: string; offs: number[]; slack: number; maxImb: number; lock?: boolean; from: number; stop: number; band?: [number, number]; maxPairs?: number };
+export type Spec = { name: string; key: string; offs: number[]; slack: number; maxImb: number; lock?: boolean; from: number; stop: number; band?: [number, number]; maxPairs?: number; minBid?: number; pull?: { bp: number; ms: number; hold: number } };
 const ETH = "eth15m";
 const BTC5M = SERIES[0].key; // the first series is BTC 5m
 const base = (name: string, offs: number[], slack: number, maxImb: number, lock = false, more: Partial<Spec> = {}): Spec[] => [
@@ -57,6 +58,20 @@ export const PAIRFAST: Spec[] = [
   // later; the unlocked styles pay 104-107c a pair, the locked ones 97-98c but keep lone clips. This copy is the real
   // rule bidding 2c UNDER the best bid on both sides: it only fills on a sweep, but at the price the sweep ends at.
   ...base("pairfast-deep2-lock", [2], 3, 1, true, { band: [0.17, 0.83], maxPairs: 1 }),
+  // 11 Nov 2026 09:40 KST, research after the first real hours (real 13 windows: 10 pairs +$0.90, 3 lone clips -$8.12).
+  // Replay of the real rule on 10 h of 1-s books and prints (119 BTC 5m windows, 372 first fills): about 20% of first
+  // fills never get their pair, and that share does not move with volatility, price level, hour or book size. 36
+  // variants: calm-only, deeper, pair cap 95-103c, buying the other side at the ask: all red. Nearest to zero were
+  // bids 2c deep (above), first legs only on the favourite, and starting 2 minutes in. The replay is kinder than live
+  // paper, so these three run here under the strict model. `pairfast-top-lock` is their control.
+  // First leg only on the side priced 60c or more (a lone favourite clip wins more often than it loses).
+  ...base("pairfast-fav60-lock", [0], 3, 1, true, { band: [0.17, 0.83], maxPairs: 1, minBid: 0.6 }),
+  // No new pair in the first 2 minutes; new pairs until 60 s before the close.
+  ...base("pairfast-late-lock", [0], 3, 1, true, { band: [0.17, 0.83], maxPairs: 1, from: 120, stop: 60 }),
+  // What 1-second data cannot test: pull the first-leg bid on a side the moment Binance spot has moved 1.5 bp against
+  // it within 2 s (Up when spot falls, Down when it rises), and keep it out for 3 s. The cancel takes the same 250 ms
+  // as everything else, so this measures honestly whether we can step aside before the sweep arrives.
+  ...base("pairfast-pull-lock", [0], 3, 1, true, { band: [0.17, 0.83], maxPairs: 1, pull: { bp: 1.5, ms: 2000, hold: 3000 } }),
   // Three resting levels a side: best bid, 1c and 2c under.
   ...base("pairfast-lad3", [0, 1, 2], 2, 3),
   // Same, but the side that is behind never bids more than 99c minus the average paid on the other side.
@@ -168,7 +183,7 @@ export function afterGap(sim: Sim, up: Book | null, down: Book | null, now: numb
 }
 
 /** Decide cancels and new bids for both sides. `now` in ms. Call after `sync`. */
-export function quote(sim: Sim, spec: Spec, up: Book | null, down: Book | null, now: number) {
+export function quote(sim: Sim, spec: Spec, up: Book | null, down: Book | null, now: number, pulled: { U?: boolean; D?: boolean } = {}) {
   const elapsed = now / 1000 - sim.start;
   const left = sim.start + sim.windowSec - now / 1000;
   const cancel = (o: Ord) => {
@@ -191,6 +206,8 @@ export function quote(sim: Sim, spec: Spec, up: Book | null, down: Book | null, 
       const ob = (side === "U" ? down : up)?.bestBid;
       if (spec.band && (ob == null || [bid, ob].some((x) => x < spec.band![0] - EPS || x > spec.band![1] + EPS))) open = false;
       if (spec.maxPairs && Math.min(sim.inv.U, sim.inv.D) >= spec.maxPairs * CLIP - 0.01) open = false;
+      if (spec.minBid && bid < spec.minBid - EPS) open = false;
+      if (pulled[side]) open = false;
     }
     // Before `stop`: rest up to maxImb clips beyond the other side. After it: only what completes pairs already begun.
     let allowed = !open ? 0 : left >= spec.stop ? spec.maxImb * CLIP - Math.max(0, imb) : Math.max(0, -imb);
@@ -321,8 +338,29 @@ function step(key: string, now: number) {
     if (!up || !down) continue;
     sync(sim, up, down, now);
     mark(sim, up, down, now);
-    quote(sim, spec, up, down, now);
+    quote(sim, spec, up, down, now, spec.pull ? pulledNow(spec, s.symbol, now) : {});
   }
+}
+
+const pullUntil = new Map<string, { U: number; D: number; at: number }>();
+/** Which sides of a `pull` rule are stepped aside right now: spot moved `bp` against that side within `ms`. */
+function pulledNow(spec: Spec, symbol: Symbol, now: number): { U: boolean; D: boolean } {
+  const st = pullUntil.get(spec.name) ?? { U: 0, D: 0, at: 0 };
+  pullUntil.set(spec.name, st);
+  if (spec.pull && now - st.at >= 100) {
+    st.at = now;
+    const feed = feedsFor(symbol).binance;
+    const last = feed.last(3000);
+    const before = feed.at(now - spec.pull.ms);
+    // No fresh spot price: stay out on both sides rather than quote blind.
+    if (!last || !before || now - before.t > spec.pull.ms + 3000) st.U = st.D = now + spec.pull.hold;
+    else {
+      const bp = (last.price / before.price - 1) * 1e4;
+      if (bp <= -spec.pull.bp) st.U = now + spec.pull.hold;
+      if (bp >= spec.pull.bp) st.D = now + spec.pull.hold;
+    }
+  }
+  return { U: now < st.U, D: now < st.D };
 }
 
 function persist(spec: Spec, sim: Sim) {
