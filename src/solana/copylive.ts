@@ -15,7 +15,8 @@
  *    also disables it. Anything malformed means off.
  *  - Stake at most HARD_STAKE_SOL per copy. Total loss at most HARD_MAX_LOSS_SOL, counted from the wallet's real
  *    SOL balance before and after each copy (so every fee is in it). At the cap it stops for good.
- *  - One position at a time. If a position cannot be sold it halts and says so.
+ *  - One position at a time, unless the repo file sets "maxOpen" (at most HARD_MAX_OPEN; see "several coins at
+ *    once" below). If a position cannot be sold it halts new buys and says so.
  *  - Needs both API keys. Signs only transactions whose single signer is our wallet (keys.ts).
  *  - The wallet's secret stays in data/solana-wallet.json. The address, token and signatures of our trades are kept
  *    only in data/ on the server: the public status gets numbers only, nothing that identifies the wallet.
@@ -35,7 +36,12 @@ export const MAX_WALLET_SOL = 0.6;
 /** Room kept under the cap for the fees of one copy (a buy, up to six sale tries, an unclosed token account). */
 export const FEE_ROOM_SOL = 0.03;
 export const MAX_RECOVERIES = 3;
+/** The most coins held at the same time, whatever the file says (enrique, 11 Nov 2026 21:25 KST: "im cool with 5 at a time"). */
+export const HARD_MAX_OPEN = 5;
+/** With several at once: the least time between two copies starting. */
+const MANY_GAP_MS = 200;
 const STUCK = "could not sell a position: tokens are still in the wallet";
+const UNREAD = "a transaction of a finished copy could not be read back: the books may be short, so nothing new is bought";
 const STATE = () => join(DATA, "solana-copylive.json");
 const ROWS = () => join(DATA, "solana", "copylive-trades.jsonl");
 const sleep = (ms: number) => new Promise((res) => setTimeout(res, ms));
@@ -54,11 +60,13 @@ export interface LiveConfig {
    * every buy. Decided from the quote, before anything is signed, so a skipped buy costs nothing.
    */
   minGapPct: number;
+  /** how many coins may be held at the same time; 1 = one copy at a time, counted from the wallet's balance as before */
+  maxOpen: number;
   slippageBps: number;
   /** most we will pay in priority fee per transaction, lamports */
   maxFeeLamports: number;
 }
-const OFF: LiveConfig = { on: false, stakeSol: 0, maxLossSol: 0, holdSec: 5, targetPct: 0, maxPerDay: 0, minGapPct: 0, slippageBps: 1500, maxFeeLamports: 0 };
+const OFF: LiveConfig = { on: false, stakeSol: 0, maxLossSol: 0, holdSec: 5, targetPct: 0, maxPerDay: 0, minGapPct: 0, maxOpen: 1, slippageBps: 1500, maxFeeLamports: 0 };
 const num = (v: unknown, d: number) => (typeof v === "number" && Number.isFinite(v) ? v : d);
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 
@@ -78,6 +86,7 @@ export function parseLive(text: string): LiveConfig {
       // No daily count unless the repo file sets one; the 0.5 SOL loss cap is the stop.
       maxPerDay: p.maxPerDay == null ? Number.MAX_SAFE_INTEGER : clamp(Math.floor(num(p.maxPerDay, 80)), 1, 1_000_000),
       minGapPct: clamp(num(p.minGapPct, 0), 0, 50),
+      maxOpen: clamp(Math.floor(num(p.maxOpen, 1)), 1, HARD_MAX_OPEN),
       slippageBps: clamp(Math.floor(num(p.slippageBps, 1500)), 100, 3000),
       maxFeeLamports: clamp(Math.floor(num(p.maxFeeLamports, 1_000_000)), 10_000, 2_000_000),
     };
@@ -124,8 +133,13 @@ export interface Row {
   bestPct?: number;
   /** sales tried at the target (one that fails, because the price fell back first, costs a fee and the watch goes on) */
   targetTries?: number;
-  /** wallet balance after minus before: the true result, every fee included */
+  /**
+   * The true result, every fee included. One at a time: the wallet's balance after minus before. Several at once:
+   * what this copy's own transactions did to the wallet's SOL, read back from the chain.
+   */
   netSol: number;
+  /** several at once: transactions of this copy that landed but could not be read back (their SOL is not in netSol) */
+  unread?: number;
   /** follower transactions that landed in an earlier slot than ours / no later than ours */
   ahead?: [number, number];
   error?: string;
@@ -151,13 +165,43 @@ interface State {
   spareClosed: number;
   /** a copy that is under way or could not be closed: the token, the balance it is counted from, when, clean-up tries */
   open: { mint: string; bal0: number; t: number; tries: number; worthSol?: number; nowPct?: number; bestPct?: number } | null;
+  /** several at once: the copies that are out. Each keeps the ids of its transactions not yet counted, so a restart can finish and count it. */
+  opens: OpenPos[];
+  /** several at once: the wallet's balance with nothing out, less the result so far; and wallet minus books at the last look with nothing out */
+  baseSol: number | null;
+  driftSol: number | null;
+  /** buys let go because that coin was already held, and because the open copies left no room under the loss cap */
+  missedSame: number;
+  missedCap: number;
+  unreadTx: number;
   rows: Row[];
 }
-const fresh = (): State => ({ netSol: 0, trades: 0, day: "", dayCount: 0, halted: "", note: "", balanceSol: null, skippedLowGap: 0, skippedNoPrice: 0, missedBusy: 0, missedSpacing: 0, rentBackSol: 0, spareClosed: 0, open: null, rows: [] });
+interface OpenPos {
+  mint: string;
+  t: number;
+  tries: number;
+  sigs: string[];
+  /** the coin is sold and its account closed; only `sigs` (landed, not readable yet) are still to be counted, into the row that began at rowT */
+  done?: boolean;
+  rowT?: number;
+  worthSol?: number;
+  nowPct?: number;
+  bestPct?: number;
+}
+const fresh = (): State => ({ netSol: 0, trades: 0, day: "", dayCount: 0, halted: "", note: "", balanceSol: null, skippedLowGap: 0, skippedNoPrice: 0, missedBusy: 0, missedSpacing: 0, rentBackSol: 0, spareClosed: 0, open: null, opens: [], baseSol: null, driftSol: null, missedSame: 0, missedCap: 0, unreadTx: 0, rows: [] });
 let state: State = fresh();
 let loaded = false;
 let busy = false;
 let lastAt = 0;
+/** several at once: copies between their start and their marker being written; the coins they are for */
+let entering = 0;
+const enteringMints = new Set<string>();
+/** open copies that a running flow is looking after (the rest are left from a restart or a sale that failed) */
+const live = new Set<OpenPos>();
+let recovering = false;
+let recoverWaitMs = 5000;
+/** the clean-up of empty token accounts is running: no copy starts meanwhile */
+let sweeping = false;
 let walletReady = false;
 let walletError = "";
 
@@ -171,6 +215,7 @@ function load() {
   }
   try {
     state = { ...state, ...(JSON.parse(text) as State) };
+    if (!Array.isArray(state.opens)) state.opens = [];
   } catch {
     // a file that is there but unreadable must never restart the loss count from zero
     state.halted = "the state file could not be read: the loss count is unknown, so nothing trades";
@@ -253,6 +298,7 @@ async function sellAll(w: Wallet, mint: string, maxFee: number, row: Row): Promi
       if (!q2.outAmount) throw new Error("no sell quote");
       const tx = signTransaction(await swapTx(q2, w.address, maxFee), w);
       row.sigs.push(sigOf(tx));
+      if (state.opens.length) save(); // several at once: a restart must know every transaction of an open copy
       // a send whose answer got lost may still have gone out: the next pass looks at the wallet, never assumes
       await send(tx).catch((e) => void (row.error = scrub(String((e as Error).message))));
       await landed(sigOf(tx), 12_000);
@@ -287,7 +333,7 @@ export const MAX_TARGET_TRIES = 3;
  * True = sold here. False = the time is up (or nothing could be priced): the caller sells at whatever the price is.
  * Never throws.
  */
-async function watch(w: Wallet, mint: string, amount: bigint, c: LiveConfig, row: Row, until: number): Promise<boolean> {
+async function watch(w: Wallet, mint: string, amount: bigint, c: LiveConfig, row: Row, until: number, pos?: OpenPos): Promise<boolean> {
   while (Date.now() < until) {
     const t = Date.now();
     try {
@@ -296,12 +342,14 @@ async function watch(w: Wallet, mint: string, amount: bigint, c: LiveConfig, row
       if (out > 0 && c.stakeSol > 0) {
         const up = (out / 1e9 / c.stakeSol - 1) * 100;
         row.bestPct = Math.round(Math.max(row.bestPct ?? -100, up) * 10) / 10;
-        if (state.open) state.open = { ...state.open, worthSol: Math.round(out / 1e3) / 1e6, nowPct: Math.round(up * 10) / 10, bestPct: row.bestPct };
+        if (pos) Object.assign(pos, { worthSol: Math.round(out / 1e3) / 1e6, nowPct: Math.round(up * 10) / 10, bestPct: row.bestPct });
+        else if (state.open) state.open = { ...state.open, worthSol: Math.round(out / 1e3) / 1e6, nowPct: Math.round(up * 10) / 10, bestPct: row.bestPct };
         if (c.targetPct > 0 && up >= c.targetPct && (row.targetTries ?? 0) < MAX_TARGET_TRIES) {
           row.targetTries = (row.targetTries ?? 0) + 1;
           row.sellTries = (row.sellTries ?? 0) + 1;
           const tx = signTransaction(await swapTx(q, w.address, c.maxFeeLamports), w);
           row.sigs.push(sigOf(tx));
+          if (state.opens.length) save();
           // as with every send: an answer that got lost proves nothing, so the wallet is looked at afterwards
           await send(tx).catch((e) => void (row.error = scrub(String((e as Error).message))));
           await landed(sigOf(tx), 8000);
@@ -348,13 +396,23 @@ const noClose = new Set<string>();
  * refuses to close one that holds anything. Best effort; returns how many were closed.
  */
 async function closeSpare(w: Wallet, sigs: string[]): Promise<number> {
-  type Acc = { pubkey: string; account: { owner: string; data: { parsed: { info: { state?: string; tokenAmount: { amount: string } } } } } };
+  sweeping = true;
+  try {
+    return await closeSpareNow(w, sigs);
+  } finally {
+    sweeping = false;
+  }
+}
+async function closeSpareNow(w: Wallet, sigs: string[]): Promise<number> {
+  type Acc = { pubkey: string; account: { owner: string; data: { parsed: { info: { mint?: string; state?: string; tokenAmount: { amount: string } } } } } };
   const empty: { pubkey: string; program: string }[] = [];
+  // never the account of a coin that is out or being bought at this moment: its buy may be built on that account
+  const inUse = (mint?: string) => !!mint && (state.open?.mint === mint || enteringMints.has(mint) || state.opens.some((o) => o.mint === mint));
   for (const programId of TOKEN_PROGRAMS) {
     const r = await rpc<{ value: Acc[] }>("getTokenAccountsByOwner", [w.address, { programId }, { encoding: "jsonParsed", commitment: "confirmed" }]).catch(() => null);
     for (const a of r?.value ?? []) {
       const info = a.account.data.parsed.info;
-      if (info.tokenAmount.amount === "0" && info.state !== "frozen" && !noClose.has(a.pubkey)) empty.push({ pubkey: a.pubkey, program: a.account.owner });
+      if (info.tokenAmount.amount === "0" && info.state !== "frozen" && !noClose.has(a.pubkey) && !inUse(info.mint)) empty.push({ pubkey: a.pubkey, program: a.account.owner });
     }
   }
   if (!empty.length) return 0;
@@ -386,7 +444,7 @@ async function closeSpare(w: Wallet, sigs: string[]): Promise<number> {
  */
 export async function tidy() {
   if (!loaded) load();
-  if (!cfg().on || busy || state.open || !walletReady || !shared.helius()) return;
+  if (!cfg().on || busy || state.open || state.opens.length || entering || recovering || !walletReady || !shared.helius()) return;
   busy = true;
   try {
     const w = wallet();
@@ -395,10 +453,10 @@ export async function tidy() {
     if (!n) return;
     await sleep(800);
     const bal1 = await balance(w.address);
-    const back = Math.round((bal1 - bal0) * 1e6) / 1e6;
+    const back = Math.round((bal1 - bal0) * 1e9) / 1e9;
     state.balanceSol = bal1;
-    state.netSol = Math.round((state.netSol + back) * 1e6) / 1e6;
-    state.rentBackSol = Math.round(((state.rentBackSol ?? 0) + back) * 1e6) / 1e6;
+    state.netSol = Math.round((state.netSol + back) * 1e9) / 1e9;
+    state.rentBackSol = Math.round(((state.rentBackSol ?? 0) + back) * 1e9) / 1e9;
     state.spareClosed = (state.spareClosed ?? 0) + n;
   } catch {
     /* nothing booked: the balance could not be read, and the next copy's own count starts from the chain anyway */
@@ -437,8 +495,9 @@ export async function trade(b: StreamBuy) {
   if (!loaded) load();
   const c = cfg();
   if (!c.on || state.halted || !walletReady) return;
+  if (c.maxOpen > 1) return tradeMany(b, c);
   // one copy at a time: a buy that comes while another copy is under way is let go, and counted
-  if (state.open || busy) return void (state.missedBusy = (state.missedBusy ?? 0) + 1);
+  if (state.open || busy || state.opens.length || recovering) return void (state.missedBusy = (state.missedBusy ?? 0) + 1);
   if (!shared.helius() || !shared.jupiter()) return void (state.note = "needs both API keys");
   if (Date.now() - lastAt < 10_000) return void (state.missedSpacing = (state.missedSpacing ?? 0) + 1);
   const day = dayOf(Date.now());
@@ -618,6 +677,300 @@ export async function recover() {
   }
 }
 
+
+// ---- several coins at once -----------------------------------------------------------------------------------------
+// enrique, 11 Nov 2026 21:25 KST: "im cool with 5 at a time ... feels like if we limit the amount of positions open,
+// we skip a lot ... we have to test". Switched on by "maxOpen" above 1 in the repo file; with 1 nothing here runs.
+//
+// What changes against one at a time:
+//  - The result of a copy can no longer be "the wallet after minus before", because other copies move the balance
+//    in between. It is read back from the chain instead: for each of the copy's own transactions that landed (the
+//    buy, every sale try, the account close), the wallet's SOL after minus before that transaction. A transaction
+//    that never landed cost nothing.
+//  - The books are still checked against the wallet: whenever nothing is out, wallet minus (start + result so far)
+//    is kept as driftSol and shown (booksVsWalletSol). It is shown, never folded in: money somebody sends to the
+//    wallet must not turn into profit or lift the cap.
+//  - The loss cap must hold even if every copy that is out, and the new one, is lost in full, so the number of
+//    copies that may be out shrinks as the loss grows. With nothing out the rule is the same as before.
+//  - One copy of a coin at a time: a sale sells all of that coin the wallet holds.
+type TxRead = { meta: { preBalances: number[]; postBalances: number[] } | null; transaction: { message: { accountKeys: (string | { pubkey: string })[] } } };
+/** What these transactions of ours did to the wallet's SOL (fees and rent included), and how many that landed could not be read. */
+async function booked(w: Wallet, sigs: string[]): Promise<{ sol: number; unread: string[] }> {
+  const list = [...new Set(sigs)];
+  if (!list.length) return { sol: 0, unread: [] };
+  let st: { value: (unknown | null)[] } | null = null;
+  for (let k = 0; k < 4 && !st; k++) {
+    st = await rpc<{ value: (unknown | null)[] }>("getSignatureStatuses", [list, { searchTransactionHistory: true }]).catch(() => null);
+    if (!st) await sleep(400);
+  }
+  if (!st) return { sol: 0, unread: list };
+  let lamports = 0;
+  const unread: string[] = [];
+  for (let i = 0; i < list.length; i++) {
+    if (!st.value[i]) continue; // never landed: it cost nothing
+    let d: number | null = null;
+    for (let k = 0; k < 8 && d === null; k++) {
+      const tx = await rpc<TxRead | null>("getTransaction", [list[i], { encoding: "json", maxSupportedTransactionVersion: 1, commitment: "confirmed" }]).catch(() => null);
+      const at = tx?.meta ? tx.transaction.message.accountKeys.map((x) => (typeof x === "string" ? x : x.pubkey)).indexOf(w.address) : -1;
+      if (tx?.meta && at >= 0) d = tx.meta.postBalances[at] - tx.meta.preBalances[at];
+      else await sleep(400);
+    }
+    if (d === null) unread.push(list[i]);
+    else lamports += d;
+  }
+  return { sol: Math.round(lamports) / 1e9, unread }; // to the lamport: these books are checked against the wallet
+}
+
+/**
+ * Add a copy's own transactions to the books. Returns the ids of those that landed but could not be read back yet:
+ * the caller leaves them on the copy's marker, and the next pass over left-over copies reads and counts them, so
+ * the books cannot stay short of the chain.
+ */
+async function book(w: Wallet, row: Row, sigs: string[] = row.sigs): Promise<string[]> {
+  const r = await booked(w, sigs);
+  row.netSol = r.sol;
+  if (r.unread.length) {
+    row.unread = r.unread.length;
+    state.unreadTx = (state.unreadTx ?? 0) + r.unread.length;
+  }
+  state.netSol = Math.round((state.netSol + row.netSol) * 1e9) / 1e9;
+  return r.unread;
+}
+
+/** With nothing out: how far the wallet is from the books. Only looked at, never corrected. */
+async function check(w: Wallet) {
+  if (state.opens.length || entering || state.baseSol == null) return;
+  const bal = await balance(w.address).catch(() => null);
+  if (bal === null || state.opens.length || entering) return;
+  state.balanceSol = bal;
+  state.driftSol = Math.round((bal - state.baseSol - state.netSol) * 1e9) / 1e9;
+}
+
+/** One real copy while others may be out. Never throws. */
+async function tradeMany(b: StreamBuy, c: LiveConfig) {
+  // a copy from before the switch, the clean-up, or left-over copies being finished: wait for them
+  if (state.open || busy || recovering || sweeping) return void (state.missedBusy = (state.missedBusy ?? 0) + 1);
+  if (state.opens.length + entering >= c.maxOpen) return void (state.missedBusy = (state.missedBusy ?? 0) + 1);
+  if (enteringMints.has(b.mint) || state.opens.some((o) => o.mint === b.mint)) return void (state.missedSame = (state.missedSame ?? 0) + 1);
+  if (!shared.helius() || !shared.jupiter()) return void (state.note = "needs both API keys");
+  if (Date.now() - lastAt < MANY_GAP_MS) return void (state.missedSpacing = (state.missedSpacing ?? 0) + 1);
+  const day = dayOf(Date.now());
+  if (day !== state.day) {
+    state.day = day;
+    state.dayCount = 0;
+  }
+  if (state.dayCount >= c.maxPerDay) return void (state.note = "daily count reached");
+  if (state.note === "daily count reached") state.note = "";
+  const out = state.opens.length + entering;
+  if (-state.netSol + c.stakeSol + FEE_ROOM_SOL > c.maxLossSol) {
+    // the same stop as one at a time; set once nothing is out, so the open copies are finished first
+    if (!out) {
+      state.halted = `loss cap reached: ${(-state.netSol).toFixed(4)} of ${c.maxLossSol} SOL`;
+      save();
+    }
+    return;
+  }
+  // every copy that is out, and this one, lost in full: the cap must still hold
+  if (-state.netSol + (out + 1) * (c.stakeSol + FEE_ROOM_SOL) > c.maxLossSol) return void (state.missedCap = (state.missedCap ?? 0) + 1);
+  entering++;
+  enteringMints.add(b.mint);
+  let queued = true;
+  const leave = () => {
+    if (!queued) return;
+    queued = false;
+    entering--;
+    enteringMints.delete(b.mint);
+  };
+  const prevAt = lastAt;
+  lastAt = Date.now();
+  const w = wallet();
+  const row: Row = { t: Date.now(), name: b.name, mint: b.mint, leaderSlot: b.leaderSlot, buy: "not sent", netSol: 0, sigs: [] };
+  let pos: OpenPos | null = null;
+  let closed = true;
+  try {
+    const bal0 = await balance(w.address);
+    state.balanceSol = bal0;
+    if (bal0 < c.stakeSol + 0.02) {
+      state.note = "wallet balance too low for a copy";
+      return;
+    }
+    if (bal0 > MAX_WALLET_SOL) {
+      state.note = `the wallet holds more than ${MAX_WALLET_SOL} SOL: not trading until the extra is taken out`;
+      return;
+    }
+    // the start the books are checked against: the balance with nothing out, less the result so far
+    if (state.baseSol == null && !state.opens.length && entering === 1) state.baseSol = Math.round((bal0 - state.netSol) * 1e9) / 1e9;
+    state.note = "";
+    const t0 = performance.now();
+    const q = await quote(SOL, b.mint, String(Math.round(c.stakeSol * 1e9)), c.slippageBps);
+    if (!q.outAmount || q.outAmount === "0") throw new Error("no buy quote");
+    const gap = b.leaderPrice > 0 && b.decimals !== undefined ? (c.stakeSol / (Number(q.outAmount) / 10 ** b.decimals) / b.leaderPrice - 1) * 100 : null;
+    if (gap !== null && Number.isFinite(gap)) row.quoteGapPct = Math.round(gap * 100) / 100;
+    if (c.minGapPct > 0 && !(row.quoteGapPct !== undefined && row.quoteGapPct >= c.minGapPct)) {
+      if (row.quoteGapPct === undefined) state.skippedNoPrice++;
+      else state.skippedLowGap++;
+      lastAt = prevAt;
+      return;
+    }
+    const t1 = performance.now();
+    const tx = signTransaction(await swapTx(q, w.address, c.maxFeeLamports), w);
+    const t2 = performance.now();
+    const sig = sigOf(tx);
+    // written to disk before the order leaves, with the order's id: a restart finds it, sells, and counts it
+    row.sigs.push(sig);
+    pos = { mint: b.mint, t: Date.now(), tries: 0, sigs: row.sigs };
+    state.opens.push(pos);
+    live.add(pos);
+    state.trades++;
+    state.dayCount++;
+    save();
+    leave();
+    row.sentSlot = shared.slot();
+    await send(tx).catch((e) => void (row.error = scrub(String((e as Error).message))));
+    row.quoteMs = Math.round(t1 - t0);
+    row.buildMs = Math.round(t2 - t1);
+    row.sendMs = Math.round(performance.now() - t2);
+    row.pipelineMs = Date.now() - b.knownMs;
+    const st = await landed(sig, 20_000);
+    if (st && !st.err) {
+      row.buy = "landed";
+      row.landSlot = st.slot;
+      row.slotsBehind = st.slot - b.leaderSlot;
+    } else {
+      row.buy = st ? "failed on chain" : "did not land";
+      if (!st) await sleep(45_000); // its blockhash can still be valid: make sure it did not land late
+    }
+    let h = await held(w.address, b.mint);
+    for (let i = 0; i < 10 && row.buy === "landed" && h.amount === 0n; i++) {
+      await sleep(300);
+      h = await held(w.address, b.mint);
+    }
+    if (h.amount > 0n) {
+      if (b.leaderPrice > 0) row.fillGapPct = Math.round((c.stakeSol / (Number(h.amount) / 10 ** h.decimals) / b.leaderPrice - 1) * 10000) / 100;
+      const heldFrom = Date.now();
+      if (await watch(w, b.mint, h.amount, c, row, heldFrom + c.holdSec * 1000, pos)) row.sold = true;
+      else {
+        if (c.targetPct > 0) row.exit = "time";
+        row.sold = await sellAll(w, b.mint, c.maxFeeLamports, row);
+      }
+      row.heldSec = Math.round((Date.now() - heldFrom) / 100) / 10;
+      if (!row.sold) {
+        closed = false;
+        state.halted = STUCK;
+      }
+    }
+    if (closed) {
+      await closeEmpty(w, b.mint, row);
+      // the left-over accounts of routed swaps: only when this is the last copy out
+      if (state.opens.length === 1 && !entering) await closeSpare(w, row.sigs).catch(() => 0);
+    }
+  } catch (e) {
+    row.error = scrub(String((e as Error).message));
+    if (pos) {
+      const left = await held(w.address, b.mint).catch(() => null);
+      if (!left || left.amount > 0n || (row.buy !== "failed on chain" && row.buy !== "did not land")) {
+        closed = false;
+        state.halted = STUCK;
+      }
+    }
+  } finally {
+    leave();
+    if (pos) {
+      const mine = pos;
+      await sleep(800);
+      // counted up to here; what could not be read stays on the marker, and whoever finishes it counts the rest
+      const later = await book(w, row, [...row.sigs]).catch(() => [...row.sigs]);
+      mine.sigs = later;
+      if (closed && !later.length) state.opens = state.opens.filter((o) => o !== mine);
+      else if (closed) Object.assign(mine, { done: true, rowT: row.t });
+      live.delete(mine);
+      if (state.opens.includes(mine)) setTimeout(() => void recoverMany(), 20_000).unref();
+    }
+    if (pos || row.error) keep(row);
+    save();
+    await check(w).catch(() => undefined);
+    save();
+  }
+  if (row.landSlot) {
+    void (async () => {
+      await sleep(Math.max(0, b.knownMs + 75_000 - Date.now()));
+      const wave = await shared.waveAfter(b.mint, b.sig, b.leaderSlot).catch(() => null);
+      if (!wave) return;
+      const ok = wave.filter((x) => x.ok && !row.sigs.includes(x.sig));
+      row.ahead = [ok.filter((x) => x.slot < row.landSlot!).length, ok.filter((x) => x.slot <= row.landSlot!).length];
+      save();
+    })();
+  }
+}
+
+/** Finish the copies no running flow is looking after: left from a restart, or whose sale failed. One after the other. */
+export async function recoverMany() {
+  if (!loaded) load();
+  if (recovering || busy || !walletReady) return;
+  const left = state.opens.filter((o) => !live.has(o));
+  if (!left.length) return;
+  recovering = true;
+  try {
+    for (const o of left) {
+      if (o.done) {
+        // sold and closed already: only read what could not be read then, and add it to that copy's own row
+        o.tries++;
+        const r = await booked(wallet(), o.sigs);
+        const row = state.rows.find((x) => x.t === o.rowT && x.mint === o.mint);
+        if (row) {
+          row.netSol = Math.round((row.netSol + r.sol) * 1e9) / 1e9;
+          if (r.unread.length) row.unread = r.unread.length;
+          else delete row.unread;
+        }
+        state.netSol = Math.round((state.netSol + r.sol) * 1e9) / 1e9;
+        o.sigs = r.unread;
+        if (!r.unread.length) state.opens = state.opens.filter((x) => x !== o);
+        else if (o.tries >= MAX_RECOVERIES) state.halted = state.halted || UNREAD;
+        save();
+        continue;
+      }
+      if (o.tries >= MAX_RECOVERIES) {
+        state.halted = state.halted || STUCK;
+        continue;
+      }
+      // the row and the marker share one list, so every new transaction id is on disk before it is sent
+      const row: Row = { t: Date.now(), name: "", mint: o.mint, leaderSlot: 0, buy: "interrupted", netSol: 0, sigs: o.sigs };
+      try {
+        // the interrupted buy may still be on its way: wait until it can no longer land
+        await sleep(Math.max(recoverWaitMs, o.t + 90_000 - Date.now()));
+        if (!shared.helius() || !shared.jupiter()) {
+          state.note = "a copy was interrupted and needs both API keys to be finished";
+          continue;
+        }
+        const w = wallet();
+        o.tries++;
+        save();
+        row.sold = await sellAll(w, o.mint, 1_000_000, row);
+        if (row.sold) await closeEmpty(w, o.mint, row);
+        await sleep(800);
+        const later = await book(w, row, [...row.sigs]);
+        row.sigs = [...row.sigs];
+        o.sigs = later;
+        if (row.sold && !later.length) state.opens = state.opens.filter((x) => x !== o);
+        else if (row.sold) Object.assign(o, { done: true, rowT: row.t });
+        if (!row.sold) state.halted = STUCK;
+        keep(row);
+      } catch (e) {
+        row.error = scrub(String((e as Error).message));
+        state.halted = state.halted || STUCK;
+      }
+      save();
+    }
+    if (!state.opens.length && (state.halted === STUCK || state.halted === UNREAD || state.halted.startsWith("could not read the wallet balance"))) state.halted = "";
+    await check(wallet()).catch(() => undefined);
+  } finally {
+    save();
+    recovering = false;
+  }
+}
+
+const openOf = (o: { t: number; tries: number; worthSol?: number; nowPct?: number; bestPct?: number } | null, c: LiveConfig) =>
+  o ? { stakeSol: c.stakeSol || HARD_STAKE_SOL, heldSec: Math.max(0, Math.round((Date.now() - o.t) / 1000)), tries: o.tries, worthSol: o.worthSol ?? null, nowPct: o.nowPct ?? null, bestPct: o.bestPct ?? null } : null;
 const med = (xs: number[]) => (xs.length ? [...xs].sort((a, b) => a - b)[(xs.length - 1) >> 1] : null);
 const nums = (xs: (number | undefined)[]) => xs.filter((x): x is number => typeof x === "number");
 
@@ -643,7 +996,10 @@ export function solanaCopyLiveSummary() {
     capSol: c.maxLossSol || HARD_MAX_LOSS_SOL,
     netSol: state.netSol,
     balanceSol: state.balanceSol,
-    openPosition: state.open != null,
+    openPosition: state.open != null || state.opens.length > 0,
+    // how many coins may be held at once, and how many are out now
+    maxOpen: c.maxOpen,
+    openCount: (state.open ? 1 : 0) + state.opens.length,
     entryRule: c.minGapPct > 0 ? `buys only when our price is already ${c.minGapPct}% or more above what the wallet paid` : "buys every first buy of a listed wallet",
     skippedLowGap: state.skippedLowGap,
     skippedNoPrice: state.skippedNoPrice,
@@ -660,7 +1016,18 @@ export function solanaCopyLiveSummary() {
      * left out on purpose: a token and a moment are enough to find our transaction, and with it the wallet.
      * worthSol = what selling it all would bring back at the last look.
      */
-    open: state.open ? { stakeSol: c.stakeSol || HARD_STAKE_SOL, heldSec: Math.max(0, Math.round((Date.now() - state.open.t) / 1000)), tries: state.open.tries, worthSol: state.open.worthSol ?? null, nowPct: state.open.nowPct ?? null, bestPct: state.open.bestPct ?? null } : null,
+    open: openOf(state.open ?? state.opens[0] ?? null, c),
+    /** several at once: every coin that is out, oldest first, in the same numbers (no token) */
+    opens: (state.open ? [state.open, ...state.opens] : state.opens).map((o) => openOf(o, c)),
+    /**
+     * Several at once: wallet minus books (start + result so far) at the last look with nothing out. 0 = every
+     * lamport is accounted for. Not the balance itself. unreadTx = transactions that had to be read back later.
+     */
+    booksVsWalletSol: state.driftSol ?? null,
+    unreadTx: state.unreadTx ?? 0,
+    // buys let go because that coin was already held / because the open copies left no room under the loss cap
+    missedSameCoin: state.missedSame ?? 0,
+    missedNearCap: state.missedCap ?? 0,
     targetExit: {
       copies: aimed.length,
       atTarget: aimed.filter((r) => r.exit === "target").length,
@@ -682,6 +1049,8 @@ export function solanaCopyLiveSummary() {
     quoteMsMedian: med(nums(rows.map((r) => r.quoteMs))),
     buildMsMedian: med(nums(rows.map((r) => r.buildMs))),
     sendMsMedian: med(nums(rows.map((r) => r.sendMs))),
+    // copies whose last error was a refusal for asking too fast (several coins priced at once ask more often)
+    rateLimited: rows.filter((r) => /http 429/.test(r.error ?? "")).length,
     fillGapPctMedian: med(nums(land.map((r) => r.fillGapPct))),
     quoteGapPctMedian: med(nums(land.map((r) => r.quoteGapPct))),
     // `at` (when the copy started) is for the password-protected dashboard only: deploy/report.py takes it off the
@@ -704,9 +1073,14 @@ export function startSolanaCopyLive() {
   }
   onStreamBuy((b) => void trade(b));
   if (walletReady && state.open) void recover();
+  else if (walletReady && state.opens.length) void recoverMany();
   else if (walletReady) setTimeout(() => void tidy(), 20_000).unref();
   // a position that could not be closed is tried again every 10 minutes (at most MAX_RECOVERIES times in all)
-  setInterval(() => void (walletReady && state.open && !busy && recover()), 600_000).unref();
+  setInterval(() => {
+    if (!walletReady || busy) return;
+    if (state.open) void recover();
+    else if (state.opens.some((o) => !live.has(o))) void recoverMany();
+  }, 600_000).unref();
   return null;
 }
 
@@ -718,7 +1092,13 @@ export const _test = {
     loaded = true;
     busy = false;
     lastAt = 0;
+    entering = 0;
+    enteringMints.clear();
+    live.clear();
+    recovering = false;
+    sweeping = false;
   },
+  setRecoverWait: (ms: number) => (recoverWaitMs = ms),
   state: () => state,
   ready: () => {
     wallet();
@@ -726,6 +1106,7 @@ export const _test = {
   },
   watch,
   closeSpare,
+  booked,
   forgetCloses: () => noClose.clear(),
   setPoll: (ms: number) => (pollMs = ms),
 };
