@@ -331,6 +331,10 @@ export function replayOf(lead: At & { mint: string }, after: Item[]): ReplayRow 
 /** The replayed buys put together: at each hold how many copies ended above zero, the typical and the average return. */
 export function replaySummary(rows: ReplayRow[], checked = rows.length) {
   const pct = (x: number | null) => (x === null ? null : Math.round(x * 1e4) / 100);
+  // the cap again, here: rows stored by an older version of the replay were not capped, and one misread price
+  // (a return of ten million times) is enough to make an average meaningless
+  const cap = (v: number) => (Number.isFinite(v) ? Math.max(-1, Math.min(10, v)) : 0);
+  rows = rows.map((r) => ({ ...r, rets: r.rets.map(cap), ...(r.hard ? { hard: r.hard.map(cap) } : {}) }));
   const cell = (rs: number[]) => ({ n: rs.length, won: rs.filter((v) => v > 0).length, medianPct: pct(median(rs)), avgPct: rs.length ? pct(rs.reduce((a, b) => a + b, 0) / rs.length) : null });
   const i60 = REPLAY_SECS.indexOf(60);
   const target = (rs: number[]) => rs.slice(0, i60 + 1).find((v) => v >= 0.1) ?? rs[i60];
@@ -815,6 +819,7 @@ export function seedWallets(): Tracked[] {
 /** Public: short tags only, never a full address of a linked wallet. */
 export function linksSummary() {
   const all = judged();
+  const now = all.filter((x) => x.r.v === VERSION);
   return {
     note: `For each seed wallet (public fomo traders): MONEY = plain transfers of SOL, dollars or coins with another wallet, also one step further; TIMING = wallets that started holding the same coin in the half hour before the seed bought it, on 3+ coins. Each such wallet is then read itself: shared = coins both bought, before = it bought first (beforeWithin1h: within the hour before), soldInto = it sold within half an hour after the seed's buy, overlapPct = share of its own coins that the seed also bought. "likely" = a money link AND first on 3+ shared coins (twice as often as second). A money link = 2+ plain transfers, or one of $${BIG_USD}+ or ${BIG_SOL}+ SOL. Evidence, not proof of ownership. Looks back up to ${DAYS_BACK} days: daysRead says how far the read naming the wallet and the read of its dollar accounts each got, daysCovered is the shorter of the two, buysFromDaysAgo is how old its newest and oldest buy in the read are. transactionsRead = [naming the wallet, touching its dollar accounts, a short stretch of all its token accounts]; a coin received for nothing is not a money link. Wallets shown as short tags.`,
     state: health.state,
@@ -824,10 +829,11 @@ export function linksSummary() {
     likely: all.reduce((a, s) => a + s.linked.filter((l) => l.verdict === "likely").length, 0),
     possible: all.reduce((a, s) => a + s.linked.filter((l) => l.verdict.startsWith("possible")).length, 0),
     /** all seeds' replayed buys together */
-    replay: { note: REPLAY_NOTE, ...replaySummary(all.flatMap((s) => s.r.replay ?? []), all.reduce((a, s) => a + s.r.checked, 0)) },
+    // only seeds read by this version: an older read priced the replay differently, and is being redone
+    replay: { note: REPLAY_NOTE, seedsIn: now.length, ...replaySummary(now.flatMap((s) => s.r.replay ?? []), now.reduce((a, s) => a + s.r.checked, 0)) },
     seeds: all.map((s) => ({
       name: s.name, address: s.address, redo: s.r.v !== VERSION, transactionsRead: s.r.read ?? null, daysCovered: s.r.days, daysRead: s.r.reach ? { own: s.r.reach[0], dollar: s.r.reach[1] } : null, buysFromDaysAgo: s.r.span ?? null, coinsBought: s.r.buys, paidInDollars: s.r.buysUsd, paidInSol: s.r.buysSol,
-      buysChecked: s.r.checked, newHolders30sBefore: s.r.before30, newHolders30sAfter: s.r.after30, replay: { ...replaySummary(s.r.replay ?? [], s.r.checked), noRecordAfter: s.r.noRecord ?? null },
+      buysChecked: s.r.checked, newHolders30sBefore: s.r.before30, newHolders30sAfter: s.r.after30, replay: s.r.v === VERSION ? { ...replaySummary(s.r.replay ?? [], s.r.checked), noRecordAfter: s.r.noRecord ?? null } : null,
       linked: s.linked.slice(0, 20).map(({ address, through, ...l }) => ({ wallet: tag(address), ...(through ? { through: tag(through) } : {}), ...l })),
     })),
     calls: health.calls,
