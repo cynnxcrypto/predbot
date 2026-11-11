@@ -66,6 +66,12 @@ export const PAIRFAST: Spec[] = [
   // paper, so these three run here under the strict model. `pairfast-top-lock` is their control.
   // First leg only on the side priced 60c or more (a lone favourite clip wins more often than it loses).
   ...base("pairfast-fav60-lock", [0], 3, 1, true, { band: [0.17, 0.83], maxPairs: 1, minBid: 0.6 }),
+  // Round 345 (11:10 KST 11 Nov 2026). After ~3 h under the strict model the two styles with the fewest lone clips on
+  // BTC 5m were fav60-lock (13 windows, 0 lone clips, +$1.62) and deep2-lock (18 windows, 2 lone, -$3.06); the real
+  // rule's twin top-lock had 7 lone clips in 30 windows (-$9.47), real 5 in 30 (-$9.44). Samples are small. These
+  // two join the ideas: first leg only on the favourite AND 2c under the best bid; and a stricter favourite (70c+).
+  ...base("pairfast-fav60-deep2-lock", [2], 3, 1, true, { band: [0.17, 0.83], maxPairs: 1, minBid: 0.6 }),
+  ...base("pairfast-fav70-lock", [0], 3, 1, true, { band: [0.17, 0.83], maxPairs: 1, minBid: 0.7 }),
   // No new pair in the first 2 minutes; new pairs until 60 s before the close.
   ...base("pairfast-late-lock", [0], 3, 1, true, { band: [0.17, 0.83], maxPairs: 1, from: 120, stop: 60 }),
   // What 1-second data cannot test: pull the first-leg bid on a side the moment Binance spot has moved 1.5 bp against
