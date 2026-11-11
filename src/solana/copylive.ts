@@ -53,6 +53,7 @@ const STATE = () => join(DATA, "solana-copylive.json");
 const ROWS = () => join(DATA, "solana", "copylive-trades.jsonl");
 const sleep = (ms: number) => new Promise((res) => setTimeout(res, ms));
 
+export type TraderRule = "all" | "cut-bad" | "good-only";
 export interface LiveConfig {
   on: boolean;
   stakeSol: number;
@@ -76,11 +77,18 @@ export interface LiveConfig {
   minGapPct: number;
   /** how many coins may be held at the same time; 1 = one copy at a time, counted from the wallet's balance as before */
   maxOpen: number;
+  /**
+   * Which traders are copied (enrique, 12 Nov 2026 00:05 KST: "keep finding traders and keep only the ones that
+   * favour us"). "all" = every listed trader (as before); "cut-bad" = not the ones whose earlier copies were bad;
+   * "good-only" = only the ones whose earlier copies were good. The verdict is the paper record's (copy.ts,
+   * verdictOf), asked before anything is quoted, so a skipped buy costs nothing.
+   */
+  traders: TraderRule;
   slippageBps: number;
   /** most we will pay in priority fee per transaction, lamports */
   maxFeeLamports: number;
 }
-const OFF: LiveConfig = { on: false, stakeSol: 0, maxLossSol: 0, holdSec: 5, targetPct: 0, stopPct: 0, maxPerDay: 0, minGapPct: 0, maxOpen: 1, slippageBps: 1500, maxFeeLamports: 0 };
+const OFF: LiveConfig = { on: false, stakeSol: 0, maxLossSol: 0, holdSec: 5, targetPct: 0, stopPct: 0, maxPerDay: 0, minGapPct: 0, maxOpen: 1, traders: "all", slippageBps: 1500, maxFeeLamports: 0 };
 const num = (v: unknown, d: number) => (typeof v === "number" && Number.isFinite(v) ? v : d);
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 
@@ -103,6 +111,7 @@ export function parseLive(text: string): LiveConfig {
       maxPerDay: p.maxPerDay == null ? Number.MAX_SAFE_INTEGER : clamp(Math.floor(num(p.maxPerDay, 80)), 1, 1_000_000),
       minGapPct: clamp(num(p.minGapPct, 0), 0, 50),
       maxOpen: clamp(Math.floor(num(p.maxOpen, 1)), 1, HARD_MAX_OPEN),
+      traders: p.traders === "cut-bad" || p.traders === "good-only" ? p.traders : "all",
       slippageBps: clamp(Math.floor(num(p.slippageBps, 1500)), 100, 3000),
       maxFeeLamports: clamp(Math.floor(num(p.maxFeeLamports, 1_000_000)), 10_000, 2_000_000),
     };
@@ -147,6 +156,8 @@ export interface Row {
   exit?: "target" | "time" | "stop";
   /** the exit in force when the copy was bought, named like the paper rules ("tp10-t30", "tp10-sl20-t60") */
   exitKey?: string;
+  /** what the trader's earlier copies said when this one was bought: "good" | "mixed" | "bad" | "new" */
+  trader?: string;
   /** when the coin began to be held, ms (several at once; older rows have only `t`, the moment the copy started) */
   heldAt?: number;
   /** the best a sale would have brought back while we held, % over the stake */
@@ -195,6 +206,10 @@ interface State {
   missedCap: number;
   /** buys let go because an update was about to restart the bot */
   missedRestart: number;
+  /** buys let go because of what the trader's earlier copies said (the trader rule) */
+  skippedTrader?: number;
+  /** buy quotes asked again after the price service refused for asking too fast */
+  requoted?: number;
   /** buy orders that had to be built a second time (the price service answered 5xx the first time) */
   rebuilt?: number;
   unreadTx: number;
@@ -287,6 +302,8 @@ async function jup<T>(path: string, body?: unknown): Promise<T> {
     ...(body ? { body: JSON.stringify(body) } : {}),
     signal: AbortSignal.timeout(5000),
   });
+  // refused for asking too fast: the paper test, which shares the key, stands back so the next ask goes through
+  if (res.status === 429) shared.realFirst(2000);
   if (!res.ok) {
     // Jupiter's own error code says why (no route, coin not tradable...). Only capital letters and underscores are
     // taken over, so nothing else can ride along into the log or the status.
@@ -297,6 +314,25 @@ async function jup<T>(path: string, body?: unknown): Promise<T> {
 }
 const quote = (inMint: string, outMint: string, amount: string, slippageBps: number) =>
   jup<{ outAmount?: string }>(`/swap/v1/quote?inputMint=${inMint}&outputMint=${outMint}&amount=${amount}&slippageBps=${slippageBps}&restrictIntermediateTokens=true`);
+/** How often, and how long after each refusal (ms), a buy quote refused for asking too fast is asked again. */
+export const REQUOTE_MS = [150, 300] as const;
+/**
+ * The buy quote. The paper test is told to stand back first (see realFirst in copyrun.ts). A refusal for asking too
+ * fast ("http 429") is asked again, twice at most: a copy 0.15 s late is worth more than no copy, and the entry rule
+ * is read from the fresh quote, so a price that has run away in the meantime is still let go.
+ */
+async function buyQuote(mint: string, c: LiveConfig) {
+  shared.realFirst(800);
+  for (let i = 0; ; i++) {
+    try {
+      return await quote(SOL, mint, String(Math.round(c.stakeSol * 1e9)), c.slippageBps);
+    } catch (e) {
+      if (i >= REQUOTE_MS.length || !/ http 429/.test(String((e as Error).message))) throw e;
+      state.requoted = (state.requoted ?? 0) + 1;
+      await sleep(REQUOTE_MS[i]);
+    }
+  }
+}
 async function swapTx(quoteResponse: unknown, address: string, maxLamports: number): Promise<string> {
   const j = await jup<{ swapTransaction?: string }>("/swap/v1/swap", {
     quoteResponse, userPublicKey: address, wrapAndUnwrapSol: true, dynamicComputeUnitLimit: true,
@@ -317,7 +353,7 @@ async function buildBuy(q: { outAmount?: string }, b: StreamBuy, c: LiveConfig, 
   } catch (e) {
     if (!/ http 5\d\d/.test(String((e as Error).message))) throw e;
     state.rebuilt = (state.rebuilt ?? 0) + 1;
-    const again = await quote(SOL, b.mint, String(Math.round(c.stakeSol * 1e9)), c.slippageBps);
+    const again = await buyQuote(b.mint, c);
     if (!again.outAmount || again.outAmount === "0") throw e;
     const gap = b.leaderPrice > 0 && b.decimals !== undefined ? (c.stakeSol / (Number(again.outAmount) / 10 ** b.decimals) / b.leaderPrice - 1) * 100 : null;
     row.quoteGapPct = gap !== null && Number.isFinite(gap) ? Math.round(gap * 100) / 100 : undefined;
@@ -588,6 +624,11 @@ export async function trade(b: StreamBuy) {
   const c = cfg();
   if (!c.on || state.halted || !walletReady) return;
   if (quiet) return void (state.missedRestart = (state.missedRestart ?? 0) + 1);
+  // the trader rule: asked of the paper record before anything is quoted, so letting a buy go costs nothing
+  if (c.traders !== "all") {
+    const v = shared.verdict(b.wallet);
+    if (v === "bad" || (c.traders === "good-only" && v !== "good")) return void (state.skippedTrader = (state.skippedTrader ?? 0) + 1);
+  }
   if (c.maxOpen > 1) return tradeMany(b, c);
   // one copy at a time: a buy that comes while another copy is under way is let go, and counted
   if (state.open || busy || state.opens.length || recovering) return void (state.missedBusy = (state.missedBusy ?? 0) + 1);
@@ -610,7 +651,7 @@ export async function trade(b: StreamBuy) {
   const prevAt = lastAt;
   lastAt = Date.now();
   const w = wallet();
-  const row: Row = { t: Date.now(), name: b.name, mint: b.mint, leaderSlot: b.leaderSlot, buy: "not sent", exitKey: exitKey(c), netSol: 0, sigs: [] };
+  const row: Row = { t: Date.now(), name: b.name, mint: b.mint, leaderSlot: b.leaderSlot, buy: "not sent", exitKey: exitKey(c), trader: shared.verdict(b.wallet), netSol: 0, sigs: [] };
   let bal0: number | null = null;
   let sent = false;
   let closed = true;
@@ -629,7 +670,7 @@ export async function trade(b: StreamBuy) {
     }
     state.note = "";
     const t0 = performance.now();
-    const q = await quote(SOL, b.mint, String(Math.round(c.stakeSol * 1e9)), c.slippageBps);
+    const q = await buyQuote(b.mint, c);
     if (!q.outAmount || q.outAmount === "0") throw new Error("no buy quote");
     // how far this quote already is above what the wallet paid: known here, before anything is signed
     const gap = b.leaderPrice > 0 && b.decimals !== undefined ? (c.stakeSol / (Number(q.outAmount) / 10 ** b.decimals) / b.leaderPrice - 1) * 100 : null;
@@ -885,7 +926,7 @@ async function tradeMany(b: StreamBuy, c: LiveConfig) {
   const prevAt = lastAt;
   lastAt = Date.now();
   const w = wallet();
-  const row: Row = { t: Date.now(), name: b.name, mint: b.mint, leaderSlot: b.leaderSlot, buy: "not sent", exitKey: exitKey(c), netSol: 0, sigs: [] };
+  const row: Row = { t: Date.now(), name: b.name, mint: b.mint, leaderSlot: b.leaderSlot, buy: "not sent", exitKey: exitKey(c), trader: shared.verdict(b.wallet), netSol: 0, sigs: [] };
   let pos: OpenPos | null = null;
   let closed = true;
   try {
@@ -903,7 +944,7 @@ async function tradeMany(b: StreamBuy, c: LiveConfig) {
     if (state.baseSol == null && !state.opens.length && entering === 1) state.baseSol = Math.round((bal0 - state.netSol) * 1e9) / 1e9;
     state.note = "";
     const t0 = performance.now();
-    const q = await quote(SOL, b.mint, String(Math.round(c.stakeSol * 1e9)), c.slippageBps);
+    const q = await buyQuote(b.mint, c);
     if (!q.outAmount || q.outAmount === "0") throw new Error("no buy quote");
     const gap = b.leaderPrice > 0 && b.decimals !== undefined ? (c.stakeSol / (Number(q.outAmount) / 10 ** b.decimals) / b.leaderPrice - 1) * 100 : null;
     if (gap !== null && Number.isFinite(gap)) row.quoteGapPct = Math.round(gap * 100) / 100;
@@ -1160,6 +1201,9 @@ export function solanaCopyLiveSummary() {
     entryRule: c.minGapPct > 0 ? `buys only when our price is already ${c.minGapPct}% or more above what the wallet paid` : "buys every first buy of a listed wallet",
     skippedLowGap: state.skippedLowGap,
     skippedNoPrice: state.skippedNoPrice,
+    // which traders are copied, in words, and the buys let go because of it
+    traderRule: c.traders === "cut-bad" ? "does not copy traders whose earlier copies lost" : c.traders === "good-only" ? "copies only traders whose earlier copies won" : "copies every listed trader",
+    skippedTrader: state.skippedTrader ?? 0,
     // buys that were never looked at: a copy was under way (one coin at a time) / the last copy began under 10 s before
     missedWhileBusy: state.missedBusy ?? 0,
     missedSpacing: state.missedSpacing ?? 0,
@@ -1191,6 +1235,8 @@ export function solanaCopyLiveSummary() {
     missedBeforeRestart: state.missedRestart ?? 0,
     // buy orders the price service failed to build at first (http 5xx) and that were tried once more
     rebuiltBuys: state.rebuilt ?? 0,
+    // buy quotes the price service refused for asking too fast (http 429) and that were asked again
+    requotedBuys: state.requoted ?? 0,
     // buys that were never sent (nothing bought, no fee), with the reason in fixed words
     notSent: { n: unsent.length, why: unsent.reduce<Record<string, number>>((a, r) => ((a[whyNotSent(r.error)] = (a[whyNotSent(r.error)] ?? 0) + 1), a), {}) },
     // The copies made under the entry rule in force, counted here over every row kept (the last 200), because the
@@ -1219,6 +1265,8 @@ export function solanaCopyLiveSummary() {
       // ... and by the exit in force when each was bought, so that a change of clock or stop is counted on its own
       // copies. "earlier" = bought before the exit was written on the row (11 Nov 2026 late evening KST).
       byExit: [...new Set(gapped.map((r) => r.exitKey ?? "earlier"))].map((k) => ({ exit: k, ...tally(gapped.filter((r) => (r.exitKey ?? "earlier") === k)) })),
+      // ... and by what the trader's earlier copies said when each was bought (written on the row from 12 Nov 2026)
+      byTrader: [...new Set(gapped.map((r) => r.trader ?? "earlier"))].map((k) => ({ trader: k, ...tally(gapped.filter((r) => (r.trader ?? "earlier") === k)) })),
     } : null,
     targetExit: {
       copies: aimed.length,

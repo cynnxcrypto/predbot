@@ -10,10 +10,10 @@ process.env.DATA_DIR = mkdtempSync(join(tmpdir(), "sollive-"));
 process.env.HELIUS_API_KEY = "test-helius";
 process.env.JUPITER_API_KEY = "test-jupiter";
 const { HARD_MAX_LOSS_SOL, HARD_STAKE_SOL, parseLive, solanaCopyLiveSummary, trade, tidy, _test } = await import("./copylive.js");
-const { _test: run } = await import("./copyrun.js");
+const { _test: run, shared } = await import("./copyrun.js");
 const { buildSigned, wallet } = await import("./keys.js");
 const { base58 } = await import("./whirlpool.js");
-const { recoverMany, HARD_MAX_OPEN, solanaCopyLiveQuiet, solanaCopyLiveWaiting, whyNotSent, MIN_STOP_PCT, exitKey, heldTogether } = await import("./copylive.js");
+const { recoverMany, HARD_MAX_OPEN, solanaCopyLiveQuiet, solanaCopyLiveWaiting, whyNotSent, MIN_STOP_PCT, exitKey, heldTogether, REQUOTE_MS } = await import("./copylive.js");
 type Row = import("./copylive.js").Row;
 type LiveConfig = import("./copylive.js").LiveConfig;
 
@@ -61,7 +61,7 @@ test("public summary carries numbers only", () => {
 // ---- the exit: sell at the target, else when the time is up --------------------------------------------------------
 const MINT = "9BB6NFEcjBCtnNLFko2FqVQBq8HHM13kCyYcdQbgpump";
 const SYSTEM = "11111111111111111111111111111111";
-const CFG: LiveConfig = { on: true, stakeSol: 0.05, maxLossSol: 0.5, holdSec: 60, targetPct: 10, stopPct: 0, maxPerDay: Number.MAX_SAFE_INTEGER, minGapPct: 0, maxOpen: 1, slippageBps: 1500, maxFeeLamports: 1_000_000 };
+const CFG: LiveConfig = { on: true, stakeSol: 0.05, maxLossSol: 0.5, holdSec: 60, targetPct: 10, stopPct: 0, maxPerDay: Number.MAX_SAFE_INTEGER, minGapPct: 0, maxOpen: 1, traders: "all", slippageBps: 1500, maxFeeLamports: 1_000_000 };
 /** A made-up chain and Jupiter: `quotes` = what a sale would bring back at each ask (SOL); `fills` = whether each sale lands. */
 function fake(quotes: number[], fills: boolean[]) {
   const w = wallet();
@@ -392,6 +392,8 @@ function chain(worth: (mint: string) => number) {
     stuck: new Set<string>(), hidden: new Set<string>(),
     // the price service misbehaving: buy orders it fails to build, coins it has no route for, and the buy quotes it gives next
     failBuild: 0, noRoute: new Set<string>(), code: "COULD_NOT_FIND_ANY_ROUTE", buyOut: [] as string[],
+    // buy quotes it refuses for asking too fast (http 429) before it answers again
+    refuse: 0,
     apply(sig: string, delta: number, ok: boolean) {
       c.txs.set(sig, { pre: c.lamports, post: c.lamports + delta, ok });
       c.lamports += delta;
@@ -411,6 +413,10 @@ function chain(worth: (mint: string) => number) {
       c.quotes++;
       const u = new URL(url).searchParams;
       const [i, o] = [u.get("inputMint")!, u.get("outputMint")!];
+      if (i === SOLMINT && c.refuse > 0) {
+        c.refuse--;
+        return new Response(JSON.stringify({ error: "Too many requests" }), { status: 429 });
+      }
       if (i === SOLMINT && c.noRoute.has(o)) return new Response(JSON.stringify({ error: "Could not find any route", errorCode: c.code }), { status: 400 });
       if (i === SOLMINT && c.buyOut.length) return json({ outAmount: c.buyOut.shift(), inputMint: i, outputMint: o });
       return json(i === SOLMINT ? { outAmount: "5000000000", inputMint: i, outputMint: o } : { outAmount: String(Math.round(worth(i) * 1e9)), inputMint: i, outputMint: o });
@@ -690,7 +696,8 @@ test("a buy order the price service fails to build is tried once more, with a fr
   const e = solanaCopyLiveSummary().entryRuleCopies!;
   const [won, lost] = [st().rows[0].netSol, st().rows[1].netSol];
   assert.ok(won > 0 && lost < 0);
-  const { byGap, byExit, ...flat } = e;
+  const { byGap, byExit, byTrader, ...flat } = e;
+  assert.deepEqual(byTrader.map((x) => [x.trader, x.copies]), [["new", 2]]);
   assert.deepEqual({ ...flat, netSol: 0 }, { minGapPct: 9, copies: 2, landed: 2, won: 1, netSol: 0, targetSales: 1, targetSalesSol: Math.round(won * 1e6) / 1e6, timeUps: 1, timeUpsWon: 0, timeUpsSol: Math.round(lost * 1e6) / 1e6, stops: 0, stopsSol: 0, otherSol: 0, rowsKept: 2 });
   // the same two copies by entry gap (the first was bought 15% above the wallet, the second 12%) ...
   const [w6, l6] = [Math.round(won * 1e6) / 1e6, Math.round(lost * 1e6) / 1e6];
@@ -735,6 +742,111 @@ test("a buy order the price service fails to build is tried once more, with a fr
   run.setNet(fetch);
   _test.setConfig(null);
   _test.reset();
+});
+
+test("a buy quote refused for asking too fast is asked again, and the paper test is told to stand back", async () => {
+  const start = () => {
+    _test.reset();
+    _test.ready();
+    _test.forgetCloses();
+    _test.setPoll(20);
+    _test.setConfig({ ...MANY, holdSec: 1, minGapPct: 9 });
+    return chain(() => 0.06);
+  };
+  const st = _test.state;
+  const realFirst = shared.realFirst;
+  const asked: number[] = [];
+  shared.realFirst = (ms: number) => void asked.push(ms);
+  try {
+    // refused once: the second ask goes through 0.15 s later and the copy is made
+    let c = start();
+    c.refuse = 1;
+    c.buyOut = [raw(20)];
+    const t0 = Date.now();
+    await trade(signal({ mint: COIN.a, knownMs: old() }));
+    assert.deepEqual({ rows: st().rows.length, buy: st().rows[0].buy, gap: st().rows[0].quoteGapPct, requoted: st().requoted }, { rows: 1, buy: "landed", gap: 20, requoted: 1 });
+    assert.ok(Date.now() - t0 >= REQUOTE_MS[0]);
+    assert.equal(solanaCopyLiveSummary().requotedBuys, 1);
+    // the paper test was told to stand back: at the start of the copy, and longer at the refusal
+    assert.ok(asked.includes(800) && asked.includes(2000));
+    // refused three times: that is final, and the status says why
+    c = start();
+    c.refuse = 3;
+    await trade(signal({ mint: COIN.b, knownMs: old() }));
+    assert.deepEqual({ buy: st().rows[0].buy, error: st().rows[0].error, requoted: st().requoted, sends: c.sends, opens: st().opens.length }, { buy: "not sent", error: "jupiter /swap/v1/quote http 429", requoted: 2, sends: 0, opens: 0 });
+    assert.deepEqual(solanaCopyLiveSummary().notSent, { n: 1, why: { "the price service refused: too many requests": 1 } });
+    // the fresh quote decides: refused once, and by then the price is no longer far enough above the wallet's
+    c = start();
+    c.refuse = 1;
+    c.buyOut = [raw(5)];
+    await trade(signal({ mint: COIN.c, knownMs: old() }));
+    assert.deepEqual({ rows: st().rows.length, low: st().skippedLowGap, sends: c.sends }, { rows: 0, low: 1, sends: 0 });
+  } finally {
+    shared.realFirst = realFirst;
+    run.setNet(fetch);
+    _test.setConfig(null);
+    _test.reset();
+  }
+});
+
+test("traders: off unless the file says so; a bad trader's buy is let go at no cost, and each copy carries the verdict", async () => {
+  const live = (o: object) => parseLive(JSON.stringify({ solanaCopy: { on: true, maxLossSol: 0.5, ...o } }));
+  assert.deepEqual([live({}).traders, live({ traders: "cut-bad" }).traders, live({ traders: "good-only" }).traders, live({ traders: "anything" }).traders], ["all", "cut-bad", "good-only", "all"]);
+  const verdict = shared.verdict;
+  const start = (traders: "all" | "cut-bad" | "good-only", v: string) => {
+    _test.reset();
+    _test.ready();
+    _test.forgetCloses();
+    _test.setPoll(20);
+    _test.setConfig({ ...MANY, holdSec: 1, minGapPct: 9, traders });
+    shared.verdict = () => v as ReturnType<typeof verdict>;
+    return chain(() => 0.06);
+  };
+  const st = _test.state;
+  const buy = async () => {
+    await trade(signal({ mint: COIN.a, wallet: "trader-1", knownMs: old() }));
+    return { rows: st().rows.length, skipped: st().skippedTrader ?? 0 };
+  };
+  try {
+    // "all": the verdict is only written on the row, nothing is skipped
+    let c = start("all", "bad");
+    c.buyOut = [raw(20)];
+    assert.deepEqual(await buy(), { rows: 1, skipped: 0 });
+    assert.equal(st().rows[0].trader, "bad");
+    const sum = solanaCopyLiveSummary();
+    assert.equal(sum.traderRule, "copies every listed trader");
+    assert.deepEqual(sum.entryRuleCopies!.byTrader.map((x) => [x.trader, x.copies, x.won]), [["bad", 1, 1]]);
+    // "cut-bad": a bad trader's buy is let go before anything is asked of the price service
+    c = start("cut-bad", "bad");
+    assert.deepEqual({ ...(await buy()), sends: c.sends }, { rows: 0, skipped: 1, sends: 0 });
+    assert.deepEqual([solanaCopyLiveSummary().skippedTrader, solanaCopyLiveSummary().traderRule], [1, "does not copy traders whose earlier copies lost"]);
+    for (const v of ["new", "mixed", "good"]) {
+      c = start("cut-bad", v);
+      c.buyOut = [raw(20)];
+      assert.deepEqual(await buy(), { rows: 1, skipped: 0 }, v);
+    }
+    // "good-only": only a trader whose earlier copies were good
+    for (const v of ["new", "mixed", "bad"]) {
+      c = start("good-only", v);
+      assert.deepEqual({ ...(await buy()), sends: c.sends }, { rows: 0, skipped: 1, sends: 0 }, v);
+    }
+    c = start("good-only", "good");
+    c.buyOut = [raw(20)];
+    assert.deepEqual(await buy(), { rows: 1, skipped: 0 });
+    assert.equal(st().rows[0].trader, "good");
+    assert.equal(solanaCopyLiveSummary().traderRule, "copies only traders whose earlier copies won");
+    // one coin at a time: the same rule
+    _test.reset();
+    _test.setConfig({ ...CFG, traders: "cut-bad" });
+    shared.verdict = () => "bad";
+    await trade(signal({ mint: COIN.c, wallet: "trader-1", knownMs: old() }));
+    assert.deepEqual({ rows: st().rows.length, skipped: st().skippedTrader }, { rows: 0, skipped: 1 });
+  } finally {
+    shared.verdict = verdict;
+    run.setNet(fetch);
+    _test.setConfig(null);
+    _test.reset();
+  }
 });
 
 test("stop: off unless set; a copy that stays 20% down for two looks is sold at once, a dip of one look is not", async () => {

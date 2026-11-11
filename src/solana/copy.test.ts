@@ -9,7 +9,7 @@ process.env.DATA_DIR = dir;
 process.env.HELIUS_API_KEY = "SECRETHELIUS";
 process.env.JUPITER_API_KEY = "SECRETJUP";
 
-const { crowd, exitStudy, followerPrice, fomoStudy, GRID, lateStudy, parseBuy, parseDollarBuy, pathRet, ret, rising, roundTrip, sameBlockRet, SAME_BLOCK_SLIP, scalp, scalpCut, sizeStudy, STAKE_SOL, summarize, trail, TX_SOL } = await import("./copy.js");
+const { crowd, exitStudy, followerPrice, fomoStudy, GRID, lateStudy, parseBuy, parseDollarBuy, pathRet, ret, rising, roundTrip, sameBlockRet, SAME_BLOCK_SLIP, scalp, scalpCut, sizeStudy, STAKE_SOL, summarize, trail, TX_SOL, traderRet, verdictAt, verdictOf, verdictsBefore } = await import("./copy.js");
 const { SOL, USDC } = await import("./pools.js");
 const { validAddress, WALLETS } = await import("./wallets.js");
 const { _test, buildCopySummary, onStreamBuy, scrub } = await import("./copyrun.js");
@@ -201,7 +201,7 @@ test("summary: speed first, rules counted, wallets ranked by follow-through", ()
   assert.equal(sum.speed.noWavePct, 50);
   assert.equal(sum.speed.entryGapPctMedian, 10);
   assert.ok(sum.speed.breakEvenPctMedian! > 4);
-  assert.equal(sum.rulesTried, 75);
+  assert.equal(sum.rulesTried, 84);
   assert.equal(sum.wallets[0].name, "Chairman");
   assert.deepEqual(sum.qualified, []);
 });
@@ -359,5 +359,80 @@ test("runner: a buy becomes a scored signal, and keys never leak", async () => {
     assert.ok(!files.includes("SECRET"));
   } finally {
     globalThis.setTimeout = realSet;
+  }
+});
+
+test("traders: a verdict from the earlier copies only, and rules that never see their own result", () => {
+  assert.equal(verdictOf([0.1, 0.1, 0.1]), "new");
+  assert.equal(verdictOf([0.1, 0.1, -0.05, -0.05]), "good", "made money on average and half won");
+  assert.equal(verdictOf([-0.1, -0.1, -0.1, 0.05]), "bad");
+  assert.equal(verdictOf([0.5, -0.1, -0.1, -0.1]), "mixed", "one big winner is not a good trader");
+  assert.equal(verdictOf([-0.3, 0.05, 0.05, -0.3]), "mixed", "half won but it lost on average");
+  const t0 = 1_800_000_000_000;
+  // the sample buy never reaches +10% and is 20.8% down at 30 s; the other is up 19.2% at the first look
+  const lose = (i: number, wallet = W) => sig({ sig: `l${wallet}${i}`, wallet, knownMs: t0 + i * 60_000 });
+  const win = (i: number, wallet: string) => sig({ sig: `w${wallet}${i}`, wallet, name: "Other", knownMs: t0 + i * 60_000 + 1000, exits: { d0: { x0: 0.24, x2: 0.3, x5: 0.3, x10: 0.3, x20: 0.3, x30: 0.3, x60: 0.3, x120: 0.3 }, d1: {}, d3: {} } });
+  assert.ok(traderRet(lose(0))! < -0.2 && traderRet(win(0, "o"))! > 0.19);
+  const bad = [0, 1, 2, 3, 4].map((i) => lose(i));
+  // four losing copies, then a fifth buy: the trader is judged bad from the fifth on, never earlier
+  const before = verdictsBefore(bad);
+  assert.deepEqual(bad.map((x) => before.get(x)), ["new", "new", "new", "new", "bad"]);
+  // a copy bought under 30 s ago has no result yet; another trader's copies never count
+  assert.equal(verdictAt(bad.slice(0, 4), W, bad[3].knownMs + 29_000), "new");
+  assert.equal(verdictAt(bad.slice(0, 4), W, bad[3].knownMs + 30_000), "bad");
+  assert.equal(verdictAt(bad, "someone else", t0 + 3_600_000), "new");
+  // two traders: one loses five times, one wins five times; the rules split their fifth buys by the earlier four
+  const good = [0, 1, 2, 3, 4].map((i) => win(i, "o"));
+  const sum = summarize([...bad, ...good], 80);
+  const rule = (id: string) => sum.rules.find((x) => x.id === id)!;
+  assert.deepEqual([rule("copy-d0-tp10-t30").n, rule("copy-d0-trader-new-tp10-t30").n, rule("copy-d0-trader-bad-tp10-t30").n, rule("copy-d0-trader-good-tp10-t30").n, rule("copy-d0-trader-mixed-tp10-t30").n], [10, 8, 1, 1, 0]);
+  assert.deepEqual([rule("copy-d0-trader-bad-tp10-t30").won, rule("copy-d0-trader-good-tp10-t30").won], [0, 1]);
+  assert.deepEqual([rule("copy-d0-trader-notbad-tp10-t30").n, rule("copy-d0-trader-notbad-tp10-t30").won], [9, 5]);
+  // with the 15% bar: the sample buys are 10% above the wallet, so none passes; at 16% above they split the same way
+  assert.equal(rule("copy-d0-gap15-trader-notbad-tp10-t30").n, 0);
+  const far = (x: Signal): Signal => ({ ...x, entries: { ...x.entries, d0: { ...x.entries.d0!, price: 1.16e-6 } } });
+  const sum2 = summarize([...bad, ...good].map(far), 80);
+  const rule2 = (id: string) => sum2.rules.find((x) => x.id === id)!;
+  assert.deepEqual([rule2("copy-d0-gap15-trader-notbad-tp10-t30").n, rule2("copy-d0-gap15-trader-bad-tp10-t30").n, rule2("copy-d0-gap15-trader-good-tp10-t30").n], [9, 1, 1]);
+  // the status: each trader's record and verdict today, and how many of each kind
+  const w = (name: string) => sum.wallets.find((x) => x.name === name)!;
+  assert.deepEqual([w("Chairman").verdict, w("Chairman").copy.n, w("Chairman").copy.won, w("Other").verdict, w("Other").copy.won], ["bad", 5, 0, "good", 5]);
+  assert.deepEqual({ seen: sum.traders.seen, good: sum.traders.good, bad: sum.traders.bad, mixed: sum.traders.mixed, new: sum.traders.new, min: sum.traders.min }, { seen: 2, good: 1, bad: 1, mixed: 0, new: 0, min: 4 });
+});
+
+
+test("the real test first: paper quotes wait while the real test is buying and after a refusal, except a buy's fastest entry", async () => {
+  const { realFirst } = await import("./copyrun.js");
+  let status = 200;
+  let calls = 0;
+  _test.setNet((async () => {
+    calls++;
+    return new Response(JSON.stringify(status === 200 ? { outAmount: "1000" } : { error: "Too many requests" }), { status });
+  }) as unknown as typeof fetch);
+  try {
+    // nothing held: answered at once
+    let t = Date.now();
+    assert.equal(await _test.quote(SOL, MINT, "1"), 1000n);
+    assert.ok(Date.now() - t < 150);
+    // the real test is buying: a paper check waits for it, the fastest entry of a buy does not
+    realFirst(300);
+    t = Date.now();
+    assert.equal(await _test.quote(SOL, MINT, "1", true), 1000n);
+    assert.ok(Date.now() - t < 150, "the fastest entry is not held");
+    assert.equal(await _test.quote(SOL, MINT, "1"), 1000n);
+    assert.ok(Date.now() - t >= 250, "a check waits until the real test is through");
+    const held = _test.health().quoteHeld;
+    assert.ok(held >= 1);
+    // a refusal of its own: counted, and the next paper quote stands back for a moment
+    status = 429;
+    assert.equal(await _test.quote(SOL, MINT, "1"), null);
+    assert.ok(_test.health().quoteRefused >= 1);
+    status = 200;
+    t = Date.now();
+    const n = calls;
+    assert.equal(await _test.quote(SOL, MINT, "1"), 1000n);
+    assert.ok(Date.now() - t >= 1200 && calls === n + 1);
+  } finally {
+    _test.setNet(fetch);
   }
 });
