@@ -14,6 +14,8 @@ import { DATA } from "../config.js";
 import { crowd, DELAYS, EXITS, followerPrice, parseBuy, PATH, STAKE_SOL, summarize, TX_SOL, type Entry, type ParsedTx, type Signal } from "./copy.js";
 import { SOL, USDC } from "./pools.js";
 import { discoverSummary, foundWallets, startDiscover, stopDiscover } from "./discover.js";
+import { historySummary, startHistory, stopHistory } from "./history.js";
+import { linkedWallets, linksSummary, startLinks, stopLinks } from "./links.js";
 import { validAddress, WALLETS, type Tracked } from "./wallets.js";
 
 const SIGNALS = () => join(DATA, "solana", "copy-signals.jsonl");
@@ -130,7 +132,9 @@ const LOGS_MAX = 50;
 
 /** Most wallets the finder may add to one connection. */
 const FOUND_MAX = 100;
-const foundAs = (address: string): Tracked => ({ name: `found ${address.slice(0, 4)}`, address, found: true });
+const foundAs = (address: string): Tracked => linkedWallets().find((w) => w.address === address) ?? { name: `found ${address.slice(0, 4)}`, address, found: true };
+/** Wallets watched on paper only: the tracer's side wallets first (links.ts), then the finder's (discover.ts). */
+const extra = (): string[] => [...new Set([...linkedWallets().map((w) => w.address), ...foundWallets()])];
 
 /** The listed wallets: the built-in list, or data/solana-wallets.json when it exists. */
 function listed(): Tracked[] {
@@ -148,7 +152,7 @@ function listed(): Tracked[] {
 function tracked(): Tracked[] {
   const list = [...listed()];
   const have = new Set(list.map((w) => w.address));
-  const found = foundWallets().filter((a) => !have.has(a) && validAddress(a)).slice(0, FOUND_MAX).map(foundAs);
+  const found = extra().filter((a) => !have.has(a) && validAddress(a)).slice(0, FOUND_MAX).map(foundAs);
   list.push(...found);
   health.wallets = list.length;
   health.found = found.length;
@@ -163,6 +167,8 @@ export function buildCopySummary() {
     solUsd,
     health: { ...health, active: health.active },
     discovery: discoverSummary(),
+    history: historySummary(),
+    links: linksSummary(),
     ...(() => {
       // With the Helius key, score only buys read on the Helius feed and known within 30 s. Buys from the keyless
       // period, or read late out of a backlog, say nothing about our speed and would poison the medians.
@@ -367,7 +373,7 @@ function watchFound() {
   if (!ws || ws.readyState !== WebSocket.OPEN || !helius()) return;
   const have = new Set(current.map((w) => w.address));
   const room = FOUND_MAX - current.filter((w) => w.found).length;
-  const fresh = foundWallets().filter((a) => !have.has(a) && validAddress(a)).slice(0, Math.max(0, room));
+  const fresh = extra().filter((a) => !have.has(a) && validAddress(a)).slice(0, Math.max(0, room));
   if (!fresh.length) return;
   current.push(...fresh.map(foundAs));
   health.wallets = current.length;
@@ -507,6 +513,10 @@ export function startSolanaCopy(fetcher: Fetch = fetch) {
   connect();
   // the wallet finder (read-only): its own connection, its own data cap; SOLANA_DISCOVER=off disables
   startDiscover(() => (helius() ? wsUrl() : null), () => listed().map((w) => w.address));
+  // the wallet history study (read-only): past buys of each listed wallet; SOLANA_HISTORY=off disables
+  startHistory({ rpcUrl: () => (helius() ? rpcUrl() : null), fetch: () => net, wallets: () => listed() });
+  // the tracer (read-only): the wallets behind the fomo traders in seeds.ts; SOLANA_LINKS=off disables
+  startLinks({ rpcUrl: () => (helius() ? rpcUrl() : null), fetch: () => net });
   void refreshSolUsd();
   void pingSenders();
   let n = 0;
@@ -530,6 +540,8 @@ export function stopSolanaCopy() {
   stopped = true;
   ws?.close();
   stopDiscover();
+  stopHistory();
+  stopLinks();
 }
 
 /** Test hooks. */
