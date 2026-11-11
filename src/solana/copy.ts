@@ -170,7 +170,8 @@ export function scalp(s: Signal, d: number, tp: number): number | undefined {
  * So the open question is whether cutting the losers early keeps the winners: same scalp, plus a stop that sells at
  * the first check where the copy is down `sl`% or more. Paper only; checks are only at the EXITS times.
  */
-export const STOPS: readonly [number, number][] = [[10, 5], [10, 10], [5, 5]];
+/** [target %, stop %]. The wide stops (20, 30) are a guard against a sudden collapse, not a trading stop: enrique asked on 11 Nov 2026 whether the real test should have one. */
+export const STOPS: readonly [number, number][] = [[10, 5], [10, 10], [5, 5], [10, 20], [10, 30]];
 export const stopId = (tp: number, sl: number) => `copy-d0-tp${tp}-sl${sl}-t${TIME_STOP}`;
 export const stopText = (tp: number, sl: number) =>
   `When a tracked wallet buys, buy ${STAKE_SOL} SOL of the same token the moment we know, sell as soon as it is up ${tp}% after costs or down ${sl}%, and sell anyway after ${TIME_STOP} s.`;
