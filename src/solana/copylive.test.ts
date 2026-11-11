@@ -13,7 +13,7 @@ const { HARD_MAX_LOSS_SOL, HARD_STAKE_SOL, parseLive, solanaCopyLiveSummary, tra
 const { _test: run } = await import("./copyrun.js");
 const { buildSigned, wallet } = await import("./keys.js");
 const { base58 } = await import("./whirlpool.js");
-const { recoverMany, HARD_MAX_OPEN, solanaCopyLiveQuiet, solanaCopyLiveWaiting, whyNotSent, MIN_STOP_PCT } = await import("./copylive.js");
+const { recoverMany, HARD_MAX_OPEN, solanaCopyLiveQuiet, solanaCopyLiveWaiting, whyNotSent, MIN_STOP_PCT, exitKey } = await import("./copylive.js");
 type Row = import("./copylive.js").Row;
 type LiveConfig = import("./copylive.js").LiveConfig;
 
@@ -680,7 +680,18 @@ test("a buy order the price service fails to build is tried once more, with a fr
   const e = solanaCopyLiveSummary().entryRuleCopies!;
   const [won, lost] = [st().rows[0].netSol, st().rows[1].netSol];
   assert.ok(won > 0 && lost < 0);
-  assert.deepEqual({ ...e, netSol: 0 }, { minGapPct: 9, copies: 2, landed: 2, won: 1, netSol: 0, targetSales: 1, targetSalesSol: Math.round(won * 1e6) / 1e6, timeUps: 1, timeUpsWon: 0, timeUpsSol: Math.round(lost * 1e6) / 1e6, stops: 0, stopsSol: 0, otherSol: 0, rowsKept: 2 });
+  const { byGap, byExit, ...flat } = e;
+  assert.deepEqual({ ...flat, netSol: 0 }, { minGapPct: 9, copies: 2, landed: 2, won: 1, netSol: 0, targetSales: 1, targetSalesSol: Math.round(won * 1e6) / 1e6, timeUps: 1, timeUpsWon: 0, timeUpsSol: Math.round(lost * 1e6) / 1e6, stops: 0, stopsSol: 0, otherSol: 0, rowsKept: 2 });
+  // the same two copies by entry gap (the first was bought 15% above the wallet, the second 12%) ...
+  const [w6, l6] = [Math.round(won * 1e6) / 1e6, Math.round(lost * 1e6) / 1e6];
+  assert.deepEqual(byGap.map((g) => [g.fromPct, g.toPct, g.copies, g.won, g.netSol, g.targetSales, g.timeUps]), [[9, 12, 0, 0, 0, 0, 0], [12, 15, 1, 0, l6, 0, 1], [15, 20, 1, 1, w6, 1, 0], [20, 30, 0, 0, 0, 0, 0], [30, null, 0, 0, 0, 0, 0]]);
+  // ... and by the exit in force when each was bought; a row from before the exit was written down counts apart
+  assert.equal(exitKey({ targetPct: 10, stopPct: 0, holdSec: 30 }), "tp10-t30");
+  assert.equal(exitKey({ targetPct: 10, stopPct: 20, holdSec: 60 }), "tp10-sl20-t60");
+  assert.equal(exitKey({ targetPct: 0, stopPct: 0, holdSec: 6 }), "t6");
+  assert.deepEqual(byExit.map((x) => [x.exit, x.copies, x.won]), [[exitKey({ ...MANY, holdSec: 1, stopPct: 0 }), 2, 1]]);
+  delete st().rows[1].exitKey;
+  assert.deepEqual(solanaCopyLiveSummary().entryRuleCopies!.byExit.map((x) => [x.exit, x.copies, x.timeUpsSol]), [[exitKey({ ...MANY, holdSec: 1, stopPct: 0 }), 1, 0], ["earlier", 1, l6]]);
   assert.ok(Math.abs(e.netSol - (won + lost)) < 1e-6);
   assert.equal(st().driftSol, 0, "the books still equal the wallet");
   // fails once, and the fresh price is no longer far enough above the wallet's: no copy, no row, nothing sent
