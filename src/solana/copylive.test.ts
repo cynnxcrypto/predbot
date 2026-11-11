@@ -230,6 +230,11 @@ test("daily count: stops the day only when a limit is set", async () => {
   assert.equal(log.balances + log.quotes, 0);
   assert.equal(_test.state().note, "daily count reached");
   assert.equal(solanaCopyLiveSummary().dailyLimit, 80);
+  // a buy that comes while a copy is under way is let go and counted
+  _test.state().open = { mint: MINT, bal0: 0.4, t: Date.now(), tries: 0 };
+  await trade(signal());
+  _test.state().open = null;
+  assert.equal(solanaCopyLiveSummary().missedWhileBusy, 1);
   // the same day with the limit taken away: it trades again, and the note goes
   _test.setConfig(CFG);
   log = entry(() => raw(1));
