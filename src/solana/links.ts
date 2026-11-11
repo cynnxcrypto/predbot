@@ -25,6 +25,12 @@
  * really got (daysRead) and how old the buys it found are (buysFromDaysAgo). daysCovered is the shorter of the two
  * reads. A candidate that turns out to be an exchange or a bot is not read past its first pages.
  *
+ * Third pass, 11 Nov 2026 20:24 KST: over a true 30 days and 81 buys no wallet both got money from a seed and
+ * bought its coins first, but a crowd does follow two of the seeds' own buys (frankdegods: 45 new holders in the
+ * 30 s after, 3 before). So each past buy is also REPLAYED from the coin's own record: enter at the price the coin
+ * traded at in the next blocks, sell at the price it traded at 5 s to 5 min later. An estimate from history (no
+ * quote, our own order moves nothing, a flat cost), there to say whether copying the seeds is worth a paper test.
+ *
  * This is evidence, not proof of who owns a wallet. The public status carries short tags only; the full addresses
  * stay in data/solana/wallet-links.json on the server. "Likely" and "possible" wallets are handed to the PAPER copy
  * test (never the real one). Nothing is sent. SOLANA_LINKS=off disables.
@@ -56,7 +62,7 @@ const TOK_PAGES = 3; // the short stretch of everything that touched its token a
 const BIG_USD = 10_000;
 const BIG_SOL = 50;
 /** a result made by an older way of reading is read again */
-const VERSION = 3;
+const VERSION = 4;
 const PRE_PAGES = 4;
 const POST_PAGES = 2;
 const MAX_BUYS = 40;
@@ -212,6 +218,112 @@ export function earlyOf(lead: At & { wallet: string; mint: string }, pre: Item[]
   return { early, before30: before.size, after30: after.size };
 }
 
+// ---- replay: what a fast copy of a seed's past buy would have made ------------------------------------------------
+export const REPLAY_SECS = [5, 10, 20, 30, 60, 120, 300] as const;
+/** In-and-out cost assumed: what the real test's 0.05 SOL copies lose buying and selling straight back (size check, 11 Nov 2026: 2.8%). */
+export const REPLAY_COST = 0.028;
+/** A copy is taken to land within this many blocks after the seed's (the real test: next block on 40 of 68 copies, never the same). */
+const ENTRY_SLOTS = 3;
+
+/**
+ * The price a coin traded at in this transaction, seen from its pool: the holder of the most coins among those
+ * whose balance changed (the pool or bonding curve), and the SOL, else the dollars, that moved the other way
+ * there. Every trade passes through the pool, whoever paid and in whatever money, so trades compare with each other.
+ */
+export function poolPrice(it: Item, mint: string): { sol?: number; usd?: number } | null {
+  const m = it.meta;
+  if (!m || m.err) return null;
+  const pre = (m.preTokenBalances ?? []) as TokBal[];
+  const post = (m.postTokenBalances ?? []) as TokBal[];
+  const held = new Map<string, [number, number]>();
+  for (const b of pre) if (b.mint === mint && b.owner) (held.get(b.owner) ?? held.set(b.owner, [0, 0]).get(b.owner)!)[0] += ui(b);
+  for (const b of post) if (b.mint === mint && b.owner) (held.get(b.owner) ?? held.set(b.owner, [0, 0]).get(b.owner)!)[1] += ui(b);
+  let pool: string | null = null;
+  let most = 0;
+  for (const [o, [a, z]] of held) if (Math.abs(z - a) > 1e-9 && Math.max(a, z) > most) [most, pool] = [Math.max(a, z), o];
+  if (!pool) return null;
+  const dCoin = held.get(pool)![1] - held.get(pool)![0];
+  let dSol = 0;
+  let dUsd = 0;
+  const add = (b: TokBal, sign: number) => {
+    if (b.owner !== pool) return;
+    if (b.mint === SOL) dSol += sign * ui(b);
+    else if (STABLE.has(b.mint)) dUsd += sign * ui(b);
+  };
+  for (const b of post) add(b, 1);
+  for (const b of pre) add(b, -1);
+  const keys = it.transaction.message.accountKeys.map((k) => (typeof k === "string" ? k : k.pubkey));
+  if (keys.length < (m.preBalances?.length ?? 0)) keys.push(...(m.loadedAddresses?.writable ?? []), ...(m.loadedAddresses?.readonly ?? []));
+  const j = keys.indexOf(pool);
+  if (j >= 0 && m.preBalances?.[j] != null && m.postBalances?.[j] != null) dSol += (m.postBalances[j] - m.preBalances[j] + (j === 0 ? m.fee : 0)) / 1e9;
+  if (dSol * dCoin < 0 && Math.abs(dSol) >= 0.001) return { sol: Math.abs(dSol / dCoin) };
+  if (dUsd * dCoin < 0 && Math.abs(dUsd) >= 0.1) return { usd: Math.abs(dUsd / dCoin) };
+  return null;
+}
+
+export interface ReplayRow {
+  /** how much above (+) the seed's own price the next blocks traded, as a fraction; null when nobody traded there */
+  gap: number | null;
+  /** return after costs of a copy sold at each of REPLAY_SECS, as a fraction of the stake */
+  rets: number[];
+}
+/**
+ * One past buy of a seed, replayed from the coin's transactions from that buy on (`after`, any order; for each
+ * time in REPLAY_SECS it must hold the last trade at or before it). Enter at the middle price of the trades in the
+ * next ENTRY_SLOTS blocks (nobody traded there: the seed's own price); sell at the price of the last trade at or
+ * before each time. null = the seed's own trade cannot be priced.
+ */
+export function replayOf(lead: At & { mint: string }, after: Item[]): ReplayRow | null {
+  const seen = new Set<string>();
+  const trades: (At & { sol?: number; usd?: number })[] = [];
+  let own: { sol?: number; usd?: number } | null = null;
+  for (const it of after) {
+    const k = `${it.slot}:${it.transactionIndex}`;
+    if (seen.has(k)) continue;
+    seen.add(k);
+    const p = poolPrice(it, lead.mint);
+    if (!p) continue;
+    if (it.slot === lead.slot && it.transactionIndex === lead.index) own = p;
+    else if (earlier(lead, { slot: it.slot, index: it.transactionIndex })) trades.push({ slot: it.slot, index: it.transactionIndex, ...p });
+  }
+  if (!own) return null;
+  const cur = own.sol !== undefined ? "sol" : "usd";
+  const p0 = own[cur]!;
+  const priced = trades.filter((t) => t[cur] !== undefined).sort((a, b) => a.slot - b.slot || a.index - b.index);
+  const near = median(priced.filter((t) => t.slot > lead.slot && t.slot <= lead.slot + ENTRY_SLOTS).map((t) => t[cur]!));
+  const entry = near ?? p0;
+  const r4 = (x: number) => Math.round(x * 1e4) / 1e4;
+  return {
+    gap: near === null ? null : r4(near / p0 - 1),
+    rets: REPLAY_SECS.map((sec) => {
+      const to = lead.slot + Math.round(sec / SLOT_SEC);
+      let last = p0;
+      for (const t of priced) {
+        if (t.slot > to) break;
+        last = t[cur]!;
+      }
+      return r4(last / entry - 1 - REPLAY_COST);
+    }),
+  };
+}
+
+/** The replayed buys put together: at each hold how many copies ended above zero, the typical and the average return. */
+export function replaySummary(rows: ReplayRow[]) {
+  const pct = (x: number | null) => (x === null ? null : Math.round(x * 1e4) / 100);
+  const cell = (rs: number[]) => ({ n: rs.length, won: rs.filter((v) => v > 0).length, medianPct: pct(median(rs)), avgPct: rs.length ? pct(rs.reduce((a, b) => a + b, 0) / rs.length) : null });
+  const i60 = REPLAY_SECS.indexOf(60);
+  const gaps = rows.map((r) => r.gap).filter((g): g is number => g !== null);
+  return {
+    buys: rows.length,
+    /** buys where somebody traded in the next blocks, and how much above the seed's price they traded (median) */
+    followedAtOnce: gaps.length,
+    entryAboveTraderPct: pct(median(gaps)),
+    holds: REPLAY_SECS.map((sec, i) => ({ sec, ...cell(rows.map((r) => r.rets[i])) })),
+    /** sold at the first of these times where it is up 10% after costs, else at 60 s */
+    target10: cell(rows.map((r) => r.rets.slice(0, i60 + 1).find((v) => v >= 0.1) ?? r.rets[i60])),
+  };
+}
+
 // ---- one wallet's history -----------------------------------------------------------------------------------------
 export interface Cp {
   out: number;
@@ -353,6 +465,8 @@ interface SeedResult {
   /** other new holders in the 30 s before / after the seed's own buys (medians) */
   before30: number | null;
   after30: number | null;
+  /** its checked buys replayed (see replayOf) */
+  replay?: ReplayRow[];
   linked: Linked[];
 }
 interface State {
@@ -502,6 +616,7 @@ async function doSeed(seed: Tracked): Promise<SeedResult | null> {
   const tally = new Map<string, { coins: number; sold: number }>();
   const b30: number[] = [];
   const a30: number[] = [];
+  const replay: ReplayRow[] = [];
   for (const [mint, b] of buys) {
     if (stopped) return null;
     const pre = await pages(mint, { slot: { gte: b.slot - PRE_SLOTS, lte: b.slot } }, "desc", PRE_PAGES);
@@ -517,6 +632,18 @@ async function doSeed(seed: Tracked): Promise<SeedResult | null> {
     }
     b30.push(e.before30);
     a30.push(e.after30);
+    // REPLAY: where the coin traded at each hold; a page of its last trades before that time where `post` stops short
+    const got = post.more ? Math.max(b.slot, ...post.items.map((x) => x.slot)) : Infinity;
+    const after = [...post.items];
+    for (const sec of REPLAY_SECS) {
+      const to = b.slot + Math.round(sec / SLOT_SEC);
+      if (to <= got) continue;
+      const pg = await pages(mint, { slot: { gte: b.slot, lte: to } }, "desc", 1);
+      if (!pg) return null;
+      after.push(...pg.items);
+    }
+    const row = replayOf({ mint, slot: b.slot, index: b.index }, after);
+    if (row) replay.push(row);
   }
   const ok = (a: string) => a !== seed.address && !SERVICE.has(a) && validAddress(a);
   const n = (c: Cp) => c.out + c.in;
@@ -567,7 +694,7 @@ async function doSeed(seed: Tracked): Promise<SeedResult | null> {
     span: ago.length ? [r1(Math.min(...ago)), r1(Math.max(...ago))] : null, accounts: s.accounts,
     txs: s.txs, days: r1(s.days), buys: bought.length,
     buysUsd: bought.filter((b) => b.usd > 0).length, buysSol: bought.filter((b) => b.usd === 0).length,
-    checked: buys.length, before30: median(b30), after30: median(a30), linked: [...linked.values()],
+    checked: buys.length, before30: median(b30), after30: median(a30), replay, linked: [...linked.values()],
   };
 }
 
@@ -624,6 +751,7 @@ export function stopLinks() {
   save();
 }
 
+const REPLAY_NOTE = `REPLAY of the seeds' own past buys, from each coin's record: an estimate, not a result. A copy enters at the middle price the coin traded at in the ${ENTRY_SLOTS} blocks after the seed's buy (the seed's own price when nobody traded there) and is sold at the price of the last trade at or before each hold. ${REPLAY_COST * 100}% is taken off for buying and selling (what the real test's 0.05 SOL copies lose in and out). Not in it: our own order moving the price, a sale that fails, a coin that cannot be sold. target10 = sold at the first hold up 10%, else at 60 s.`;
 const ORDER = ["likely", "possible: buys ahead, no money link", "possible: money link, few shared coins", "money link only", "no sign", "service or bot"];
 /** Every linked wallet with its verdict, strongest first. A wallet tied to 3+ seeds is a shared service, not a person. */
 function judged() {
@@ -665,9 +793,11 @@ export function linksSummary() {
     seedsTotal: seeds().length,
     likely: all.reduce((a, s) => a + s.linked.filter((l) => l.verdict === "likely").length, 0),
     possible: all.reduce((a, s) => a + s.linked.filter((l) => l.verdict.startsWith("possible")).length, 0),
+    /** all seeds' replayed buys together */
+    replay: { note: REPLAY_NOTE, ...replaySummary(all.flatMap((s) => s.r.replay ?? [])) },
     seeds: all.map((s) => ({
       name: s.name, address: s.address, redo: s.r.v !== VERSION, transactionsRead: s.r.read ?? null, daysCovered: s.r.days, daysRead: s.r.reach ? { own: s.r.reach[0], dollar: s.r.reach[1] } : null, buysFromDaysAgo: s.r.span ?? null, coinsBought: s.r.buys, paidInDollars: s.r.buysUsd, paidInSol: s.r.buysSol,
-      buysChecked: s.r.checked, newHolders30sBefore: s.r.before30, newHolders30sAfter: s.r.after30,
+      buysChecked: s.r.checked, newHolders30sBefore: s.r.before30, newHolders30sAfter: s.r.after30, replay: replaySummary(s.r.replay ?? []),
       linked: s.linked.slice(0, 20).map(({ address, through, ...l }) => ({ wallet: tag(address), ...(through ? { through: tag(through) } : {}), ...l })),
     })),
     calls: health.calls,

@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 
 process.env.DATA_DIR = mkdtempSync(join(tmpdir(), "sollinks-"));
-const { actOf, holders, earlyOf, digest, compare, judge, linksSummary, linkedWallets, seedWallets, _test } = await import("./links.js");
+const { actOf, holders, earlyOf, digest, compare, judge, linksSummary, linkedWallets, seedWallets, poolPrice, replayOf, replaySummary, REPLAY_COST, REPLAY_SECS, _test } = await import("./links.js");
 const { SEEDS } = await import("./seeds.js");
 const { validAddress } = await import("./wallets.js");
 type Item = import("./history.js").Item;
@@ -214,6 +214,7 @@ test("runner: traces a seed on a made-up chain; the public summary carries tags,
   assert.equal(r.buysUsd, 4);
   assert.equal(r.checked, 4);
   assert.equal(r.after30, 1);
+  assert.equal(r.replay!.length, 4, "every checked buy is replayed");
   const side = r.linked.find((l) => l.address === SIDE)!;
   assert.deepEqual({ how: side.how, sent: side.sent, received: side.received, usd: side.usd, earlyCoins: side.earlyCoins, earlySold: side.earlySold, shared: side.shared, before: side.before, soldInto: side.soldInto }, { how: "money", sent: 2, received: 0, usd: 1600, earlyCoins: 4, earlySold: 4, shared: 4, before: 4, soldInto: 4 });
   const cex = r.linked.find((l) => l.address === CEX)!;
@@ -322,4 +323,94 @@ test("runner: a read that stops short says so, and a deeper one finds the older 
   } finally {
     _test.setDepth({ deep: 150 });
   }
+});
+
+/** A fomo buy as it really routes: dollars into a dollar/SOL pool, the SOL on into the coin's own pool. */
+const USDPOOL = A("UsdPool");
+const routedBuy = (slot: number, index: number, who: string, mint: string, usd: number, sol: number, tokens: number) =>
+  tx(slot, index, [[RELAYER, 0]], [[USDC, who, 50_000, 50_000 - usd], [USDC, USDPOOL, 9e5, 9e5 + usd], [SOL, USDPOOL, 5000, 5000 - sol], [SOL, POOL, 100, 100 + sol], [mint, who, -1, tokens], [mint, POOL, 5e6, 5e6 - tokens]]);
+/** A trade against the coin's pool at a given price (SOL per token): a buy of 1 SOL, or a sale for 1 SOL. */
+const tradeAt = (slot: number, index: number, who: string, mint: string, price: number, sell = false) =>
+  tx(slot, index, [[who, sell ? 1 : -1], [POOL, sell ? -1 : 1]], [[mint, who, sell ? 1 / price : 0, sell ? 0 : 1 / price], [mint, POOL, 5e6, 5e6 + (sell ? 1 : -1) / price]]);
+
+test("pool price: every trade is priced where the coin's pool is, whoever paid and in whatever money", () => {
+  const near = (a: number | undefined, b: number) => assert.ok(a !== undefined && Math.abs(a - b) < 1e-9, `${a} vs ${b}`);
+  near(poolPrice(solBuy(100, 0, SIDE, COIN(1), 2), COIN(1))?.sol, 2 / 1000);
+  near(poolPrice(solSell(100, 0, SIDE, COIN(1), 1.2), COIN(1))?.sol, 1.2 / 1000);
+  // dollars in, routed through SOL: priced in SOL at the coin's pool, like everybody else's trade
+  const routed = poolPrice(routedBuy(100, 0, SEED, COIN(1), 800, 5, 1000), COIN(1))!;
+  near(routed.sol, 5 / 1000);
+  assert.equal(routed.usd, undefined);
+  // a pool that holds dollars against the coin: priced in dollars
+  near(poolPrice(fomoBuy(100, 0, SEED, COIN(1), 500), COIN(1))?.usd, 0.5);
+  // a coin passed on, a transaction about another coin, a failed one: no price
+  assert.equal(poolPrice(drop(100, 0, A("Spam"), SEED, COIN(1)), COIN(1)), null);
+  assert.equal(poolPrice(solBuy(100, 0, SIDE, COIN(1)), COIN(2)), null);
+  const failed = solBuy(100, 0, SIDE, COIN(1));
+  failed.meta!.err = {};
+  assert.equal(poolPrice(failed, COIN(1)), null);
+});
+
+test("replay of one past buy: in at what the next blocks paid, out at the last trade before each hold", () => {
+  const M = COIN(1);
+  const lead = { mint: M, slot: 1000, index: 5 };
+  const after = [
+    tradeAt(1000, 2, A("Before"), M, 0.004), // same block but ahead of the seed: not part of it
+    routedBuy(1000, 5, SEED, M, 800, 5, 1000), // the seed: 0.005 SOL a token
+    tradeAt(1001, 0, A("F1"), M, 0.0052),
+    tradeAt(1002, 0, A("F2"), M, 0.0054),
+    tradeAt(1003, 0, A("F3"), M, 0.0056),
+    tradeAt(1010, 0, A("F4"), M, 0.0065), // 4 s
+    tradeAt(1040, 0, A("F5"), M, 0.0050, true), // 16 s
+    tradeAt(1700, 0, A("F6"), M, 0.0027, true), // 280 s
+  ];
+  const r = replayOf(lead, [...after, after[3]])!; // a transaction read twice counts once
+  // entry = middle of the three trades in the next 3 blocks = 0.0054, 8% over the seed
+  assert.equal(r.gap, 0.08);
+  const want = (p: number) => Math.round((p / 0.0054 - 1 - REPLAY_COST) * 1e4) / 1e4;
+  assert.deepEqual(REPLAY_SECS, [5, 10, 20, 30, 60, 120, 300]);
+  assert.deepEqual(r.rets, [want(0.0065), want(0.0065), want(0.005), want(0.005), want(0.005), want(0.005), want(0.0027)]);
+  // nobody trades after the seed: in at the seed's price, the price stays, only the cost is lost
+  const quiet = replayOf(lead, after.slice(0, 2))!;
+  assert.equal(quiet.gap, null);
+  assert.deepEqual(quiet.rets, REPLAY_SECS.map(() => -REPLAY_COST));
+  // the seed's own trade is not in what was read: nothing is made up
+  assert.equal(replayOf(lead, after.slice(2)), null);
+  const sum = replaySummary([r, quiet]);
+  assert.equal(sum.buys, 2);
+  assert.equal(sum.followedAtOnce, 1);
+  assert.equal(sum.entryAboveTraderPct, 8);
+  assert.deepEqual(sum.holds[0], { sec: 5, n: 2, won: 1, medianPct: Math.round(((want(0.0065) - REPLAY_COST) / 2) * 1e4) / 100, avgPct: Math.round(((want(0.0065) - REPLAY_COST) / 2) * 1e4) / 100 });
+  assert.deepEqual(sum.target10, { n: 2, won: 1, medianPct: Math.round(((want(0.0065) - REPLAY_COST) / 2) * 1e4) / 100, avgPct: Math.round(((want(0.0065) - REPLAY_COST) / 2) * 1e4) / 100 });
+  assert.equal(replaySummary([]).holds[0].n, 0);
+});
+
+test("runner: a busy coin is replayed past the first 200 transactions, with one page per hold", async () => {
+  _test.reset();
+  const now = Math.floor(Date.now() / 1000);
+  const M = COIN(7);
+  const chain: Item[] = [];
+  const put = (it: Item) => ((it.blockTime = now - 5 * 86_400 + Math.round((it.slot - 1000) * 0.4)), chain.push(it), it);
+  put(routedBuy(1000, 5, SEED, M, 800, 5, 1000)); // 0.005
+  // 250 buys in the next 10 blocks, the price climbing to 0.0075
+  for (let k = 0; k < 250; k++) put(tradeAt(1001 + Math.floor(k / 25), k % 25, A(`B${k}`), M, 0.005 + 0.00001 * (k + 1)));
+  put(tradeAt(1100, 0, A("S1"), M, 0.006, true)); // 40 s
+  put(tradeAt(1700, 0, A("S2"), M, 0.003, true)); // 280 s
+  const net = fakeChain(chain);
+  _test.setCfg({ rpcUrl: () => "https://mainnet.helius-rpc.com/?api-key=SECRET", fetch: () => net.fetch });
+  const r = await _test.doSeed(SEEDS[0]);
+  assert.ok(r);
+  assert.equal(r.buys, 1);
+  assert.equal(r.replay!.length, 1);
+  const row = r.replay![0];
+  // entry: the 75 buys of blocks 1001 to 1003, middle price 0.00538
+  const entry = 0.005 + 0.00001 * 38;
+  const want = (p: number) => Math.round((p / entry - 1 - REPLAY_COST) * 1e4) / 1e4;
+  assert.equal(row.gap, Math.round((entry / 0.005 - 1) * 1e4) / 1e4);
+  assert.deepEqual(row.rets, [want(0.0075), want(0.0075), want(0.0075), want(0.0075), want(0.006), want(0.006), want(0.003)]);
+  _test.state().seeds[SEED] = r;
+  const sum = linksSummary();
+  assert.equal(sum.replay.buys, 1);
+  assert.equal(sum.seeds[0].replay.holds.length, REPLAY_SECS.length);
+  assert.ok(sum.replay.note.includes("estimate"));
 });
