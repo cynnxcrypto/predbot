@@ -165,8 +165,9 @@ type State = {
   cricket: Record<string, CricketMatch>;
   usports: Record<string, UsMatch>;
   nomk: NoMaker[];
+  rest: RestBid[];
 };
-const state: State = { matches: {}, done: {}, nomk: [], makers: [], trades: [], signals: [], fixtures: {}, wx: {}, tennis: {}, cricket: {}, usports: {}, ...loadJson<Partial<State>>(STATE_FILE, {}) };
+const state: State = { matches: {}, done: {}, nomk: [], rest: [], makers: [], trades: [], signals: [], fixtures: {}, wx: {}, tennis: {}, cricket: {}, usports: {}, ...loadJson<Partial<State>>(STATE_FILE, {}) };
 // 7 Nov 2026 20:15 KST fix: the first run counted matches whose map 1 had ended before the logger started (map-1 price
 // already decided), so it "bought" mid-map-2 prices. Drop those esports rows once; later rows need sawLive.
 if (!state.done["fix:esports-sawlive"]) {
@@ -639,6 +640,8 @@ const RULE_TEXT: Record<string, [string, string]> = {
   "weather-dayahead-yes": ["weather", "Round 341 (11 Nov 2026 07:15 KST): forecast copy of weather-dayahead-all. The day before, at 12:00 station local time, read the free Open-Meteo ensemble forecast (about 80 model runs) of the day's highest temperature at the station and count the share of runs landing in each bucket; rest a $5 bid at the best bid only on buckets asking 10-50c where that share is 15+ points over the ask; never take; cancel 20 h before the close; hold fills. Untested assumptions: the model grid point matches the airport thermometer, and raw model shares are honest odds. The forecast and the asks are logged for every city-day so both can be checked."],
   "wx-no-maker": ["weather", "11 Nov 2026 (research thread 'Find a strategy worth pursuing', reviews/strategy-worth-pursuing-2026-11-11.md): bet AGAINST the unlikely temperature buckets as a maker. 36 h before the market day ends, for every bucket whose YES trades at 8-30c with a spread of 5c or less, rest a $5 bid on NO at the best NO bid; every 10 min re-join the best bid while it is within 2c of the first; cancel 12 h before the end; hold fills. A fill counts only from real trades at our price after the shares that were ahead of us traded. History 19 Oct-8 Nov, 1,823 bucket-days: NO won 85.5% at 81.7c, +4.6% if every bid fills, -0.1% if only the bad fills happen. Bar 300+ fills, 84%+ won, net over 0; killed at 300 fills with net at or under 0 or a 30-minute markout worse than -1.5c."],
   "wx-no-maker-815": ["weather", "Twin of wx-no-maker counting only buckets whose YES was 8-15c when the bid was placed."],
+  "prematch-rest-clv-tennis": ["tennis", "11 Nov 2026 (research thread 'Find a strategy worth pursuing'): from 6 h before a tennis match, rest a $3 bid at the best bid on BOTH players, leave it, cancel 20 min before the start; a fill counts only from real trades at our price after the shares ahead of us traded. Each fill is scored against the average traded price of the last 20 min before the start (the closing price) as well as the result. Research: resting orders averaged +0.6% against the close on tennis and esports. Bar 300+ fills averaging +0.5% against the close."],
+  "prematch-rest-clv-esports": ["esports", "The same pre-match resting bids on both teams of esports match-winner markets, scored against the closing price (see prematch-rest-clv-tennis)."],
   "weather-fav16-hi": ["weather", "10 Nov 2026 17:10 KST: 16:00 rule for city-days whose leading bucket is already 85-95c (the main rule only takes 50-85c and dropped these without a line). Buys the ask when it is within 2c of mid. No backtest for this band: it measures whether late near-certain buckets pay after the spread."],
   "weather-fav15-ask1": ["weather", "10 Nov 2026 17:10 KST: 15:00 copy of the 1c-under-ask maker shadow. The 15:00 taker saw 22 signals in three days and took 1 (asks 4c+ over mid), so this rests a $5 bid 1c under the ask for up to 6 h on every 15:00 signal."],
   "weather-fav16-ask1": ["weather", "Round 317 (10 Nov 2026 07:10 KST): maker shadow of the 16:00 rule bidding 1c UNDER THE ASK for up to 6 h. The mid-bid shadow got its first fills on 10 Nov (Madrid bid 61c vs ask 70c, Buenos Aires 62c vs 75c): both filled only after the ask slid 9-13c down to the bid, so a mid bid in a 10-25c-wide weather book buys mostly when the market has turned against the bucket. This twin fills on a 1c dip instead and gives up the price; the two together say whether weather can be traded as a maker at all."],
@@ -772,6 +775,95 @@ export function noMakerFill(mk: { bid: number; ahead: number; got: number; share
     mk.got += size;
   }
   return mk.got >= mk.shares - 1e-9;
+}
+/** A resting paper bid on one outcome of a match-winner market (prematch-rest-clv). */
+type RestBid = { rule: string; marketId: string; cond: string; title: string; outcome: string; idx: number; token: string; other: string; bid: number; ahead: number; got: number; shares: number; t: number; until: number; seen: number; start: number };
+type TapeRow = Parameters<typeof noMakerFill>[1][number];
+const tapeOf = async (cond: string) => (await getJson<{ data?: TapeRow[] }>(`https://data-api.polymarket.com/v2/trades?condition=${cond}&limit=1000&taker_only=true`).catch(() => null))?.data ?? null;
+/** Size-weighted average price of `token` over the trades between `from` and `to` (seconds); trades in the other token count at 1 - price. */
+export function closeVwap(rows: TapeRow[], token: string, other: string, from: number, to: number): number | null {
+  let v = 0;
+  let n = 0;
+  for (const r of rows) {
+    const ts = Number(r.timestamp) > 1e12 ? Math.floor(Number(r.timestamp) / 1000) : Number(r.timestamp);
+    const price = Number(r.price);
+    const size = Number(r.size);
+    if (!(ts >= from && ts <= to) || !(size > 0) || !(price > 0)) continue;
+    const p = r.token_id === token ? price : r.token_id === other ? 1 - price : null;
+    if (p == null) continue;
+    v += p * size;
+    n += size;
+  }
+  return n > 0 ? Math.round((v / n) * 10000) / 10000 : null;
+}
+/**
+ * prematch-rest-clv (11 Nov 2026, research thread 'Find a strategy worth pursuing'): tennis and esports match-winner
+ * markets, from 6 h before the start: a $3 bid at the best bid on BOTH outcomes, left where it is, cancelled 20 min
+ * before the start. Fills by the strict tape model. Every fill is scored against the size-weighted price of the last
+ * 20 min before the start (the closing price) as well as the result.
+ */
+async function restTick() {
+  const now = Date.now();
+  // 1. new bids (at most 15 markets a tick)
+  const cands: { rule: string; m: { id: string; title: string; start: number; tokens: string[]; outcomes: string[] } }[] = [
+    ...Object.values(state.tennis).map((m) => ({ rule: "prematch-rest-clv-tennis", m })),
+    ...Object.values(state.matches).map((m) => ({ rule: "prematch-rest-clv-esports", m })),
+  ];
+  let placed = 0;
+  for (const { rule, m } of cands) {
+    const key = `prematch-rest-clv|${m.id}`;
+    if (placed >= 15 || state.done[key] || m.tokens.length !== 2 || m.start - now > 6 * 3600_000 || m.start - now < 40 * 60_000) continue;
+    state.done[key] = now;
+    placed += 1;
+    const cond = (await getJson<GMarket>(`${GAMMA}/markets/${m.id}`).catch(() => null))?.conditionId;
+    const books = await Promise.all(m.tokens.map((k) => book(k).catch(() => null)));
+    if (!cond) continue;
+    books.forEach((bk, i) => {
+      if (!bk || bk.bestBid == null || bk.bestAsk == null || bk.bestBid < 0.03 || bk.bestBid > 0.97 || bk.bestAsk - bk.bestBid > 0.1) return;
+      const ahead = bk.bids.filter((b) => Math.abs(b.price - bk.bestBid!) < 1e-9).reduce((x, b) => x + b.size, 0);
+      state.rest.push({ rule, marketId: m.id, cond, title: m.title, outcome: m.outcomes[i] ?? String(i), idx: i, token: m.tokens[i], other: m.tokens[1 - i], bid: bk.bestBid, ahead, got: 0, shares: 3 / bk.bestBid, t: now, until: m.start - 20 * 60_000, seen: Math.floor(now / 1000), start: m.start });
+    });
+  }
+  // 2. fills, one tape read per market
+  const tapes = new Map<string, TapeRow[] | null>();
+  const keep: RestBid[] = [];
+  for (const rb of state.rest) {
+    if (now >= rb.until) continue; // cancelled unfilled
+    if (!tapes.has(rb.cond)) tapes.set(rb.cond, await tapeOf(rb.cond));
+    const rows = tapes.get(rb.cond);
+    const view = { bid: rb.bid, ahead: rb.ahead, got: rb.got, shares: rb.shares, seen: rb.seen, yes: rb.other, no: rb.token };
+    const filled = rows ? noMakerFill(view, rows) : false;
+    rb.ahead = view.ahead;
+    rb.got = view.got;
+    rb.seen = view.seen;
+    if (!filled) {
+      keep.push(rb);
+      continue;
+    }
+    state.trades.push({ rule: rb.rule, marketId: rb.marketId, title: rb.title, outcome: rb.outcome, idx: rb.idx, token: rb.token, t: now, ask: rb.bid, avg: rb.bid, shares: rb.shares, cost: 3, fee: 0, fillable: true, feeRate: 0, extra: { bidAt: rb.t, fillMin: Math.round((now - rb.t) / 60_000), cond: rb.cond, other: rb.other, start: rb.start, close: null, clv: null } });
+    log(`${rb.rule} ${rb.title} ${rb.outcome}: bid filled at ${Math.round(rb.bid * 1000) / 10}c`);
+  }
+  state.rest = keep;
+  // 3. closing price for fills whose match has started
+  for (const t of state.trades) {
+    const x = t.extra;
+    if (!t.rule.startsWith("prematch-rest-clv") || !x || x.clv != null || typeof x.start !== "number" || now < x.start + 60_000) continue;
+    if (now > x.start + 3 * 3600_000) {
+      x.clv = "missed";
+      continue;
+    }
+    const cond = String(x.cond);
+    if (!tapes.has(cond)) tapes.set(cond, await tapeOf(cond));
+    const rows = tapes.get(cond);
+    if (!rows) continue;
+    const close = closeVwap(rows, t.token, String(x.other), Math.floor(x.start / 1000) - 1200, Math.floor(x.start / 1000));
+    if (close == null || t.avg == null) {
+      if (now > x.start + 3600_000) x.clv = "no trades";
+      continue;
+    }
+    x.close = close;
+    x.clv = Math.round((close - t.avg) * 10000) / 10000;
+  }
 }
 /** wx-no-maker: every 10 min read the tape and the book of each resting NO bid; fill, re-join or cancel. */
 async function noMakerTick() {
@@ -1266,11 +1358,11 @@ function watchOf(g: string): unknown[] {
   return [];
 }
 const GROUPS: Record<string, string[]> = {
-  esports: ["esports-map1", "esports-fav-shadow", "esports-map1-dota", "esports-lol-fav90", "esports-cs2-fav90"],
+  esports: ["esports-map1", "esports-fav-shadow", "esports-map1-dota", "esports-lol-fav90", "esports-cs2-fav90", "prematch-rest-clv-esports"],
   indices: ["gold-momentum", "spx-underdog", "spy-underdog"],
   politics: ["election-lock-taker", "election-lock-maker"],
   weather: ["weather-fav16", "weather-fav15", "weather-fav16-wide", "weather-fav16-mid", "weather-fav16-ask1", "weather-fav16-hi", "weather-fav15-ask1", "weather-dayahead-all", "weather-dayahead-yes", "wx-no-maker", "wx-no-maker-815"],
-  tennis: ["tennis-wta-fav90", "tennis-atp-fav90", "tennis-wta-fav85", "tennis-itf-fav90", "tennis-fav95", "tennis-fav90-mid"],
+  tennis: ["tennis-wta-fav90", "tennis-atp-fav90", "tennis-wta-fav85", "tennis-itf-fav90", "tennis-fav95", "tennis-fav90-mid", "prematch-rest-clv-tennis"],
   cricket: ["cricket-fav10", "cricket-fav60", "cricket-dog-control"],
   usports: ["nba-fav85", "cbb-fav85", "nfl-fav85", "nba-fav85-mid", "us-prematch-fav-bid", "us-prematch-dog-bid"],
   football: ["football-laliga-home", "football-portugal-home", "football-italy-away", "football-laliga-home55"],
@@ -1292,6 +1384,13 @@ function summarize() {
           settled: st.length,
           won: st.filter((t) => t.won).length,
           net: Math.round(st.reduce((s, t) => s + (t.pnl ?? 0), 0) * 100) / 100,
+          // Average of each fill's price move in our favour, in cents a share: against the closing price (clv) and 30 min after the fill (mk30).
+          ...Object.fromEntries(
+            ["clv", "mk30"].map((k) => {
+              const xs = ts.map((t) => t.extra?.[k]).filter((x): x is number => typeof x === "number");
+              return [k, xs.length ? { n: xs.length, avgC: Math.round((xs.reduce((a, x) => a + x, 0) / xs.length) * 1000) / 10 } : null];
+            }),
+          ),
           fillable: { trades: fl.length, won: fl.filter((t) => t.won).length, net: Math.round(fl.reduce((s, t) => s + (t.pnl ?? 0), 0) * 100) / 100 },
           jev: (() => {
             const js = st.filter((t) => t.jev?.mult != null);
@@ -1413,6 +1512,7 @@ async function main() {
     if (now - last.nomk > 10 * 60_000) {
       last.nomk = now;
       await guard("weather NO makers", noMakerTick);
+      await guard("pre-match resting bids", restTick);
     }
     if (now - last.settle > 10 * 60_000) {
       last.settle = now;

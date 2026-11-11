@@ -56,3 +56,14 @@ test("wx-no-maker: a resting NO bid fills only from trades at its price after th
   // the same row again is not counted twice; a sale through our price fills the rest
   assert.equal(noMakerFill(mk, [{ timestamp: 120, side: "BUY", token_id: "Y", price: 0.2, size: 12 }, { timestamp: 130000, side: "SELL", token_id: "N", price: 0.79, size: 5 }]), true);
 });
+
+test("closing price: size-weighted, other token counted at 1 - price, only inside the window", async () => {
+  const { closeVwap } = await import("./eventpaper.js");
+  const rows = [
+    { timestamp: 1000, token_id: "A", price: 0.6, size: 10 },
+    { timestamp: 1100, token_id: "B", price: 0.3, size: 30 }, // = A at 0.70
+    { timestamp: 5000, token_id: "A", price: 0.9, size: 100 }, // outside
+  ];
+  assert.equal(closeVwap(rows, "A", "B", 900, 1200), 0.675);
+  assert.equal(closeVwap(rows, "A", "B", 2000, 3000), null);
+});
