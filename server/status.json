@@ -1,14 +1,14 @@
 {
- "at": "2026-11-11T10:51:31Z",
- "build": "254e9be\u00b72026-11-11\u00b710:48",
- "diskFreeGB": 14.56,
+ "at": "2026-11-11T10:55:07Z",
+ "build": "25bc943\u00b72026-11-11\u00b710:48",
+ "diskFreeGB": 14.55,
  "diskTotalGB": 30.01,
  "dashboardUrl": "https://economy-intended-government-recommended.trycloudflare.com",
  "series": [
   {
    "key": "btc5m",
    "label": "BTC 5m",
-   "windowsDone": 0,
+   "windowsDone": 1,
    "lastError": null,
    "feeds": [
     {
@@ -705,7 +705,7 @@
       "net": -147.02,
       "miss": 825
      },
-     "open": 1,
+     "open": 2,
      "discarded": false,
      "days": [
       {
@@ -771,7 +771,7 @@
       "net": -67.8,
       "miss": 277
      },
-     "open": 1,
+     "open": 2,
      "discarded": false,
      "days": [
       {
@@ -1035,7 +1035,7 @@
       "net": -102.31,
       "miss": 745
      },
-     "open": 1,
+     "open": 2,
      "discarded": false,
      "days": [
       {
@@ -1365,7 +1365,7 @@
       "net": -99.23,
       "miss": 517
      },
-     "open": 1,
+     "open": 2,
      "discarded": false,
      "days": [
       {
@@ -1431,7 +1431,7 @@
       "net": -135.65,
       "miss": 785
      },
-     "open": 1,
+     "open": 2,
      "discarded": false,
      "days": [
       {
@@ -1761,7 +1761,7 @@
       "net": -197.3,
       "miss": 829
      },
-     "open": 1,
+     "open": 2,
      "discarded": false,
      "days": [
       {
@@ -2511,7 +2511,7 @@
       "net": -140.45,
       "miss": 827
      },
-     "open": 1,
+     "open": 2,
      "discarded": false,
      "days": [
       {
@@ -2577,7 +2577,7 @@
       "net": -111.96,
       "miss": 713
      },
-     "open": 1,
+     "open": 2,
      "discarded": false,
      "days": [
       {
@@ -6207,7 +6207,7 @@
       "net": -38.71,
       "miss": 264
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -6273,7 +6273,7 @@
       "net": -14.21,
       "miss": 250
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -6339,7 +6339,7 @@
       "net": -34.38,
       "miss": 264
      },
-     "open": 1,
+     "open": 2,
      "discarded": false,
      "days": [
       {
@@ -6537,7 +6537,7 @@
       "net": -29.17,
       "miss": 109
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -6669,7 +6669,7 @@
       "net": -72.81,
       "miss": 211
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -7681,7 +7681,7 @@
       "net": -49.71,
       "miss": 223
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -8407,7 +8407,7 @@
       "net": 1.56,
       "miss": 338
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -8473,7 +8473,7 @@
       "net": -110.91,
       "miss": 452
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -10057,7 +10057,7 @@
       "net": -472.44,
       "miss": 699
      },
-     "open": 2,
+     "open": 3,
      "discarded": false,
      "days": [
       {
@@ -10189,7 +10189,7 @@
       "net": -166.54,
       "miss": 1000
      },
-     "open": 1,
+     "open": 2,
      "discarded": false,
      "days": [
       {
@@ -10255,7 +10255,7 @@
       "net": -150,
       "miss": 914
      },
-     "open": 1,
+     "open": 2,
      "discarded": false,
      "days": [
       {
@@ -10900,7 +10900,7 @@
   {
    "key": "eth5m",
    "label": "ETH 5m",
-   "windowsDone": 0,
+   "windowsDone": 1,
    "lastError": null,
    "feeds": [
     {
@@ -11597,7 +11597,7 @@
       "net": -158.55,
       "miss": 752
      },
-     "open": 1,
+     "open": 2,
      "discarded": false,
      "days": [
       {
@@ -11663,7 +11663,7 @@
       "net": -78.05,
       "miss": 249
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -11927,7 +11927,7 @@
       "net": -155.29,
       "miss": 705
      },
-     "open": 1,
+     "open": 2,
      "discarded": false,
      "days": [
       {
@@ -12257,7 +12257,7 @@
       "net": -92.37,
       "miss": 420
      },
-     "open": 1,
+     "open": 2,
      "discarded": false,
      "days": [
       {
@@ -12323,7 +12323,7 @@
       "net": -185,
       "miss": 779
      },
-     "open": 1,
+     "open": 2,
      "discarded": false,
      "days": [
       {
@@ -12653,7 +12653,7 @@
       "net": -325.11,
       "miss": 752
      },
-     "open": 1,
+     "open": 2,
      "discarded": false,
      "days": [
       {
@@ -13205,7 +13205,7 @@
       "net": -236.99,
       "miss": 498
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -13403,7 +13403,7 @@
       "net": -187.61,
       "miss": 744
      },
-     "open": 1,
+     "open": 2,
      "discarded": false,
      "days": [
       {
@@ -13469,7 +13469,7 @@
       "net": -157.29,
       "miss": 624
      },
-     "open": 1,
+     "open": 2,
      "discarded": false,
      "days": [
       {
@@ -14987,7 +14987,7 @@
       "net": -1716.15,
       "miss": 190
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -17144,7 +17144,7 @@
       "net": -55.66,
       "miss": 223
      },
-     "open": 1,
+     "open": 2,
      "discarded": false,
      "days": [
       {
@@ -21015,7 +21015,7 @@
       "net": -650.26,
       "miss": 558
      },
-     "open": 1,
+     "open": 2,
      "discarded": false,
      "days": [
       {
@@ -21147,7 +21147,7 @@
       "net": -456.26,
       "miss": 818
      },
-     "open": 1,
+     "open": 2,
      "discarded": false,
      "days": [
       {
@@ -21213,7 +21213,7 @@
       "net": -326.84,
       "miss": 814
      },
-     "open": 1,
+     "open": 2,
      "discarded": false,
      "days": [
       {
@@ -21411,7 +21411,7 @@
       "net": -467.66,
       "miss": 226
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -21817,7 +21817,7 @@
   {
    "key": "sol5m",
    "label": "SOL 5m",
-   "windowsDone": 0,
+   "windowsDone": 1,
    "lastError": null,
    "feeds": [
     {
@@ -22514,7 +22514,7 @@
       "net": -265.8,
       "miss": 692
      },
-     "open": 1,
+     "open": 2,
      "discarded": false,
      "days": [
       {
@@ -22580,7 +22580,7 @@
       "net": -76.34,
       "miss": 266
      },
-     "open": 1,
+     "open": 2,
      "discarded": false,
      "days": [
       {
@@ -22844,7 +22844,7 @@
       "net": -195.8,
       "miss": 553
      },
-     "open": 1,
+     "open": 2,
      "discarded": false,
      "days": [
       {
@@ -23174,7 +23174,7 @@
       "net": -179.58,
       "miss": 319
      },
-     "open": 1,
+     "open": 2,
      "discarded": false,
      "days": [
       {
@@ -23240,7 +23240,7 @@
       "net": -276.06,
       "miss": 716
      },
-     "open": 1,
+     "open": 2,
      "discarded": false,
      "days": [
       {
@@ -23306,7 +23306,7 @@
       "net": -160.21,
       "miss": 417
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -23372,7 +23372,7 @@
       "net": -110.48,
       "miss": 404
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -23438,7 +23438,7 @@
       "net": -132.12,
       "miss": 602
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -23570,7 +23570,7 @@
       "net": -377.26,
       "miss": 691
      },
-     "open": 1,
+     "open": 2,
      "discarded": false,
      "days": [
       {
@@ -23834,7 +23834,7 @@
       "net": -1513.48,
       "miss": 700
      },
-     "open": 2,
+     "open": 3,
      "discarded": false,
      "days": [
       {
@@ -24136,7 +24136,7 @@
       "net": -326.74,
       "miss": 501
      },
-     "open": 1,
+     "open": 2,
      "discarded": false,
      "days": [
       {
@@ -24334,7 +24334,7 @@
       "net": -264.42,
       "miss": 671
      },
-     "open": 1,
+     "open": 2,
      "discarded": false,
      "days": [
       {
@@ -24400,7 +24400,7 @@
       "net": -179.11,
       "miss": 554
      },
-     "open": 1,
+     "open": 2,
      "discarded": false,
      "days": [
       {
@@ -24796,7 +24796,7 @@
       "net": -703.85,
       "miss": 656
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -25126,7 +25126,7 @@
       "net": -19.85,
       "miss": 162
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -27304,7 +27304,7 @@
       "net": -541.32,
       "miss": 452
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -27811,7 +27811,7 @@
       "net": 69.9,
       "miss": 129
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -27877,7 +27877,7 @@
       "net": -73.17,
       "miss": 163
      },
-     "open": 1,
+     "open": 2,
      "discarded": false,
      "days": [
       {
@@ -27943,7 +27943,7 @@
       "net": -165.86,
       "miss": 320
      },
-     "open": 1,
+     "open": 2,
      "discarded": false,
      "days": [
       {
@@ -28009,7 +28009,7 @@
       "net": -176.99,
       "miss": 291
      },
-     "open": 1,
+     "open": 2,
      "discarded": false,
      "days": [
       {
@@ -28075,7 +28075,7 @@
       "net": -67.14,
       "miss": 205
      },
-     "open": 1,
+     "open": 2,
      "discarded": false,
      "days": [
       {
@@ -28141,7 +28141,7 @@
       "net": 55.2,
       "miss": 155
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -28207,7 +28207,7 @@
       "net": 44.91,
       "miss": 129
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -28273,7 +28273,7 @@
       "net": -57.03,
       "miss": 94
      },
-     "open": 1,
+     "open": 2,
      "discarded": false,
      "days": [
       {
@@ -28339,7 +28339,7 @@
       "net": 58.62,
       "miss": 123
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -28471,7 +28471,7 @@
       "net": -158.67,
       "miss": 237
      },
-     "open": 1,
+     "open": 2,
      "discarded": false,
      "days": [
       {
@@ -28537,7 +28537,7 @@
       "net": -98.56,
       "miss": 249
      },
-     "open": 1,
+     "open": 2,
      "discarded": false,
      "days": [
       {
@@ -29619,7 +29619,7 @@
       "net": -135.25,
       "miss": 278
      },
-     "open": 1,
+     "open": 2,
      "discarded": false,
      "days": [
       {
@@ -29751,7 +29751,7 @@
       "net": -498.94,
       "miss": 374
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -29817,7 +29817,7 @@
       "net": -310.8,
       "miss": 317
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -30345,7 +30345,7 @@
       "net": -262.9,
       "miss": 427
      },
-     "open": 1,
+     "open": 2,
      "discarded": false,
      "days": [
       {
@@ -30411,7 +30411,7 @@
       "net": -622.98,
       "miss": 529
      },
-     "open": 1,
+     "open": 2,
      "discarded": false,
      "days": [
       {
@@ -32061,7 +32061,7 @@
       "net": -81.92,
       "miss": 254
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -32127,7 +32127,7 @@
       "net": -387.44,
       "miss": 861
      },
-     "open": 1,
+     "open": 2,
      "discarded": false,
      "days": [
       {
@@ -32193,7 +32193,7 @@
       "net": -405.3,
       "miss": 777
      },
-     "open": 1,
+     "open": 2,
      "discarded": false,
      "days": [
       {
@@ -32391,7 +32391,7 @@
       "net": -767.95,
       "miss": 297
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -32808,7 +32808,7 @@
   {
    "key": "xrp5m",
    "label": "XRP 5m",
-   "windowsDone": 0,
+   "windowsDone": 1,
    "lastError": null,
    "feeds": [
     {
@@ -33505,7 +33505,7 @@
       "net": -564.51,
       "miss": 593
      },
-     "open": 1,
+     "open": 2,
      "discarded": false,
      "days": [
       {
@@ -33835,7 +33835,7 @@
       "net": -527.5,
       "miss": 483
      },
-     "open": 1,
+     "open": 2,
      "discarded": false,
      "days": [
       {
@@ -34165,7 +34165,7 @@
       "net": -334.97,
       "miss": 260
      },
-     "open": 1,
+     "open": 2,
      "discarded": false,
      "days": [
       {
@@ -34231,7 +34231,7 @@
       "net": -451.15,
       "miss": 687
      },
-     "open": 1,
+     "open": 2,
      "discarded": false,
      "days": [
       {
@@ -34363,7 +34363,7 @@
       "net": -252.34,
       "miss": 332
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -34429,7 +34429,7 @@
       "net": -176.77,
       "miss": 452
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -34561,7 +34561,7 @@
       "net": -743.34,
       "miss": 588
      },
-     "open": 1,
+     "open": 2,
      "discarded": false,
      "days": [
       {
@@ -34759,7 +34759,7 @@
       "net": -1664.09,
       "miss": 738
      },
-     "open": 2,
+     "open": 3,
      "discarded": false,
      "days": [
       {
@@ -34825,7 +34825,7 @@
       "net": -1442.11,
       "miss": 723
      },
-     "open": 2,
+     "open": 3,
      "discarded": false,
      "days": [
       {
@@ -35127,7 +35127,7 @@
       "net": -546.68,
       "miss": 481
      },
-     "open": 1,
+     "open": 2,
      "discarded": false,
      "days": [
       {
@@ -35325,7 +35325,7 @@
       "net": -543.66,
       "miss": 582
      },
-     "open": 1,
+     "open": 2,
      "discarded": false,
      "days": [
       {
@@ -35523,7 +35523,7 @@
       "net": -208.83,
       "miss": 281
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -35787,7 +35787,7 @@
       "net": -591.52,
       "miss": 645
      },
-     "open": 1,
+     "open": 2,
      "discarded": false,
      "days": [
       {
@@ -35919,7 +35919,7 @@
       "net": -36.22,
       "miss": 69
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -35985,7 +35985,7 @@
       "net": -23.1,
       "miss": 59
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -37824,13 +37824,13 @@
     {
      "name": "feed3-up40-tp90",
      "size": 5,
-     "trades": 721,
-     "won": 251,
-     "net": -159.15,
+     "trades": 722,
+     "won": 252,
+     "net": -153.74,
      "fillable": {
-      "trades": 388,
-      "won": 117,
-      "net": -337.81,
+      "trades": 389,
+      "won": 118,
+      "net": -332.41,
       "miss": 333
      },
      "open": 1,
@@ -37838,9 +37838,9 @@
      "days": [
       {
        "day": "2026-11-11",
-       "trades": 88,
-       "won": 29,
-       "net": -46.8,
+       "trades": 89,
+       "won": 30,
+       "net": -41.39,
        "first": 1794323100
       },
       {
@@ -37965,7 +37965,7 @@
       "net": -554.64,
       "miss": 389
      },
-     "open": 1,
+     "open": 2,
      "discarded": false,
      "days": [
       {
@@ -38295,7 +38295,7 @@
       "net": -527.84,
       "miss": 402
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -38451,7 +38451,7 @@
       "net": -167.91,
       "miss": 80
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -38913,7 +38913,7 @@
       "net": -473.73,
       "miss": 356
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -38979,7 +38979,7 @@
       "net": -315.71,
       "miss": 327
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -39045,7 +39045,7 @@
       "net": -178.31,
       "miss": 187
      },
-     "open": 1,
+     "open": 2,
      "discarded": false,
      "days": [
       {
@@ -39243,7 +39243,7 @@
       "net": -86.92,
       "miss": 96
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -39441,7 +39441,7 @@
       "net": -380.7,
       "miss": 271
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -39507,7 +39507,7 @@
       "net": -355.69,
       "miss": 292
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -40259,7 +40259,7 @@
       "net": -316.54,
       "miss": 0
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -40325,7 +40325,7 @@
       "net": -234.45,
       "miss": 212
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -40516,7 +40516,7 @@
       "net": -439.04,
       "miss": 325
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -40582,7 +40582,7 @@
       "net": -212.73,
       "miss": 331
      },
-     "open": 1,
+     "open": 2,
      "discarded": false,
      "days": [
       {
@@ -40648,7 +40648,7 @@
       "net": -485.45,
       "miss": 334
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -40714,7 +40714,7 @@
       "net": -343.65,
       "miss": 260
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -40912,7 +40912,7 @@
       "net": -542.55,
       "miss": 383
      },
-     "open": 1,
+     "open": 2,
      "discarded": false,
      "days": [
       {
@@ -41110,7 +41110,7 @@
       "net": -906.34,
       "miss": 203
      },
-     "open": 1,
+     "open": 2,
      "discarded": false,
      "days": [
       {
@@ -41242,7 +41242,7 @@
       "net": -547.77,
       "miss": 415
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -41308,7 +41308,7 @@
       "net": -497.22,
       "miss": 527
      },
-     "open": 1,
+     "open": 2,
      "discarded": false,
      "days": [
       {
@@ -41374,7 +41374,7 @@
       "net": -262.39,
       "miss": 333
      },
-     "open": 1,
+     "open": 2,
      "discarded": false,
      "days": [
       {
@@ -41440,7 +41440,7 @@
       "net": -118.63,
       "miss": 86
      },
-     "open": 1,
+     "open": 2,
      "discarded": false,
      "days": [
       {
@@ -41968,7 +41968,7 @@
       "net": -373.71,
       "miss": 289
      },
-     "open": 1,
+     "open": 2,
      "discarded": false,
      "days": [
       {
@@ -42034,7 +42034,7 @@
       "net": -475.06,
       "miss": 301
      },
-     "open": 1,
+     "open": 2,
      "discarded": false,
      "days": [
       {
@@ -42232,7 +42232,7 @@
       "net": -160.27,
       "miss": 98
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -42892,7 +42892,7 @@
       "net": -1051.16,
       "miss": 497
      },
-     "open": 1,
+     "open": 2,
      "discarded": false,
      "days": [
       {
@@ -42958,7 +42958,7 @@
       "net": -162.47,
       "miss": 246
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -43024,7 +43024,7 @@
       "net": -680.93,
       "miss": 747
      },
-     "open": 1,
+     "open": 2,
      "discarded": false,
      "days": [
       {
@@ -43090,7 +43090,7 @@
       "net": -602.35,
       "miss": 720
      },
-     "open": 1,
+     "open": 2,
      "discarded": false,
      "days": [
       {
@@ -43288,7 +43288,7 @@
       "net": -692.09,
       "miss": 302
      },
-     "open": 1,
+     "open": 2,
      "discarded": false,
      "days": [
       {
@@ -43705,7 +43705,7 @@
   {
    "key": "doge5m",
    "label": "DOGE 5m",
-   "windowsDone": 0,
+   "windowsDone": 1,
    "lastError": null,
    "feeds": [
     {
@@ -44393,13 +44393,13 @@
     {
      "name": "fav93",
      "size": 5,
-     "trades": 3327,
-     "won": 3014,
-     "net": -672.78,
+     "trades": 3328,
+     "won": 3015,
+     "net": -672.68,
      "fillable": {
-      "trades": 2821,
-      "won": 2524,
-      "net": -741.23,
+      "trades": 2822,
+      "won": 2525,
+      "net": -741.13,
       "miss": 506
      },
      "open": 1,
@@ -44407,9 +44407,9 @@
      "days": [
       {
        "day": "2026-11-11",
-       "trades": 236,
-       "won": 223,
-       "net": 1.41,
+       "trades": 237,
+       "won": 224,
+       "net": 1.51,
        "first": 1794322800
       },
       {
@@ -44591,23 +44591,23 @@
     {
      "name": "fav93-lead",
      "size": 5,
-     "trades": 663,
-     "won": 601,
-     "net": -142.28,
+     "trades": 664,
+     "won": 602,
+     "net": -142.19,
      "fillable": {
-      "trades": 552,
-      "won": 498,
-      "net": -131.25,
+      "trades": 553,
+      "won": 499,
+      "net": -131.16,
       "miss": 111
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-11",
-       "trades": 22,
-       "won": 21,
-       "net": 0.6,
+       "trades": 23,
+       "won": 22,
+       "net": 0.7,
        "first": 1794343800
       },
       {
@@ -44723,13 +44723,13 @@
     {
      "name": "fav95",
      "size": 5,
-     "trades": 3325,
-     "won": 3086,
-     "net": -570.73,
+     "trades": 3326,
+     "won": 3087,
+     "net": -570.64,
      "fillable": {
-      "trades": 2846,
-      "won": 2624,
-      "net": -584.56,
+      "trades": 2847,
+      "won": 2625,
+      "net": -584.46,
       "miss": 479
      },
      "open": 1,
@@ -44737,9 +44737,9 @@
      "days": [
       {
        "day": "2026-11-11",
-       "trades": 236,
-       "won": 230,
-       "net": 16.19,
+       "trades": 237,
+       "won": 231,
+       "net": 16.29,
        "first": 1794322800
       },
       {
@@ -44855,23 +44855,23 @@
     {
      "name": "fav95-lead",
      "size": 5,
-     "trades": 642,
-     "won": 592,
-     "net": -136.77,
+     "trades": 643,
+     "won": 593,
+     "net": -136.68,
      "fillable": {
-      "trades": 510,
-      "won": 466,
-      "net": -132.56,
+      "trades": 511,
+      "won": 467,
+      "net": -132.46,
       "miss": 132
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-11",
-       "trades": 24,
-       "won": 24,
-       "net": 4.73,
+       "trades": 25,
+       "won": 25,
+       "net": 4.83,
        "first": 1794339600
       },
       {
@@ -45053,13 +45053,13 @@
     {
      "name": "fav97",
      "size": 5,
-     "trades": 3323,
-     "won": 3145,
-     "net": -510.94,
+     "trades": 3324,
+     "won": 3146,
+     "net": -510.85,
      "fillable": {
-      "trades": 3009,
-      "won": 2839,
-      "net": -510.85,
+      "trades": 3010,
+      "won": 2840,
+      "net": -510.76,
       "miss": 314
      },
      "open": 1,
@@ -45067,9 +45067,9 @@
      "days": [
       {
        "day": "2026-11-11",
-       "trades": 236,
-       "won": 231,
-       "net": 2.88,
+       "trades": 237,
+       "won": 232,
+       "net": 2.98,
        "first": 1794322800
       },
       {
@@ -45119,13 +45119,13 @@
     {
      "name": "fav93-late",
      "size": 5,
-     "trades": 2998,
-     "won": 2777,
-     "net": -486.28,
+     "trades": 2999,
+     "won": 2778,
+     "net": -486.19,
      "fillable": {
-      "trades": 2402,
-      "won": 2203,
-      "net": -519.04,
+      "trades": 2403,
+      "won": 2204,
+      "net": -518.94,
       "miss": 596
      },
      "open": 1,
@@ -45133,9 +45133,9 @@
      "days": [
       {
        "day": "2026-11-11",
-       "trades": 204,
-       "won": 199,
-       "net": 20.66,
+       "trades": 205,
+       "won": 200,
+       "net": 20.76,
        "first": 1794323100
       },
       {
@@ -45326,7 +45326,7 @@
       "net": -276.06,
       "miss": 393
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -45449,13 +45449,13 @@
     {
      "name": "fav93-stop",
      "size": 5,
-     "trades": 3336,
-     "won": 2265,
-     "net": -1568.55,
+     "trades": 3337,
+     "won": 2266,
+     "net": -1568.45,
      "fillable": {
-      "trades": 2620,
-      "won": 1831,
-      "net": -1016.79,
+      "trades": 2621,
+      "won": 1832,
+      "net": -1016.69,
       "miss": 499
      },
      "open": 1,
@@ -45463,9 +45463,9 @@
      "days": [
       {
        "day": "2026-11-11",
-       "trades": 237,
-       "won": 168,
-       "net": -92.11,
+       "trades": 238,
+       "won": 169,
+       "net": -92.01,
        "first": 1794322800
       },
       {
@@ -45581,9 +45581,9 @@
     {
      "name": "arb97",
      "size": 5,
-     "trades": 449,
-     "won": 373,
-     "net": 102.55,
+     "trades": 450,
+     "won": 374,
+     "net": 102.61,
      "fillable": {
       "trades": 0,
       "won": 0,
@@ -45595,9 +45595,9 @@
      "days": [
       {
        "day": "2026-11-11",
-       "trades": 33,
-       "won": 26,
-       "net": 4.47,
+       "trades": 34,
+       "won": 27,
+       "net": 4.53,
        "first": 1794323100
       },
       {
@@ -45647,13 +45647,13 @@
     {
      "name": "prev-momentum",
      "size": 5,
-     "trades": 2915,
-     "won": 1364,
-     "net": -2443.85,
+     "trades": 2916,
+     "won": 1365,
+     "net": -2440.66,
      "fillable": {
-      "trades": 2249,
-      "won": 1010,
-      "net": -2321.72,
+      "trades": 2250,
+      "won": 1011,
+      "net": -2318.53,
       "miss": 666
      },
      "open": 2,
@@ -45661,9 +45661,9 @@
      "days": [
       {
        "day": "2026-11-11",
-       "trades": 200,
-       "won": 106,
-       "net": -23.2,
+       "trades": 201,
+       "won": 107,
+       "net": -20.01,
        "first": 1794323100
       },
       {
@@ -45713,23 +45713,23 @@
     {
      "name": "prev-reverse",
      "size": 5,
-     "trades": 2935,
+     "trades": 2936,
      "won": 1359,
-     "net": -2386.76,
+     "net": -2391.96,
      "fillable": {
-      "trades": 2323,
+      "trades": 2324,
       "won": 1044,
-      "net": -2236.89,
+      "net": -2242.09,
       "miss": 612
      },
-     "open": 2,
+     "open": 1,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-11",
-       "trades": 215,
+       "trades": 216,
        "won": 88,
-       "net": -279.48,
+       "net": -284.68,
        "first": 1794322800
       },
       {
@@ -45788,7 +45788,7 @@
       "net": -200.52,
       "miss": 58
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -46220,13 +46220,13 @@
     {
      "name": "fav93-calm",
      "size": 5,
-     "trades": 3247,
-     "won": 2939,
-     "net": -673.8,
+     "trades": 3248,
+     "won": 2940,
+     "net": -673.71,
      "fillable": {
-      "trades": 2749,
-      "won": 2458,
-      "net": -733.56,
+      "trades": 2750,
+      "won": 2459,
+      "net": -733.46,
       "miss": 498
      },
      "open": 1,
@@ -46234,9 +46234,9 @@
      "days": [
       {
        "day": "2026-11-11",
-       "trades": 225,
-       "won": 213,
-       "net": 2.63,
+       "trades": 226,
+       "won": 214,
+       "net": 2.73,
        "first": 1794323100
       },
       {
@@ -46286,23 +46286,23 @@
     {
      "name": "fav93-cross",
      "size": 5,
-     "trades": 2709,
-     "won": 2486,
-     "net": -370.61,
+     "trades": 2710,
+     "won": 2487,
+     "net": -370.52,
      "fillable": {
-      "trades": 2291,
-      "won": 2078,
-      "net": -444.64,
+      "trades": 2292,
+      "won": 2079,
+      "net": -444.55,
       "miss": 418
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-11",
-       "trades": 202,
-       "won": 194,
-       "net": 17.96,
+       "trades": 203,
+       "won": 195,
+       "net": 18.06,
        "first": 1794322800
       },
       {
@@ -46682,13 +46682,13 @@
     {
      "name": "fav-half",
      "size": 5,
-     "trades": 2001,
-     "won": 1416,
-     "net": -550.5,
+     "trades": 2002,
+     "won": 1417,
+     "net": -548.92,
      "fillable": {
-      "trades": 1437,
-      "won": 980,
-      "net": -675.79,
+      "trades": 1438,
+      "won": 981,
+      "net": -674.21,
       "miss": 564
      },
      "open": 1,
@@ -46696,9 +46696,9 @@
      "days": [
       {
        "day": "2026-11-11",
-       "trades": 138,
-       "won": 108,
-       "net": 24.68,
+       "trades": 139,
+       "won": 109,
+       "net": 26.26,
        "first": 1794324000
       },
       {
@@ -46946,23 +46946,23 @@
     {
      "name": "up15-first100",
      "size": 5,
-     "trades": 797,
+     "trades": 798,
      "won": 121,
-     "net": -28.21,
+     "net": -33.51,
      "fillable": {
       "trades": 589,
       "won": 84,
       "net": -96.74,
-      "miss": 208
+      "miss": 209
      },
-     "open": 2,
+     "open": 1,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-11",
-       "trades": 59,
+       "trades": 60,
        "won": 7,
-       "net": -44.96,
+       "net": -50.26,
        "first": 1794323100
       },
       {
@@ -47672,23 +47672,23 @@
     {
      "name": "up13-first450",
      "size": 5,
-     "trades": 1875,
+     "trades": 1876,
      "won": 189,
-     "net": -1332.4,
+     "net": -1333.92,
      "fillable": {
       "trades": 1454,
       "won": 127,
       "net": -1596.98,
-      "miss": 419
+      "miss": 420
      },
      "open": 1,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-11",
-       "trades": 129,
+       "trades": 130,
        "won": 10,
-       "net": -86.12,
+       "net": -87.64,
        "first": 1794323100
       },
       {
@@ -47738,23 +47738,23 @@
     {
      "name": "up25-first300",
      "size": 5,
-     "trades": 2169,
+     "trades": 2170,
      "won": 483,
-     "net": -1074.76,
+     "net": -1080.02,
      "fillable": {
-      "trades": 1497,
+      "trades": 1498,
       "won": 294,
-      "net": -1440.84,
+      "net": -1446.1,
       "miss": 672
      },
-     "open": 2,
+     "open": 1,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-11",
-       "trades": 153,
+       "trades": 154,
        "won": 34,
-       "net": -64.48,
+       "net": -69.74,
        "first": 1794323100
       },
       {
@@ -47804,23 +47804,23 @@
     {
      "name": "jump5-fresh",
      "size": 5,
-     "trades": 1175,
+     "trades": 1176,
      "won": 252,
-     "net": -2643.44,
+     "net": -2648.62,
      "fillable": {
-      "trades": 853,
+      "trades": 854,
       "won": 159,
-      "net": -2126.16,
+      "net": -2131.34,
       "miss": 322
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-11",
-       "trades": 117,
+       "trades": 118,
        "won": 21,
-       "net": -335.21,
+       "net": -340.39,
        "first": 1794322800
       },
       {
@@ -48200,23 +48200,23 @@
     {
      "name": "feed3-up20",
      "size": 5,
-     "trades": 396,
+     "trades": 397,
      "won": 41,
-     "net": -644.5,
+     "net": -649.8,
      "fillable": {
       "trades": 272,
       "won": 20,
       "net": -793.12,
-      "miss": 124
+      "miss": 125
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-11",
-       "trades": 44,
+       "trades": 45,
        "won": 5,
-       "net": -69.56,
+       "net": -74.86,
        "first": 1794323100
       },
       {
@@ -48266,23 +48266,23 @@
     {
      "name": "feed2-up20",
      "size": 5,
-     "trades": 656,
+     "trades": 657,
      "won": 84,
-     "net": -483.72,
+     "net": -489.02,
      "fillable": {
       "trades": 467,
       "won": 44,
       "net": -890.13,
-      "miss": 189
+      "miss": 190
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-11",
-       "trades": 71,
+       "trades": 72,
        "won": 8,
-       "net": -133.09,
+       "net": -138.39,
        "first": 1794323100
       },
       {
@@ -48332,23 +48332,23 @@
     {
      "name": "feed4-up30",
      "size": 5,
-     "trades": 336,
+     "trades": 337,
      "won": 58,
-     "net": -376.71,
+     "net": -382.01,
      "fillable": {
       "trades": 216,
       "won": 29,
       "net": -498.41,
-      "miss": 120
+      "miss": 121
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-11",
-       "trades": 35,
+       "trades": 36,
        "won": 6,
-       "net": -63.6,
+       "net": -68.9,
        "first": 1794323100
       },
       {
@@ -48662,23 +48662,23 @@
     {
      "name": "cldrop3-up20",
      "size": 5,
-     "trades": 1179,
+     "trades": 1180,
      "won": 170,
-     "net": -1085.07,
+     "net": -1090.36,
      "fillable": {
-      "trades": 884,
+      "trades": 885,
       "won": 108,
-      "net": -1260.86,
+      "net": -1266.15,
       "miss": 295
      },
-     "open": 2,
+     "open": 1,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-11",
-       "trades": 104,
+       "trades": 105,
        "won": 14,
-       "net": -131.48,
+       "net": -136.77,
        "first": 1794323100
       },
       {
@@ -48728,23 +48728,23 @@
     {
      "name": "feed3-up40-tp90",
      "size": 5,
-     "trades": 610,
+     "trades": 611,
      "won": 193,
-     "net": -493.44,
+     "net": -498.72,
      "fillable": {
-      "trades": 371,
+      "trades": 372,
       "won": 101,
-      "net": -530.09,
+      "net": -535.36,
       "miss": 239
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-11",
-       "trades": 62,
+       "trades": 63,
        "won": 22,
-       "net": -20.75,
+       "net": -26.03,
        "first": 1794323100
       },
       {
@@ -48860,23 +48860,23 @@
     {
      "name": "feed3-up40",
      "size": 5,
-     "trades": 751,
+     "trades": 752,
      "won": 183,
-     "net": -729.19,
+     "net": -734.5,
      "fillable": {
       "trades": 459,
       "won": 91,
       "net": -898.4,
-      "miss": 292
+      "miss": 293
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-11",
-       "trades": 75,
+       "trades": 76,
        "won": 21,
-       "net": -51.64,
+       "net": -56.94,
        "first": 1794323100
       },
       {
@@ -48992,23 +48992,23 @@
     {
      "name": "basis10-both60-2m",
      "size": 5,
-     "trades": 3239,
+     "trades": 3240,
      "won": 1387,
-     "net": -2920.86,
+     "net": -2926.06,
      "fillable": {
-      "trades": 2611,
+      "trades": 2612,
       "won": 1078,
-      "net": -2791.53,
+      "net": -2796.73,
       "miss": 628
      },
-     "open": 2,
+     "open": 1,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-11",
-       "trades": 228,
+       "trades": 229,
        "won": 86,
-       "net": -285.74,
+       "net": -290.94,
        "first": 1794322800
       },
       {
@@ -49067,7 +49067,7 @@
       "net": -506.05,
       "miss": 378
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -49133,7 +49133,7 @@
       "net": -560.51,
       "miss": 333
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -49199,7 +49199,7 @@
       "net": -315.1,
       "miss": 355
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -49287,23 +49287,23 @@
     {
      "name": "basis15-both60",
      "size": 5,
-     "trades": 3067,
-     "won": 1339,
-     "net": -2270.93,
+     "trades": 3068,
+     "won": 1340,
+     "net": -2263.37,
      "fillable": {
       "trades": 2414,
       "won": 1008,
       "net": -2304.6,
-      "miss": 653
+      "miss": 654
      },
-     "open": 2,
+     "open": 1,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-11",
-       "trades": 213,
-       "won": 110,
-       "net": 6.78,
+       "trades": 214,
+       "won": 111,
+       "net": 14.34,
        "first": 1794322800
       },
       {
@@ -49617,13 +49617,13 @@
     {
      "name": "feed3-down60-mid",
      "size": 5,
-     "trades": 764,
-     "won": 368,
-     "net": -312.9,
+     "trades": 765,
+     "won": 369,
+     "net": -309.13,
      "fillable": {
-      "trades": 474,
-      "won": 214,
-      "net": -338.17,
+      "trades": 475,
+      "won": 215,
+      "net": -334.4,
       "miss": 290
      },
      "open": 1,
@@ -49631,9 +49631,9 @@
      "days": [
       {
        "day": "2026-11-11",
-       "trades": 99,
-       "won": 44,
-       "net": -66.43,
+       "trades": 100,
+       "won": 45,
+       "net": -62.66,
        "first": 1794323100
       },
       {
@@ -49749,23 +49749,23 @@
     {
      "name": "feed3-up60-mid-hold1",
      "size": 5,
-     "trades": 390,
+     "trades": 391,
      "won": 187,
-     "net": -155.31,
+     "net": -160.45,
      "fillable": {
       "trades": 248,
       "won": 118,
       "net": -105.68,
-      "miss": 142
+      "miss": 143
      },
      "open": 1,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-11",
-       "trades": 48,
+       "trades": 49,
        "won": 24,
-       "net": -13.87,
+       "net": -19.01,
        "first": 1794323100
       },
       {
@@ -49815,23 +49815,23 @@
     {
      "name": "feed3-up60-mid-quota16",
      "size": 5,
-     "trades": 707,
+     "trades": 708,
      "won": 352,
-     "net": -150.69,
+     "net": -155.83,
      "fillable": {
       "trades": 415,
       "won": 193,
       "net": -193.87,
-      "miss": 292
+      "miss": 293
      },
      "open": 1,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-11",
-       "trades": 94,
+       "trades": 95,
        "won": 44,
-       "net": -55.18,
+       "net": -60.32,
        "first": 1794323100
       },
       {
@@ -49881,23 +49881,23 @@
     {
      "name": "feedp95-up60-mid",
      "size": 5,
-     "trades": 600,
+     "trades": 601,
      "won": 298,
-     "net": -155.9,
+     "net": -161.04,
      "fillable": {
       "trades": 355,
       "won": 161,
       "net": -226.34,
-      "miss": 245
+      "miss": 246
      },
      "open": 1,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-11",
-       "trades": 78,
+       "trades": 79,
        "won": 36,
-       "net": -48.68,
+       "net": -53.82,
        "first": 1794323100
       },
       {
@@ -49947,13 +49947,13 @@
     {
      "name": "fav93-feedgreen",
      "size": 5,
-     "trades": 1037,
-     "won": 940,
-     "net": -207.92,
+     "trades": 1038,
+     "won": 941,
+     "net": -207.82,
      "fillable": {
-      "trades": 862,
-      "won": 771,
-      "net": -228.78,
+      "trades": 863,
+      "won": 772,
+      "net": -228.68,
       "miss": 175
      },
      "open": 1,
@@ -49961,9 +49961,9 @@
      "days": [
       {
        "day": "2026-11-11",
-       "trades": 107,
-       "won": 97,
-       "net": -21.4,
+       "trades": 108,
+       "won": 98,
+       "net": -21.3,
        "first": 1794322800
       },
       {
@@ -50013,23 +50013,23 @@
     {
      "name": "feed3-up60-mid-pulled5",
      "size": 5,
-     "trades": 316,
+     "trades": 317,
      "won": 168,
-     "net": -43.01,
+     "net": -48.14,
      "fillable": {
       "trades": 203,
       "won": 95,
       "net": -156.66,
-      "miss": 113
+      "miss": 114
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-11",
-       "trades": 45,
+       "trades": 46,
        "won": 24,
-       "net": -2.16,
+       "net": -7.29,
        "first": 1794323400
       },
       {
@@ -50145,23 +50145,23 @@
     {
      "name": "feed3-up60-mid-cool30",
      "size": 5,
-     "trades": 210,
+     "trades": 211,
      "won": 99,
-     "net": -100.92,
+     "net": -106.06,
      "fillable": {
       "trades": 121,
       "won": 55,
       "net": -75.8,
-      "miss": 89
+      "miss": 90
      },
      "open": 1,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-11",
-       "trades": 44,
+       "trades": 45,
        "won": 21,
-       "net": -23.36,
+       "net": -28.5,
        "first": 1794323100
       },
       {
@@ -50343,23 +50343,23 @@
     {
      "name": "feed3-up60-mid-noasiapm",
      "size": 5,
-     "trades": 524,
+     "trades": 525,
      "won": 254,
-     "net": -191.9,
+     "net": -197.04,
      "fillable": {
       "trades": 309,
       "won": 136,
       "net": -227.43,
-      "miss": 215
+      "miss": 216
      },
      "open": 1,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-11",
-       "trades": 68,
+       "trades": 69,
        "won": 34,
-       "net": -20.78,
+       "net": -25.92,
        "first": 1794323100
       },
       {
@@ -50418,7 +50418,7 @@
       "net": -86.52,
       "miss": 198
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -51147,13 +51147,13 @@
     {
      "name": "feed3-up60-mid-maker1-thru",
      "size": 5,
-     "trades": 536,
+     "trades": 537,
      "won": 253,
-     "net": -80.04,
+     "net": -85.04,
      "fillable": {
-      "trades": 536,
+      "trades": 537,
       "won": 253,
-      "net": -80.04,
+      "net": -85.04,
       "miss": 0
      },
      "open": 1,
@@ -51161,9 +51161,9 @@
      "days": [
       {
        "day": "2026-11-11",
-       "trades": 80,
+       "trades": 81,
        "won": 33,
-       "net": -63.61,
+       "net": -68.61,
        "first": 1794323100
       },
       {
@@ -51213,23 +51213,23 @@
     {
      "name": "feed3-up60-mid-maker1",
      "size": 5,
-     "trades": 567,
+     "trades": 568,
      "won": 275,
-     "net": -14.39,
+     "net": -19.39,
      "fillable": {
       "trades": 400,
       "won": 183,
       "net": -123.72,
-      "miss": 167
+      "miss": 168
      },
      "open": 1,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-11",
-       "trades": 83,
+       "trades": 84,
        "won": 35,
-       "net": -61.52,
+       "net": -66.52,
        "first": 1794323100
       },
       {
@@ -51399,7 +51399,7 @@
       "net": -129.45,
       "miss": 236
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -51456,23 +51456,23 @@
     {
      "name": "feed3-up40-tight",
      "size": 5,
-     "trades": 523,
+     "trades": 524,
      "won": 155,
-     "net": -335.13,
+     "net": -340.4,
      "fillable": {
-      "trades": 305,
+      "trades": 306,
       "won": 82,
-      "net": -313.78,
+      "net": -319.06,
       "miss": 218
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-11",
-       "trades": 57,
+       "trades": 58,
        "won": 20,
-       "net": 2.28,
+       "net": -3,
        "first": 1794323100
       },
       {
@@ -51531,7 +51531,7 @@
       "net": -287.01,
       "miss": 285
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -51597,7 +51597,7 @@
       "net": -244.51,
       "miss": 253
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -51786,23 +51786,23 @@
     {
      "name": "feed3-up40-halt6",
      "size": 5,
-     "trades": 747,
+     "trades": 748,
      "won": 182,
-     "net": -725.41,
+     "net": -730.71,
      "fillable": {
       "trades": 456,
       "won": 90,
       "net": -899.83,
-      "miss": 291
+      "miss": 292
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-11",
-       "trades": 75,
+       "trades": 76,
        "won": 21,
-       "net": -51.64,
+       "net": -56.94,
        "first": 1794323100
       },
       {
@@ -51984,23 +51984,23 @@
     {
      "name": "feed3-up40-pay3",
      "size": 5,
-     "trades": 695,
+     "trades": 696,
      "won": 153,
-     "net": -1078.03,
+     "net": -1083.33,
      "fillable": {
       "trades": 540,
       "won": 99,
       "net": -1161.02,
-      "miss": 155
+      "miss": 156
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-11",
-       "trades": 69,
+       "trades": 70,
        "won": 19,
-       "net": -80.38,
+       "net": -85.68,
        "first": 1794323100
       },
       {
@@ -52116,23 +52116,23 @@
     {
      "name": "feed3-up60-mid",
      "size": 5,
-     "trades": 900,
+     "trades": 901,
      "won": 443,
-     "net": -268.32,
+     "net": -273.46,
      "fillable": {
       "trades": 549,
       "won": 251,
       "net": -316.43,
-      "miss": 351
+      "miss": 352
      },
      "open": 1,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-11",
-       "trades": 95,
+       "trades": 96,
        "won": 45,
-       "net": -49.01,
+       "net": -54.15,
        "first": 1794323100
       },
       {
@@ -52182,23 +52182,23 @@
     {
      "name": "feed3-up60-min20",
      "size": 5,
-     "trades": 1086,
+     "trades": 1087,
      "won": 477,
-     "net": -315.49,
+     "net": -320.63,
      "fillable": {
       "trades": 645,
       "won": 257,
       "net": -465.41,
-      "miss": 441
+      "miss": 442
      },
      "open": 1,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-11",
-       "trades": 108,
+       "trades": 109,
        "won": 50,
-       "net": -2.66,
+       "net": -7.8,
        "first": 1794323100
       },
       {
@@ -52248,23 +52248,23 @@
     {
      "name": "feed3-up40-min20",
      "size": 5,
-     "trades": 609,
+     "trades": 610,
      "won": 178,
-     "net": -416.46,
+     "net": -421.74,
      "fillable": {
-      "trades": 370,
+      "trades": 371,
       "won": 93,
-      "net": -496.36,
+      "net": -501.64,
       "miss": 239
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-11",
-       "trades": 62,
+       "trades": 63,
        "won": 21,
-       "net": -6.64,
+       "net": -11.92,
        "first": 1794323100
       },
       {
@@ -52314,23 +52314,23 @@
     {
      "name": "feed3-up40-eu",
      "size": 5,
-     "trades": 127,
+     "trades": 128,
      "won": 34,
-     "net": 18.53,
+     "net": 13.23,
      "fillable": {
       "trades": 79,
       "won": 18,
       "net": -146.91,
-      "miss": 48
+      "miss": 49
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-11",
-       "trades": 13,
+       "trades": 14,
        "won": 3,
-       "net": -1.81,
+       "net": -7.11,
        "first": 1794377100
       },
       {
@@ -52380,23 +52380,23 @@
     {
      "name": "feed3-up20-bids",
      "size": 5,
-     "trades": 339,
+     "trades": 340,
      "won": 35,
-     "net": -516.23,
+     "net": -517.49,
      "fillable": {
-      "trades": 241,
+      "trades": 242,
       "won": 19,
-      "net": -639.64,
+      "net": -640.91,
       "miss": 98
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-11",
-       "trades": 36,
+       "trades": 37,
        "won": 4,
-       "net": -44.1,
+       "net": -45.37,
        "first": 1794323100
       },
       {
@@ -52512,23 +52512,23 @@
     {
      "name": "feed3-up20-jump2",
      "size": 5,
-     "trades": 383,
+     "trades": 384,
      "won": 40,
-     "net": -609.96,
+     "net": -615.26,
      "fillable": {
       "trades": 263,
       "won": 20,
       "net": -748.17,
-      "miss": 120
+      "miss": 121
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-11",
-       "trades": 42,
+       "trades": 43,
        "won": 5,
-       "net": -58.96,
+       "net": -64.26,
        "first": 1794323100
       },
       {
@@ -52842,23 +52842,23 @@
     {
      "name": "cross3x2-up40",
      "size": 5,
-     "trades": 722,
+     "trades": 723,
      "won": 192,
-     "net": -422.49,
+     "net": -427.74,
      "fillable": {
-      "trades": 478,
+      "trades": 479,
       "won": 107,
-      "net": -581.81,
+      "net": -587.06,
       "miss": 244
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-11",
-       "trades": 74,
+       "trades": 75,
        "won": 20,
-       "net": -101.68,
+       "net": -106.93,
        "first": 1794323100
       },
       {
@@ -52908,23 +52908,23 @@
     {
      "name": "feed3-up40-awake",
      "size": 5,
-     "trades": 603,
+     "trades": 604,
      "won": 146,
-     "net": -622.03,
+     "net": -627.33,
      "fillable": {
       "trades": 362,
       "won": 72,
       "net": -718.82,
-      "miss": 241
+      "miss": 242
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-11",
-       "trades": 61,
+       "trades": 62,
        "won": 17,
-       "net": -27.88,
+       "net": -33.18,
        "first": 1794323100
       },
       {
@@ -52974,23 +52974,23 @@
     {
      "name": "binburst4-up20-awake",
      "size": 5,
-     "trades": 253,
+     "trades": 254,
      "won": 27,
-     "net": -327.02,
+     "net": -332.32,
      "fillable": {
       "trades": 164,
       "won": 14,
       "net": -421.75,
-      "miss": 89
+      "miss": 90
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-11",
-       "trades": 28,
+       "trades": 29,
        "won": 4,
-       "net": -45.26,
+       "net": -50.56,
        "first": 1794323100
       },
       {
@@ -53040,23 +53040,23 @@
     {
      "name": "binburst4-up20",
      "size": 5,
-     "trades": 307,
+     "trades": 308,
      "won": 34,
-     "net": -373.91,
+     "net": -379.21,
      "fillable": {
       "trades": 202,
       "won": 19,
       "net": -467.03,
-      "miss": 105
+      "miss": 106
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-11",
-       "trades": 34,
+       "trades": 35,
        "won": 4,
-       "net": -77.13,
+       "net": -82.43,
        "first": 1794323100
       },
       {
@@ -53172,23 +53172,23 @@
     {
      "name": "binburst4-up20-x6",
      "size": 30,
-     "trades": 307,
+     "trades": 308,
      "won": 34,
-     "net": -2859.12,
+     "net": -2890.88,
      "fillable": {
       "trades": 202,
       "won": 19,
       "net": -2694.94,
-      "miss": 105
+      "miss": 106
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-11",
-       "trades": 34,
+       "trades": 35,
        "won": 4,
-       "net": -675.04,
+       "net": -706.8,
        "first": 1794323100
       },
       {
@@ -53238,23 +53238,23 @@
     {
      "name": "feed3-up20-x6",
      "size": 30,
-     "trades": 396,
+     "trades": 397,
      "won": 41,
-     "net": -4343.69,
+     "net": -4375.45,
      "fillable": {
       "trades": 272,
       "won": 20,
       "net": -4125.86,
-      "miss": 124
+      "miss": 125
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-11",
-       "trades": 44,
+       "trades": 45,
        "won": 5,
-       "net": -477.93,
+       "net": -509.69,
        "first": 1794323100
       },
       {
@@ -53370,23 +53370,23 @@
     {
      "name": "feed3-up20-hold2",
      "size": 5,
-     "trades": 119,
+     "trades": 120,
      "won": 8,
-     "net": -397.6,
+     "net": -401.08,
      "fillable": {
-      "trades": 91,
+      "trades": 92,
       "won": 4,
-      "net": -349.01,
+      "net": -352.49,
       "miss": 28
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-11",
-       "trades": 14,
+       "trades": 15,
        "won": 0,
-       "net": -67.26,
+       "net": -70.74,
        "first": 1794323100
       },
       {
@@ -53634,13 +53634,13 @@
     {
      "name": "flat1-cheap40",
      "size": 5,
-     "trades": 422,
+     "trades": 423,
      "won": 129,
-     "net": -255.18,
+     "net": -260.45,
      "fillable": {
-      "trades": 282,
+      "trades": 283,
       "won": 73,
-      "net": -356.08,
+      "net": -361.35,
       "miss": 140
      },
      "open": 1,
@@ -53648,9 +53648,9 @@
      "days": [
       {
        "day": "2026-11-11",
-       "trades": 31,
+       "trades": 32,
        "won": 6,
-       "net": -70.13,
+       "net": -75.4,
        "first": 1794323100
       },
       {
@@ -53700,23 +53700,23 @@
     {
      "name": "feed3-up20-tight",
      "size": 5,
-     "trades": 314,
+     "trades": 315,
      "won": 31,
-     "net": -569.6,
+     "net": -574.91,
      "fillable": {
       "trades": 216,
       "won": 13,
       "net": -738.96,
-      "miss": 98
+      "miss": 99
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-11",
-       "trades": 33,
+       "trades": 34,
        "won": 5,
-       "net": -2.06,
+       "net": -7.36,
        "first": 1794323100
       },
       {
@@ -53766,13 +53766,13 @@
     {
      "name": "up60-first60",
      "size": 5,
-     "trades": 2500,
+     "trades": 2501,
      "won": 1359,
-     "net": -1893.87,
+     "net": -1897.92,
      "fillable": {
-      "trades": 2005,
+      "trades": 2006,
       "won": 1064,
-      "net": -1739.32,
+      "net": -1743.38,
       "miss": 495
      },
      "open": 1,
@@ -53780,9 +53780,9 @@
      "days": [
       {
        "day": "2026-11-11",
-       "trades": 174,
+       "trades": 175,
        "won": 99,
-       "net": -97.93,
+       "net": -101.98,
        "first": 1794322800
       },
       {
@@ -53898,13 +53898,13 @@
     {
      "name": "slide90-80-70",
      "size": 5,
-     "trades": 3331,
-     "won": 2792,
-     "net": -888.85,
+     "trades": 3332,
+     "won": 2793,
+     "net": -888.33,
      "fillable": {
-      "trades": 2675,
-      "won": 2217,
-      "net": -917.52,
+      "trades": 2676,
+      "won": 2218,
+      "net": -917,
       "miss": 656
      },
      "open": 1,
@@ -53912,9 +53912,9 @@
      "days": [
       {
        "day": "2026-11-11",
-       "trades": 237,
-       "won": 212,
-       "net": 10.4,
+       "trades": 238,
+       "won": 213,
+       "net": 10.92,
        "first": 1794322800
       },
       {
@@ -53964,23 +53964,23 @@
     {
      "name": "slide95-85-75",
      "size": 5,
-     "trades": 3331,
-     "won": 2922,
-     "net": -632.78,
+     "trades": 3332,
+     "won": 2923,
+     "net": -631.95,
      "fillable": {
       "trades": 2738,
       "won": 2384,
       "net": -688.41,
-      "miss": 593
+      "miss": 594
      },
      "open": 1,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-11",
-       "trades": 237,
-       "won": 222,
-       "net": 30.63,
+       "trades": 238,
+       "won": 223,
+       "net": 31.46,
        "first": 1794322800
       },
       {
@@ -54096,23 +54096,23 @@
     {
      "name": "preopen3-down60",
      "size": 5,
-     "trades": 696,
-     "won": 360,
-     "net": -294.59,
+     "trades": 697,
+     "won": 361,
+     "net": -285.76,
      "fillable": {
       "trades": 486,
       "won": 246,
       "net": -249.49,
-      "miss": 210
+      "miss": 211
      },
-     "open": 2,
+     "open": 1,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-11",
-       "trades": 59,
-       "won": 38,
-       "net": 32.85,
+       "trades": 60,
+       "won": 39,
+       "net": 41.68,
        "first": 1794323100
       },
       {
@@ -54162,23 +54162,23 @@
     {
      "name": "feed3-cheap20",
      "size": 5,
-     "trades": 768,
+     "trades": 769,
      "won": 76,
-     "net": -1333.1,
+     "net": -1338.4,
      "fillable": {
       "trades": 529,
       "won": 36,
       "net": -1495.97,
-      "miss": 239
+      "miss": 240
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-11",
-       "trades": 78,
+       "trades": 79,
        "won": 5,
-       "net": -225.72,
+       "net": -231.02,
        "first": 1794322800
       },
       {
@@ -54598,7 +54598,7 @@
   {
    "key": "bnb5m",
    "label": "BNB 5m",
-   "windowsDone": 0,
+   "windowsDone": 1,
    "lastError": null,
    "feeds": [
     {
@@ -55286,23 +55286,23 @@
     {
      "name": "fav93",
      "size": 5,
-     "trades": 3327,
-     "won": 2859,
-     "net": -1536.94,
+     "trades": 3329,
+     "won": 2861,
+     "net": -1536.65,
      "fillable": {
-      "trades": 2891,
-      "won": 2450,
-      "net": -1524.36,
+      "trades": 2893,
+      "won": 2452,
+      "net": -1524.07,
       "miss": 436
      },
-     "open": 2,
+     "open": 1,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-11",
-       "trades": 236,
-       "won": 211,
-       "net": -62.99,
+       "trades": 238,
+       "won": 213,
+       "net": -62.69,
        "first": 1794322800
       },
       {
@@ -55352,13 +55352,13 @@
     {
      "name": "fav93-mid",
      "size": 5,
-     "trades": 2004,
-     "won": 1829,
-     "net": -418.12,
+     "trades": 2005,
+     "won": 1830,
+     "net": -417.87,
      "fillable": {
-      "trades": 1741,
-      "won": 1581,
-      "net": -411.13,
+      "trades": 1742,
+      "won": 1582,
+      "net": -410.89,
       "miss": 263
      },
      "open": 1,
@@ -55366,9 +55366,9 @@
      "days": [
       {
        "day": "2026-11-11",
-       "trades": 150,
-       "won": 142,
-       "net": -4.56,
+       "trades": 151,
+       "won": 143,
+       "net": -4.31,
        "first": 1794322800
       },
       {
@@ -55550,23 +55550,23 @@
     {
      "name": "fav93-hold",
      "size": 5,
-     "trades": 674,
-     "won": 625,
-     "net": -54.08,
+     "trades": 675,
+     "won": 626,
+     "net": -53.83,
      "fillable": {
-      "trades": 568,
-      "won": 525,
-      "net": -56.04,
+      "trades": 569,
+      "won": 526,
+      "net": -55.79,
       "miss": 106
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-11",
-       "trades": 52,
-       "won": 49,
-       "net": -0.47,
+       "trades": 53,
+       "won": 50,
+       "net": -0.22,
        "first": 1794322800
       },
       {
@@ -55616,23 +55616,23 @@
     {
      "name": "fav95",
      "size": 5,
-     "trades": 3327,
-     "won": 2949,
-     "net": -1306.38,
+     "trades": 3329,
+     "won": 2951,
+     "net": -1306.09,
      "fillable": {
-      "trades": 2944,
-      "won": 2584,
-      "net": -1291.52,
+      "trades": 2946,
+      "won": 2586,
+      "net": -1291.22,
       "miss": 382
      },
-     "open": 2,
+     "open": 1,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-11",
-       "trades": 236,
-       "won": 214,
-       "net": -66.08,
+       "trades": 238,
+       "won": 216,
+       "net": -65.78,
        "first": 1794322800
       },
       {
@@ -55814,23 +55814,23 @@
     {
      "name": "fav95-hold",
      "size": 5,
-     "trades": 1462,
-     "won": 1374,
-     "net": -154.12,
+     "trades": 1463,
+     "won": 1375,
+     "net": -153.87,
      "fillable": {
-      "trades": 1281,
-      "won": 1199,
-      "net": -161.28,
+      "trades": 1282,
+      "won": 1200,
+      "net": -161.03,
       "miss": 181
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-11",
-       "trades": 113,
-       "won": 109,
-       "net": 2.95,
+       "trades": 114,
+       "won": 110,
+       "net": 3.2,
        "first": 1794322800
       },
       {
@@ -55946,23 +55946,23 @@
     {
      "name": "fav97",
      "size": 5,
-     "trades": 3322,
-     "won": 3038,
-     "net": -1070.91,
+     "trades": 3324,
+     "won": 3040,
+     "net": -1070.72,
      "fillable": {
-      "trades": 3051,
-      "won": 2775,
-      "net": -1063.48,
+      "trades": 3053,
+      "won": 2777,
+      "net": -1063.29,
       "miss": 269
      },
-     "open": 2,
+     "open": 1,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-11",
-       "trades": 236,
-       "won": 218,
-       "net": -64.05,
+       "trades": 238,
+       "won": 220,
+       "net": -63.86,
        "first": 1794322800
       },
       {
@@ -56012,23 +56012,23 @@
     {
      "name": "fav93-late",
      "size": 5,
-     "trades": 2992,
-     "won": 2725,
-     "net": -754.17,
+     "trades": 2994,
+     "won": 2727,
+     "net": -753.97,
      "fillable": {
-      "trades": 2463,
-      "won": 2221,
-      "net": -747.93,
+      "trades": 2465,
+      "won": 2223,
+      "net": -747.74,
       "miss": 529
      },
-     "open": 2,
+     "open": 1,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-11",
-       "trades": 211,
-       "won": 195,
-       "net": -38.55,
+       "trades": 213,
+       "won": 197,
+       "net": -38.36,
        "first": 1794322800
       },
       {
@@ -56342,23 +56342,23 @@
     {
      "name": "fav93-stop",
      "size": 5,
-     "trades": 3335,
-     "won": 1816,
-     "net": -2906.76,
+     "trades": 3337,
+     "won": 1818,
+     "net": -2906.47,
      "fillable": {
-      "trades": 2402,
-      "won": 1501,
-      "net": -1452.33,
+      "trades": 2404,
+      "won": 1503,
+      "net": -1452.04,
       "miss": 406
      },
-     "open": 2,
+     "open": 1,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-11",
-       "trades": 237,
-       "won": 140,
-       "net": -179.08,
+       "trades": 239,
+       "won": 142,
+       "net": -178.78,
        "first": 1794322800
       },
       {
@@ -56474,7 +56474,7 @@
     {
      "name": "arb97",
      "size": 5,
-     "trades": 517,
+     "trades": 518,
      "won": 429,
      "net": 130.26,
      "fillable": {
@@ -56483,14 +56483,14 @@
       "net": 0,
       "miss": 0
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-11",
-       "trades": 50,
+       "trades": 51,
        "won": 41,
-       "net": 8.35,
+       "net": 8.34,
        "first": 1794323700
       },
       {
@@ -56540,23 +56540,23 @@
     {
      "name": "prev-momentum",
      "size": 5,
-     "trades": 2873,
-     "won": 1345,
-     "net": -2485.06,
+     "trades": 2875,
+     "won": 1346,
+     "net": -2487.14,
      "fillable": {
-      "trades": 2344,
-      "won": 1071,
-      "net": -2292.12,
+      "trades": 2346,
+      "won": 1072,
+      "net": -2294.2,
       "miss": 529
      },
-     "open": 3,
+     "open": 1,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-11",
-       "trades": 196,
-       "won": 94,
-       "net": -124.12,
+       "trades": 198,
+       "won": 95,
+       "net": -126.19,
        "first": 1794323100
       },
       {
@@ -56606,23 +56606,23 @@
     {
      "name": "prev-reverse",
      "size": 5,
-     "trades": 2967,
-     "won": 1384,
-     "net": -2472.95,
+     "trades": 2969,
+     "won": 1385,
+     "net": -2474.9,
      "fillable": {
-      "trades": 2373,
-      "won": 1062,
-      "net": -2414.18,
-      "miss": 594
+      "trades": 2374,
+      "won": 1063,
+      "net": -2410.99,
+      "miss": 595
      },
-     "open": 3,
+     "open": 2,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-11",
-       "trades": 207,
-       "won": 92,
-       "net": -227.82,
+       "trades": 209,
+       "won": 93,
+       "net": -229.77,
        "first": 1794322800
       },
       {
@@ -56915,23 +56915,23 @@
     {
      "name": "fav93-rest",
      "size": 5,
-     "trades": 2804,
-     "won": 2336,
-     "net": -1499.18,
+     "trades": 2806,
+     "won": 2338,
+     "net": -1498.76,
      "fillable": {
-      "trades": 2460,
-      "won": 2016,
-      "net": -1500.38,
+      "trades": 2462,
+      "won": 2018,
+      "net": -1499.96,
       "miss": 344
      },
-     "open": 2,
+     "open": 1,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-11",
-       "trades": 202,
-       "won": 177,
-       "net": -59.23,
+       "trades": 204,
+       "won": 179,
+       "net": -58.81,
        "first": 1794322800
       },
       {
@@ -57113,23 +57113,23 @@
     {
      "name": "fav93-calm",
      "size": 5,
-     "trades": 3317,
-     "won": 2850,
-     "net": -1535.8,
+     "trades": 3319,
+     "won": 2852,
+     "net": -1535.51,
      "fillable": {
-      "trades": 2884,
-      "won": 2444,
-      "net": -1522.2,
+      "trades": 2886,
+      "won": 2446,
+      "net": -1521.9,
       "miss": 433
      },
-     "open": 2,
+     "open": 1,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-11",
-       "trades": 235,
-       "won": 210,
-       "net": -63.03,
+       "trades": 237,
+       "won": 212,
+       "net": -62.73,
        "first": 1794322800
       },
       {
@@ -57179,23 +57179,23 @@
     {
      "name": "fav93-cross",
      "size": 5,
-     "trades": 2627,
-     "won": 2334,
-     "net": -796.75,
+     "trades": 2629,
+     "won": 2336,
+     "net": -796.46,
      "fillable": {
-      "trades": 2286,
-      "won": 2015,
-      "net": -783.44,
+      "trades": 2288,
+      "won": 2017,
+      "net": -783.15,
       "miss": 341
      },
-     "open": 2,
+     "open": 1,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-11",
-       "trades": 194,
-       "won": 179,
-       "net": -22.06,
+       "trades": 196,
+       "won": 181,
+       "net": -21.76,
        "first": 1794322800
       },
       {
@@ -57575,23 +57575,23 @@
     {
      "name": "fav-half",
      "size": 5,
-     "trades": 2007,
-     "won": 1407,
-     "net": -636.65,
+     "trades": 2008,
+     "won": 1408,
+     "net": -634.73,
      "fillable": {
-      "trades": 1377,
-      "won": 920,
-      "net": -760.56,
+      "trades": 1378,
+      "won": 921,
+      "net": -758.64,
       "miss": 630
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-11",
-       "trades": 139,
-       "won": 102,
-       "net": -20.79,
+       "trades": 140,
+       "won": 103,
+       "net": -18.88,
        "first": 1794323100
       },
       {
@@ -57839,23 +57839,23 @@
     {
      "name": "up15-first100",
      "size": 5,
-     "trades": 787,
+     "trades": 788,
      "won": 124,
-     "net": -402.75,
+     "net": -404.84,
      "fillable": {
-      "trades": 545,
+      "trades": 546,
       "won": 81,
-      "net": -466.54,
+      "net": -468.63,
       "miss": 242
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-11",
-       "trades": 60,
+       "trades": 61,
        "won": 6,
-       "net": -64.61,
+       "net": -66.71,
        "first": 1794323100
       },
       {
@@ -58235,23 +58235,23 @@
     {
      "name": "up7-first150",
      "size": 5,
-     "trades": 595,
+     "trades": 596,
      "won": 39,
-     "net": -214.28,
+     "net": -214.73,
      "fillable": {
-      "trades": 473,
+      "trades": 474,
       "won": 26,
-      "net": -252.18,
+      "net": -252.63,
       "miss": 122
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-11",
-       "trades": 43,
+       "trades": 44,
        "won": 1,
-       "net": -58.7,
+       "net": -59.15,
        "first": 1794323100
       },
       {
@@ -58565,23 +58565,23 @@
     {
      "name": "up13-first450",
      "size": 5,
-     "trades": 1867,
+     "trades": 1869,
      "won": 184,
-     "net": -1566.53,
+     "net": -1577.17,
      "fillable": {
-      "trades": 1408,
+      "trades": 1410,
       "won": 119,
-      "net": -1631.52,
+      "net": -1642.16,
       "miss": 457
      },
-     "open": 2,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-11",
-       "trades": 129,
+       "trades": 131,
        "won": 9,
-       "net": -98.41,
+       "net": -109.04,
        "first": 1794323100
       },
       {
@@ -58631,23 +58631,23 @@
     {
      "name": "up25-first300",
      "size": 5,
-     "trades": 2131,
+     "trades": 2133,
      "won": 448,
-     "net": -1228.76,
+     "net": -1234.95,
      "fillable": {
-      "trades": 1406,
+      "trades": 1407,
       "won": 267,
-      "net": -1326.14,
-      "miss": 725
+      "net": -1329.24,
+      "miss": 726
      },
-     "open": 2,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-11",
-       "trades": 143,
+       "trades": 145,
        "won": 23,
-       "net": -162.81,
+       "net": -169.01,
        "first": 1794323100
       },
       {
@@ -59555,23 +59555,23 @@
     {
      "name": "cldrop3-up20",
      "size": 5,
-     "trades": 867,
+     "trades": 868,
      "won": 121,
-     "net": -773.86,
+     "net": -775.06,
      "fillable": {
       "trades": 667,
       "won": 80,
       "net": -929.77,
-      "miss": 200
+      "miss": 201
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-11",
-       "trades": 82,
+       "trades": 83,
        "won": 8,
-       "net": -196.88,
+       "net": -198.08,
        "first": 1794323100
       },
       {
@@ -59885,23 +59885,23 @@
     {
      "name": "basis10-both60-2m",
      "size": 5,
-     "trades": 2980,
-     "won": 1275,
-     "net": -2602.13,
+     "trades": 2982,
+     "won": 1276,
+     "net": -2600.43,
      "fillable": {
-      "trades": 2451,
-      "won": 1008,
-      "net": -2627.57,
+      "trades": 2453,
+      "won": 1009,
+      "net": -2625.87,
       "miss": 529
      },
-     "open": 3,
+     "open": 1,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-11",
-       "trades": 221,
-       "won": 88,
-       "net": -226.15,
+       "trades": 223,
+       "won": 89,
+       "net": -224.45,
        "first": 1794322800
       },
       {
@@ -60017,23 +60017,23 @@
     {
      "name": "imbfade65-mid",
      "size": 5,
-     "trades": 1589,
+     "trades": 1590,
      "won": 691,
-     "net": -978.95,
+     "net": -984.17,
      "fillable": {
       "trades": 1153,
       "won": 481,
       "net": -865.22,
-      "miss": 436
+      "miss": 437
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-11",
-       "trades": 98,
+       "trades": 99,
        "won": 43,
-       "net": -89.1,
+       "net": -94.33,
        "first": 1794323700
       },
       {
@@ -60149,23 +60149,23 @@
     {
      "name": "basis15-both60",
      "size": 5,
-     "trades": 2707,
-     "won": 1183,
-     "net": -1808.46,
+     "trades": 2709,
+     "won": 1185,
+     "net": -1798.28,
      "fillable": {
-      "trades": 2177,
-      "won": 918,
-      "net": -1862.46,
-      "miss": 530
+      "trades": 2178,
+      "won": 919,
+      "net": -1858.08,
+      "miss": 531
      },
-     "open": 3,
+     "open": 1,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-11",
-       "trades": 203,
-       "won": 90,
-       "net": -131.52,
+       "trades": 205,
+       "won": 92,
+       "net": -121.33,
        "first": 1794322800
       },
       {
@@ -60347,23 +60347,23 @@
     {
      "name": "fav95-hold-min60",
      "size": 5,
-     "trades": 1149,
-     "won": 1081,
-     "net": -114.52,
+     "trades": 1150,
+     "won": 1082,
+     "net": -114.27,
      "fillable": {
-      "trades": 1012,
-      "won": 948,
-      "net": -122.73,
+      "trades": 1013,
+      "won": 949,
+      "net": -122.48,
       "miss": 137
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-11",
-       "trades": 108,
-       "won": 105,
-       "net": 7.36,
+       "trades": 109,
+       "won": 106,
+       "net": 7.61,
        "first": 1794322800
       },
       {
@@ -60413,23 +60413,23 @@
     {
      "name": "fav95-hold-offhour",
      "size": 5,
-     "trades": 1114,
-     "won": 1044,
-     "net": -133.8,
+     "trades": 1115,
+     "won": 1045,
+     "net": -133.56,
      "fillable": {
-      "trades": 965,
-      "won": 899,
-      "net": -144.45,
+      "trades": 966,
+      "won": 900,
+      "net": -144.2,
       "miss": 149
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-11",
-       "trades": 105,
-       "won": 101,
-       "net": 1.28,
+       "trades": 106,
+       "won": 102,
+       "net": 1.53,
        "first": 1794322800
       },
       {
@@ -60809,23 +60809,23 @@
     {
      "name": "fav93-feedgreen",
      "size": 5,
-     "trades": 1038,
-     "won": 897,
-     "net": -454.29,
+     "trades": 1040,
+     "won": 899,
+     "net": -454,
      "fillable": {
-      "trades": 894,
-      "won": 760,
-      "net": -461.11,
+      "trades": 896,
+      "won": 762,
+      "net": -460.82,
       "miss": 144
      },
-     "open": 2,
+     "open": 1,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-11",
-       "trades": 103,
-       "won": 96,
-       "net": -6.68,
+       "trades": 105,
+       "won": 98,
+       "net": -6.38,
        "first": 1794322800
       },
       {
@@ -62359,23 +62359,23 @@
     {
      "name": "feed2-open-mid",
      "size": 5,
-     "trades": 644,
+     "trades": 645,
      "won": 367,
-     "net": -162.03,
+     "net": -167.15,
      "fillable": {
       "trades": 375,
       "won": 204,
       "net": -219.85,
-      "miss": 269
+      "miss": 270
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-11",
-       "trades": 66,
+       "trades": 67,
        "won": 43,
-       "net": 33.35,
+       "net": 28.23,
        "first": 1794323100
       },
       {
@@ -63547,23 +63547,23 @@
     {
      "name": "cross3x2-up40",
      "size": 5,
-     "trades": 807,
+     "trades": 808,
      "won": 208,
-     "net": -484.19,
+     "net": -488.39,
      "fillable": {
       "trades": 505,
       "won": 107,
       "net": -694.24,
-      "miss": 302
+      "miss": 303
      },
-     "open": 1,
+     "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-11",
-       "trades": 85,
+       "trades": 86,
        "won": 20,
-       "net": -113.22,
+       "net": -117.43,
        "first": 1794323100
       },
       {
@@ -64471,23 +64471,23 @@
     {
      "name": "up60-first60",
      "size": 5,
-     "trades": 2646,
+     "trades": 2648,
      "won": 1366,
-     "net": -2609.05,
+     "net": -2619.33,
      "fillable": {
       "trades": 2251,
       "won": 1128,
       "net": -2478.17,
-      "miss": 395
+      "miss": 397
      },
-     "open": 3,
+     "open": 1,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-11",
-       "trades": 179,
+       "trades": 181,
        "won": 92,
-       "net": -181.47,
+       "net": -191.75,
        "first": 1794322800
       },
       {
@@ -64603,23 +64603,23 @@
     {
      "name": "slide90-80-70",
      "size": 5,
-     "trades": 3330,
-     "won": 2667,
-     "net": -1772.68,
+     "trades": 3332,
+     "won": 2669,
+     "net": -1771.75,
      "fillable": {
-      "trades": 2833,
-      "won": 2226,
-      "net": -1811.07,
+      "trades": 2835,
+      "won": 2228,
+      "net": -1810.14,
       "miss": 497
      },
-     "open": 2,
+     "open": 1,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-11",
-       "trades": 236,
-       "won": 197,
-       "net": -81.62,
+       "trades": 238,
+       "won": 199,
+       "net": -80.7,
        "first": 1794322800
       },
       {
@@ -64669,23 +64669,23 @@
     {
      "name": "slide95-85-75",
      "size": 5,
-     "trades": 3330,
-     "won": 2763,
-     "net": -1642.83,
+     "trades": 3332,
+     "won": 2765,
+     "net": -1641.76,
      "fillable": {
-      "trades": 2880,
-      "won": 2357,
-      "net": -1649.39,
+      "trades": 2882,
+      "won": 2359,
+      "net": -1648.32,
       "miss": 450
      },
-     "open": 2,
+     "open": 1,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-11",
-       "trades": 236,
-       "won": 204,
-       "net": -73.86,
+       "trades": 238,
+       "won": 206,
+       "net": -72.79,
        "first": 1794322800
       },
       {
@@ -65282,7 +65282,7 @@
   {
    "key": "hype5m",
    "label": "HYPE 5m",
-   "windowsDone": 0,
+   "windowsDone": 1,
    "lastError": null,
    "feeds": [
     {
@@ -65979,7 +65979,7 @@
       "net": -1664.21,
       "miss": 396
      },
-     "open": 1,
+     "open": 2,
      "discarded": false,
      "days": [
       {
@@ -66045,7 +66045,7 @@
       "net": -655.43,
       "miss": 365
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -66309,7 +66309,7 @@
       "net": -1596.09,
       "miss": 345
      },
-     "open": 1,
+     "open": 2,
      "discarded": false,
      "days": [
       {
@@ -66639,7 +66639,7 @@
       "net": -1366.6,
       "miss": 324
      },
-     "open": 1,
+     "open": 2,
      "discarded": false,
      "days": [
       {
@@ -66705,7 +66705,7 @@
       "net": -867.88,
       "miss": 646
      },
-     "open": 1,
+     "open": 2,
      "discarded": false,
      "days": [
       {
@@ -67026,23 +67026,23 @@
     {
      "name": "fav93-stop",
      "size": 5,
-     "trades": 3336,
+     "trades": 3337,
      "won": 1468,
-     "net": -3497.05,
+     "net": -3498.55,
      "fillable": {
       "trades": 2191,
       "won": 1227,
       "net": -1438.76,
-      "miss": 341
+      "miss": 342
      },
      "open": 0,
      "discarded": false,
      "days": [
       {
        "day": "2026-11-11",
-       "trades": 240,
+       "trades": 241,
        "won": 132,
-       "net": -185.73,
+       "net": -187.24,
        "first": 1794322800
       },
       {
@@ -67608,7 +67608,7 @@
       "net": -1581.18,
       "miss": 299
      },
-     "open": 1,
+     "open": 2,
      "discarded": false,
      "days": [
       {
@@ -67806,7 +67806,7 @@
       "net": -1636.85,
       "miss": 390
      },
-     "open": 1,
+     "open": 2,
      "discarded": false,
      "days": [
       {
@@ -67872,7 +67872,7 @@
       "net": -1039.42,
       "miss": 284
      },
-     "open": 1,
+     "open": 2,
      "discarded": false,
      "days": [
       {
@@ -68598,7 +68598,7 @@
       "net": -148.2,
       "miss": 174
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -71502,7 +71502,7 @@
       "net": -434.84,
       "miss": 132
      },
-     "open": 1,
+     "open": 2,
      "discarded": false,
      "days": [
       {
@@ -73237,7 +73237,7 @@
       "net": -874.82,
       "miss": 596
      },
-     "open": 1,
+     "open": 2,
      "discarded": false,
      "days": [
       {
@@ -75349,7 +75349,7 @@
       "net": -2577.63,
       "miss": 528
      },
-     "open": 1,
+     "open": 2,
      "discarded": false,
      "days": [
       {
@@ -75481,7 +75481,7 @@
       "net": -1913.13,
       "miss": 471
      },
-     "open": 1,
+     "open": 2,
      "discarded": false,
      "days": [
       {
@@ -75547,7 +75547,7 @@
       "net": -1631.72,
       "miss": 448
      },
-     "open": 1,
+     "open": 2,
      "discarded": false,
      "days": [
       {
@@ -75745,7 +75745,7 @@
       "net": -1579.86,
       "miss": 312
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -80230,7 +80230,7 @@
       "net": -123.57,
       "miss": 122
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -80296,7 +80296,7 @@
       "net": -105.26,
       "miss": 83
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -80758,7 +80758,7 @@
       "net": -147.93,
       "miss": 130
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -80956,7 +80956,7 @@
       "net": -172.77,
       "miss": 168
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -81682,7 +81682,7 @@
       "net": 14.48,
       "miss": 37
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -81814,7 +81814,7 @@
       "net": -158.77,
       "miss": 208
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -81880,7 +81880,7 @@
       "net": -83.07,
       "miss": 43
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -82672,7 +82672,7 @@
       "net": -126.11,
       "miss": 106
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -82936,7 +82936,7 @@
       "net": -126.6,
       "miss": 158
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -86694,7 +86694,7 @@
       "net": -148.48,
       "miss": 66
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -86826,7 +86826,7 @@
       "net": -162.32,
       "miss": 164
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -86892,7 +86892,7 @@
       "net": -180.2,
       "miss": 160
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -87347,7 +87347,7 @@
       "net": -116.06,
       "miss": 93
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -87743,7 +87743,7 @@
       "net": -151.71,
       "miss": 120
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -87809,7 +87809,7 @@
       "net": -148.07,
       "miss": 121
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -94480,7 +94480,7 @@
       "net": -153.03,
       "miss": 143
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -94546,7 +94546,7 @@
       "net": -114.24,
       "miss": 130
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -94810,7 +94810,7 @@
       "net": -172.77,
       "miss": 168
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -95008,7 +95008,7 @@
       "net": -377.1,
       "miss": 80
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -95140,7 +95140,7 @@
       "net": -194.67,
       "miss": 213
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -95206,7 +95206,7 @@
       "net": -162.09,
       "miss": 253
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -95272,7 +95272,7 @@
       "net": -124.73,
       "miss": 130
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -95338,7 +95338,7 @@
       "net": -63,
       "miss": 29
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -95602,7 +95602,7 @@
       "net": -196.63,
       "miss": 109
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -95932,7 +95932,7 @@
       "net": -151.92,
       "miss": 137
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -96130,7 +96130,7 @@
       "net": -10.23,
       "miss": 45
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -99503,7 +99503,7 @@
       "net": 0,
       "miss": 0
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -101844,7 +101844,7 @@
       "net": 44.19,
       "miss": 85
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -101976,7 +101976,7 @@
       "net": 143.48,
       "miss": 84
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -102042,7 +102042,7 @@
       "net": 201.03,
       "miss": 67
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -102240,7 +102240,7 @@
       "net": 35.59,
       "miss": 35
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -102372,7 +102372,7 @@
       "net": 91.72,
       "miss": 67
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -102438,7 +102438,7 @@
       "net": -188.09,
       "miss": 151
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -102570,7 +102570,7 @@
       "net": 0.37,
       "miss": 177
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -102768,7 +102768,7 @@
       "net": 124.01,
       "miss": 82
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -103296,7 +103296,7 @@
       "net": 20.74,
       "miss": 43
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -103428,7 +103428,7 @@
       "net": -130.42,
       "miss": 242
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -103824,7 +103824,7 @@
       "net": -5.82,
       "miss": 79
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -104286,7 +104286,7 @@
       "net": -192.25,
       "miss": 104
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -104550,7 +104550,7 @@
       "net": -69.29,
       "miss": 178
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -108204,7 +108204,7 @@
       "net": -2.92,
       "miss": 177
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -108270,7 +108270,7 @@
       "net": -18.53,
       "miss": 64
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -108468,7 +108468,7 @@
       "net": -195.83,
       "miss": 157
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -108534,7 +108534,7 @@
       "net": -209.83,
       "miss": 156
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -108798,7 +108798,7 @@
       "net": -40.68,
       "miss": 69
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -108864,7 +108864,7 @@
       "net": -27.13,
       "miss": 66
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -108996,7 +108996,7 @@
       "net": -86.6,
       "miss": 75
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -109326,7 +109326,7 @@
       "net": -226.28,
       "miss": 120
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -109392,7 +109392,7 @@
       "net": -198.92,
       "miss": 126
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -115756,7 +115756,7 @@
       "net": -81.81,
       "miss": 0
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -115822,7 +115822,7 @@
       "net": -105.35,
       "miss": 0
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -115888,7 +115888,7 @@
       "net": -78.39,
       "miss": 54
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -116645,7 +116645,7 @@
       "net": -179.38,
       "miss": 137
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -116711,7 +116711,7 @@
       "net": -158.23,
       "miss": 150
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -116975,7 +116975,7 @@
       "net": 0.37,
       "miss": 177
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -117041,7 +117041,7 @@
       "net": 31.3,
       "miss": 73
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -117173,7 +117173,7 @@
       "net": -268.84,
       "miss": 65
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -117305,7 +117305,7 @@
       "net": -193.52,
       "miss": 201
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -117371,7 +117371,7 @@
       "net": -274.7,
       "miss": 257
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -117437,7 +117437,7 @@
       "net": -170.18,
       "miss": 151
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -117503,7 +117503,7 @@
       "net": -47.53,
       "miss": 38
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -117569,7 +117569,7 @@
       "net": 65.48,
       "miss": 84
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -117635,7 +117635,7 @@
       "net": 79.67,
       "miss": 85
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -117701,7 +117701,7 @@
       "net": 100.72,
       "miss": 82
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -117767,7 +117767,7 @@
       "net": -67.29,
       "miss": 97
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -117833,7 +117833,7 @@
       "net": 84.37,
       "miss": 26
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -118097,7 +118097,7 @@
       "net": -122.58,
       "miss": 144
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -118295,7 +118295,7 @@
       "net": 97.53,
       "miss": 51
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -118427,7 +118427,7 @@
       "net": 62.37,
       "miss": 85
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -118889,7 +118889,7 @@
       "net": 78.87,
       "miss": 86
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -119417,7 +119417,7 @@
       "net": -37.81,
       "miss": 167
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -121698,7 +121698,7 @@
       "net": 0,
       "miss": 0
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -124216,7 +124216,7 @@
       "net": -134.01,
       "miss": 82
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -124414,7 +124414,7 @@
       "net": -4.29,
       "miss": 55
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -124612,7 +124612,7 @@
       "net": -235.74,
       "miss": 189
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -124966,7 +124966,7 @@
       "net": -108.9,
       "miss": 117
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -125473,7 +125473,7 @@
       "net": -54.2,
       "miss": 58
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -125605,7 +125605,7 @@
       "net": -19.95,
       "miss": 297
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -126001,7 +126001,7 @@
       "net": -26.9,
       "miss": 88
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -126463,7 +126463,7 @@
       "net": -170.35,
       "miss": 140
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -126727,7 +126727,7 @@
       "net": -80.87,
       "miss": 209
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -127057,7 +127057,7 @@
       "net": -80.31,
       "miss": 266
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -130579,7 +130579,7 @@
       "net": -160.41,
       "miss": 125
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -138637,7 +138637,7 @@
       "net": -147.47,
       "miss": 184
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -139363,7 +139363,7 @@
       "net": -181,
       "miss": 188
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -139759,7 +139759,7 @@
       "net": -43.15,
       "miss": 42
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -140089,7 +140089,7 @@
       "net": -134.93,
       "miss": 66
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -140155,7 +140155,7 @@
       "net": -87.14,
       "miss": 84
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -140221,7 +140221,7 @@
       "net": -51.56,
       "miss": 79
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -140287,7 +140287,7 @@
       "net": -945.14,
       "miss": 84
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -141551,7 +141551,7 @@
       "net": -200.88,
       "miss": 306
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -145508,7 +145508,7 @@
       "net": -485.43,
       "miss": 142
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -145574,7 +145574,7 @@
       "net": -923.19,
       "miss": 53
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -145838,7 +145838,7 @@
       "net": -211.88,
       "miss": 46
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -145904,7 +145904,7 @@
       "net": -204.53,
       "miss": 111
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -146036,7 +146036,7 @@
       "net": -204.3,
       "miss": 115
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -146102,7 +146102,7 @@
       "net": -106.91,
       "miss": 77
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -146300,7 +146300,7 @@
       "net": -174.79,
       "miss": 52
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -146432,7 +146432,7 @@
       "net": -145.28,
       "miss": 84
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -147314,7 +147314,7 @@
       "net": -111.16,
       "miss": 76
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -148238,7 +148238,7 @@
       "net": -244.88,
       "miss": 126
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -152288,7 +152288,7 @@
       "net": -105.72,
       "miss": 67
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -152354,7 +152354,7 @@
       "net": -150.99,
       "miss": 105
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -152486,7 +152486,7 @@
       "net": -260.11,
       "miss": 179
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -152552,7 +152552,7 @@
       "net": -267.32,
       "miss": 187
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -152816,7 +152816,7 @@
       "net": -138.95,
       "miss": 82
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -152882,7 +152882,7 @@
       "net": -142.05,
       "miss": 72
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -153014,7 +153014,7 @@
       "net": -164.61,
       "miss": 81
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -153410,7 +153410,7 @@
       "net": -217.24,
       "miss": 134
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -153476,7 +153476,7 @@
       "net": -260.58,
       "miss": 152
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -157043,7 +157043,7 @@
       "net": -178.86,
       "miss": 0
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -157109,7 +157109,7 @@
       "net": -145.29,
       "miss": 82
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -157894,7 +157894,7 @@
       "net": -279.42,
       "miss": 169
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -158290,7 +158290,7 @@
       "net": -131.92,
       "miss": 92
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -158554,7 +158554,7 @@
       "net": -274.97,
       "miss": 236
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -158818,7 +158818,7 @@
       "net": -179.92,
       "miss": 100
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -158884,7 +158884,7 @@
       "net": -184.13,
       "miss": 102
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -158950,7 +158950,7 @@
       "net": -227.06,
       "miss": 108
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -159016,7 +159016,7 @@
       "net": -366.19,
       "miss": 106
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -159082,7 +159082,7 @@
       "net": -97.24,
       "miss": 45
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -159148,7 +159148,7 @@
       "net": -183.29,
       "miss": 61
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -159214,7 +159214,7 @@
       "net": -96.77,
       "miss": 77
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -159544,7 +159544,7 @@
       "net": -204.92,
       "miss": 93
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -159676,7 +159676,7 @@
       "net": -1778.19,
       "miss": 111
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -159808,7 +159808,7 @@
       "net": -69.73,
       "miss": 32
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -160138,7 +160138,7 @@
       "net": -163.61,
       "miss": 112
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -160666,7 +160666,7 @@
       "net": -68.17,
       "miss": 202
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -165169,7 +165169,7 @@
       "net": -360.62,
       "miss": 55
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -165301,7 +165301,7 @@
       "net": -596.03,
       "miss": 124
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -165367,7 +165367,7 @@
       "net": -148.72,
       "miss": 84
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -166159,7 +166159,7 @@
       "net": -99.22,
       "miss": 128
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -166673,7 +166673,7 @@
       "net": -35.76,
       "miss": 42
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -178572,7 +178572,7 @@
       "net": -10.94,
       "miss": 27
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -179034,7 +179034,7 @@
       "net": -6.25,
       "miss": 58
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -186621,7 +186621,7 @@
       "net": -116.88,
       "miss": 83
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -187083,7 +187083,7 @@
       "net": -29.72,
       "miss": 117
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -191001,7 +191001,7 @@
       "net": -50.47,
       "miss": 78
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -191067,7 +191067,7 @@
       "net": -18,
       "miss": 19
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -191265,7 +191265,7 @@
       "net": -75.25,
       "miss": 87
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -191331,7 +191331,7 @@
       "net": -79.29,
       "miss": 81
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -191595,7 +191595,7 @@
       "net": -4.53,
       "miss": 28
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -191661,7 +191661,7 @@
       "net": -25.29,
       "miss": 17
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -191793,7 +191793,7 @@
       "net": -21.11,
       "miss": 60
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -192123,7 +192123,7 @@
       "net": -40.26,
       "miss": 64
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -192189,7 +192189,7 @@
       "net": -40.67,
       "miss": 60
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -195565,7 +195565,7 @@
       "net": -44.99,
       "miss": 0
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -195631,7 +195631,7 @@
       "net": -82.17,
       "miss": 23
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -196339,7 +196339,7 @@
       "net": -57.91,
       "miss": 73
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -196999,7 +196999,7 @@
       "net": -150.01,
       "miss": 136
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -197065,7 +197065,7 @@
       "net": -159.7,
       "miss": 167
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -218168,7 +218168,7 @@
       "net": -535.43,
       "miss": 211
      },
-     "open": 0,
+     "open": 1,
      "discarded": false,
      "days": [
       {
@@ -342448,69 +342448,69 @@
  ],
  "latency": {
   "n": 2,
-  "warmMedian": 54,
-  "coldMedian": 389,
-  "binanceMedian": 378
+  "warmMedian": 56,
+  "coldMedian": 312,
+  "binanceMedian": 844
  },
  "eventPaper": {
-  "at": 1794394285460,
+  "at": 1794394501984,
   "health": {
    "esports list": {
-    "ok": 1794394261598
+    "ok": 1794394477991
    },
    "esports": {
-    "ok": 1794394261842
+    "ok": 1794394501901
    },
    "football list": {
-    "ok": 1794394262038
+    "ok": 1794394478440
    },
    "football": {
-    "ok": 1794394262038
+    "ok": 1794394501901
    },
    "weather list": {
-    "ok": 1794394262245
+    "ok": 1794394478613
    },
    "weather": {
-    "ok": 1794394262312
+    "ok": 1794394501962
    },
    "tennis list": {
-    "ok": 1794394263015
+    "ok": 1794394479348
    },
    "tennis": {
-    "ok": 1794394263016
+    "ok": 1794394501965
    },
    "cricket list": {
-    "ok": 1794394263281
+    "ok": 1794394479574
    },
    "cricket": {
-    "ok": 1794394263282
+    "ok": 1794394501965
    },
    "US sports list": {
-    "ok": 1794394264279
+    "ok": 1794394480661
    },
    "US sports": {
-    "ok": 1794394264279
+    "ok": 1794394501965
    },
    "indices": {
-    "ok": 1794394264305
+    "ok": 1794394480902
    },
    "politics": {
-    "ok": 1794394265332
+    "ok": 1794394481926
    },
    "makers": {
-    "ok": 1794394267611
+    "ok": 1794394483986
    },
    "weather NO makers": {
-    "ok": 1794394268622
+    "ok": 1794394484512
    },
    "pre-match resting bids": {
-    "ok": 1794394280395
+    "ok": 1794394487598
    },
    "settle": {
-    "ok": 1794394285440
+    "ok": 1794394491615
    },
    "jev": {
-    "ok": 1794394285441
+    "ok": 1794394501966
    }
   },
   "esports": {
@@ -343310,7 +343310,7 @@
       "Ground Zero Gaming",
       "Frank Esports"
      ],
-     "px0": 0.2,
+     "px0": 0.22,
      "p0": 0.795,
      "vol": 1190.0498320000002,
      "status": "evaluated"
@@ -343336,7 +343336,7 @@
       "UPGRADE",
       "Butterfly"
      ],
-     "px0": 0.01,
+     "px0": 0.001,
      "p0": 0.35,
      "vol": 0,
      "status": "evaluated"
@@ -343362,7 +343362,7 @@
       "MOUZ",
       "G2"
      ],
-     "px0": 0.83,
+     "px0": 0.8,
      "p0": 0.765,
      "vol": 25624.620984,
      "status": "evaluated"
@@ -343375,7 +343375,7 @@
       "PlayTime",
       "Team Synapse"
      ],
-     "px0": 0.88,
+     "px0": 0.89,
      "p0": 0.725,
      "vol": 24410.749069,
      "status": "evaluated"
@@ -343401,7 +343401,7 @@
       "CyberHero",
       "Inner Circle"
      ],
-     "px0": 0.47,
+     "px0": 0.45,
      "p0": 0.665,
      "vol": 1524.3857130000001,
      "status": "live, waiting for map 1"
@@ -343414,7 +343414,7 @@
       "InterActive Philippines",
       "Zero Tenacity"
      ],
-     "px0": 0.74,
+     "px0": 0.681,
      "p0": 0.597,
      "vol": 730.494615,
      "status": "live, waiting for map 1"
@@ -343427,7 +343427,7 @@
       "PuckChamp",
       "Spirit Academy"
      ],
-     "px0": 0.37,
+     "px0": 0.31,
      "p0": 0.485,
      "vol": 0,
      "status": "live, waiting for map 1"
@@ -343479,7 +343479,7 @@
       "Phantom",
       "Drama eSports"
      ],
-     "px0": 0.82,
+     "px0": 0.83,
      "p0": null,
      "vol": 0,
      "status": "upcoming"
@@ -343518,7 +343518,7 @@
       "LenS Team",
       "iLTW TEAM"
      ],
-     "px0": 0.67,
+     "px0": 0.66,
      "p0": null,
      "vol": null,
      "status": "upcoming"
@@ -343531,7 +343531,7 @@
       "ex-Sashi Academy",
       "Ducks"
      ],
-     "px0": 0.39,
+     "px0": 0.37,
      "p0": null,
      "vol": null,
      "status": "upcoming"
@@ -343622,7 +343622,7 @@
       "HULIGANI",
       "PuckChamp"
      ],
-     "px0": 0.832,
+     "px0": 0.827,
      "p0": null,
      "vol": 3816.8153930000003,
      "status": "upcoming"
@@ -343648,7 +343648,7 @@
       "Inner Circle",
       "Xipto Esports"
      ],
-     "px0": 0.44,
+     "px0": 0.43,
      "p0": null,
      "vol": 0,
      "status": "upcoming"
@@ -343700,7 +343700,7 @@
       "Nexus",
       "BakS eSports"
      ],
-     "px0": 0.44,
+     "px0": 0.43,
      "p0": null,
      "vol": 0,
      "status": "upcoming"
@@ -344875,7 +344875,7 @@
      "title": "Will Janine L\u00e9lis win the Cape Verde presidential election?",
      "outcome": "No",
      "ask": 0.999,
-     "liq": 15221.51092,
+     "liq": 14821.77092,
      "status": "above 99c"
     },
     {
@@ -344907,7 +344907,7 @@
      "title": "Will Fernando Delgado win the Cape Verde presidential election?",
      "outcome": "No",
      "ask": 0.999,
-     "liq": 11647.80546,
+     "liq": 11447.80556,
      "status": "above 99c"
     },
     {
@@ -344915,7 +344915,7 @@
      "title": "Will Jos\u00e9 Maria Neves win the Cape Verde presidential election?",
      "outcome": "Yes",
      "ask": 0.971,
-     "liq": 18296.22621,
+     "liq": 18096.22631,
      "status": "bought"
     },
     {
@@ -344923,7 +344923,7 @@
      "title": "Will Anton Rop win the 2026 Ljubljana mayoral election?",
      "outcome": "No",
      "ask": 0.995,
-     "liq": 35749.65898,
+     "liq": 35140.82019,
      "status": "above 99c"
     },
     {
@@ -344931,7 +344931,7 @@
      "title": "Will Aleksandar Repi\u0107 win the 2026 Ljubljana mayoral election?",
      "outcome": "No",
      "ask": 0.999,
-     "liq": 32949.32395,
+     "liq": 32946.92378,
      "status": "above 99c"
     },
     {
@@ -344939,7 +344939,7 @@
      "title": "Will Ale\u0161 Vrhovec win the 2026 Ljubljana mayoral election?",
      "outcome": "No",
      "ask": 0.999,
-     "liq": 33588.39564,
+     "liq": 33588.39527,
      "status": "above 99c"
     },
     {
@@ -344947,7 +344947,7 @@
      "title": "Will Klemen Bo\u0161tjan\u010di\u010d win the 2026 Ljubljana mayoral election?",
      "outcome": "No",
      "ask": 0.999,
-     "liq": 31724.38009,
+     "liq": 31534.79853,
      "status": "above 99c"
     },
     {
@@ -344959,7 +344959,7 @@
      "status": "above 99c"
     }
    ],
-   "watchAt": 1794394264306,
+   "watchAt": 1794394480902,
    "sigs": [
     {
      "t": 1794223015085,
@@ -345349,8 +345349,8 @@
      "rule": "wx-no-maker",
      "signals": 41,
      "nearMisses": 0,
-     "trades": 34,
-     "open": 34,
+     "trades": 35,
+     "open": 35,
      "settled": 0,
      "won": 0,
      "net": 0,
@@ -345380,8 +345380,8 @@
      "rule": "wx-no-maker-815",
      "signals": 0,
      "nearMisses": 0,
-     "trades": 12,
-     "open": 12,
+     "trades": 13,
+     "open": 13,
      "settled": 0,
      "won": 0,
      "net": 0,
@@ -345437,6 +345437,42 @@
     }
    ],
    "recent": [
+    {
+     "info": "maker bid filled",
+     "jm": null,
+     "jc": null,
+     "settledAt": null,
+     "rule": "wx-no-maker-815",
+     "t": 1794394483987,
+     "title": "Highest temperature in Ankara on November 12?",
+     "outcome": "No (13\u00b0C)",
+     "ask": 0.88,
+     "avg": 0.9,
+     "shares": 5.56,
+     "cost": 5,
+     "fillable": true,
+     "won": null,
+     "pnl": null,
+     "jev": null
+    },
+    {
+     "info": "maker bid filled",
+     "jm": null,
+     "jc": null,
+     "settledAt": null,
+     "rule": "wx-no-maker",
+     "t": 1794394483987,
+     "title": "Highest temperature in Ankara on November 12?",
+     "outcome": "No (13\u00b0C)",
+     "ask": 0.88,
+     "avg": 0.9,
+     "shares": 5.56,
+     "cost": 5,
+     "fillable": true,
+     "won": null,
+     "pnl": null,
+     "jev": null
+    },
     {
      "info": "maker bid filled",
      "jm": null,
@@ -346120,42 +346156,6 @@
      "won": null,
      "pnl": null,
      "jev": null
-    },
-    {
-     "info": "maker bid filled",
-     "jm": null,
-     "jc": null,
-     "settledAt": null,
-     "rule": "weather-dayahead-yes",
-     "t": 1794379987577,
-     "title": "Highest temperature in Lucknow on November 12?",
-     "outcome": "29\u00b0C",
-     "ask": 0.4,
-     "avg": 0.37,
-     "shares": 13.51,
-     "cost": 5,
-     "fillable": true,
-     "won": null,
-     "pnl": null,
-     "jev": null
-    },
-    {
-     "info": "maker bid filled",
-     "jm": null,
-     "jc": null,
-     "settledAt": null,
-     "rule": "weather-dayahead-all",
-     "t": 1794379987577,
-     "title": "Highest temperature in Lucknow on November 12?",
-     "outcome": "29\u00b0C",
-     "ask": 0.4,
-     "avg": 0.37,
-     "shares": 13.51,
-     "cost": 5,
-     "fillable": true,
-     "won": null,
-     "pnl": null,
-     "jev": null
     }
    ],
    "skips": [
@@ -346676,8 +346676,8 @@
      "rule": "tennis-fav90-mid",
      "signals": 73,
      "nearMisses": 0,
-     "trades": 12,
-     "open": 5,
+     "trades": 13,
+     "open": 6,
      "settled": 7,
      "won": 6,
      "net": -1.05,
@@ -346730,6 +346730,24 @@
     }
    ],
    "recent": [
+    {
+     "info": "maker bid filled",
+     "jm": null,
+     "jc": null,
+     "settledAt": null,
+     "rule": "tennis-fav90-mid",
+     "t": 1794394481926,
+     "title": "M15 Las Palmas de Gran Canaria: Ignacio Parisca vs Marcos Diaz Revuelta",
+     "outcome": "Ignacio Parisca",
+     "ask": 0.978,
+     "avg": 0.977,
+     "shares": 5.12,
+     "cost": 5,
+     "fillable": true,
+     "won": null,
+     "pnl": null,
+     "jev": null
+    },
     {
      "info": "maker bid filled",
      "jm": null,
@@ -347428,24 +347446,6 @@
      "shares": 5.15,
      "cost": 5,
      "fillable": true,
-     "won": null,
-     "pnl": null,
-     "jev": "half"
-    },
-    {
-     "info": "",
-     "jm": 0.5,
-     "jc": 44.59999999999999,
-     "settledAt": null,
-     "rule": "tennis-itf-fav90",
-     "t": 1794381490196,
-     "title": "W15 Sharm ElSheikh: Joody Elkady vs Alyssa Reguer",
-     "outcome": "Alyssa Reguer",
-     "ask": 0.94,
-     "avg": 0.94,
-     "shares": 5,
-     "cost": 4.7,
-     "fillable": false,
      "won": null,
      "pnl": null,
      "jev": "half"
@@ -349588,53 +349588,42 @@
  ],
  "preopen": {
   "rule": "preopen-both49: 49c bids on Up and Down of the next BTC/ETH/SOL 15m window, 10 min to 60 s before it opens, $5 each; fills counted only on recorded trades after the queue ahead; paper",
-  "windows": 378,
-  "noQueue": 89,
-  "fills": 110,
-  "settled": 106,
-  "won": 41,
-  "net": -89.04,
+  "windows": 381,
+  "noQueue": 91,
+  "fills": 111,
+  "settled": 108,
+  "won": 43,
+  "net": -78.64,
   "last": {
    "btc15m": {
-    "until": 523,
-    "upBid": 0.5,
-    "upAsk": 0.51,
-    "downBid": 0.49,
-    "downAsk": 0.5,
-    "aheadUp": 466.02,
-    "aheadDown": 624.02
+    "until": 303,
+    "upBid": 0.48,
+    "upAsk": 0.49,
+    "downBid": 0.51,
+    "downAsk": 0.52,
+    "aheadUp": null,
+    "aheadDown": 821.06
    },
    "eth15m": {
-    "until": 523,
+    "until": 303,
     "upBid": 0.51,
     "upAsk": 0.52,
     "downBid": 0.48,
     "downAsk": 0.49,
-    "aheadUp": 281.02,
+    "aheadUp": 200,
     "aheadDown": null
    },
    "sol15m": {
-    "until": 523,
-    "upBid": 0.5,
-    "upAsk": 0.51,
-    "downBid": 0.49,
-    "downAsk": 0.5,
-    "aheadUp": 249,
-    "aheadDown": 210
+    "until": 303,
+    "upBid": 0.48,
+    "upAsk": 0.52,
+    "downBid": 0.48,
+    "downAsk": 0.52,
+    "aheadUp": 0,
+    "aheadDown": 0
    }
   },
   "recent": [
-   {
-    "series": "sol15m",
-    "start": 1794390300,
-    "side": "DOWN",
-    "shares": 5,
-    "cost": 2.45,
-    "at": 1794390004382,
-    "secBefore": 296,
-    "won": false,
-    "net": -2.45
-   },
    {
     "series": "btc15m",
     "start": 1794390300,
@@ -349697,7 +349686,9 @@
     "shares": 10.204081632653061,
     "cost": 5,
     "at": 1794392563290,
-    "secBefore": 437
+    "secBefore": 437,
+    "won": true,
+    "net": 5.2
    },
    {
     "series": "sol15m",
@@ -349706,7 +349697,9 @@
     "shares": 10.204081632653061,
     "cost": 5,
     "at": 1794392705774,
-    "secBefore": 294
+    "secBefore": 294,
+    "won": true,
+    "net": 5.2
    },
    {
     "series": "eth15m",
@@ -349725,6 +349718,15 @@
     "cost": 10,
     "at": 1794393604017,
     "secBefore": 296
+   },
+   {
+    "series": "sol15m",
+    "start": 1794394800,
+    "side": "UP",
+    "shares": 5,
+    "cost": 2.45,
+    "at": 1794394504833,
+    "secBefore": 295
    }
   ]
  },
@@ -349791,12 +349793,12 @@
    "pairs": 956,
    "pairNet": 117.84,
    "leftovers": 201,
-   "leftSettled": 199,
+   "leftSettled": 200,
    "leftWon": 0,
-   "leftNet": -489.24,
+   "leftNet": -491.76,
    "cuts": 0,
    "cutNet": 0,
-   "net": -371.4,
+   "net": -373.92,
    "rebateEst": 39.353
   },
   {
@@ -349819,12 +349821,12 @@
    "pairs": 3065,
    "pairNet": -541.68,
    "leftovers": 124,
-   "leftSettled": 122,
+   "leftSettled": 123,
    "leftWon": 0,
-   "leftNet": -290.76,
+   "leftNet": -292.8,
    "cuts": 0,
    "cutNet": 0,
-   "net": -832.44,
+   "net": -834.48,
    "rebateEst": 108.453
   },
   {
@@ -349847,12 +349849,12 @@
    "pairs": 761,
    "pairNet": 96.72,
    "leftovers": 166,
-   "leftSettled": 164,
+   "leftSettled": 165,
    "leftWon": 0,
-   "leftNet": -388.98,
+   "leftNet": -391.2,
    "cuts": 0,
    "cutNet": 0,
-   "net": -292.26,
+   "net": -294.48,
    "rebateEst": 30.641
   },
   {
@@ -349861,12 +349863,12 @@
    "pairs": 472,
    "pairNet": 34.02,
    "leftovers": 124,
-   "leftSettled": 123,
+   "leftSettled": 124,
    "leftWon": 1,
-   "leftNet": -288.36,
+   "leftNet": -289.32,
    "cuts": 0,
    "cutNet": 0,
-   "net": -254.34,
+   "net": -255.3,
    "rebateEst": 18.906
   },
   {
@@ -349875,20 +349877,20 @@
    "pairs": 807,
    "pairNet": 68.34,
    "leftovers": 154,
-   "leftSettled": 152,
+   "leftSettled": 153,
    "leftWon": 0,
-   "leftNet": -384.18,
+   "leftNet": -387.72,
    "cuts": 0,
    "cutNet": 0,
-   "net": -315.84,
+   "net": -319.38,
    "rebateEst": 33.509
   },
   {
-   "flips": 401,
-   "flipSettled": 392,
-   "flipWon": 212,
-   "flipNet": -42.7,
-   "flipAvgPrice": 0.545,
+   "flips": 405,
+   "flipSettled": 397,
+   "flipWon": 216,
+   "flipNet": -39.89,
+   "flipAvgPrice": 0.547,
    "name": "pairlock-1s-flip30",
    "windows": 162,
    "pairs": 266,
@@ -349903,60 +349905,60 @@
    "rebateEst": 10.295
   },
   {
-   "flips": 282,
-   "flipSettled": 279,
-   "flipWon": 209,
-   "flipNet": 48.59,
-   "flipAvgPrice": 0.708,
+   "flips": 283,
+   "flipSettled": 280,
+   "flipWon": 210,
+   "flipNet": 49.27,
+   "flipAvgPrice": 0.709,
    "name": "pairlock-1s-5m-flip30",
    "windows": 182,
    "pairs": 751,
    "pairNet": 94.62,
    "leftovers": 158,
-   "leftSettled": 156,
+   "leftSettled": 157,
    "leftWon": 0,
-   "leftNet": -380.04,
+   "leftNet": -382.56,
    "cuts": 0,
    "cutNet": 0,
-   "net": -285.42,
+   "net": -287.94,
    "rebateEst": 30.946
   },
   {
-   "flips": 454,
-   "flipSettled": 449,
-   "flipWon": 277,
-   "flipNet": -59.94,
-   "flipAvgPrice": 0.625,
+   "flips": 455,
+   "flipSettled": 451,
+   "flipWon": 278,
+   "flipNet": -62.27,
+   "flipAvgPrice": 0.626,
    "name": "pairlock-1s-5m-flip10",
    "windows": 170,
    "pairs": 719,
    "pairNet": 90.48,
    "leftovers": 147,
-   "leftSettled": 145,
+   "leftSettled": 146,
    "leftWon": 0,
-   "leftNet": -354,
+   "leftNet": -356.52,
    "cuts": 0,
    "cutNet": 0,
-   "net": -263.52,
+   "net": -266.04,
    "rebateEst": 29.543
   },
   {
    "flips": 182,
-   "flipSettled": 180,
-   "flipWon": 143,
-   "flipNet": 13.44,
-   "flipAvgPrice": 0.772,
+   "flipSettled": 181,
+   "flipWon": 144,
+   "flipNet": 13.95,
+   "flipAvgPrice": 0.773,
    "name": "pairlock-1s-5m-flip60",
    "windows": 170,
    "pairs": 719,
    "pairNet": 90.48,
    "leftovers": 147,
-   "leftSettled": 145,
+   "leftSettled": 146,
    "leftWon": 0,
-   "leftNet": -354,
+   "leftNet": -356.52,
    "cuts": 0,
    "cutNet": 0,
-   "net": -263.52,
+   "net": -266.04,
    "rebateEst": 29.543
   },
   {
@@ -350045,7 +350047,7 @@
   "rejects": 4,
   "note": "order not accepted: no reason given",
   "now": {
-   "start": 1794394200,
+   "start": 1794394500,
    "up": 0,
    "down": 0,
    "cost": 0,
@@ -350190,15 +350192,9 @@
     "now": {
      "start": 1794393900,
      "up": 55.52,
-     "down": 49.52,
-     "cost": 53.92,
-     "resting": [
-      [
-       "D",
-       0.92,
-       0
-      ]
-     ]
+     "down": 55.52,
+     "cost": 59.44,
+     "resting": []
     },
     "recent": [
      {
@@ -350303,57 +350299,39 @@
     "name": "pairfast-requote-5m",
     "market": "BTC 5m",
     "levels": 1,
-    "windows": 138,
+    "windows": 139,
     "won": 3,
-    "net": -313.75,
-    "todayNet": -313.75,
-    "todayWindows": 138,
+    "net": -317.87,
+    "todayNet": -317.87,
+    "todayWindows": 139,
     "open": 2,
     "quiet": 0,
-    "fills": 3869,
+    "fills": 3897,
     "throughPct": 74,
-    "pairs": 1321.1,
-    "pairNet": -295.42,
+    "pairs": 1330.3,
+    "pairNet": -298.11,
     "pairCostC": 103.7,
-    "loneWindows": 34,
+    "loneWindows": 35,
     "loneWon": 13,
-    "loneNet": -18.18,
-    "markout10C": -2,
+    "loneNet": -19.61,
+    "markout10C": -1.9,
     "markout30C": -1.9,
     "sweptPct": 71,
-    "rebateEst": 48.582,
-    "gapWindows": 6,
+    "rebateEst": 48.994,
+    "gapWindows": 7,
     "orders": {
      "placed": 10489,
      "cancelled": 7192,
      "rejected": 870
     },
     "now": {
-     "start": 1794394200,
-     "up": 47,
-     "down": 52,
-     "cost": 52.38,
-     "resting": [
-      [
-       "U",
-       0.47,
-       110
-      ]
-     ]
+     "start": 1794394500,
+     "up": 0,
+     "down": 0,
+     "cost": 0,
+     "resting": []
     },
     "recent": [
-     {
-      "name": "pairfast-requote-5m",
-      "key": "",
-      "start": 1794391200,
-      "up": 58.28,
-      "down": 58.28,
-      "upCost": 36.72,
-      "downCost": 24.05,
-      "fills": 33,
-      "gaps": 0,
-      "net": -2.49
-     },
      {
       "name": "pairfast-requote-5m",
       "key": "",
@@ -350437,6 +350415,18 @@
       "fills": 24,
       "gaps": 0,
       "net": -0.94
+     },
+     {
+      "name": "pairfast-requote-5m",
+      "key": "",
+      "start": 1794393600,
+      "up": 60,
+      "down": 55.75,
+      "upCost": 20.16,
+      "downCost": 39.71,
+      "fills": 34,
+      "gaps": 0,
+      "net": -4.12
      }
     ]
    },
@@ -350471,16 +350461,10 @@
     },
     "now": {
      "start": 1794393900,
-     "up": 40,
-     "down": 34,
-     "cost": 36.99,
-     "resting": [
-      [
-       "D",
-       0.91,
-       10
-      ]
-     ]
+     "up": 58,
+     "down": 57,
+     "cost": 60.68,
+     "resting": []
     },
     "recent": [
      {
@@ -350585,57 +350569,39 @@
     "name": "pairfast-top-5m",
     "market": "BTC 5m",
     "levels": 1,
-    "windows": 138,
+    "windows": 139,
     "won": 5,
-    "net": -315.49,
-    "todayNet": -315.49,
-    "todayWindows": 138,
+    "net": -320.5,
+    "todayNet": -320.5,
+    "todayWindows": 139,
     "open": 2,
     "quiet": 0,
-    "fills": 3665,
+    "fills": 3687,
     "throughPct": 76,
-    "pairs": 1266.4,
-    "pairNet": -294.26,
+    "pairs": 1275.1,
+    "pairNet": -296.76,
     "pairCostC": 103.9,
-    "loneWindows": 35,
+    "loneWindows": 36,
     "loneWon": 9,
-    "loneNet": -21.36,
-    "markout10C": -2.2,
+    "loneNet": -23.87,
+    "markout10C": -2.1,
     "markout30C": -2.1,
     "sweptPct": 73,
-    "rebateEst": 46.086,
-    "gapWindows": 6,
+    "rebateEst": 46.377,
+    "gapWindows": 7,
     "orders": {
      "placed": 5098,
      "cancelled": 2082,
      "rejected": 516
     },
     "now": {
-     "start": 1794394200,
-     "up": 29,
-     "down": 34.38,
-     "cost": 34.12,
-     "resting": [
-      [
-       "U",
-       0.44,
-       509
-      ]
-     ]
+     "start": 1794394500,
+     "up": 0,
+     "down": 0,
+     "cost": 0,
+     "resting": []
     },
     "recent": [
-     {
-      "name": "pairfast-top-5m",
-      "key": "",
-      "start": 1794391200,
-      "up": 59.25,
-      "down": 59.25,
-      "upCost": 39.72,
-      "downCost": 21.46,
-      "fills": 29,
-      "gaps": 0,
-      "net": -1.93
-     },
      {
       "name": "pairfast-top-5m",
       "key": "",
@@ -350719,6 +350685,18 @@
       "fills": 24,
       "gaps": 0,
       "net": -0.84
+     },
+     {
+      "name": "pairfast-top-5m",
+      "key": "",
+      "start": 1794393600,
+      "up": 58.09,
+      "down": 52.09,
+      "upCost": 24.29,
+      "downCost": 32.81,
+      "fills": 31,
+      "gaps": 0,
+      "net": -5.01
      }
     ]
    },
@@ -350861,51 +350839,39 @@
     "name": "pairfast-top-lock-5m",
     "market": "BTC 5m",
     "levels": 1,
-    "windows": 135,
-    "won": 112,
-    "net": -32.77,
-    "todayNet": -32.77,
-    "todayWindows": 135,
+    "windows": 136,
+    "won": 113,
+    "net": -32.41,
+    "todayNet": -32.41,
+    "todayWindows": 136,
     "open": 2,
     "quiet": 1,
-    "fills": 390,
+    "fills": 391,
     "throughPct": 73,
-    "pairs": 122.6,
-    "pairNet": 24.28,
+    "pairs": 123.6,
+    "pairNet": 24.64,
     "pairCostC": 96.7,
     "loneWindows": 23,
     "loneWon": 0,
     "loneNet": -57.05,
-    "markout10C": -2.7,
-    "markout30C": -2.2,
+    "markout10C": -2.8,
+    "markout30C": -2.3,
     "sweptPct": 75,
-    "rebateEst": 5.29,
-    "gapWindows": 5,
+    "rebateEst": 5.308,
+    "gapWindows": 6,
     "orders": {
      "placed": 637,
      "cancelled": 285,
      "rejected": 113
     },
     "now": {
-     "start": 1794394200,
+     "start": 1794394500,
      "up": 0,
-     "down": 6,
-     "cost": 4.2,
+     "down": 0,
+     "cost": 0,
      "resting": []
     },
     "recent": [
-     {
-      "name": "pairfast-top-lock-5m",
-      "key": "",
-      "start": 1794391200,
-      "up": 6,
-      "down": 6,
-      "upCost": 3.18,
-      "downCost": 2.58,
-      "fills": 4,
-      "gaps": 0,
-      "net": 0.24
-     },
      {
       "name": "pairfast-top-lock-5m",
       "key": "",
@@ -350986,6 +350952,18 @@
       "down": 6,
       "upCost": 3.24,
       "downCost": 2.4,
+      "fills": 3,
+      "gaps": 0,
+      "net": 0.36
+     },
+     {
+      "name": "pairfast-top-lock-5m",
+      "key": "",
+      "start": 1794393600,
+      "up": 6,
+      "down": 6,
+      "upCost": 3.48,
+      "downCost": 2.16,
       "fills": 3,
       "gaps": 0,
       "net": 0.36
@@ -351131,51 +351109,39 @@
     "name": "pairfast-deep2-lock-5m",
     "market": "BTC 5m",
     "levels": 1,
-    "windows": 123,
-    "won": 102,
-    "net": -35.15,
-    "todayNet": -35.15,
-    "todayWindows": 123,
+    "windows": 124,
+    "won": 103,
+    "net": -35.09,
+    "todayNet": -35.09,
+    "todayWindows": 124,
     "open": 2,
     "quiet": 1,
-    "fills": 364,
+    "fills": 365,
     "throughPct": 83,
-    "pairs": 107.8,
-    "pairNet": 16.75,
+    "pairs": 108.8,
+    "pairNet": 16.81,
     "pairCostC": 97.4,
     "loneWindows": 22,
     "loneWon": 1,
     "loneNet": -51.89,
-    "markout10C": -3.2,
+    "markout10C": -3.3,
     "markout30C": -2,
     "sweptPct": 74,
-    "rebateEst": 4.677,
-    "gapWindows": 3,
+    "rebateEst": 4.695,
+    "gapWindows": 4,
     "orders": {
      "placed": 604,
      "cancelled": 366,
      "rejected": 16
     },
     "now": {
-     "start": 1794394200,
+     "start": 1794394500,
      "up": 0,
-     "down": 6,
-     "cost": 4.08,
+     "down": 0,
+     "cost": 0,
      "resting": []
     },
     "recent": [
-     {
-      "name": "pairfast-deep2-lock-5m",
-      "key": "",
-      "start": 1794391200,
-      "up": 6,
-      "down": 6,
-      "upCost": 3.06,
-      "downCost": 2.46,
-      "fills": 3,
-      "gaps": 0,
-      "net": 0.48
-     },
      {
       "name": "pairfast-deep2-lock-5m",
       "key": "",
@@ -351259,6 +351225,18 @@
       "fills": 4,
       "gaps": 0,
       "net": 0.54
+     },
+     {
+      "name": "pairfast-deep2-lock-5m",
+      "key": "",
+      "start": 1794393600,
+      "up": 6,
+      "down": 6,
+      "upCost": 3.36,
+      "downCost": 2.58,
+      "fills": 3,
+      "gaps": 0,
+      "net": 0.06
      }
     ]
    },
@@ -351294,8 +351272,8 @@
     "now": {
      "start": 1794393900,
      "up": 12,
-     "down": 11,
-     "cost": 11.18,
+     "down": 17,
+     "cost": 15.02,
      "resting": []
     },
     "recent": [
@@ -351401,51 +351379,39 @@
     "name": "pairfast-fav60-lock-5m",
     "market": "BTC 5m",
     "levels": 1,
-    "windows": 116,
+    "windows": 117,
     "won": 103,
-    "net": -27.86,
-    "todayNet": -27.86,
-    "todayWindows": 116,
+    "net": -31.7,
+    "todayNet": -31.7,
+    "todayWindows": 117,
     "open": 2,
     "quiet": 2,
-    "fills": 336,
+    "fills": 337,
     "throughPct": 74,
     "pairs": 112,
     "pairNet": 17.85,
     "pairCostC": 97.3,
-    "loneWindows": 13,
+    "loneWindows": 14,
     "loneWon": 0,
-    "loneNet": -45.71,
-    "markout10C": -2.1,
+    "loneNet": -49.55,
+    "markout10C": -2.2,
     "markout30C": -1.8,
     "sweptPct": 73,
-    "rebateEst": 4.254,
-    "gapWindows": 3,
+    "rebateEst": 4.272,
+    "gapWindows": 4,
     "orders": {
      "placed": 575,
      "cancelled": 316,
      "rejected": 72
     },
     "now": {
-     "start": 1794394200,
+     "start": 1794394500,
      "up": 0,
-     "down": 6,
-     "cost": 4.2,
+     "down": 0,
+     "cost": 0,
      "resting": []
     },
     "recent": [
-     {
-      "name": "pairfast-fav60-lock-5m",
-      "key": "",
-      "start": 1794391200,
-      "up": 6,
-      "down": 6,
-      "upCost": 4.08,
-      "downCost": 1.74,
-      "fills": 3,
-      "gaps": 0,
-      "net": 0.18
-     },
      {
       "name": "pairfast-fav60-lock-5m",
       "key": "",
@@ -351529,6 +351495,18 @@
       "fills": 3,
       "gaps": 0,
       "net": 0.36
+     },
+     {
+      "name": "pairfast-fav60-lock-5m",
+      "key": "",
+      "start": 1794393600,
+      "up": 6,
+      "down": 0,
+      "upCost": 3.84,
+      "downCost": 0,
+      "fills": 1,
+      "gaps": 0,
+      "net": -3.84
      }
     ]
    },
@@ -351671,51 +351649,39 @@
     "name": "pairfast-fav60-deep2-lock-5m",
     "market": "BTC 5m",
     "levels": 1,
-    "windows": 96,
+    "windows": 97,
     "won": 78,
-    "net": -50.95,
-    "todayNet": -50.95,
-    "todayWindows": 96,
+    "net": -54.67,
+    "todayNet": -54.67,
+    "todayWindows": 97,
     "open": 2,
     "quiet": 4,
-    "fills": 287,
+    "fills": 288,
     "throughPct": 82,
     "pairs": 85.8,
     "pairNet": 11.39,
     "pairCostC": 97.8,
-    "loneWindows": 19,
+    "loneWindows": 20,
     "loneWon": 1,
-    "loneNet": -62.3,
-    "markout10C": -2.4,
+    "loneNet": -66.02,
+    "markout10C": -2.5,
     "markout30C": -2.8,
     "sweptPct": 75,
-    "rebateEst": 3.489,
-    "gapWindows": 3,
+    "rebateEst": 3.507,
+    "gapWindows": 4,
     "orders": {
      "placed": 572,
      "cancelled": 410,
      "rejected": 15
     },
     "now": {
-     "start": 1794394200,
+     "start": 1794394500,
      "up": 0,
-     "down": 6,
-     "cost": 4.08,
+     "down": 0,
+     "cost": 0,
      "resting": []
     },
     "recent": [
-     {
-      "name": "pairfast-fav60-deep2-lock-5m",
-      "key": "",
-      "start": 1794391200,
-      "up": 6,
-      "down": 6,
-      "upCost": 3.96,
-      "downCost": 1.74,
-      "fills": 3,
-      "gaps": 0,
-      "net": 0.3
-     },
      {
       "name": "pairfast-fav60-deep2-lock-5m",
       "key": "",
@@ -351799,6 +351765,18 @@
       "fills": 3,
       "gaps": 0,
       "net": 0.6
+     },
+     {
+      "name": "pairfast-fav60-deep2-lock-5m",
+      "key": "",
+      "start": 1794393600,
+      "up": 6,
+      "down": 0,
+      "upCost": 3.72,
+      "downCost": 0,
+      "fills": 2,
+      "gaps": 0,
+      "net": -3.72
      }
     ]
    },
@@ -351834,8 +351812,8 @@
     "now": {
      "start": 1794393900,
      "up": 5.77,
-     "down": 5,
-     "cost": 5.02,
+     "down": 11,
+     "cost": 9.82,
      "resting": []
     },
     "recent": [
@@ -351946,9 +351924,9 @@
     "net": -37.07,
     "todayNet": -37.07,
     "todayWindows": 94,
-    "open": 1,
+    "open": 2,
     "quiet": 7,
-    "fills": 246,
+    "fills": 247,
     "throughPct": 73,
     "pairs": 85,
     "pairNet": 12.62,
@@ -351956,21 +351934,21 @@
     "loneWindows": 16,
     "loneWon": 0,
     "loneNet": -49.69,
-    "markout10C": -1.9,
-    "markout30C": -2.5,
-    "sweptPct": 72,
-    "rebateEst": 2.932,
-    "gapWindows": 3,
+    "markout10C": -2.1,
+    "markout30C": -2.6,
+    "sweptPct": 71,
+    "rebateEst": 2.95,
+    "gapWindows": 4,
     "orders": {
      "placed": 485,
      "cancelled": 282,
      "rejected": 70
     },
     "now": {
-     "start": 1794394200,
+     "start": 1794394500,
      "up": 0,
-     "down": 6,
-     "cost": 4.2,
+     "down": 0,
+     "cost": 0,
      "resting": []
     },
     "recent": [
@@ -352211,51 +352189,39 @@
     "name": "pairfast-fav60-from60-lock-5m",
     "market": "BTC 5m",
     "levels": 1,
-    "windows": 82,
-    "won": 68,
-    "net": -39.8,
-    "todayNet": -39.8,
-    "todayWindows": 82,
+    "windows": 83,
+    "won": 69,
+    "net": -39.68,
+    "todayNet": -39.68,
+    "todayWindows": 83,
     "open": 2,
     "quiet": 6,
-    "fills": 225,
-    "throughPct": 80,
-    "pairs": 72.2,
-    "pairNet": 13.15,
+    "fills": 226,
+    "throughPct": 81,
+    "pairs": 73.2,
+    "pairNet": 13.27,
     "pairCostC": 97,
     "loneWindows": 14,
     "loneWon": 0,
     "loneNet": -52.68,
     "markout10C": -2.2,
-    "markout30C": -2.6,
+    "markout30C": -2.8,
     "sweptPct": 76,
-    "rebateEst": 2.726,
-    "gapWindows": 3,
+    "rebateEst": 2.746,
+    "gapWindows": 4,
     "orders": {
      "placed": 409,
      "cancelled": 209,
      "rejected": 68
     },
     "now": {
-     "start": 1794394200,
+     "start": 1794394500,
      "up": 0,
-     "down": 6,
-     "cost": 3.6,
+     "down": 0,
+     "cost": 0,
      "resting": []
     },
     "recent": [
-     {
-      "name": "pairfast-fav60-from60-lock-5m",
-      "key": "",
-      "start": 1794391200,
-      "up": 6,
-      "down": 6,
-      "upCost": 4.2,
-      "downCost": 1.32,
-      "fills": 5,
-      "gaps": 0,
-      "net": 0.48
-     },
      {
       "name": "pairfast-fav60-from60-lock-5m",
       "key": "",
@@ -352339,6 +352305,18 @@
       "fills": 2,
       "gaps": 0,
       "net": 0.12
+     },
+     {
+      "name": "pairfast-fav60-from60-lock-5m",
+      "key": "",
+      "start": 1794393600,
+      "up": 6,
+      "down": 6,
+      "upCost": 2.04,
+      "downCost": 3.84,
+      "fills": 2,
+      "gaps": 0,
+      "net": 0.12
      }
     ]
    },
@@ -352374,8 +352352,8 @@
     "now": {
      "start": 1794393900,
      "up": 12,
-     "down": 11,
-     "cost": 11.18,
+     "down": 17,
+     "cost": 15.02,
      "resting": []
     },
     "recent": [
@@ -352481,51 +352459,39 @@
     "name": "pairfast-fav60-75-lock-5m",
     "market": "BTC 5m",
     "levels": 1,
-    "windows": 73,
+    "windows": 74,
     "won": 63,
-    "net": -24.38,
-    "todayNet": -24.38,
-    "todayWindows": 73,
+    "net": -28.22,
+    "todayNet": -28.22,
+    "todayWindows": 74,
     "open": 2,
     "quiet": 3,
-    "fills": 200,
+    "fills": 201,
     "throughPct": 78,
     "pairs": 66,
     "pairNet": 11.79,
     "pairCostC": 97,
-    "loneWindows": 10,
+    "loneWindows": 11,
     "loneWon": 0,
-    "loneNet": -36.17,
-    "markout10C": -1.9,
-    "markout30C": -1,
-    "sweptPct": 77,
-    "rebateEst": 2.623,
-    "gapWindows": 3,
+    "loneNet": -40.01,
+    "markout10C": -2,
+    "markout30C": -1.1,
+    "sweptPct": 76,
+    "rebateEst": 2.641,
+    "gapWindows": 4,
     "orders": {
      "placed": 368,
      "cancelled": 200,
      "rejected": 60
     },
     "now": {
-     "start": 1794394200,
+     "start": 1794394500,
      "up": 0,
-     "down": 6,
-     "cost": 4.2,
+     "down": 0,
+     "cost": 0,
      "resting": []
     },
     "recent": [
-     {
-      "name": "pairfast-fav60-75-lock-5m",
-      "key": "",
-      "start": 1794391200,
-      "up": 6,
-      "down": 6,
-      "upCost": 4.08,
-      "downCost": 1.74,
-      "fills": 3,
-      "gaps": 0,
-      "net": 0.18
-     },
      {
       "name": "pairfast-fav60-75-lock-5m",
       "key": "",
@@ -352609,6 +352575,18 @@
       "fills": 3,
       "gaps": 0,
       "net": 0.3
+     },
+     {
+      "name": "pairfast-fav60-75-lock-5m",
+      "key": "",
+      "start": 1794393600,
+      "up": 6,
+      "down": 0,
+      "upCost": 3.84,
+      "downCost": 0,
+      "fills": 1,
+      "gaps": 0,
+      "net": -3.84
      }
     ]
    },
@@ -352751,51 +352729,39 @@
     "name": "pairfast-fav55-lock-5m",
     "market": "BTC 5m",
     "levels": 1,
-    "windows": 64,
-    "won": 56,
-    "net": -17.23,
-    "todayNet": -17.23,
-    "todayWindows": 64,
+    "windows": 65,
+    "won": 57,
+    "net": -16.87,
+    "todayNet": -16.87,
+    "todayWindows": 65,
     "open": 2,
     "quiet": 0,
-    "fills": 168,
+    "fills": 169,
     "throughPct": 76,
-    "pairs": 56.8,
-    "pairNet": 10.13,
+    "pairs": 57.8,
+    "pairNet": 10.49,
     "pairCostC": 97,
     "loneWindows": 8,
     "loneWon": 0,
     "loneNet": -27.36,
-    "markout10C": -2.5,
+    "markout10C": -2.6,
     "markout30C": -2.4,
     "sweptPct": 73,
-    "rebateEst": 2.298,
-    "gapWindows": 4,
+    "rebateEst": 2.316,
+    "gapWindows": 5,
     "orders": {
      "placed": 282,
      "cancelled": 132,
      "rejected": 48
     },
     "now": {
-     "start": 1794394200,
+     "start": 1794394500,
      "up": 0,
-     "down": 6,
-     "cost": 4.2,
+     "down": 0,
+     "cost": 0,
      "resting": []
     },
     "recent": [
-     {
-      "name": "pairfast-fav55-lock-5m",
-      "key": "",
-      "start": 1794391200,
-      "up": 6,
-      "down": 6,
-      "upCost": 2.46,
-      "downCost": 3.3,
-      "fills": 3,
-      "gaps": 0,
-      "net": 0.24
-     },
      {
       "name": "pairfast-fav55-lock-5m",
       "key": "",
@@ -352879,6 +352845,18 @@
       "fills": 3,
       "gaps": 0,
       "net": 0.36
+     },
+     {
+      "name": "pairfast-fav55-lock-5m",
+      "key": "",
+      "start": 1794393600,
+      "up": 6,
+      "down": 6,
+      "upCost": 3.48,
+      "downCost": 2.16,
+      "fills": 3,
+      "gaps": 0,
+      "net": 0.36
      }
     ]
    },
@@ -352914,8 +352892,8 @@
     "now": {
      "start": 1794393900,
      "up": 12,
-     "down": 11,
-     "cost": 11.18,
+     "down": 17,
+     "cost": 15.02,
      "resting": []
     },
     "recent": [
@@ -353021,51 +352999,39 @@
     "name": "pairfast-fav60-stop180-lock-5m",
     "market": "BTC 5m",
     "levels": 1,
-    "windows": 51,
+    "windows": 52,
     "won": 46,
-    "net": -11.65,
-    "todayNet": -11.65,
-    "todayWindows": 51,
+    "net": -15.49,
+    "todayNet": -15.49,
+    "todayWindows": 52,
     "open": 2,
     "quiet": 0,
-    "fills": 128,
+    "fills": 129,
     "throughPct": 77,
     "pairs": 45.8,
     "pairNet": 8.01,
     "pairCostC": 97.1,
-    "loneWindows": 6,
+    "loneWindows": 7,
     "loneWon": 1,
-    "loneNet": -19.66,
-    "markout10C": -1.6,
-    "markout30C": -0.6,
-    "sweptPct": 75,
-    "rebateEst": 1.767,
-    "gapWindows": 3,
+    "loneNet": -23.5,
+    "markout10C": -1.8,
+    "markout30C": -0.8,
+    "sweptPct": 74,
+    "rebateEst": 1.785,
+    "gapWindows": 4,
     "orders": {
      "placed": 231,
      "cancelled": 121,
      "rejected": 33
     },
     "now": {
-     "start": 1794394200,
+     "start": 1794394500,
      "up": 0,
-     "down": 6,
-     "cost": 4.2,
+     "down": 0,
+     "cost": 0,
      "resting": []
     },
     "recent": [
-     {
-      "name": "pairfast-fav60-stop180-lock-5m",
-      "key": "",
-      "start": 1794391200,
-      "up": 6,
-      "down": 6,
-      "upCost": 4.08,
-      "downCost": 1.74,
-      "fills": 3,
-      "gaps": 0,
-      "net": 0.18
-     },
      {
       "name": "pairfast-fav60-stop180-lock-5m",
       "key": "",
@@ -353149,6 +353115,18 @@
       "fills": 3,
       "gaps": 0,
       "net": 0.36
+     },
+     {
+      "name": "pairfast-fav60-stop180-lock-5m",
+      "key": "",
+      "start": 1794393600,
+      "up": 6,
+      "down": 0,
+      "upCost": 3.84,
+      "downCost": 0,
+      "fills": 1,
+      "gaps": 0,
+      "net": -3.84
      }
     ]
    },
@@ -353291,51 +353269,39 @@
     "name": "pairfast-top-stop180-lock-5m",
     "market": "BTC 5m",
     "levels": 1,
-    "windows": 40,
-    "won": 37,
-    "net": 0.18,
-    "todayNet": 0.18,
-    "todayWindows": 40,
+    "windows": 41,
+    "won": 38,
+    "net": 0.54,
+    "todayNet": 0.54,
+    "todayWindows": 41,
     "open": 2,
     "quiet": 1,
-    "fills": 119,
+    "fills": 120,
     "throughPct": 73,
-    "pairs": 37,
-    "pairNet": 8.28,
-    "pairCostC": 96.3,
+    "pairs": 38,
+    "pairNet": 8.64,
+    "pairCostC": 96.2,
     "loneWindows": 3,
     "loneWon": 0,
     "loneNet": -8.1,
-    "markout10C": -2.3,
-    "markout30C": -1,
-    "sweptPct": 79,
-    "rebateEst": 1.583,
-    "gapWindows": 2,
+    "markout10C": -2.6,
+    "markout30C": -1.1,
+    "sweptPct": 78,
+    "rebateEst": 1.601,
+    "gapWindows": 3,
     "orders": {
      "placed": 183,
      "cancelled": 76,
      "rejected": 33
     },
     "now": {
-     "start": 1794394200,
+     "start": 1794394500,
      "up": 0,
-     "down": 6,
-     "cost": 4.2,
+     "down": 0,
+     "cost": 0,
      "resting": []
     },
     "recent": [
-     {
-      "name": "pairfast-top-stop180-lock-5m",
-      "key": "",
-      "start": 1794391200,
-      "up": 6,
-      "down": 6,
-      "upCost": 3.18,
-      "downCost": 2.58,
-      "fills": 4,
-      "gaps": 0,
-      "net": 0.24
-     },
      {
       "name": "pairfast-top-stop180-lock-5m",
       "key": "",
@@ -353416,6 +353382,18 @@
       "down": 6,
       "upCost": 3.24,
       "downCost": 2.4,
+      "fills": 3,
+      "gaps": 0,
+      "net": 0.36
+     },
+     {
+      "name": "pairfast-top-stop180-lock-5m",
+      "key": "",
+      "start": 1794393600,
+      "up": 6,
+      "down": 6,
+      "upCost": 3.48,
+      "downCost": 2.16,
       "fills": 3,
       "gaps": 0,
       "net": 0.36
@@ -353567,7 +353545,7 @@
     "todayNet": -25.51,
     "todayWindows": 89,
     "open": 1,
-    "quiet": 30,
+    "quiet": 31,
     "fills": 256,
     "throughPct": 75,
     "pairs": 79,
@@ -353587,7 +353565,7 @@
      "rejected": 86
     },
     "now": {
-     "start": 1794394200,
+     "start": 1794394500,
      "up": 0,
      "down": 0,
      "cost": 0,
@@ -353831,51 +353809,39 @@
     "name": "pairfast-pull-lock-5m",
     "market": "BTC 5m",
     "levels": 1,
-    "windows": 117,
-    "won": 97,
-    "net": -24.66,
-    "todayNet": -24.66,
-    "todayWindows": 117,
+    "windows": 118,
+    "won": 98,
+    "net": -24.48,
+    "todayNet": -24.48,
+    "todayWindows": 118,
     "open": 2,
     "quiet": 1,
-    "fills": 382,
+    "fills": 385,
     "throughPct": 77,
-    "pairs": 119.7,
-    "pairNet": 23.35,
-    "pairCostC": 96.7,
+    "pairs": 120.7,
+    "pairNet": 23.53,
+    "pairCostC": 96.8,
     "loneWindows": 22,
     "loneWon": 1,
     "loneNet": -48.01,
     "markout10C": -2.4,
     "markout30C": -2.4,
     "sweptPct": 76,
-    "rebateEst": 5.079,
-    "gapWindows": 4,
+    "rebateEst": 5.12,
+    "gapWindows": 5,
     "orders": {
      "placed": 657,
      "cancelled": 337,
      "rejected": 111
     },
     "now": {
-     "start": 1794394200,
-     "up": 6,
+     "start": 1794394500,
+     "up": 0,
      "down": 0,
-     "cost": 3.42,
+     "cost": 0,
      "resting": []
     },
     "recent": [
-     {
-      "name": "pairfast-pull-lock-5m",
-      "key": "",
-      "start": 1794391200,
-      "up": 6,
-      "down": 6,
-      "upCost": 3.18,
-      "downCost": 2.58,
-      "fills": 4,
-      "gaps": 0,
-      "net": 0.24
-     },
      {
       "name": "pairfast-pull-lock-5m",
       "key": "",
@@ -353959,6 +353925,18 @@
       "fills": 3,
       "gaps": 0,
       "net": 0.66
+     },
+     {
+      "name": "pairfast-pull-lock-5m",
+      "key": "",
+      "start": 1794393600,
+      "up": 6,
+      "down": 6,
+      "upCost": 3.3,
+      "downCost": 2.52,
+      "fills": 4,
+      "gaps": 0,
+      "net": 0.18
      }
     ]
    },
@@ -354101,57 +354079,39 @@
     "name": "pairfast-lad3-5m",
     "market": "BTC 5m",
     "levels": 3,
-    "windows": 138,
+    "windows": 139,
     "won": 13,
-    "net": -388.37,
-    "todayNet": -388.37,
-    "todayWindows": 138,
+    "net": -389.12,
+    "todayNet": -389.12,
+    "todayWindows": 139,
     "open": 2,
     "quiet": 0,
-    "fills": 3827,
+    "fills": 3858,
     "throughPct": 82,
-    "pairs": 1315.6,
-    "pairNet": -379.93,
+    "pairs": 1325.4,
+    "pairNet": -381.17,
     "pairCostC": 104.8,
     "loneWindows": 47,
     "loneWon": 25,
     "loneNet": -10.07,
     "markout10C": -2.8,
-    "markout30C": -2.5,
+    "markout30C": -2.6,
     "sweptPct": 76,
-    "rebateEst": 49.671,
-    "gapWindows": 6,
+    "rebateEst": 50.082,
+    "gapWindows": 7,
     "orders": {
      "placed": 6453,
      "cancelled": 3659,
      "rejected": 189
     },
     "now": {
-     "start": 1794394200,
-     "up": 54,
-     "down": 59,
-     "cost": 62.59,
-     "resting": [
-      [
-       "U",
-       0.45,
-       524
-      ]
-     ]
+     "start": 1794394500,
+     "up": 0,
+     "down": 0,
+     "cost": 0,
+     "resting": []
     },
     "recent": [
-     {
-      "name": "pairfast-lad3-5m",
-      "key": "",
-      "start": 1794391200,
-      "up": 58.08,
-      "down": 60,
-      "upCost": 31.44,
-      "downCost": 29.76,
-      "fills": 27,
-      "gaps": 0,
-      "net": -1.2
-     },
      {
       "name": "pairfast-lad3-5m",
       "key": "",
@@ -354235,6 +354195,18 @@
       "fills": 28,
       "gaps": 0,
       "net": -0.84
+     },
+     {
+      "name": "pairfast-lad3-5m",
+      "key": "",
+      "start": 1794393600,
+      "up": 59.13,
+      "down": 60,
+      "upCost": 34.23,
+      "downCost": 26.52,
+      "fills": 28,
+      "gaps": 0,
+      "net": -0.75
      }
     ]
    },
@@ -354270,8 +354242,8 @@
     "now": {
      "start": 1794393900,
      "up": 54,
-     "down": 36,
-     "cost": 41.64,
+     "down": 60,
+     "cost": 55.86,
      "resting": []
     },
     "recent": [
@@ -354377,51 +354349,39 @@
     "name": "pairfast-lad3-lock-5m",
     "market": "BTC 5m",
     "levels": 3,
-    "windows": 138,
+    "windows": 139,
     "won": 64,
-    "net": -301.25,
-    "todayNet": -301.25,
-    "todayWindows": 138,
+    "net": -309.74,
+    "todayNet": -309.74,
+    "todayWindows": 139,
     "open": 2,
     "quiet": 0,
-    "fills": 2912,
+    "fills": 2915,
     "throughPct": 82,
-    "pairs": 860,
-    "pairNet": 210.85,
+    "pairs": 867,
+    "pairNet": 212.03,
     "pairCostC": 95.9,
-    "loneWindows": 98,
+    "loneWindows": 99,
     "loneWon": 13,
-    "loneNet": -511.09,
+    "loneNet": -520.76,
     "markout10C": -2.4,
     "markout30C": -2.1,
     "sweptPct": 75,
-    "rebateEst": 38.192,
-    "gapWindows": 7,
+    "rebateEst": 38.246,
+    "gapWindows": 8,
     "orders": {
      "placed": 4631,
      "cancelled": 2505,
      "rejected": 265
     },
     "now": {
-     "start": 1794394200,
+     "start": 1794394500,
      "up": 0,
-     "down": 18,
-     "cost": 12.42,
+     "down": 0,
+     "cost": 0,
      "resting": []
     },
     "recent": [
-     {
-      "name": "pairfast-lad3-lock-5m",
-      "key": "",
-      "start": 1794391200,
-      "up": 58.36,
-      "down": 45.36,
-      "upCost": 31.35,
-      "downCost": 18.81,
-      "fills": 30,
-      "gaps": 0,
-      "net": -4.8
-     },
      {
       "name": "pairfast-lad3-lock-5m",
       "key": "",
@@ -354505,6 +354465,18 @@
       "fills": 25,
       "gaps": 0,
       "net": -3.18
+     },
+     {
+      "name": "pairfast-lad3-lock-5m",
+      "key": "",
+      "start": 1794393600,
+      "up": 59,
+      "down": 42,
+      "upCost": 33.57,
+      "downCost": 16.92,
+      "fills": 21,
+      "gaps": 0,
+      "net": -8.49
      }
     ]
    },
@@ -354647,62 +354619,39 @@
     "name": "pairfast-deep4-5m",
     "market": "BTC 5m",
     "levels": 4,
-    "windows": 138,
+    "windows": 139,
     "won": 29,
-    "net": -336.65,
-    "todayNet": -336.65,
-    "todayWindows": 138,
+    "net": -343.18,
+    "todayNet": -343.18,
+    "todayWindows": 139,
     "open": 2,
     "quiet": 0,
-    "fills": 3779,
+    "fills": 3808,
     "throughPct": 85,
-    "pairs": 1244.8,
-    "pairNet": -272.42,
-    "pairCostC": 103.6,
-    "loneWindows": 64,
+    "pairs": 1253.8,
+    "pairNet": -276.39,
+    "pairCostC": 103.7,
+    "loneWindows": 65,
     "loneWon": 27,
-    "loneNet": -63.77,
+    "loneNet": -66.33,
     "markout10C": -2.6,
-    "markout30C": -2.1,
+    "markout30C": -2.2,
     "sweptPct": 75,
-    "rebateEst": 47.305,
-    "gapWindows": 6,
+    "rebateEst": 47.708,
+    "gapWindows": 7,
     "orders": {
      "placed": 6376,
      "cancelled": 3818,
      "rejected": 48
     },
     "now": {
-     "start": 1794394200,
-     "up": 54,
-     "down": 54,
-     "cost": 57.78,
-     "resting": [
-      [
-       "U",
-       0.41,
-       716
-      ],
-      [
-       "D",
-       0.5,
-       224
-      ]
-     ]
+     "start": 1794394500,
+     "up": 0,
+     "down": 0,
+     "cost": 0,
+     "resting": []
     },
     "recent": [
-     {
-      "name": "pairfast-deep4-5m",
-      "key": "",
-      "start": 1794391200,
-      "up": 58.08,
-      "down": 58.08,
-      "upCost": 34.58,
-      "downCost": 26.18,
-      "fills": 31,
-      "gaps": 0,
-      "net": -2.68
-     },
      {
       "name": "pairfast-deep4-5m",
       "key": "",
@@ -354786,13 +354735,25 @@
       "fills": 31,
       "gaps": 0,
       "net": -0.42
+     },
+     {
+      "name": "pairfast-deep4-5m",
+      "key": "",
+      "start": 1794393600,
+      "up": 59,
+      "down": 54,
+      "upCost": 30.17,
+      "downCost": 30.36,
+      "fills": 24,
+      "gaps": 0,
+      "net": -6.53
      }
     ]
    }
   ]
  },
  "walletHistory": {
-  "at": 1794394275870,
+  "at": 1794394491373,
   "source": "v2/activity",
   "error": null,
   "rows": 5389,
@@ -354801,8 +354762,8 @@
   "lastAt": 1794393390000,
   "serverStart": 1793430660000,
   "beforeNet": -765.85,
-  "sinceNet": -144.7,
-  "allTimeNet": -910.55,
+  "sinceNet": -144.67,
+  "allTimeNet": -910.52,
   "kinds": {
    "redeem": {
     "n": 1843,
@@ -354826,13 +354787,13 @@
  "solanaCopy": {
   "mode": "paper",
   "note": "Paper only, nothing is sent. Each copy is 0.25 SOL at real Jupiter quotes, minus 0.001 SOL per transaction. A quote is the best case for a fill, so paper profit is an upper bound. Bar for real: 100+ copies on one rule, half or more won, net positive.",
-  "updatedAt": 1794394289677,
-  "solUsd": 83.586574,
+  "updatedAt": 1794394506426,
+  "solUsd": 83.696383,
   "health": {
-   "startedAt": 1794394229633,
+   "startedAt": 1794394446382,
    "feed": "helius websocket",
    "stream": "on",
-   "streamTx": 101,
+   "streamTx": 60,
    "quotes": "jupiter (key)",
    "wsUp": true,
    "wallets": 181,
@@ -354842,18 +354803,18 @@
    "subs": 50,
    "badWallets": [],
    "senderPingMs": {
-    "fra": 24,
+    "fra": 29,
     "ams": 26,
-    "lon": 30
+    "lon": 32
    },
-   "quoteMsMedian": 408,
-   "txSeen": 29,
-   "buys": 0,
+   "quoteMsMedian": 34,
+   "txSeen": 11,
+   "buys": 2,
    "skippedBusy": 0,
-   "active": 0,
+   "active": 2,
    "rpcErrors": 1,
    "quoteErrors": 0,
-   "quoteOk": 1,
+   "quoteOk": 92,
    "lastError": "The operation was aborted due to timeout"
   },
   "discovery": {
@@ -354876,11 +354837,11 @@
   "history": {
    "note": "Looks back 14 days at each listed wallet's first buys of a token and reads what traded in the minute after. Move = from the price paid one or two blocks behind the wallet to the price about 10 s later, before our own fees; \"won\" = better than +3%. Good = not a bot, 30+ buys, and passing (half or more won, average above +3%) on BOTH the older and the newer half of its buys. History is not a live fill: a lead to test, not proof.",
    "state": "starting",
-   "working": "Benytradez",
-   "walletsDone": 159,
+   "working": "Silver",
+   "walletsDone": 163,
    "walletsTotal": 177,
-   "buysRead": 3933,
-   "bots": 53,
+   "buysRead": 4053,
+   "bots": 55,
    "good": [],
    "top": [
     {
@@ -355464,9 +355425,9 @@
      "good": false
     }
    ],
-   "calls": 101,
+   "calls": 124,
    "errors": 0,
-   "creditsToday": 139410,
+   "creditsToday": 144480,
    "creditsCapPerDay": 350000,
    "lastError": ""
   },
@@ -356737,7 +356698,7 @@
     "n": 137,
     "won": 44,
     "netSol": 0.129,
-    "netUsd": 10.78,
+    "netUsd": 10.8,
     "medianRetPct": -3.13,
     "avgRetPct": 0.38
    },
@@ -356747,7 +356708,7 @@
     "n": 136,
     "won": 54,
     "netSol": 0.6354,
-    "netUsd": 53.11,
+    "netUsd": 53.18,
     "medianRetPct": -2.63,
     "avgRetPct": 1.87
    },
@@ -356757,7 +356718,7 @@
     "n": 135,
     "won": 51,
     "netSol": 0.3942,
-    "netUsd": 32.95,
+    "netUsd": 32.99,
     "medianRetPct": -2.16,
     "avgRetPct": 1.17
    },
@@ -356767,7 +356728,7 @@
     "n": 137,
     "won": 53,
     "netSol": 0.5307,
-    "netUsd": 44.36,
+    "netUsd": 44.41,
     "medianRetPct": -3.08,
     "avgRetPct": 1.55
    },
@@ -356787,7 +356748,7 @@
     "n": 137,
     "won": 54,
     "netSol": -0.8958,
-    "netUsd": -74.88,
+    "netUsd": -74.98,
     "medianRetPct": -2.55,
     "avgRetPct": -2.62
    },
@@ -356797,7 +356758,7 @@
     "n": 138,
     "won": 21,
     "netSol": -1.2054,
-    "netUsd": -100.75,
+    "netUsd": -100.88,
     "medianRetPct": -3.89,
     "avgRetPct": -3.49
    },
@@ -356807,7 +356768,7 @@
     "n": 138,
     "won": 33,
     "netSol": -1.0167,
-    "netUsd": -84.98,
+    "netUsd": -85.09,
     "medianRetPct": -3.92,
     "avgRetPct": -2.95
    },
@@ -356817,7 +356778,7 @@
     "n": 138,
     "won": 39,
     "netSol": -0.7882,
-    "netUsd": -65.88,
+    "netUsd": -65.97,
     "medianRetPct": -3.96,
     "avgRetPct": -2.28
    },
@@ -356827,7 +356788,7 @@
     "n": 136,
     "won": 45,
     "netSol": -1.0541,
-    "netUsd": -88.11,
+    "netUsd": -88.22,
     "medianRetPct": -3.73,
     "avgRetPct": -3.1
    },
@@ -356837,7 +356798,7 @@
     "n": 138,
     "won": 45,
     "netSol": -1.165,
-    "netUsd": -97.38,
+    "netUsd": -97.5,
     "medianRetPct": -4.21,
     "avgRetPct": -3.38
    },
@@ -356847,7 +356808,7 @@
     "n": 138,
     "won": 53,
     "netSol": -1.4164,
-    "netUsd": -118.39,
+    "netUsd": -118.55,
     "medianRetPct": -4.71,
     "avgRetPct": -4.11
    },
@@ -356857,7 +356818,7 @@
     "n": 138,
     "won": 48,
     "netSol": -2.2655,
-    "netUsd": -189.36,
+    "netUsd": -189.61,
     "medianRetPct": -6.04,
     "avgRetPct": -6.57
    },
@@ -356867,7 +356828,7 @@
     "n": 143,
     "won": 19,
     "netSol": -1.3655,
-    "netUsd": -114.13,
+    "netUsd": -114.28,
     "medianRetPct": -4.11,
     "avgRetPct": -3.82
    },
@@ -356877,7 +356838,7 @@
     "n": 143,
     "won": 27,
     "netSol": -1.1198,
-    "netUsd": -93.6,
+    "netUsd": -93.72,
     "medianRetPct": -4.01,
     "avgRetPct": -3.13
    },
@@ -356887,7 +356848,7 @@
     "n": 142,
     "won": 39,
     "netSol": -0.8241,
-    "netUsd": -68.88,
+    "netUsd": -68.97,
     "medianRetPct": -3.89,
     "avgRetPct": -2.32
    },
@@ -356897,7 +356858,7 @@
     "n": 141,
     "won": 43,
     "netSol": -1.1011,
-    "netUsd": -92.04,
+    "netUsd": -92.16,
     "medianRetPct": -3.67,
     "avgRetPct": -3.12
    },
@@ -356907,7 +356868,7 @@
     "n": 143,
     "won": 46,
     "netSol": -1.2242,
-    "netUsd": -102.33,
+    "netUsd": -102.46,
     "medianRetPct": -4.21,
     "avgRetPct": -3.42
    },
@@ -356917,7 +356878,7 @@
     "n": 143,
     "won": 59,
     "netSol": -1.0708,
-    "netUsd": -89.51,
+    "netUsd": -89.63,
     "medianRetPct": -3.32,
     "avgRetPct": -3
    },
@@ -356927,7 +356888,7 @@
     "n": 143,
     "won": 49,
     "netSol": -2.2273,
-    "netUsd": -186.17,
+    "netUsd": -186.42,
     "medianRetPct": -6.67,
     "avgRetPct": -6.23
    },
@@ -356937,7 +356898,7 @@
     "n": 137,
     "won": 83,
     "netSol": 0.6686,
-    "netUsd": 55.89,
+    "netUsd": 55.96,
     "medianRetPct": 3.77,
     "avgRetPct": 1.95
    },
@@ -356947,7 +356908,7 @@
     "n": 137,
     "won": 80,
     "netSol": 1.0309,
-    "netUsd": 86.17,
+    "netUsd": 86.28,
     "medianRetPct": 5.16,
     "avgRetPct": 3.01
    },
@@ -356957,7 +356918,7 @@
     "n": 137,
     "won": 74,
     "netSol": 0.873,
-    "netUsd": 72.97,
+    "netUsd": 73.07,
     "medianRetPct": 3.44,
     "avgRetPct": 2.55
    },
@@ -356967,7 +356928,7 @@
     "n": 138,
     "won": 74,
     "netSol": -1.002,
-    "netUsd": -83.75,
+    "netUsd": -83.86,
     "medianRetPct": 2.91,
     "avgRetPct": -2.9
    },
@@ -356977,7 +356938,7 @@
     "n": 138,
     "won": 72,
     "netSol": -0.5386,
-    "netUsd": -45.02,
+    "netUsd": -45.08,
     "medianRetPct": 2.09,
     "avgRetPct": -1.56
    },
@@ -356987,7 +356948,7 @@
     "n": 138,
     "won": 68,
     "netSol": -0.5326,
-    "netUsd": -44.52,
+    "netUsd": -44.58,
     "medianRetPct": -0.2,
     "avgRetPct": -1.54
    },
@@ -356997,7 +356958,7 @@
     "n": 143,
     "won": 74,
     "netSol": -1.3393,
-    "netUsd": -111.95,
+    "netUsd": -112.09,
     "medianRetPct": 0.62,
     "avgRetPct": -3.75
    },
@@ -357007,7 +356968,7 @@
     "n": 143,
     "won": 73,
     "netSol": -0.9113,
-    "netUsd": -76.17,
+    "netUsd": -76.27,
     "medianRetPct": 0.43,
     "avgRetPct": -2.55
    },
@@ -357017,7 +356978,7 @@
     "n": 143,
     "won": 70,
     "netSol": -0.3314,
-    "netUsd": -27.7,
+    "netUsd": -27.74,
     "medianRetPct": -0.81,
     "avgRetPct": -0.93
    },
@@ -357027,7 +356988,7 @@
     "n": 137,
     "won": 43,
     "netSol": 0.1399,
-    "netUsd": 11.7,
+    "netUsd": 11.71,
     "medianRetPct": -5.83,
     "avgRetPct": 0.41
    },
@@ -357037,7 +356998,7 @@
     "n": 137,
     "won": 62,
     "netSol": 0.7996,
-    "netUsd": 66.83,
+    "netUsd": 66.92,
     "medianRetPct": -2.07,
     "avgRetPct": 2.33
    },
@@ -357057,7 +357018,7 @@
     "n": 137,
     "won": 72,
     "netSol": 1.0543,
-    "netUsd": 88.13,
+    "netUsd": 88.24,
     "medianRetPct": 2.44,
     "avgRetPct": 3.08
    },
@@ -357067,7 +357028,7 @@
     "n": 137,
     "won": 74,
     "netSol": 1.0699,
-    "netUsd": 89.43,
+    "netUsd": 89.55,
     "medianRetPct": 3.44,
     "avgRetPct": 3.12
    },
@@ -357077,7 +357038,7 @@
     "n": 137,
     "won": 39,
     "netSol": 0.5189,
-    "netUsd": 43.37,
+    "netUsd": 43.43,
     "medianRetPct": -3.32,
     "avgRetPct": 1.51
    },
@@ -357087,7 +357048,7 @@
     "n": 137,
     "won": 48,
     "netSol": 0.9011,
-    "netUsd": 75.32,
+    "netUsd": 75.42,
     "medianRetPct": -3.18,
     "avgRetPct": 2.63
    },
@@ -357097,7 +357058,7 @@
     "n": 137,
     "won": 52,
     "netSol": 0.9039,
-    "netUsd": 75.56,
+    "netUsd": 75.66,
     "medianRetPct": -2.26,
     "avgRetPct": 2.64
    },
@@ -357107,7 +357068,7 @@
     "n": 41,
     "won": 14,
     "netSol": -0.868,
-    "netUsd": -72.56,
+    "netUsd": -72.65,
     "medianRetPct": -6.27,
     "avgRetPct": -8.47
    },
@@ -357117,7 +357078,7 @@
     "n": 41,
     "won": 10,
     "netSol": -0.6505,
-    "netUsd": -54.37,
+    "netUsd": -54.44,
     "medianRetPct": -3.89,
     "avgRetPct": -6.35
    },
@@ -357127,7 +357088,7 @@
     "n": 41,
     "won": 10,
     "netSol": -1.1432,
-    "netUsd": -95.56,
+    "netUsd": -95.69,
     "medianRetPct": -12.83,
     "avgRetPct": -11.15
    },
@@ -357137,7 +357098,7 @@
     "n": 41,
     "won": 13,
     "netSol": -1.2318,
-    "netUsd": -102.96,
+    "netUsd": -103.09,
     "medianRetPct": -13.06,
     "avgRetPct": -12.02
    },
@@ -357147,7 +357108,7 @@
     "n": 41,
     "won": 10,
     "netSol": -1.0055,
-    "netUsd": -84.05,
+    "netUsd": -84.16,
     "medianRetPct": -8.52,
     "avgRetPct": -9.81
    },
@@ -357157,7 +357118,7 @@
     "n": 41,
     "won": 10,
     "netSol": -1.3584,
-    "netUsd": -113.54,
+    "netUsd": -113.69,
     "medianRetPct": -13.22,
     "avgRetPct": -13.25
    },
@@ -357167,7 +357128,7 @@
     "n": 41,
     "won": 12,
     "netSol": -0.9624,
-    "netUsd": -80.45,
+    "netUsd": -80.55,
     "medianRetPct": -8.55,
     "avgRetPct": -9.39
    },
@@ -357177,7 +357138,7 @@
     "n": 41,
     "won": 11,
     "netSol": -0.8204,
-    "netUsd": -68.57,
+    "netUsd": -68.66,
     "medianRetPct": -4.36,
     "avgRetPct": -8
    },
@@ -357187,7 +357148,7 @@
     "n": 41,
     "won": 7,
     "netSol": -1.3438,
-    "netUsd": -112.32,
+    "netUsd": -112.47,
     "medianRetPct": -10.2,
     "avgRetPct": -13.11
    },
@@ -357197,7 +357158,7 @@
     "n": 25,
     "won": 10,
     "netSol": -0.5555,
-    "netUsd": -46.43,
+    "netUsd": -46.49,
     "medianRetPct": -3.27,
     "avgRetPct": -8.89
    },
@@ -357207,7 +357168,7 @@
     "n": 24,
     "won": 9,
     "netSol": -0.5477,
-    "netUsd": -45.78,
+    "netUsd": -45.84,
     "medianRetPct": -5.38,
     "avgRetPct": -9.13
    },
@@ -357217,7 +357178,7 @@
     "n": 66,
     "won": 34,
     "netSol": -0.1315,
-    "netUsd": -10.99,
+    "netUsd": -11.01,
     "medianRetPct": 1.08,
     "avgRetPct": -0.8
    },
@@ -357227,7 +357188,7 @@
     "n": 52,
     "won": 28,
     "netSol": 0.094,
-    "netUsd": 7.86,
+    "netUsd": 7.87,
     "medianRetPct": 6.59,
     "avgRetPct": 0.72
    },
@@ -357237,7 +357198,7 @@
     "n": 137,
     "won": 70,
     "netSol": 0.6558,
-    "netUsd": 54.82,
+    "netUsd": 54.89,
     "medianRetPct": 0.68,
     "avgRetPct": 1.91
    },
@@ -357247,7 +357208,7 @@
     "n": 137,
     "won": 69,
     "netSol": 0.8518,
-    "netUsd": 71.2,
+    "netUsd": 71.29,
     "medianRetPct": 0.35,
     "avgRetPct": 2.49
    },
@@ -357257,7 +357218,7 @@
     "n": 34,
     "won": 5,
     "netSol": -2.1287,
-    "netUsd": -177.93,
+    "netUsd": -178.17,
     "medianRetPct": -31.58,
     "avgRetPct": -25.04
    },
@@ -357267,7 +357228,7 @@
     "n": 34,
     "won": 6,
     "netSol": -2.1402,
-    "netUsd": -178.89,
+    "netUsd": -179.13,
     "medianRetPct": -32.54,
     "avgRetPct": -25.18
    },
@@ -357277,7 +357238,7 @@
     "n": 125,
     "won": 30,
     "netSol": -0.446,
-    "netUsd": -37.28,
+    "netUsd": -37.33,
     "medianRetPct": -5.83,
     "avgRetPct": -1.43
    },
@@ -357287,7 +357248,7 @@
     "n": 110,
     "won": 33,
     "netSol": -1.0951,
-    "netUsd": -91.54,
+    "netUsd": -91.66,
     "medianRetPct": -10.15,
     "avgRetPct": -3.98
    },
@@ -357297,7 +357258,7 @@
     "n": 89,
     "won": 21,
     "netSol": -2.8697,
-    "netUsd": -239.87,
+    "netUsd": -240.18,
     "medianRetPct": -20.77,
     "avgRetPct": -12.9
    }
@@ -357894,7 +357855,7 @@
      "n": 137,
      "won": 32,
      "netSol": -0.5832,
-     "netUsd": -48.75,
+     "netUsd": -48.81,
      "medianRetPct": -4.09,
      "avgRetPct": -1.7
     },
@@ -357903,7 +357864,7 @@
      "n": 137,
      "won": 43,
      "netSol": -0.461,
-     "netUsd": -38.53,
+     "netUsd": -38.58,
      "medianRetPct": -3.98,
      "avgRetPct": -1.35
     },
@@ -357912,7 +357873,7 @@
      "n": 136,
      "won": 45,
      "netSol": 0.1084,
-     "netUsd": 9.06,
+     "netUsd": 9.07,
      "medianRetPct": -4.62,
      "avgRetPct": 0.32
     },
@@ -357921,7 +357882,7 @@
      "n": 135,
      "won": 51,
      "netSol": -0.1478,
-     "netUsd": -12.36,
+     "netUsd": -12.37,
      "medianRetPct": -3.11,
      "avgRetPct": -0.44
     },
@@ -357930,7 +357891,7 @@
      "n": 137,
      "won": 52,
      "netSol": -0.1215,
-     "netUsd": -10.15,
+     "netUsd": -10.17,
      "medianRetPct": -4.6,
      "avgRetPct": -0.35
     },
@@ -357939,7 +357900,7 @@
      "n": 137,
      "won": 55,
      "netSol": -0.5848,
-     "netUsd": -48.89,
+     "netUsd": -48.95,
      "medianRetPct": -4.58,
      "avgRetPct": -1.71
     },
@@ -357948,7 +357909,7 @@
      "n": 137,
      "won": 48,
      "netSol": -1.5617,
-     "netUsd": -130.53,
+     "netUsd": -130.71,
      "medianRetPct": -6.19,
      "avgRetPct": -4.56
     }
@@ -358001,7 +357962,7 @@
       "n": 2,
       "won": 1,
       "netSol": 0.0415,
-      "netUsd": 3.47,
+      "netUsd": 3.48,
       "medianRetPct": 8.3,
       "avgRetPct": 8.3
      },
@@ -358009,7 +357970,7 @@
       "n": 2,
       "won": 1,
       "netSol": 0.0589,
-      "netUsd": 4.92,
+      "netUsd": 4.93,
       "medianRetPct": 11.78,
       "avgRetPct": 11.78
      }
@@ -358039,7 +358000,7 @@
       "n": 4,
       "won": 1,
       "netSol": -0.0224,
-      "netUsd": -1.87,
+      "netUsd": -1.88,
       "medianRetPct": -2.27,
       "avgRetPct": -2.24
      }
@@ -358069,7 +358030,7 @@
       "n": 2,
       "won": 1,
       "netSol": 0.0218,
-      "netUsd": 1.82,
+      "netUsd": 1.83,
       "medianRetPct": 4.36,
       "avgRetPct": 4.36
      }
@@ -358091,7 +358052,7 @@
       "n": 2,
       "won": 0,
       "netSol": -0.081,
-      "netUsd": -6.77,
+      "netUsd": -6.78,
       "medianRetPct": -16.19,
       "avgRetPct": -16.19
      },
@@ -358121,7 +358082,7 @@
       "n": 2,
       "won": 2,
       "netSol": 0.0456,
-      "netUsd": 3.81,
+      "netUsd": 3.82,
       "medianRetPct": 9.13,
       "avgRetPct": 9.13
      },
@@ -358129,7 +358090,7 @@
       "n": 2,
       "won": 1,
       "netSol": 0.1786,
-      "netUsd": 14.93,
+      "netUsd": 14.95,
       "medianRetPct": 35.72,
       "avgRetPct": 35.72
      }
@@ -358189,7 +358150,7 @@
       "n": 5,
       "won": 3,
       "netSol": 0.021,
-      "netUsd": 1.75,
+      "netUsd": 1.76,
       "medianRetPct": 2.29,
       "avgRetPct": 1.68
      }
@@ -358211,7 +358172,7 @@
       "n": 1,
       "won": 1,
       "netSol": 0.0124,
-      "netUsd": 1.03,
+      "netUsd": 1.04,
       "medianRetPct": 4.95,
       "avgRetPct": 4.95
      },
@@ -358241,7 +358202,7 @@
       "n": 4,
       "won": 4,
       "netSol": 0.2942,
-      "netUsd": 24.59,
+      "netUsd": 24.63,
       "medianRetPct": 36.04,
       "avgRetPct": 29.42
      },
@@ -358249,7 +358210,7 @@
       "n": 4,
       "won": 4,
       "netSol": 0.2325,
-      "netUsd": 19.44,
+      "netUsd": 19.46,
       "medianRetPct": 24.16,
       "avgRetPct": 23.25
      }
@@ -358309,7 +358270,7 @@
       "n": 2,
       "won": 1,
       "netSol": -0.0771,
-      "netUsd": -6.45,
+      "netUsd": -6.46,
       "medianRetPct": -15.43,
       "avgRetPct": -15.43
      }
@@ -358361,7 +358322,7 @@
       "n": 7,
       "won": 2,
       "netSol": -0.1507,
-      "netUsd": -12.59,
+      "netUsd": -12.61,
       "medianRetPct": -6.55,
       "avgRetPct": -8.61
      },
@@ -358369,7 +358330,7 @@
       "n": 7,
       "won": 2,
       "netSol": -0.138,
-      "netUsd": -11.53,
+      "netUsd": -11.55,
       "medianRetPct": -10.22,
       "avgRetPct": -7.88
      }
@@ -358391,7 +358352,7 @@
       "n": 6,
       "won": 4,
       "netSol": 0.042,
-      "netUsd": 3.51,
+      "netUsd": 3.52,
       "medianRetPct": 8.49,
       "avgRetPct": 2.8
      },
@@ -358399,7 +358360,7 @@
       "n": 6,
       "won": 2,
       "netSol": -0.1884,
-      "netUsd": -15.75,
+      "netUsd": -15.77,
       "medianRetPct": -10.2,
       "avgRetPct": -12.56
      }
@@ -358429,7 +358390,7 @@
       "n": 1,
       "won": 0,
       "netSol": -0.0844,
-      "netUsd": -7.05,
+      "netUsd": -7.06,
       "medianRetPct": -33.76,
       "avgRetPct": -33.76
      }
@@ -358451,7 +358412,7 @@
       "n": 10,
       "won": 1,
       "netSol": -0.1428,
-      "netUsd": -11.94,
+      "netUsd": -11.95,
       "medianRetPct": -7.27,
       "avgRetPct": -5.71
      },
@@ -358459,7 +358420,7 @@
       "n": 10,
       "won": 1,
       "netSol": -0.5004,
-      "netUsd": -41.83,
+      "netUsd": -41.88,
       "medianRetPct": -18.8,
       "avgRetPct": -20.02
      }
@@ -358481,7 +358442,7 @@
       "n": 1,
       "won": 1,
       "netSol": 0.1246,
-      "netUsd": 10.42,
+      "netUsd": 10.43,
       "medianRetPct": 49.86,
       "avgRetPct": 49.86
      },
@@ -358489,7 +358450,7 @@
       "n": 1,
       "won": 1,
       "netSol": 0.1304,
-      "netUsd": 10.9,
+      "netUsd": 10.91,
       "medianRetPct": 52.15,
       "avgRetPct": 52.15
      }
@@ -358511,7 +358472,7 @@
       "n": 12,
       "won": 3,
       "netSol": -0.1077,
-      "netUsd": -9,
+      "netUsd": -9.01,
       "medianRetPct": -2.47,
       "avgRetPct": -3.59
      },
@@ -358609,7 +358570,7 @@
       "n": 3,
       "won": 1,
       "netSol": -0.0698,
-      "netUsd": -5.83,
+      "netUsd": -5.84,
       "medianRetPct": -28.91,
       "avgRetPct": -9.3
      }
@@ -358631,7 +358592,7 @@
       "n": 1,
       "won": 1,
       "netSol": 0.0077,
-      "netUsd": 0.64,
+      "netUsd": 0.65,
       "medianRetPct": 3.08,
       "avgRetPct": 3.08
      },
@@ -358639,7 +358600,7 @@
       "n": 1,
       "won": 0,
       "netSol": -0.0162,
-      "netUsd": -1.35,
+      "netUsd": -1.36,
       "medianRetPct": -6.48,
       "avgRetPct": -6.48
      }
@@ -358661,7 +358622,7 @@
       "n": 1,
       "won": 0,
       "netSol": -0.0222,
-      "netUsd": -1.85,
+      "netUsd": -1.86,
       "medianRetPct": -8.88,
       "avgRetPct": -8.88
      },
@@ -358669,7 +358630,7 @@
       "n": 1,
       "won": 0,
       "netSol": -0.0376,
-      "netUsd": -3.14,
+      "netUsd": -3.15,
       "medianRetPct": -15.04,
       "avgRetPct": -15.04
      }
@@ -358691,7 +358652,7 @@
       "n": 31,
       "won": 5,
       "netSol": -0.3838,
-      "netUsd": -32.08,
+      "netUsd": -32.12,
       "medianRetPct": -4.17,
       "avgRetPct": -4.95
      },
@@ -358699,7 +358660,7 @@
       "n": 31,
       "won": 9,
       "netSol": -0.4031,
-      "netUsd": -33.69,
+      "netUsd": -33.73,
       "medianRetPct": -5.57,
       "avgRetPct": -5.2
      }
@@ -358721,7 +358682,7 @@
       "n": 9,
       "won": 3,
       "netSol": -0.1065,
-      "netUsd": -8.9,
+      "netUsd": -8.91,
       "medianRetPct": -8.24,
       "avgRetPct": -4.73
      },
@@ -358729,7 +358690,7 @@
       "n": 9,
       "won": 4,
       "netSol": -0.1882,
-      "netUsd": -15.73,
+      "netUsd": -15.75,
       "medianRetPct": -6.59,
       "avgRetPct": -8.37
      }
@@ -358849,7 +358810,7 @@
       "n": 2,
       "won": 2,
       "netSol": 0.2617,
-      "netUsd": 21.88,
+      "netUsd": 21.9,
       "medianRetPct": 52.34,
       "avgRetPct": 52.34
      }
@@ -358879,7 +358840,7 @@
       "n": 5,
       "won": 0,
       "netSol": -0.0752,
-      "netUsd": -6.29,
+      "netUsd": -6.3,
       "medianRetPct": -3.81,
       "avgRetPct": -6.02
      }
@@ -358931,7 +358892,7 @@
       "n": 5,
       "won": 0,
       "netSol": -0.0376,
-      "netUsd": -3.14,
+      "netUsd": -3.15,
       "medianRetPct": -3.64,
       "avgRetPct": -3.01
      },
@@ -358939,7 +358900,7 @@
       "n": 5,
       "won": 0,
       "netSol": -0.0533,
-      "netUsd": -4.45,
+      "netUsd": -4.46,
       "medianRetPct": -3.86,
       "avgRetPct": -4.26
      }
@@ -359317,33 +359278,60 @@
   "walletReady": true,
   "stakeSol": 0.05,
   "capSol": 0.5,
-  "netSol": -0.027116,
+  "netSol": -0.016697,
   "openPosition": false,
   "exitRule": "sells at +10% or after 60 s",
   "open": null,
   "targetExit": {
-   "copies": 41,
-   "atTarget": 20,
+   "copies": 42,
+   "atTarget": 21,
    "atTimeUp": 21,
-   "won": 21,
-   "netSol": -0.000816,
+   "won": 22,
+   "netSol": 0.008323,
    "bestPctMedian": 7,
    "missedTargetSales": 1
   },
-  "copies": 74,
-  "landed": 64,
+  "copies": 76,
+  "landed": 65,
   "notLanded": 6,
-  "won": 31,
+  "won": 33,
   "sameBlock": 0,
-  "nextBlock": 37,
+  "nextBlock": 38,
   "slotsBehindMedian": 1,
   "aheadMedian": 2,
-  "pipelineMsMedian": 190,
+  "pipelineMsMedian": 191,
   "quoteMsMedian": 45,
   "buildMsMedian": 41,
-  "sendMsMedian": 39,
+  "sendMsMedian": 40,
   "fillGapPctMedian": 2.53,
   "recent": [
+   {
+    "buy": "interrupted",
+    "slotsBehind": null,
+    "ahead": null,
+    "pipelineMs": null,
+    "fillGapPct": null,
+    "sold": true,
+    "heldSec": null,
+    "exit": null,
+    "bestPct": null,
+    "netSol": 0.00128
+   },
+   {
+    "buy": "landed",
+    "slotsBehind": 1,
+    "ahead": [
+     2,
+     3
+    ],
+    "pipelineMs": 242,
+    "fillGapPct": 1.32,
+    "sold": true,
+    "heldSec": 43.9,
+    "exit": "target",
+    "bestPct": 21.9,
+    "netSol": 0.009139
+   },
    {
     "buy": "interrupted",
     "slotsBehind": null,
@@ -359886,40 +359874,16 @@
     "exit": "target",
     "bestPct": 19.6,
     "netSol": 0.009485
-   },
-   {
-    "buy": "not sent",
-    "slotsBehind": null,
-    "ahead": null,
-    "pipelineMs": null,
-    "fillGapPct": null,
-    "sold": null,
-    "heldSec": null,
-    "exit": null,
-    "bestPct": null,
-    "netSol": 0
-   },
-   {
-    "buy": "not sent",
-    "slotsBehind": null,
-    "ahead": null,
-    "pipelineMs": null,
-    "fillGapPct": null,
-    "sold": null,
-    "heldSec": null,
-    "exit": null,
-    "bestPct": null,
-    "netSol": 0
    }
   ]
  },
  "solana": {
   "mode": "paper",
   "note": "Paper only. Score is vsHold: position + fees - costs, against holding the starting SOL and USDC. Bar for real: 30+ closed days, at least half of them ahead of hold, net ahead of hold, and 100+ range cycles for rules that re-centre.",
-  "updatedAt": 1794394290114,
+  "updatedAt": 1794394506720,
   "health": {
-   "startedAt": 1794394229622,
-   "lastOk": 1794394290112,
+   "startedAt": 1794394446373,
+   "lastOk": 1794394506717,
    "reads": 3,
    "errors": 0,
    "lastError": ""
@@ -359928,16 +359892,16 @@
    {
     "key": "orca-sol-usdc-4",
     "label": "Orca SOL/USDC 0.04%",
-    "price": 83.615,
+    "price": 83.875,
     "feeRatePct": 0.04,
-    "lastRead": 1794394290112
+    "lastRead": 1794394506717
    },
    {
     "key": "orca-sol-usdc-30",
     "label": "Orca SOL/USDC 0.30%",
     "price": 83.81,
     "feeRatePct": 0.3,
-    "lastRead": 1794394290112
+    "lastRead": 1794394506717
    }
   ],
   "rulesTried": 18,
@@ -359956,7 +359920,7 @@
     "vsHold": 0.82,
     "fees": 1.04,
     "costs": 0.09,
-    "feeAprPct": 577.35,
+    "feeAprPct": 572.97,
     "inRangePct": 100,
     "cycles": 0,
     "cyclesWon": 0,
@@ -359988,7 +359952,7 @@
     "vsHold": 0.33,
     "fees": 0.42,
     "costs": 0.09,
-    "feeAprPct": 233.8,
+    "feeAprPct": 232.03,
     "inRangePct": 100,
     "cycles": 0,
     "cyclesWon": 0,
@@ -360020,7 +359984,7 @@
     "vsHold": 0.33,
     "fees": 0.42,
     "costs": 0.09,
-    "feeAprPct": 233.8,
+    "feeAprPct": 232.03,
     "inRangePct": 100,
     "cycles": 0,
     "cyclesWon": 0,
@@ -360048,26 +360012,26 @@
     "stake": 200,
     "startedAt": 1794365983930,
     "days": 0.33,
-    "net": 0.79,
-    "vsHold": 0.32,
-    "fees": 0.38,
+    "net": 1.02,
+    "vsHold": 0.23,
+    "fees": 0.39,
     "costs": 0.09,
-    "feeAprPct": 212.89,
+    "feeAprPct": 215.05,
     "inRangePct": 100,
     "cycles": 0,
     "cyclesWon": 0,
     "cyclesNet": 0,
     "closedDays": 0,
     "daysWon": 0,
-    "todayVsHold": 0.32,
-    "todayFees": 0.38,
+    "todayVsHold": 0.23,
+    "todayFees": 0.39,
     "open": {
      "lo": 81.06,
      "hi": 85.21,
-     "price": 83.61,
+     "price": 83.88,
      "inRange": true,
      "since": 1794365983930,
-     "value": 200.41
+     "value": 200.63
     },
     "recent": [],
     "dayRows": []
@@ -360080,26 +360044,26 @@
     "stake": 200,
     "startedAt": 1794365983930,
     "days": 0.33,
-    "net": 0.79,
-    "vsHold": 0.32,
-    "fees": 0.38,
+    "net": 1.02,
+    "vsHold": 0.23,
+    "fees": 0.39,
     "costs": 0.09,
-    "feeAprPct": 212.89,
+    "feeAprPct": 215.05,
     "inRangePct": 100,
     "cycles": 0,
     "cyclesWon": 0,
     "cyclesNet": 0,
     "closedDays": 0,
     "daysWon": 0,
-    "todayVsHold": 0.32,
-    "todayFees": 0.38,
+    "todayVsHold": 0.23,
+    "todayFees": 0.39,
     "open": {
      "lo": 81.06,
      "hi": 85.21,
-     "price": 83.61,
+     "price": 83.88,
      "inRange": true,
      "since": 1794365983930,
-     "value": 200.41
+     "value": 200.63
     },
     "recent": [],
     "dayRows": []
@@ -360116,7 +360080,7 @@
     "vsHold": 0.17,
     "fees": 0.21,
     "costs": 0.09,
-    "feeAprPct": 117.91,
+    "feeAprPct": 117.01,
     "inRangePct": 100,
     "cycles": 0,
     "cyclesWon": 0,
@@ -360148,7 +360112,7 @@
     "vsHold": 0.17,
     "fees": 0.21,
     "costs": 0.09,
-    "feeAprPct": 117.91,
+    "feeAprPct": 117.01,
     "inRangePct": 100,
     "cycles": 0,
     "cyclesWon": 0,
@@ -360180,7 +360144,7 @@
     "vsHold": 0.17,
     "fees": 0.21,
     "costs": 0.09,
-    "feeAprPct": 117.91,
+    "feeAprPct": 117.01,
     "inRangePct": 100,
     "cycles": 0,
     "cyclesWon": 0,
@@ -360208,26 +360172,26 @@
     "stake": 200,
     "startedAt": 1794365983930,
     "days": 0.33,
-    "net": 0.63,
-    "vsHold": 0.16,
-    "fees": 0.19,
+    "net": 0.89,
+    "vsHold": 0.12,
+    "fees": 0.2,
     "costs": 0.09,
-    "feeAprPct": 107.05,
+    "feeAprPct": 108.14,
     "inRangePct": 100,
     "cycles": 0,
     "cyclesWon": 0,
     "cyclesNet": 0,
     "closedDays": 0,
     "daysWon": 0,
-    "todayVsHold": 0.16,
-    "todayFees": 0.19,
+    "todayVsHold": 0.12,
+    "todayFees": 0.2,
     "open": {
      "lo": 78.98,
      "hi": 87.29,
-     "price": 83.61,
+     "price": 83.88,
      "inRange": true,
      "since": 1794365983930,
-     "value": 200.44
+     "value": 200.7
     },
     "recent": [],
     "dayRows": []
@@ -360240,26 +360204,26 @@
     "stake": 200,
     "startedAt": 1794365983930,
     "days": 0.33,
-    "net": 0.63,
-    "vsHold": 0.16,
-    "fees": 0.19,
+    "net": 0.89,
+    "vsHold": 0.12,
+    "fees": 0.2,
     "costs": 0.09,
-    "feeAprPct": 107.05,
+    "feeAprPct": 108.14,
     "inRangePct": 100,
     "cycles": 0,
     "cyclesWon": 0,
     "cyclesNet": 0,
     "closedDays": 0,
     "daysWon": 0,
-    "todayVsHold": 0.16,
-    "todayFees": 0.19,
+    "todayVsHold": 0.12,
+    "todayFees": 0.2,
     "open": {
      "lo": 78.98,
      "hi": 87.29,
-     "price": 83.61,
+     "price": 83.88,
      "inRange": true,
      "since": 1794365983930,
-     "value": 200.44
+     "value": 200.7
     },
     "recent": [],
     "dayRows": []
@@ -360272,26 +360236,26 @@
     "stake": 200,
     "startedAt": 1794365983930,
     "days": 0.33,
-    "net": 0.63,
-    "vsHold": 0.16,
-    "fees": 0.19,
+    "net": 0.89,
+    "vsHold": 0.12,
+    "fees": 0.2,
     "costs": 0.09,
-    "feeAprPct": 107.05,
+    "feeAprPct": 108.14,
     "inRangePct": 100,
     "cycles": 0,
     "cyclesWon": 0,
     "cyclesNet": 0,
     "closedDays": 0,
     "daysWon": 0,
-    "todayVsHold": 0.16,
-    "todayFees": 0.19,
+    "todayVsHold": 0.12,
+    "todayFees": 0.2,
     "open": {
      "lo": 78.98,
      "hi": 87.29,
-     "price": 83.61,
+     "price": 83.88,
      "inRange": true,
      "since": 1794365983930,
-     "value": 200.44
+     "value": 200.7
     },
     "recent": [],
     "dayRows": []
@@ -360308,7 +360272,7 @@
     "vsHold": 0.09,
     "fees": 0.11,
     "costs": 0.09,
-    "feeAprPct": 59.64,
+    "feeAprPct": 59.18,
     "inRangePct": 100,
     "cycles": 0,
     "cyclesWon": 0,
@@ -360340,7 +360304,7 @@
     "vsHold": 0.09,
     "fees": 0.11,
     "costs": 0.09,
-    "feeAprPct": 59.64,
+    "feeAprPct": 59.18,
     "inRangePct": 100,
     "cycles": 0,
     "cyclesWon": 0,
@@ -360368,26 +360332,26 @@
     "stake": 200,
     "startedAt": 1794365983930,
     "days": 0.33,
-    "net": 0.54,
-    "vsHold": 0.08,
+    "net": 0.81,
+    "vsHold": 0.06,
     "fees": 0.1,
     "costs": 0.09,
-    "feeAprPct": 54.06,
+    "feeAprPct": 54.61,
     "inRangePct": 100,
     "cycles": 0,
     "cyclesWon": 0,
     "cyclesNet": 0,
     "closedDays": 0,
     "daysWon": 0,
-    "todayVsHold": 0.08,
+    "todayVsHold": 0.06,
     "todayFees": 0.1,
     "open": {
      "lo": 74.82,
      "hi": 91.45,
-     "price": 83.61,
+     "price": 83.88,
      "inRange": true,
      "since": 1794365983930,
-     "value": 200.44
+     "value": 200.72
     },
     "recent": [],
     "dayRows": []
@@ -360400,58 +360364,26 @@
     "stake": 200,
     "startedAt": 1794365983930,
     "days": 0.33,
-    "net": 0.54,
-    "vsHold": 0.08,
+    "net": 0.81,
+    "vsHold": 0.06,
     "fees": 0.1,
     "costs": 0.09,
-    "feeAprPct": 54.06,
+    "feeAprPct": 54.61,
     "inRangePct": 100,
     "cycles": 0,
     "cyclesWon": 0,
     "cyclesNet": 0,
     "closedDays": 0,
     "daysWon": 0,
-    "todayVsHold": 0.08,
+    "todayVsHold": 0.06,
     "todayFees": 0.1,
     "open": {
      "lo": 74.82,
      "hi": 91.45,
-     "price": 83.61,
+     "price": 83.88,
      "inRange": true,
      "since": 1794365983930,
-     "value": 200.44
-    },
-    "recent": [],
-    "dayRows": []
-   },
-   {
-    "id": "lp-w20-hold",
-    "pool": "orca-sol-usdc-4",
-    "poolLabel": "Orca SOL/USDC 0.04%",
-    "text": "Puts $200 in the pool 20% either side of the price and never moves the range.",
-    "stake": 200,
-    "startedAt": 1794365983930,
-    "days": 0.33,
-    "net": 0.47,
-    "vsHold": 0.04,
-    "fees": 0.05,
-    "costs": 0.09,
-    "feeAprPct": 27.45,
-    "inRangePct": 100,
-    "cycles": 0,
-    "cyclesWon": 0,
-    "cyclesNet": 0,
-    "closedDays": 0,
-    "daysWon": 0,
-    "todayVsHold": 0.04,
-    "todayFees": 0.05,
-    "open": {
-     "lo": 66.51,
-     "hi": 99.76,
-     "price": 83.61,
-     "inRange": true,
-     "since": 1794365983930,
-     "value": 200.42
+     "value": 200.72
     },
     "recent": [],
     "dayRows": []
@@ -360468,7 +360400,7 @@
     "vsHold": 0.04,
     "fees": 0.05,
     "costs": 0.09,
-    "feeAprPct": 30.31,
+    "feeAprPct": 30.08,
     "inRangePct": 100,
     "cycles": 0,
     "cyclesWon": 0,
@@ -360489,6 +360421,38 @@
     "dayRows": []
    },
    {
+    "id": "lp-w20-hold",
+    "pool": "orca-sol-usdc-4",
+    "poolLabel": "Orca SOL/USDC 0.04%",
+    "text": "Puts $200 in the pool 20% either side of the price and never moves the range.",
+    "stake": 200,
+    "startedAt": 1794365983930,
+    "days": 0.33,
+    "net": 0.74,
+    "vsHold": 0.03,
+    "fees": 0.05,
+    "costs": 0.09,
+    "feeAprPct": 27.73,
+    "inRangePct": 100,
+    "cycles": 0,
+    "cyclesWon": 0,
+    "cyclesNet": 0,
+    "closedDays": 0,
+    "daysWon": 0,
+    "todayVsHold": 0.03,
+    "todayFees": 0.05,
+    "open": {
+     "lo": 66.51,
+     "hi": 99.76,
+     "price": 83.88,
+     "inRange": true,
+     "since": 1794365983930,
+     "value": 200.69
+    },
+    "recent": [],
+    "dayRows": []
+   },
+   {
     "id": "lp-w1",
     "pool": "orca-sol-usdc-4",
     "poolLabel": "Orca SOL/USDC 0.04%",
@@ -360496,26 +360460,26 @@
     "stake": 200,
     "startedAt": 1794365983930,
     "days": 0.33,
-    "net": -0.57,
-    "vsHold": -1.05,
-    "fees": 0.94,
+    "net": -0.16,
+    "vsHold": -0.96,
+    "fees": 0.96,
     "costs": 0.36,
-    "feeAprPct": 524.09,
+    "feeAprPct": 529.45,
     "inRangePct": 99.83,
     "cycles": 3,
     "cyclesWon": 0,
     "cyclesNet": -1.01,
     "closedDays": 0,
     "daysWon": 0,
-    "todayVsHold": -1.05,
-    "todayFees": 0.94,
+    "todayVsHold": -0.96,
+    "todayFees": 0.96,
     "open": {
      "lo": 83.12,
      "hi": 84.8,
-     "price": 83.61,
+     "price": 83.88,
      "inRange": true,
      "since": 1794393088213,
-     "value": 198.49
+     "value": 198.88
     },
     "recent": [
      {
