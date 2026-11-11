@@ -77,6 +77,11 @@ export const PAIRFAST: Spec[] = [
   // thirds but is still not green (break-even needs ~3-4%). late-lock alone did not help (6 lone in 18). This joins
   // the two: favourite-first AND no new pair in the first 60 s, when the favourite is least settled.
   ...base("pairfast-fav60-from60-lock", [0], 3, 1, true, { band: [0.17, 0.83], maxPairs: 1, minBid: 0.6, from: 60 }),
+  // Round 347 (13:12 KST 11 Nov 2026). BTC 5m: fav60-lock is the first locked style above zero (36 windows, 2 lone
+  // clips = 6%, +$0.72) while fav70-lock is behind it (17 windows, 2 lone, -$4.74) and the plain twin has 12 lone in
+  // 54 (-$19.21). A lone clip bought at 70c+ costs most when it loses, so this keeps the favourite-first filter but
+  // only for first legs at 60-75c (band 25-75c).
+  ...base("pairfast-fav60-75-lock", [0], 3, 1, true, { band: [0.25, 0.75], maxPairs: 1, minBid: 0.6 }),
   // No new pair in the first 2 minutes; new pairs until 60 s before the close.
   ...base("pairfast-late-lock", [0], 3, 1, true, { band: [0.17, 0.83], maxPairs: 1, from: 120, stop: 60 }),
   // What 1-second data cannot test: pull the first-leg bid on a side the moment Binance spot has moved 1.5 bp against
