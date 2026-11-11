@@ -143,6 +143,9 @@ interface State {
   /** buys left alone by the entry filter: the quote was not far enough above the wallet's price / no price to compare */
   skippedLowGap: number;
   skippedNoPrice: number;
+  /** buys let go because a copy was under way, and because the last copy started under 10 s before */
+  missedBusy: number;
+  missedSpacing: number;
   /** rent that came back from closing left-over empty token accounts at a start, and how many: part of netSol, in no copy's row */
   rentBackSol: number;
   spareClosed: number;
@@ -150,7 +153,7 @@ interface State {
   open: { mint: string; bal0: number; t: number; tries: number; worthSol?: number; nowPct?: number; bestPct?: number } | null;
   rows: Row[];
 }
-const fresh = (): State => ({ netSol: 0, trades: 0, day: "", dayCount: 0, halted: "", note: "", balanceSol: null, skippedLowGap: 0, skippedNoPrice: 0, rentBackSol: 0, spareClosed: 0, open: null, rows: [] });
+const fresh = (): State => ({ netSol: 0, trades: 0, day: "", dayCount: 0, halted: "", note: "", balanceSol: null, skippedLowGap: 0, skippedNoPrice: 0, missedBusy: 0, missedSpacing: 0, rentBackSol: 0, spareClosed: 0, open: null, rows: [] });
 let state: State = fresh();
 let loaded = false;
 let busy = false;
@@ -433,9 +436,11 @@ async function settle(w: Wallet, row: Row, from: number, closed: boolean) {
 export async function trade(b: StreamBuy) {
   if (!loaded) load();
   const c = cfg();
-  if (!c.on || state.halted || state.open || busy || !walletReady) return;
+  if (!c.on || state.halted || !walletReady) return;
+  // one copy at a time: a buy that comes while another copy is under way is let go, and counted
+  if (state.open || busy) return void (state.missedBusy = (state.missedBusy ?? 0) + 1);
   if (!shared.helius() || !shared.jupiter()) return void (state.note = "needs both API keys");
-  if (Date.now() - lastAt < 10_000) return;
+  if (Date.now() - lastAt < 10_000) return void (state.missedSpacing = (state.missedSpacing ?? 0) + 1);
   const day = dayOf(Date.now());
   if (day !== state.day) {
     state.day = day;
@@ -642,6 +647,9 @@ export function solanaCopyLiveSummary() {
     entryRule: c.minGapPct > 0 ? `buys only when our price is already ${c.minGapPct}% or more above what the wallet paid` : "buys every first buy of a listed wallet",
     skippedLowGap: state.skippedLowGap,
     skippedNoPrice: state.skippedNoPrice,
+    // buys that were never looked at: a copy was under way (one coin at a time) / the last copy began under 10 s before
+    missedWhileBusy: state.missedBusy ?? 0,
+    missedSpacing: state.missedSpacing ?? 0,
     // rent returned by closing left-over empty token accounts: inside netSol, outside every copy's own result
     rentBackSol: state.rentBackSol ?? 0,
     spareAccountsClosed: state.spareClosed ?? 0,
