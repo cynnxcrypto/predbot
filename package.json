@@ -13,7 +13,8 @@
     "probe": "tsx src/probe.ts",
     "report": "tsx src/report.ts",
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test src/*.test.ts",
+    "test": "tsx --test src/*.test.ts src/solana/*.test.ts",
+    "solana": "tsx src/solana/run.ts",
     "paper": "tsx src/paper.ts",
     "history": "tsx src/history.ts"
   },
