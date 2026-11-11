@@ -130,6 +130,10 @@ async function checkForUpdate() {
       // Only the bot that was asked. This timer is never cancelled, so without the check the timer of an earlier
       // update stopped the bot started since, while it waited for its own window edge and for its open Solana coins
       // (11 Nov 2026, 22:08:50 and 22:23:50 KST: two updates within 5.5 minutes).
+      // The supervisor has no way to reload itself: it only ever replaces the bot, and exits only when it is told to
+      // stop. So this check is in force from the next start of the service (a server reboot or a service restart),
+      // not from the update that carries it. Until then src/index.ts covers the case by itself: a SIGTERM that
+      // reaches the bot while a planned restart is pending finishes the open Solana coins before it stops.
       if (restarting && child === asked) {
         say("the bot did not stop on its own; stopping it now");
         asked.kill("SIGTERM");
