@@ -207,12 +207,12 @@ export const scalpText = (d: number, tp: number) =>
   `When a tracked wallet buys, buy ${STAKE_SOL} SOL of the same token ${when(d)}, sell as soon as it is up ${tp}% after costs, and sell anyway after ${TIME_STOP} s.`;
 
 /** Scalp return: the first check at or above the target, else the time stop. Checks are only at the EXITS times, so a spike between two checks is missed. */
-export function scalp(s: Signal, d: number, tp: number): number | undefined {
+export function scalp(s: Signal, d: number, tp: number, stop = TIME_STOP): number | undefined {
   for (const x of EXITS) {
-    if (x > TIME_STOP) break;
+    if (x > stop) break;
     const v = ret(s, d, x);
     if (v === undefined) continue;
-    if (v >= tp / 100 || x === TIME_STOP || v === -1) return v;
+    if (v >= tp / 100 || x === stop || v === -1) return v;
   }
   return undefined;
 }
@@ -564,6 +564,11 @@ export function summarize(sigs: Signal[], solUsd: number | null) {
     // that band: do its coins run far enough for a 20% target, and is a gap of 20%+ already too late?
     { id: "copy-d0-gap9-tp20-t60", text: `When a tracked wallet buys and our price is already 9% or more above what the wallet paid, buy ${STAKE_SOL} SOL the moment we know, sell as soon as it is up 20% after costs, and sell anyway after ${TIME_STOP} s.`, ...score(sigs, (s) => (s.entries.d0 && s.leaderPrice > 0 && s.entries.d0.price / s.leaderPrice - 1 >= 0.09 ? scalp(s, 0, 20) : undefined), solUsd) },
     { id: "copy-d0-gap20-tp10-t60", text: `When a tracked wallet buys and our price is already 20% or more above what the wallet paid, buy ${STAKE_SOL} SOL the moment we know, sell as soon as it is up 10% after costs, and sell anyway after ${TIME_STOP} s.`, ...score(sigs, (s) => (s.entries.d0 && s.leaderPrice > 0 && s.entries.d0.price / s.leaderPrice - 1 >= 0.2 ? scalp(s, 0, 10) : undefined), solUsd) },
+    // Round 356 (22:20 KST 11 Nov 2026, MAIN). First 17 real copies under the 9% entry rule: 12 won, +0.042 SOL.
+    // All 11 target sales came within 25 s of the buy (6 of them within 6 s); the 6 that ran to 60 s made -0.073 SOL
+    // together and only one of them had come near the target. So a copy that has not paid by ~30 s mostly will not:
+    // the same paper copy with the time stop at 30 s and at 20 s (the checks are at fixed times, so this is coarse).
+    ...[30, 20].map((t) => ({ id: `copy-d0-gap9-tp10-t${t}`, text: `When a tracked wallet buys and our price is already 9% or more above what the wallet paid, buy ${STAKE_SOL} SOL the moment we know, sell as soon as it is up 10% after costs, and sell anyway after ${t} s.`, ...score(sigs, (s) => (s.entries.d0 && s.leaderPrice > 0 && s.entries.d0.price / s.leaderPrice - 1 >= 0.09 ? scalp(s, 0, 10, t) : undefined), solUsd) })),
     ...[300, 600].map((x) => ({ id: ruleId(0, x), text: ruleText(0, x), ...score(sigs, (s) => pathRet(s, x), solUsd) })),
     ...TRAILS.map((t) => ({ id: trailId(t), text: trailText(t), ...score(sigs, (s) => trail(s, t), solUsd) })),
   ];
