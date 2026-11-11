@@ -13,7 +13,7 @@ const { HARD_MAX_LOSS_SOL, HARD_STAKE_SOL, parseLive, solanaCopyLiveSummary, tra
 const { _test: run, shared } = await import("./copyrun.js");
 const { buildSigned, wallet } = await import("./keys.js");
 const { base58 } = await import("./whirlpool.js");
-const { recoverMany, HARD_MAX_OPEN, solanaCopyLiveQuiet, solanaCopyLiveWaiting, whyNotSent, MIN_STOP_PCT, exitKey, heldTogether, REQUOTE_MS, PIPE, speedOf, byLanding, feesOf, readFees, ROWS_KEPT, IDLE_KEPT } = await import("./copylive.js");
+const { recoverMany, HARD_MAX_OPEN, solanaCopyLiveQuiet, solanaCopyLiveWaiting, whyNotSent, MIN_STOP_PCT, exitKey, heldTogether, REQUOTE_MS, PIPE, speedOf, byLanding, feesOf, readFees, ROWS_KEPT, IDLE_KEPT, gapSays, ruleKey } = await import("./copylive.js");
 type Row = import("./copylive.js").Row;
 type LiveConfig = import("./copylive.js").LiveConfig;
 
@@ -61,7 +61,7 @@ test("public summary carries numbers only", () => {
 // ---- the exit: sell at the target, else when the time is up --------------------------------------------------------
 const MINT = "9BB6NFEcjBCtnNLFko2FqVQBq8HHM13kCyYcdQbgpump";
 const SYSTEM = "11111111111111111111111111111111";
-const CFG: LiveConfig = { on: true, stakeSol: 0.05, maxLossSol: 0.5, holdSec: 60, targetPct: 10, stopPct: 0, maxPerDay: Number.MAX_SAFE_INTEGER, minGapPct: 0, maxOpen: 1, traders: "all", slippageBps: 1500, maxFeeLamports: 1_000_000, maxBuyFeeLamports: 1_000_000 };
+const CFG: LiveConfig = { on: true, stakeSol: 0.05, maxLossSol: 0.5, holdSec: 60, targetPct: 10, stopPct: 0, maxPerDay: Number.MAX_SAFE_INTEGER, minGapPct: 0, maxGapPct: 0, maxOpen: 1, traders: "all", slippageBps: 1500, maxFeeLamports: 1_000_000, maxBuyFeeLamports: 1_000_000 };
 /** A made-up chain and Jupiter: `quotes` = what a sale would bring back at each ask (SOL); `fills` = whether each sale lands. */
 function fake(quotes: number[], fills: boolean[]) {
   const w = wallet();
@@ -1144,6 +1144,64 @@ test("rows: the whole test stays in the tables, buys never sent are kept apart, 
     assert.deepEqual(_test.state().rows.map((r) => r.t), [50, 60]);
   } finally {
     rmSync(join(process.env.DATA_DIR!, "solana-copylive.json"), { force: true });
+    _test.reset();
+  }
+});
+
+test("upper entry bar: off unless set; a buy already too far above the wallet's price is let go at no cost; every copy carries its rule", async () => {
+  // the filter itself
+  const bar = (minGapPct: number, maxGapPct: number) => ({ minGapPct, maxGapPct });
+  assert.deepEqual([gapSays(bar(0, 0), undefined), gapSays(bar(0, 0), 80)], ["ok", "ok"], "no bar: every buy passes, priced or not");
+  assert.deepEqual([gapSays(bar(15, 0), 14.99), gapSays(bar(15, 0), 15), gapSays(bar(15, 0), undefined)], ["low", "ok", "no price"]);
+  assert.deepEqual([gapSays(bar(0, 9), 8.99), gapSays(bar(0, 9), 9), gapSays(bar(0, 9), -3), gapSays(bar(0, 9), undefined)], ["ok", "high", "ok", "no price"]);
+  assert.deepEqual([gapSays(bar(9, 15), 5), gapSays(bar(9, 15), 12), gapSays(bar(9, 15), 15)], ["low", "ok", "high"]);
+  // the file
+  const live = (o: object) => parseLive(JSON.stringify({ solanaCopy: { on: true, maxLossSol: 0.5, ...o } }));
+  assert.equal(live({}).maxGapPct, 0);
+  assert.equal(live({ maxGapPct: 9 }).maxGapPct, 9);
+  assert.equal(live({ minGapPct: 15, maxGapPct: 9 }).maxGapPct, 0, "an upper bar under the lower one would stop every buy: read as no upper bar");
+  assert.equal(live({ maxGapPct: "9" }).maxGapPct, 0);
+  assert.equal(live({ maxGapPct: 5000 }).maxGapPct, 200);
+  // the rule in a few words
+  assert.equal(ruleKey({ ...CFG, minGapPct: 15, holdSec: 60 }), "gap15+ | tp10-t60");
+  assert.equal(ruleKey({ ...CFG, holdSec: 30 }), "every buy | tp10-t30");
+  assert.equal(ruleKey({ ...CFG, maxGapPct: 15, traders: "cut-busy", holdSec: 30 }), "gap<15 cut-busy | tp10-t30");
+  assert.equal(ruleKey({ ...CFG, minGapPct: 9, maxGapPct: 15, stopPct: 20, holdSec: 60 }), "gap9+ gap<15 | tp10-sl20-t60");
+
+  const st = _test.state;
+  try {
+    _test.reset();
+    _test.ready();
+    _test.forgetCloses();
+    _test.setPoll(20);
+    _test.setConfig({ ...MANY, holdSec: 1, maxGapPct: 9 });
+    const c = chain((mint) => (mint === COIN.a ? 0.06 : 0.045));
+    // 20% above the wallet's price already: nothing is sent, no row, counted as let go for being too high
+    c.buyOut = [raw(20)];
+    await trade(signal({ mint: COIN.a, knownMs: old() }));
+    assert.deepEqual({ rows: st().rows.length, high: st().skippedHighGap, low: st().skippedLowGap, sends: c.sends, opens: st().opens.length }, { rows: 0, high: 1, low: 0, sends: 0, opens: 0 });
+    // 5% above: copied, and the row says under which rule
+    c.buyOut = [raw(5)];
+    await trade(signal({ mint: COIN.a, knownMs: old() }));
+    assert.deepEqual({ rows: st().rows.length, buy: st().rows[0].buy, gap: st().rows[0].quoteGapPct, rule: st().rows[0].rule }, { rows: 1, buy: "landed", gap: 5, rule: "gap<9 | tp10-t1" });
+    // a copy from before rules were written on the row
+    st().rows.push({ ...blank(), netSol: -0.004, quoteGapPct: 22, pace: "busy", exit: "time" });
+    const s = solanaCopyLiveSummary();
+    assert.equal(s.entryRule, "buys only when our price is less than 9% above what the wallet paid");
+    assert.equal(s.skippedHighGap, 1);
+    assert.deepEqual(s.allCopies.byRule.map((x) => [x.rule, x.copies, x.won]), [["gap<9 | tp10-t1", 1, 1], ["earlier", 1, 0]]);
+    assert.deepEqual(s.allCopies.byGap.map((x) => [x.fromPct, x.toPct, x.copies]), [[null, 0, 0], [0, 9, 1], [9, 15, 0], [15, 30, 1], [30, null, 0]]);
+    assert.deepEqual(s.allCopies.byPace.map((x) => [x.pace, x.copies, x.timeUps]).filter((x) => x[0] === "busy"), [["busy", 1, 1]]);
+    assert.equal(s.entryRuleCopies!.copies, 1, "the entry rule's own table counts the copies that pass it");
+    // no bar at all: the table of the rule is gone, the tables of every copy stay
+    _test.setConfig({ ...MANY, holdSec: 1 });
+    const open = solanaCopyLiveSummary();
+    assert.equal(open.entryRule, "buys every first buy of a listed wallet");
+    assert.equal(open.entryRuleCopies, null);
+    assert.equal(open.allCopies.byRule.length, 2);
+  } finally {
+    run.setNet(fetch);
+    _test.setConfig(null);
     _test.reset();
   }
 });

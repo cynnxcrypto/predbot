@@ -83,6 +83,13 @@ export interface LiveConfig {
    * every buy. Decided from the quote, before anything is signed, so a skipped buy costs nothing.
    */
   minGapPct: number;
+  /**
+   * The other side of the entry filter: do NOT copy when the buy quote is already this much (or more) above the
+   * price the wallet paid, %; 0 = no upper bar. Written 12 Nov 2026 03:00 KST: on 845 paper buys the buys with a
+   * gap of 9% and more lost (211 buys, -0.79 SOL) and the rest made money, the reverse of what 258 buys had said.
+   * Off until the file sets it.
+   */
+  maxGapPct: number;
   /** how many coins may be held at the same time; 1 = one copy at a time, counted from the wallet's balance as before */
   maxOpen: number;
   /**
@@ -103,7 +110,7 @@ export interface LiveConfig {
    */
   maxBuyFeeLamports: number;
 }
-const OFF: LiveConfig = { on: false, stakeSol: 0, maxLossSol: 0, holdSec: 5, targetPct: 0, stopPct: 0, maxPerDay: 0, minGapPct: 0, maxOpen: 1, traders: "all", slippageBps: 1500, maxFeeLamports: 0, maxBuyFeeLamports: 0 };
+const OFF: LiveConfig = { on: false, stakeSol: 0, maxLossSol: 0, holdSec: 5, targetPct: 0, stopPct: 0, maxPerDay: 0, minGapPct: 0, maxGapPct: 0, maxOpen: 1, traders: "all", slippageBps: 1500, maxFeeLamports: 0, maxBuyFeeLamports: 0 };
 const num = (v: unknown, d: number) => (typeof v === "number" && Number.isFinite(v) ? v : d);
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 
@@ -126,6 +133,8 @@ export function parseLive(text: string): LiveConfig {
       // No daily count unless the repo file sets one; the 0.5 SOL loss cap is the stop.
       maxPerDay: p.maxPerDay == null ? Number.MAX_SAFE_INTEGER : clamp(Math.floor(num(p.maxPerDay, 80)), 1, 1_000_000),
       minGapPct: clamp(num(p.minGapPct, 0), 0, 50),
+      // an upper bar at or under the lower one would let nothing through: such a file means "no upper bar"
+      maxGapPct: num(p.maxGapPct, 0) > clamp(num(p.minGapPct, 0), 0, 50) ? clamp(num(p.maxGapPct, 0), 1, 200) : 0,
       maxOpen: clamp(Math.floor(num(p.maxOpen, 1)), 1, HARD_MAX_OPEN),
       traders: p.traders === "cut-bad" || p.traders === "good-only" || p.traders === "cut-busy" ? p.traders : "all",
       slippageBps: clamp(Math.floor(num(p.slippageBps, 1500)), 100, 3000),
@@ -184,6 +193,8 @@ export interface Row {
   exit?: "target" | "time" | "stop";
   /** the exit in force when the copy was bought, named like the paper rules ("tp10-t30", "tp10-sl20-t60") */
   exitKey?: string;
+  /** the whole rule in force when the copy was bought: entry bar, traders, exit ("gap15+ | tp10-t60") */
+  rule?: string;
   /** what the trader's earlier copies said when this one was bought: "good" | "mixed" | "bad" | "new" */
   trader?: string;
   /** how often the trader had bought in the hours before this copy: "calm" | "busy" (see paceAt in copy.ts) */
@@ -238,6 +249,8 @@ interface State {
   missedRestart: number;
   /** buys let go because of what the trader's earlier copies said (the trader rule) */
   skippedTrader?: number;
+  /** buys let go because the price was already at or above the upper bar (maxGapPct) */
+  skippedHighGap?: number;
   /** buy quotes asked again after the price service refused for asking too fast */
   requoted?: number;
   /** buy orders that had to be built a second time (the price service answered 5xx the first time) */
@@ -422,6 +435,12 @@ async function swapTx(quoteResponse: unknown, address: string, maxLamports: numb
  * more try, with a fresh quote that must pass the entry rule again (null = it no longer does: no copy). A second
  * failure is final. Nothing is signed or sent in here.
  */
+/** A buy the entry filter let go, counted by its reason. */
+function letGo(why: "low" | "high" | "no price") {
+  if (why === "no price") state.skippedNoPrice++;
+  else if (why === "high") state.skippedHighGap = (state.skippedHighGap ?? 0) + 1;
+  else state.skippedLowGap++;
+}
 async function buildBuy(q: { outAmount?: string }, b: StreamBuy, c: LiveConfig, address: string, row: Row): Promise<string | null> {
   try {
     return await swapTx(q, address, c.maxBuyFeeLamports);
@@ -432,7 +451,7 @@ async function buildBuy(q: { outAmount?: string }, b: StreamBuy, c: LiveConfig, 
     if (!again.outAmount || again.outAmount === "0") throw e;
     const gap = b.leaderPrice > 0 && b.decimals !== undefined ? (c.stakeSol / (Number(again.outAmount) / 10 ** b.decimals) / b.leaderPrice - 1) * 100 : null;
     row.quoteGapPct = gap !== null && Number.isFinite(gap) ? Math.round(gap * 100) / 100 : undefined;
-    if (c.minGapPct > 0 && !(row.quoteGapPct !== undefined && row.quoteGapPct >= c.minGapPct)) return null;
+    if (gapSays(c, row.quoteGapPct) !== "ok") return null;
     return await swapTx(again, address, c.maxBuyFeeLamports);
   }
 }
@@ -773,7 +792,7 @@ export async function trade(b: StreamBuy) {
   const prevAt = lastAt;
   lastAt = Date.now();
   const w = wallet();
-  const row: Row = { t: Date.now(), name: b.name, mint: b.mint, leaderSlot: b.leaderSlot, buy: "not sent", exitKey: exitKey(c), trader: shared.verdict(b.wallet), pace: shared.pace(b.wallet), netSol: 0, sigs: [] };
+  const row: Row = { t: Date.now(), name: b.name, mint: b.mint, leaderSlot: b.leaderSlot, buy: "not sent", exitKey: exitKey(c), rule: ruleKey(c), trader: shared.verdict(b.wallet), pace: shared.pace(b.wallet), netSol: 0, sigs: [] };
   let bal0: number | null = null;
   let sent = false;
   let closed = true;
@@ -797,10 +816,10 @@ export async function trade(b: StreamBuy) {
     // how far this quote already is above what the wallet paid: known here, before anything is signed
     const gap = b.leaderPrice > 0 && b.decimals !== undefined ? (c.stakeSol / (Number(q.outAmount) / 10 ** b.decimals) / b.leaderPrice - 1) * 100 : null;
     if (gap !== null && Number.isFinite(gap)) row.quoteGapPct = Math.round(gap * 100) / 100;
-    if (c.minGapPct > 0 && !(row.quoteGapPct !== undefined && row.quoteGapPct >= c.minGapPct)) {
+    const says = gapSays(c, row.quoteGapPct);
+    if (says !== "ok") {
       // the entry filter said no: nothing was sent, so it is not a copy, costs nothing and does not delay the next buy
-      if (row.quoteGapPct === undefined) state.skippedNoPrice++;
-      else state.skippedLowGap++;
+      letGo(says);
       lastAt = prevAt;
       return;
     }
@@ -808,8 +827,8 @@ export async function trade(b: StreamBuy) {
     const built = await buildBuy(q, b, c, w.address, row);
     if (built === null) {
       // the order could not be built, and the fresh price no longer passes the entry rule: no copy
-      if (row.quoteGapPct === undefined) state.skippedNoPrice++;
-      else state.skippedLowGap++;
+      const now = gapSays(c, row.quoteGapPct);
+      letGo(now === "ok" ? "no price" : now);
       lastAt = prevAt;
       return;
     }
@@ -1057,7 +1076,7 @@ async function tradeMany(b: StreamBuy, c: LiveConfig) {
   const prevAt = lastAt;
   lastAt = Date.now();
   const w = wallet();
-  const row: Row = { t: Date.now(), name: b.name, mint: b.mint, leaderSlot: b.leaderSlot, buy: "not sent", exitKey: exitKey(c), trader: shared.verdict(b.wallet), pace: shared.pace(b.wallet), netSol: 0, sigs: [] };
+  const row: Row = { t: Date.now(), name: b.name, mint: b.mint, leaderSlot: b.leaderSlot, buy: "not sent", exitKey: exitKey(c), rule: ruleKey(c), trader: shared.verdict(b.wallet), pace: shared.pace(b.wallet), netSol: 0, sigs: [] };
   let pos: OpenPos | null = null;
   let closed = true;
   try {
@@ -1078,9 +1097,9 @@ async function tradeMany(b: StreamBuy, c: LiveConfig) {
     if (!q.outAmount || q.outAmount === "0") throw new Error("no buy quote");
     const gap = b.leaderPrice > 0 && b.decimals !== undefined ? (c.stakeSol / (Number(q.outAmount) / 10 ** b.decimals) / b.leaderPrice - 1) * 100 : null;
     if (gap !== null && Number.isFinite(gap)) row.quoteGapPct = Math.round(gap * 100) / 100;
-    if (c.minGapPct > 0 && !(row.quoteGapPct !== undefined && row.quoteGapPct >= c.minGapPct)) {
-      if (row.quoteGapPct === undefined) state.skippedNoPrice++;
-      else state.skippedLowGap++;
+    const says = gapSays(c, row.quoteGapPct);
+    if (says !== "ok") {
+      letGo(says);
       lastAt = prevAt;
       void reading.then((v) => balanceNote(v, c), () => undefined);
       return;
@@ -1089,8 +1108,8 @@ async function tradeMany(b: StreamBuy, c: LiveConfig) {
     const built = await buildBuy(q, b, c, w.address, row);
     if (built === null) {
       // the order could not be built, and the fresh price no longer passes the entry rule: no copy
-      if (row.quoteGapPct === undefined) state.skippedNoPrice++;
-      else state.skippedLowGap++;
+      const now = gapSays(c, row.quoteGapPct);
+      letGo(now === "ok" ? "no price" : now);
       lastAt = prevAt;
       void reading.then((v) => balanceNote(v, c), () => undefined);
       return;
@@ -1270,6 +1289,23 @@ const nums = (xs: (number | undefined)[]) => xs.filter((x): x is number => typeo
 export const exitKey = (c: Pick<LiveConfig, "targetPct" | "stopPct" | "holdSec">) =>
   `${c.targetPct > 0 ? `tp${c.targetPct}-` : ""}${c.stopPct > 0 ? `sl${c.stopPct}-` : ""}t${c.holdSec}`;
 
+/**
+ * What the entry filter says to a buy quote that is `gap` % above the wallet's price. With no bar at all every buy
+ * passes, priced or not; with a bar, a buy whose gap could not be worked out is let go.
+ */
+export function gapSays(c: Pick<LiveConfig, "minGapPct" | "maxGapPct">, gap: number | undefined): "ok" | "low" | "high" | "no price" {
+  if (!(c.minGapPct > 0) && !(c.maxGapPct > 0)) return "ok";
+  if (gap === undefined) return "no price";
+  if (c.minGapPct > 0 && gap < c.minGapPct) return "low";
+  if (c.maxGapPct > 0 && gap >= c.maxGapPct) return "high";
+  return "ok";
+}
+/** The rule in force in a few words, written on every copy so that each change of rule is counted on its own copies. */
+export const ruleKey = (c: Pick<LiveConfig, "minGapPct" | "maxGapPct" | "traders" | "targetPct" | "stopPct" | "holdSec">) =>
+  `${[c.minGapPct > 0 ? `gap${c.minGapPct}+` : "", c.maxGapPct > 0 ? `gap<${c.maxGapPct}` : "", c.traders !== "all" ? c.traders : ""].filter(Boolean).join(" ") || "every buy"} | ${exitKey(c)}`;
+/** Gap bands every copy is counted in, whatever the entry rule (%; null = no end). */
+export const GAP_BANDS: readonly [number | null, number | null][] = [[null, 0], [0, 9], [9, 15], [15, 30], [30, null]];
+
 /** Entry-gap bars the copies are counted between (%), from the entry rule in force upward. */
 export const GAP_BARS = [12, 15, 20, 30] as const;
 
@@ -1376,7 +1412,8 @@ export function solanaCopyLiveSummary() {
   const aimed = rows.filter((r) => r.exit);
   const unsent = rows.filter((r) => r.buy === "not sent");
   // sent with a price gap on file that passes the entry rule in force (a rule changed later re-reads the old rows)
-  const gapped = rows.filter((r) => r.buy !== "not sent" && r.quoteGapPct !== undefined && r.quoteGapPct >= c.minGapPct);
+  const gapped = rows.filter((r) => r.buy !== "not sent" && r.quoteGapPct !== undefined && gapSays(c, r.quoteGapPct) === "ok");
+  const made = rows.filter((r) => r.buy !== "not sent");
   const sol = (list: Row[]) => Math.round(list.reduce((a, r) => a + r.netSol, 0) * 1e6) / 1e6;
   return {
     mode: "REAL",
@@ -1398,7 +1435,8 @@ export function solanaCopyLiveSummary() {
     openCount: (state.open ? 1 : 0) + state.opens.length,
     // of the copies kept that held a coin: the most coins out at one moment, and the pairs that were out together
     heldTogether: heldTogether(rows),
-    entryRule: c.minGapPct > 0 ? `buys only when our price is already ${c.minGapPct}% or more above what the wallet paid` : "buys every first buy of a listed wallet",
+    entryRule: c.minGapPct > 0 && c.maxGapPct > 0 ? `buys only when our price is ${c.minGapPct}% to ${c.maxGapPct}% above what the wallet paid` : c.minGapPct > 0 ? `buys only when our price is already ${c.minGapPct}% or more above what the wallet paid` : c.maxGapPct > 0 ? `buys only when our price is less than ${c.maxGapPct}% above what the wallet paid` : "buys every first buy of a listed wallet",
+    skippedHighGap: state.skippedHighGap ?? 0,
     skippedLowGap: state.skippedLowGap,
     skippedNoPrice: state.skippedNoPrice,
     // which traders are copied, in words, and the buys let go because of it
@@ -1448,7 +1486,15 @@ export function solanaCopyLiveSummary() {
     notSent: { n: unsent.length, why: unsent.reduce<Record<string, number>>((a, r) => ((a[whyNotSent(r.error)] = (a[whyNotSent(r.error)] ?? 0) + 1), a), {}) },
     // The copies made under the entry rule in force, counted here over every row kept (the last 200), because the
     // rows in `recent` are only the last 40. Target sales and time-ups with their own sums, like targetExit.
-    entryRuleCopies: c.minGapPct > 0 ? {
+    // Every copy kept, whatever rule made it: by the rule in force when it was bought ("earlier" = before the rule
+    // was written on the row, 12 Nov 2026 03:00 KST), by the trader's pace and by the price gap of its buy quote.
+    // A change of rule is judged here, on its own copies.
+    allCopies: {
+      byRule: [...new Set(made.map((r) => r.rule ?? "earlier"))].map((k) => ({ rule: k, ...tally(made.filter((r) => (r.rule ?? "earlier") === k)) })),
+      byPace: [...new Set(made.filter((r) => r.pace).map((r) => r.pace!))].map((k) => ({ pace: k, ...tally(made.filter((r) => r.pace === k)) })),
+      byGap: GAP_BANDS.map(([from, to]) => ({ fromPct: from, toPct: to, ...tally(made.filter((r) => r.quoteGapPct !== undefined && (from === null || r.quoteGapPct >= from) && (to === null || r.quoteGapPct < to))) })),
+    },
+    entryRuleCopies: c.minGapPct > 0 || c.maxGapPct > 0 ? {
       minGapPct: c.minGapPct,
       copies: gapped.length,
       landed: gapped.filter((r) => r.buy === "landed").length,

@@ -443,6 +443,37 @@ const q90 = (xs: number[]) => (xs.length ? [...xs].sort((p, q) => p - q)[Math.mi
 const r = (x: number | null, n = 2) => (x == null || !Number.isFinite(x) ? null : Math.round(x * 10 ** n) / 10 ** n);
 const nums = (xs: (number | null | undefined)[]) => xs.filter((x): x is number => typeof x === "number" && Number.isFinite(x));
 
+/**
+ * The honest reading of the pace and of the entry bar (12 Nov 2026 03:00 KST). Both were found by looking at the
+ * very buys the rules are scored on: the bar on 258 buys (and it turned round by 845), the pace on 418. This table
+ * scores only buys known AFTER the pace rule was written (WALK_FROM), which neither finding has seen, split by
+ * the trader's pace and by how far our price already was above the wallet's, each sold at +10% or after 30 s and
+ * at +10% or after 60 s. The pace of a buy still looks back over every buy before it.
+ */
+export const WALK_FROM = Date.UTC(2026, 10, 11, 16, 15, 0); // 01:15 KST 12 Nov 2026
+export const WALK_BANDS: readonly [string, number, number][] = [["under 9%", -Infinity, 0.09], ["9% to 15%", 0.09, 0.15], ["15% and more", 0.15, Infinity]];
+export function walkStudy(sigs: Signal[], pace: Map<Signal, Pace>, from = WALK_FROM) {
+  const after = sigs.filter((s) => s.knownMs >= from && gapOf(s) !== null);
+  const cell = (list: Signal[]) => {
+    const one = (stop: number) => {
+      const { n, won, netSol, medianRetPct, avgRetPct } = score(list, (s) => scalp(s, 0, 10, stop), null);
+      return { n, won, netSol, medianRetPct, avgRetPct };
+    };
+    return { t30: one(30), t60: one(60) };
+  };
+  const paces: readonly (Pace | "all")[] = [...PACES, "all"];
+  return {
+    note: `Paper. Only buys known since ${new Date(from).toISOString()} (after the pace rule was written), ${STAKE_SOL} SOL each, bought the moment we know, sold at +10% or after 30 s (t30) and 60 s (t60). calm = the trader had bought fewer than ${PACE_BUSY} times in the ${PACE_HOURS} hours before; gap = how far our price already was above the wallet's.`,
+    since: new Date(from).toISOString(),
+    buys: after.length,
+    cells: paces.flatMap((p) => [...WALK_BANDS, ["any", -Infinity, Infinity] as [string, number, number]].map(([gap, lo, hi]) => ({
+      pace: p,
+      gap,
+      ...cell(after.filter((s) => (p === "all" || pace.get(s) === p) && gapOf(s)! >= lo && gapOf(s)! < hi)),
+    }))),
+  };
+}
+
 function score(sigs: Signal[], f: (s: Signal) => number | undefined, solUsd: number | null) {
   const rs = nums(sigs.map(f));
   const net = rs.reduce((a, b) => a + b, 0) * STAKE_SOL;
@@ -753,5 +784,5 @@ export function summarize(sigs: Signal[], solUsd: number | null) {
     rules: EXITS.map((x) => ({ id: sameId(x), ...score(sigs, (s) => sameBlockRet(s, x), solUsd) })),
   };
   const qualified = rules.filter((x) => x.n >= 100 && x.won / x.n >= 0.5 && (x.netSol ?? 0) > 0).map((x) => x.id);
-  return { speed, rulesTried: rules.length, inProfit: rules.filter((x) => (x.netSol ?? 0) > 0).length, qualified, rules, exitStudy: exitStudy(sigs), sizeStudy: sizeStudy(sigs), lateStudy: lateStudy(sigs), sameBlock, traders, wallets, recent };
+  return { speed, rulesTried: rules.length, inProfit: rules.filter((x) => (x.netSol ?? 0) > 0).length, qualified, rules, exitStudy: exitStudy(sigs), sizeStudy: sizeStudy(sigs), lateStudy: lateStudy(sigs), walk: walkStudy(sigs, pace), sameBlock, traders, wallets, recent };
 }
