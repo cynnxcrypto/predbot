@@ -145,6 +145,8 @@ export interface Row {
   heldSec?: number;
   /** how the position was closed: at the profit target, or because the time was up (absent = the old fixed hold) */
   exit?: "target" | "time" | "stop";
+  /** the exit in force when the copy was bought, named like the paper rules ("tp10-t30", "tp10-sl20-t60") */
+  exitKey?: string;
   /** the best a sale would have brought back while we held, % over the stake */
   bestPct?: number;
   /** sales tried at the target (one that fails, because the price fell back first, costs a fee and the watch goes on) */
@@ -606,7 +608,7 @@ export async function trade(b: StreamBuy) {
   const prevAt = lastAt;
   lastAt = Date.now();
   const w = wallet();
-  const row: Row = { t: Date.now(), name: b.name, mint: b.mint, leaderSlot: b.leaderSlot, buy: "not sent", netSol: 0, sigs: [] };
+  const row: Row = { t: Date.now(), name: b.name, mint: b.mint, leaderSlot: b.leaderSlot, buy: "not sent", exitKey: exitKey(c), netSol: 0, sigs: [] };
   let bal0: number | null = null;
   let sent = false;
   let closed = true;
@@ -881,7 +883,7 @@ async function tradeMany(b: StreamBuy, c: LiveConfig) {
   const prevAt = lastAt;
   lastAt = Date.now();
   const w = wallet();
-  const row: Row = { t: Date.now(), name: b.name, mint: b.mint, leaderSlot: b.leaderSlot, buy: "not sent", netSol: 0, sigs: [] };
+  const row: Row = { t: Date.now(), name: b.name, mint: b.mint, leaderSlot: b.leaderSlot, buy: "not sent", exitKey: exitKey(c), netSol: 0, sigs: [] };
   let pos: OpenPos | null = null;
   let closed = true;
   try {
@@ -1083,6 +1085,20 @@ const nums = (xs: (number | undefined)[]) => xs.filter((x): x is number => typeo
  * For the status: numbers only. No address, token or signature. The one thing that could identify the wallet, the
  * time of each copy (recent[].at), is shown on the password-protected dashboard and removed from the public file.
  */
+/** The exit of a config in the paper rules' own words: "tp10-t30", "tp10-sl20-t60", "t6" (no target). */
+export const exitKey = (c: Pick<LiveConfig, "targetPct" | "stopPct" | "holdSec">) =>
+  `${c.targetPct > 0 ? `tp${c.targetPct}-` : ""}${c.stopPct > 0 ? `sl${c.stopPct}-` : ""}t${c.holdSec}`;
+
+/** Entry-gap bars the copies are counted between (%), from the entry rule in force upward. */
+export const GAP_BARS = [12, 15, 20, 30] as const;
+
+/** One group of copies in numbers: how many, how many won, what they made, target sales and time-ups apart. */
+function tally(list: Row[]) {
+  const sol = (l: Row[]) => Math.round(l.reduce((a, r) => a + r.netSol, 0) * 1e6) / 1e6;
+  const [hit, late, cut] = (["target", "time", "stop"] as const).map((x) => list.filter((r) => r.exit === x));
+  return { copies: list.length, won: list.filter((r) => r.netSol > 0).length, netSol: sol(list), targetSales: hit.length, targetSalesSol: sol(hit), timeUps: late.length, timeUpsSol: sol(late), stops: cut.length, stopsSol: sol(cut) };
+}
+
 export function solanaCopyLiveSummary() {
   if (!loaded) load();
   const c = cfg();
@@ -1163,6 +1179,15 @@ export function solanaCopyLiveSummary() {
       stopsSol: sol(gapped.filter((r) => r.exit === "stop")),
       otherSol: sol(gapped.filter((r) => r.exit !== "target" && r.exit !== "time" && r.exit !== "stop")),
       rowsKept: rows.length,
+      // The same copies by how far above the wallet's price the buy quote was (toPct null = no upper end): a
+      // stricter entry rule is judged on these, next to the paper rules gap12, gap15, gap20, gap30.
+      byGap: [c.minGapPct, ...GAP_BARS.filter((g) => g > c.minGapPct)].map((from, i, bars) => {
+        const to = bars[i + 1] ?? null;
+        return { fromPct: from, toPct: to, ...tally(gapped.filter((r) => r.quoteGapPct! >= from && (to === null || r.quoteGapPct! < to))) };
+      }),
+      // ... and by the exit in force when each was bought, so that a change of clock or stop is counted on its own
+      // copies. "earlier" = bought before the exit was written on the row (11 Nov 2026 late evening KST).
+      byExit: [...new Set(gapped.map((r) => r.exitKey ?? "earlier"))].map((k) => ({ exit: k, ...tally(gapped.filter((r) => (r.exitKey ?? "earlier") === k)) })),
     } : null,
     targetExit: {
       copies: aimed.length,

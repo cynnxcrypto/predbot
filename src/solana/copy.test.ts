@@ -201,7 +201,7 @@ test("summary: speed first, rules counted, wallets ranked by follow-through", ()
   assert.equal(sum.speed.noWavePct, 50);
   assert.equal(sum.speed.entryGapPctMedian, 10);
   assert.ok(sum.speed.breakEvenPctMedian! > 4);
-  assert.equal(sum.rulesTried, 69);
+  assert.equal(sum.rulesTried, 72);
   assert.equal(sum.wallets[0].name, "Chairman");
   assert.deepEqual(sum.qualified, []);
 });
@@ -224,6 +224,12 @@ test("9% buys under other exits: a look at 20 s, stops, and stricter gaps", () =
   const far = (price: number) => sig({ entries: { ...s.entries, d0: { ...s.entries.d0!, price } } });
   assert.deepEqual([rule([far(1.16e-6)], "copy-d0-gap12-tp10-t60").n, rule([far(1.16e-6)], "copy-d0-gap15-tp10-t60").n], [1, 1]);
   assert.deepEqual([rule([far(1.13e-6)], "copy-d0-gap12-tp10-t60").n, rule([far(1.13e-6)], "copy-d0-gap15-tp10-t60").n], [1, 0]);
+  // the 9-15% band on its own, the 15% bar on the 30 s clock, and the 30% bar
+  const ids = ["copy-d0-gap9to15-tp10-t60", "copy-d0-gap15-tp10-t30", "copy-d0-gap30-tp10-t60"];
+  assert.deepEqual(ids.map((id) => rule([s], id).n), [1, 0, 0]);
+  assert.deepEqual(ids.map((id) => rule([far(1.13e-6)], id).n), [1, 0, 0]);
+  assert.deepEqual(ids.map((id) => rule([far(1.16e-6)], id).n), [0, 1, 0]);
+  assert.deepEqual(ids.map((id) => rule([far(1.31e-6)], id).n), [0, 1, 1]);
   // a buy under 9% is in none of them
   assert.equal(rule([far(1.05e-6)], "copy-d0-gap9-tp10-cut20-t60").n, 0);
 });
