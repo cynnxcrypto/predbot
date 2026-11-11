@@ -16,6 +16,7 @@ import { SOL, USDC } from "./pools.js";
 import { discoverSummary, foundWallets, startDiscover, stopDiscover } from "./discover.js";
 import { historySummary, startHistory, stopHistory } from "./history.js";
 import { linkedWallets, linksSummary, seedWallets, startLinks, stopLinks } from "./links.js";
+import { preconfSeen, preconfSummary, startPreconf, stopPreconf } from "./preconf.js";
 import { validAddress, WALLETS, type Tracked } from "./wallets.js";
 
 const SIGNALS = () => join(DATA, "solana", "copy-signals.jsonl");
@@ -202,6 +203,7 @@ export function buildCopySummary() {
     discovery: discoverSummary(),
     history: historySummary(),
     links: linksSummary(),
+    preconf: preconfSummary(),
     fomo: fomoStudy(signals.filter((x) => x.fomo), solUsd),
     ...(() => {
       // With the Helius key, score only buys read on the Helius feed and known within 30 s. Buys from the keyless
@@ -507,6 +509,9 @@ function connect() {
       health.streamTx++;
       const tx: ParsedTx = { slot: r.slot, blockTime: null, meta: t.meta, transaction: t.transaction };
       const keys = new Set(tx.transaction.message.accountKeys.map((k) => (typeof k === "string" ? k : k.pubkey)));
+      // for the early-stream measurement: a transaction a listed trader signed (the first key pays and signs)
+      const payer = keys.values().next().value;
+      if (payer && list.some((x) => x.address === payer && !x.found && !x.fomo)) preconfSeen(r.signature, now);
       const w = list.find((x) => (x.fomo || keys.has(x.address)) && buyOf(tx, x));
       if (!w) {
         if (seen.size > 20_000) seen.clear(); // same bound as in onTx, which these never reach
@@ -593,6 +598,8 @@ export function startSolanaCopy(fetcher: Fetch = fetch) {
   startHistory({ rpcUrl: () => (helius() ? rpcUrl() : null), fetch: () => net, wallets: () => listed() });
   // the tracer (read-only): the wallets behind the fomo traders in seeds.ts; SOLANA_LINKS=off disables
   startLinks({ rpcUrl: () => (helius() ? rpcUrl() : null), fetch: () => net });
+  // the early-stream measurement (read-only, one short run with a credit budget); SOLANA_PRECONF=off disables
+  startPreconf({ url: () => (helius() ? `wss://beta.helius-rpc.com/?api-key=${helius()}` : null), signers: () => listed().map((w) => w.address) });
   void refreshSolUsd();
   void pingSenders();
   let n = 0;
@@ -618,6 +625,7 @@ export function stopSolanaCopy() {
   stopDiscover();
   stopHistory();
   stopLinks();
+  stopPreconf();
 }
 
 /** Test hooks. */
