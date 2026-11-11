@@ -1478,6 +1478,7 @@ export class LiveTrader {
       const step = nextStep(state, plan.stage, destBalance, this.chain?.["pUSD"] ?? 0, Date.now());
       if (step.do === "nothing" || !step.stage || !step.amount) return noteWithdraw(step.why ?? "nothing to do");
       const st = stageOf(state, step.stage);
+      if (step.do === "send" && (st.busyUntil ?? 0) > Date.now()) return noteWithdraw("the wallet was busy; trying again within 2 minutes");
       if (step.do === "confirm") {
         st.confirmed = true;
         st.received = Math.round((destBalance - (st.baseline ?? destBalance)) * 1e6) / 1e6;
@@ -1511,6 +1512,14 @@ export class LiveTrader {
         console.log(`withdraw: the $${step.amount} ${step.stage} send went out (try ${st.tries}); waiting to see it arrive`);
       } catch (error) {
         st.error = scrub(noteRelayError(error));
+        // "wallet busy" is the relayer refusing the request at the door (another action of ours is still running):
+        // nothing was sent, so it does not use up a try. Look again in 2 minutes, at most 15 such refusals.
+        if (/wallet busy/i.test(st.error) && (st.busy ?? 0) < 15) {
+          st.busy = (st.busy ?? 0) + 1;
+          st.tries -= 1;
+          st.lastTryAt = 0;
+          st.busyUntil = Date.now() + 120_000;
+        }
         console.log(`withdraw: the $${step.amount} ${step.stage} send failed on try ${st.tries} (${st.error})`);
       } finally {
         relayBusy = false;
