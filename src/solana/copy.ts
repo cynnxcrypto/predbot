@@ -559,6 +559,11 @@ export function summarize(sigs: Signal[], solUsd: number | null) {
     // price, and its mirror (under 3% over: we are nearly alone).
     { id: "copy-d0-gap9-tp10-t60", text: `When a tracked wallet buys and our price is already 9% or more above what the wallet paid, buy ${STAKE_SOL} SOL the moment we know, sell as soon as it is up 10% after costs, and sell anyway after ${TIME_STOP} s.`, ...score(sigs, (s) => (s.entries.d0 && s.leaderPrice > 0 && s.entries.d0.price / s.leaderPrice - 1 >= 0.09 ? scalp(s, 0, 10) : undefined), solUsd) },
     { id: "copy-d0-gap3under-tp10-t60", text: `When a tracked wallet buys and our price is less than 3% above what the wallet paid, buy ${STAKE_SOL} SOL the moment we know, sell as soon as it is up 10% after costs, and sell anyway after ${TIME_STOP} s.`, ...score(sigs, (s) => (s.entries.d0 && s.leaderPrice > 0 && s.entries.d0.price / s.leaderPrice - 1 < 0.03 ? scalp(s, 0, 10) : undefined), solUsd) },
+    // Round 355 (21:20 KST 11 Nov 2026, MAIN). 192 paper buys: the 9%+ band (49 buys) made +1.08 SOL, under 3% (115)
+    // lost 0.41, and the 28 in between were flat, so all of the paper profit sits in 1 buy of 4. Two questions about
+    // that band: do its coins run far enough for a 20% target, and is a gap of 20%+ already too late?
+    { id: "copy-d0-gap9-tp20-t60", text: `When a tracked wallet buys and our price is already 9% or more above what the wallet paid, buy ${STAKE_SOL} SOL the moment we know, sell as soon as it is up 20% after costs, and sell anyway after ${TIME_STOP} s.`, ...score(sigs, (s) => (s.entries.d0 && s.leaderPrice > 0 && s.entries.d0.price / s.leaderPrice - 1 >= 0.09 ? scalp(s, 0, 20) : undefined), solUsd) },
+    { id: "copy-d0-gap20-tp10-t60", text: `When a tracked wallet buys and our price is already 20% or more above what the wallet paid, buy ${STAKE_SOL} SOL the moment we know, sell as soon as it is up 10% after costs, and sell anyway after ${TIME_STOP} s.`, ...score(sigs, (s) => (s.entries.d0 && s.leaderPrice > 0 && s.entries.d0.price / s.leaderPrice - 1 >= 0.2 ? scalp(s, 0, 10) : undefined), solUsd) },
     ...[300, 600].map((x) => ({ id: ruleId(0, x), text: ruleText(0, x), ...score(sigs, (s) => pathRet(s, x), solUsd) })),
     ...TRAILS.map((t) => ({ id: trailId(t), text: trailText(t), ...score(sigs, (s) => trail(s, t), solUsd) })),
   ];
