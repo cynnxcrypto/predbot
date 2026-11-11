@@ -400,6 +400,10 @@ test("replay of one past buy: in at what the next blocks paid, out at the last t
   assert.deepEqual(sum.target10, { n: 2, won: 1, medianPct: half(want(0.0065)), avgPct: half(want(0.0065)) });
   assert.deepEqual(sum.hardEntry.holds[0], { sec: 5, n: 2, won: 1, medianPct: half(want(0.0065, 0.0058)), avgPct: half(want(0.0065, 0.0058)) });
   assert.equal(replaySummary([]).holds[0].n, 0);
+  // rows stored by an older version were not capped: one misread price must not decide an average
+  const old = replaySummary([{ gap: null, rets: REPLAY_SECS.map(() => 10_175_421), hard: REPLAY_SECS.map(() => Infinity) }, { gap: null, rets: REPLAY_SECS.map(() => -0.028) } as never]);
+  assert.equal(old.holds[0].avgPct, 498.6, "capped at +1000%: (1000 - 2.8) / 2");
+  assert.equal(old.hardEntry.holds[0].avgPct, -1.4, "a return that is not a number counts as nothing; the old row has no harsh entry, so its own return stands in");
 });
 
 test("runner: a busy coin is replayed past the first 200 transactions, with one page per hold", async () => {
@@ -428,6 +432,7 @@ test("runner: a busy coin is replayed past the first 200 transactions, with one 
   _test.state().seeds[SEED] = r;
   const sum = linksSummary();
   assert.equal(sum.replay.buys, 1);
-  assert.equal(sum.seeds[0].replay.holds.length, REPLAY_SECS.length);
+  assert.equal(sum.seeds[0].replay!.holds.length, REPLAY_SECS.length);
+  assert.equal(sum.replay.seedsIn, 1);
   assert.ok(sum.replay.note.includes("estimate"));
 });
