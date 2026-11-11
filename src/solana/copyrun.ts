@@ -129,7 +129,12 @@ export function buildCopySummary() {
     updatedAt: Date.now(),
     solUsd,
     health: { ...health, active: health.active },
-    ...summarize(signals, solUsd),
+    ...(() => {
+      // With the Helius key, score only buys read on the Helius feed and known within 30 s. Buys from the keyless
+      // period, or read late out of a backlog, say nothing about our speed and would poison the medians.
+      const clean = helius() ? signals.filter((x) => x.feed.startsWith("helius") && x.leaderTime > 0 && x.knownMs - x.leaderTime * 1000 <= 30_000) : signals;
+      return { leftOut: signals.length - clean.length, ...summarize(clean, solUsd) };
+    })(),
   };
 }
 
