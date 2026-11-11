@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 
 process.env.DATA_DIR = mkdtempSync(join(tmpdir(), "sollinks-"));
-const { actOf, holders, earlyOf, digest, compare, judge, linksSummary, linkedWallets, _test } = await import("./links.js");
+const { actOf, holders, earlyOf, digest, compare, judge, linksSummary, linkedWallets, seedWallets, _test } = await import("./links.js");
 const { SEEDS } = await import("./seeds.js");
 const { validAddress } = await import("./wallets.js");
 type Item = import("./history.js").Item;
@@ -275,6 +275,10 @@ test("runner: a seed buried under dropped coins is still read, through its dolla
   const row = linksSummary().seeds.find((s) => s.name === SEEDS[0].name)!;
   assert.equal(row.redo, false);
   assert.deepEqual(row.transactionsRead, [2, 7, 300]);
+  // the seed itself goes to the paper copy test with its dollar account, marked so nothing real ever copies it
+  assert.deepEqual(seedWallets()[0], { name: `fomo ${SEEDS[0].name}`, address: SEED, found: true, fomo: true, accounts: [ATA(USDC, SEED)] });
+  assert.deepEqual(seedWallets()[1].accounts, [], "not read yet: the wallet alone");
+  assert.ok(!JSON.stringify(linksSummary()).includes(ATA(USDC, SEED)));
   assert.equal(row.linked[0].verdict, "likely");
   // a result from the first way of reading is marked to be read again
   _test.state().seeds[SEED] = { ...r, v: 1 };

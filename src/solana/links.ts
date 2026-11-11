@@ -342,6 +342,8 @@ interface SeedResult {
   reach?: [number, number | null];
   /** how many days ago its newest and its oldest buy in the read were */
   span?: [number, number] | null;
+  /** its dollar token accounts (public, like the wallet): the paper copy test listens on them too */
+  accounts?: string[];
   txs: number;
   days: number;
   buys: number;
@@ -434,7 +436,7 @@ async function pages(address: string, filters: Record<string, unknown>, order: "
   return r && { items, more: r.more };
 }
 
-type Read = WalletRead & { read: [number, number, number]; reach: [number, number | null] };
+type Read = WalletRead & { read: [number, number, number]; reach: [number, number | null]; accounts: string[] };
 const reads = new Map<string, Read>();
 const sigOf = (it: Item) => it.transaction.signatures?.[0] ?? `${it.slot}:${it.transactionIndex}`;
 /**
@@ -484,7 +486,7 @@ async function readWallet(address: string, ownPages: number, deepPages: number, 
   const ownDays = daysOf(own);
   // what can be said for sure: a SOL-paid trade names the wallet, a dollar-paid one touches its dollar account
   const days = dollarDays === null ? ownDays : Math.min(ownDays, dollarDays);
-  const r: Read = { ...digestActs(address, acts, days, own.n), read: [own.n, dollarN, tokN], reach: [ownDays, dollarDays] };
+  const r: Read = { ...digestActs(address, acts, days, own.n), read: [own.n, dollarN, tokN], reach: [ownDays, dollarDays], accounts: [...accounts].slice(0, 2) };
   // how busy it is: by what names the wallet itself (dropped coins and fomo's relayer say nothing about that)
   r.txPerDay = rate(own);
   reads.set(address, r);
@@ -562,7 +564,7 @@ async function doSeed(seed: Tracked): Promise<SeedResult | null> {
   const ago = bought.map((b) => (now - b.t) / 86_400);
   return {
     v: VERSION, doneAt: Date.now(), read: s.read, reach: [r1(s.reach[0]), s.reach[1] === null ? null : r1(s.reach[1])],
-    span: ago.length ? [r1(Math.min(...ago)), r1(Math.max(...ago))] : null,
+    span: ago.length ? [r1(Math.min(...ago)), r1(Math.max(...ago))] : null, accounts: s.accounts,
     txs: s.txs, days: r1(s.days), buys: bought.length,
     buysUsd: bought.filter((b) => b.usd > 0).length, buysSol: bought.filter((b) => b.usd === 0).length,
     checked: buys.length, before30: median(b30), after30: median(a30), linked: [...linked.values()],
@@ -641,6 +643,15 @@ export function linkedWallets(): Tracked[] {
   const out: Tracked[] = [];
   for (const s of judged()) for (const l of s.linked) if (/^(likely|possible)/.test(l.verdict) && !out.some((w) => w.address === l.address)) out.push({ name: `side of ${s.name} ${l.address.slice(0, 4)}`, address: l.address, found: true });
   return out.slice(0, 40);
+}
+
+/**
+ * The seeds themselves, for the paper copy test (never the real one): what happens to a coin right after a famous
+ * fomo trader's own public buy. Marked `found` so nothing real ever copies them; `accounts` are filled in once the
+ * seed has been read.
+ */
+export function seedWallets(): Tracked[] {
+  return seeds().map((w) => ({ name: `fomo ${w.name}`, address: w.address, found: true, fomo: true, accounts: (state.seeds[w.address]?.accounts ?? []).filter(validAddress) }));
 }
 
 /** Public: short tags only, never a full address of a linked wallet. */
