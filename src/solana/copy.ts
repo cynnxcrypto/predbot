@@ -152,6 +152,26 @@ export function scalp(s: Signal, d: number, tp: number): number | undefined {
   return undefined;
 }
 
+/**
+ * Round 351 (17:10 KST 11 Nov 2026, MAIN). After 26 fast-stream buys the 2-5 s exits lose (5 and 7 of 26 won) and the
+ * typical copy is down 2-4% at every check up to 20 s, while the sums at 30-120 s are carried by a few big winners.
+ * So the open question is whether cutting the losers early keeps the winners: same scalp, plus a stop that sells at
+ * the first check where the copy is down `sl`% or more. Paper only; checks are only at the EXITS times.
+ */
+export const STOPS: readonly [number, number][] = [[10, 5], [10, 10], [5, 5]];
+export const stopId = (tp: number, sl: number) => `copy-d0-tp${tp}-sl${sl}-t${TIME_STOP}`;
+export const stopText = (tp: number, sl: number) =>
+  `When a tracked wallet buys, buy ${STAKE_SOL} SOL of the same token the moment we know, sell as soon as it is up ${tp}% after costs or down ${sl}%, and sell anyway after ${TIME_STOP} s.`;
+export function scalpStop(s: Signal, tp: number, sl: number): number | undefined {
+  for (const x of EXITS) {
+    if (x > TIME_STOP) break;
+    const v = ret(s, 0, x);
+    if (v === undefined) continue;
+    if (v >= tp / 100 || v <= -sl / 100 || x === TIME_STOP) return v;
+  }
+  return undefined;
+}
+
 /** What an instant round trip loses, as a fraction of the stake: the move needed just to break even. */
 export function roundTrip(s: Signal): number | null {
   const out = s.exits.d0?.x0;
@@ -234,6 +254,7 @@ export function summarize(sigs: Signal[], solUsd: number | null) {
   const rules = [
     ...DELAYS.flatMap((d) => EXITS.map((x) => ({ id: ruleId(d, x), text: ruleText(d, x), ...score(sigs, (s) => ret(s, d, x), solUsd) }))),
     ...DELAYS.flatMap((d) => TARGETS.map((tp) => ({ id: scalpId(d, tp), text: scalpText(d, tp), ...score(sigs, (s) => scalp(s, d, tp), solUsd) }))),
+    ...STOPS.map(([tp, sl]) => ({ id: stopId(tp, sl), text: stopText(tp, sl), ...score(sigs, (s) => scalpStop(s, tp, sl), solUsd) })),
   ];
   const by = new Map<string, Signal[]>();
   for (const s of sigs) by.set(s.wallet, [...(by.get(s.wallet) ?? []), s]);

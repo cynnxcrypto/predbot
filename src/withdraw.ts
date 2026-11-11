@@ -12,7 +12,9 @@
  *
  * deploy/live-rules.json: "withdraw": { "to": "<sealed>", "stage": "test" | "rest" }. No block, no send.
  * State: data/withdraw-state.json (server only). Status shows numbers only: no address, no transaction id.
- * To be removed once both sends are confirmed.
+ * DONE 11 Nov 2026: $1 at 16:59 KST and $49 at 17:11 KST arrived ($49.996 USDC in all). The send itself has been
+ * taken out of src/live.ts and the block out of the repo file; what stays here only reads the record, so the ledger
+ * keeps counting the $50 as money taken out and not as a loss.
  */
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
 import { readFileSync } from "node:fs";
