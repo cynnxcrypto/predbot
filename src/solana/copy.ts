@@ -624,6 +624,13 @@ export function repeatStudy(sigs: Signal[]) {
   };
 }
 
+/** the average of the earlier and of the later half of a list of returns (by the time each began): one lucky hour shows as a gap */
+const halves = (vs: number[], at: number[]) => {
+  const inOrder = vs.map((v, i) => [at[i], v] as const).sort((p, q) => p[0] - q[0]).map((p) => p[1]);
+  const avg = (xs: number[]) => (xs.length ? r((xs.reduce((a, b) => a + b, 0) / xs.length) * 100) : null);
+  return { firstHalfAvgPct: avg(inOrder.slice(0, inOrder.length >> 1)), secondHalfAvgPct: avg(inOrder.slice(inOrder.length >> 1)) };
+};
+
 export const WAVE_ENTRIES = [60, 120] as const;
 export const WAVE_ENDS = [300, 600] as const;
 /**
@@ -645,9 +652,9 @@ export function secondWaveStudy(sigs: Signal[]) {
     const tokens = Number(s.entries.d0?.tokens ?? 0);
     return out === undefined || !(tokens > 0) ? undefined : out === null ? null : out / tokens;
   };
-  const groups = ["1", "2", "3 or more", "any"] as const;
+  const groups = ["1", "2", "3", "4 or more", "3 or more", "any"] as const;
   const rows = WAVE_ENTRIES.flatMap((entry) => WAVE_ENDS.flatMap((end) => {
-    const got = new Map<string, { all: number[]; next: number[]; next5: number[]; none: number[]; waits: number[] }>(groups.map((g) => [g, { all: [], next: [], next5: [], none: [], waits: [] }]));
+    const got = new Map<string, { all: number[]; at: number[]; next: number[]; next5: number[]; none: number[]; waits: number[] }>(groups.map((g) => [g, { all: [], at: [], next: [], next5: [], none: [], waits: [] }]));
     for (const list of byMint.values()) {
       list.forEach((a, i) => {
         const b = list[i + 1];
@@ -661,13 +668,14 @@ export function secondWaveStudy(sigs: Signal[]) {
         if (cost === null || !(cost < 1) || !p0 || last === undefined) return;
         const back = (p: number | null | undefined) => (p === undefined ? undefined : ((p ?? 0) / p0) * (1 - cost) - 1);
         const buyers = new Set(list.slice(0, i + 1).filter((x) => a.knownMs - x.knownMs <= REPEAT_MIN * 60_000).map((x) => x.wallet)).size;
-        const into = [got.get(buyers >= 3 ? "3 or more" : String(buyers))!, got.get("any")!];
+        const into = [got.get(buyers >= 4 ? "4 or more" : String(buyers))!, ...(buyers >= 3 ? [got.get("3 or more")!] : []), got.get("any")!];
         if (b && b.knownMs <= a.knownMs + end * 1000) {
           const v = back(price(b, 2) ?? price(b, 3));
           const v5 = back(price(b, 5));
           if (v === undefined) return;
           for (const g of into) {
             g.all.push(v);
+            g.at.push(a.knownMs);
             g.next.push(v);
             if (v5 !== undefined) g.next5.push(v5);
             g.waits.push((b.knownMs - from) / 1000);
@@ -676,6 +684,7 @@ export function secondWaveStudy(sigs: Signal[]) {
           const v = back(last)!;
           for (const g of into) {
             g.all.push(v);
+            g.at.push(a.knownMs);
             g.none.push(v);
           }
         }
@@ -683,11 +692,83 @@ export function secondWaveStudy(sigs: Signal[]) {
     }
     return groups.map((g) => {
       const x = got.get(g)!;
-      return { entrySec: entry, endSec: end, buyers: g, all: tally(x.all), withNext: tally(x.next), withNextAt5: tally(x.next5), noNext: tally(x.none), nextPct: x.all.length ? r((x.next.length / x.all.length) * 100, 0) : null, waitSecMedian: med(x.waits) === null ? null : r(med(x.waits)!, 0) };
+      return { entrySec: entry, endSec: end, buyers: g, all: tally(x.all), ...halves(x.all, x.at), withNext: tally(x.next), withNextAt5: tally(x.next5), noNext: tally(x.none), nextPct: x.all.length ? r((x.next.length / x.all.length) * 100, 0) : null, waitSecMedian: med(x.waits) === null ? null : r(med(x.waits)!, 0) };
     });
   }));
   return {
-    note: `Paper, every stored buy whose window was checked to the end. Buy the coin entrySec after a listed wallet bought it, if no other listed wallet bought it in between (at the sale price of that moment plus the coin's own in-and-out cost, fees included; a model, not a quoted buy). Sell 2 s after the next listed buy of the coin (withNextAt5: 5 s after), or endSec after the first buy if none comes. buyers = how many listed wallets had bought the coin in the ${REPEAT_MIN} min up to that buy. nextPct = how often the next buyer came in time. waitSecMedian = from our buy to it.`,
+    note: `Paper, every stored buy whose window was checked to the end. Buy the coin entrySec after a listed wallet bought it, if no other listed wallet bought it in between (at the sale price of that moment plus the coin's own in-and-out cost, fees included; a model, not a quoted buy). Sell 2 s after the next listed buy of the coin (withNextAt5: 5 s after), or endSec after the first buy if none comes. buyers = how many listed wallets had bought the coin in the ${REPEAT_MIN} min up to that buy. firstHalfAvgPct / secondHalfAvgPct = the average of the earlier and of the later half of the copies: a pattern should show in both. nextPct = how often the next buyer came in time. waitSecMedian = from our buy to it.`,
+    rows,
+  };
+}
+
+/**
+ * The same idea measured instead of modelled. Reading of 12 Nov 2026 07:05 KST (model, one night): coins that
+ * three or more listed wallets had bought inside half an hour were the only group above zero, +1% to +3% a trade
+ * on about 200 buys, with the median still below zero and the next buyer coming 29-40% of the time (8-10% after
+ * a coin's first buyer). So the runner now follows every listed buy of a coin that WAVE_MIN_BUYERS or more listed
+ * wallets are in: it asks the price service for a buy of the real test's own stake at the entry moment, the same
+ * buy a second later (how far the price runs from an order that lands late), and the sale of exactly those
+ * tokens. Still paper: a quote is the best case for a fill, and nothing is sent.
+ */
+export const WAVE_STAKE_SOL = 0.05;
+/** network fees of a real copy, measured on 276 of them: a median 0.32% of the 0.05 SOL stake (3 transactions) */
+export const WAVE_FEE = 0.0033;
+export const WAVE_MIN_BUYERS = 2;
+export interface WaveLot {
+  /** raw tokens a WAVE_STAKE_SOL buy was quoted at the entry moment; null = no route */
+  tokens: string | null;
+  /** the same buy quoted a second later, as a share of `tokens` (under 1 = the price ran away); missing = not measured */
+  late?: number | null;
+  /** SOL the tokens were quoted to sell for 2 s and 5 s after the next listed buy, 300 s and 600 s after the trigger; missing = not asked or not measured */
+  next2?: number | null;
+  next5?: number | null;
+  end300?: number | null;
+  end600?: number | null;
+}
+export interface WaveTrade {
+  mint: string;
+  /** when we knew of the listed buy that set it off (ms) */
+  t: number;
+  /** listed wallets that bought the coin in the REPEAT_MIN up to and including that buy */
+  buyers: number;
+  /** seconds after `t` that the next listed wallet bought the coin, inside the longest window; else null */
+  nextSec: number | null;
+  /** by entry ("e60", "e120"); an entry a listed buy came before, or whose buy quote failed, is not there */
+  lots: Record<string, WaveLot>;
+}
+export function waveQuotedStudy(trades: WaveTrade[]) {
+  const groups = ["2", "3", "4 or more", "3 or more"] as const;
+  const rows = WAVE_ENTRIES.flatMap((entry) => WAVE_ENDS.flatMap((end) => {
+    const got = new Map<string, { all: number[]; at: number[]; late: number[]; next: number[]; none: number[]; waits: number[]; noRoute: number }>(groups.map((g) => [g, { all: [], at: [], late: [], next: [], none: [], waits: [], noRoute: 0 }]));
+    for (const w of trades) {
+      const lot = w.lots[`e${entry}`];
+      if (!lot || w.buyers < 2) continue;
+      const into = [got.get(w.buyers >= 4 ? "4 or more" : String(w.buyers))!, ...(w.buyers >= 3 ? [got.get("3 or more")!] : [])];
+      if (lot.tokens === null) {
+        for (const g of into) g.noRoute++;
+        continue;
+      }
+      // sold into the next listed buyer if one came inside the window, else at the window's end
+      const sold = w.nextSec !== null && w.nextSec <= end;
+      const back = sold ? lot.next2 : end === 300 ? lot.end300 : lot.end600;
+      if (back === undefined) continue; // that sale was never priced: not counted either way
+      const v = (back ?? 0) / WAVE_STAKE_SOL - 1 - WAVE_FEE;
+      for (const g of into) {
+        g.all.push(v);
+        g.at.push(w.t);
+        (sold ? g.next : g.none).push(v);
+        if (sold) g.waits.push(w.nextSec! - entry);
+        if (typeof lot.late === "number") g.late.push(((back ?? 0) * lot.late) / WAVE_STAKE_SOL - 1 - WAVE_FEE);
+      }
+    }
+    return groups.map((g) => {
+      const x = got.get(g)!;
+      return { entrySec: entry, endSec: end, buyers: g, all: tally(x.all), ...halves(x.all, x.at), late1: tally(x.late), withNext: tally(x.next), noNext: tally(x.none), nextPct: x.all.length ? r((x.next.length / x.all.length) * 100, 0) : null, waitSecMedian: med(x.waits) === null ? null : r(med(x.waits)!, 0), noRoute: x.noRoute };
+    });
+  }));
+  return {
+    note: `Paper, measured with real price quotes at ${WAVE_STAKE_SOL} SOL (the real test's stake), network fees of ${r(WAVE_FEE * 100)}% taken off. Every listed buy of a coin that ${WAVE_MIN_BUYERS} or more listed wallets bought inside ${REPEAT_MIN} min is followed: bought entrySec later if no other listed wallet bought in between, sold 2 s after the next listed buy of the coin, or endSec after the first buy if none comes. late1 = the same trade when the buy lands a second later. A trade is written down only when its whole 10 min have passed, so a restart drops winners and losers alike. A quote is the best case for a fill: not a result.`,
+    followed: trades.length,
     rows,
   };
 }
