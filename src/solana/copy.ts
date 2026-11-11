@@ -624,8 +624,17 @@ export function repeatStudy(sigs: Signal[]) {
   };
 }
 
-export const WAVE_ENTRIES = [60, 120, 300] as const;
-export const WAVE_END = 600;
+export const WAVE_ENTRIES = [60, 120] as const;
+export const WAVE_ENDS = [300, 600] as const;
+/**
+ * First reading (12 Nov 2026 06:10 KST, 1,005 copies): holding the coin when the next listed wallet buys it paid
+ * +32% on average (37% of the time), holding it to 10 min without one cost 21%; -1.5% a trade in all. That count
+ * was tilted: a copy with a next buyer was counted even when a restart had cut its own later checks, a copy
+ * without one was not. Now a copy counts only when its whole window was checked, each coin holds one position at
+ * a time (a listed buy that comes before our purchase moves the purchase behind it), and the copies are split by
+ * how many listed wallets had bought the coin in the half hour before: a coin two or three of them are already in
+ * may draw the next one more often.
+ */
 export function secondWaveStudy(sigs: Signal[]) {
   const sorted = [...sigs].sort((a, b) => a.knownMs - b.knownMs);
   const byMint = new Map<string, Signal[]>();
@@ -636,40 +645,50 @@ export function secondWaveStudy(sigs: Signal[]) {
     const tokens = Number(s.entries.d0?.tokens ?? 0);
     return out === undefined || !(tokens > 0) ? undefined : out === null ? null : out / tokens;
   };
-  return {
-    note: `Paper, every stored buy, 10 min at most. Buy the coin entrySec after a listed wallet bought it (at the sale price of that moment plus the coin's own in-and-out cost, fees included). If another listed wallet buys the same coin before ${WAVE_END / 60} min are over, sell 2 s after it (at5 = 5 s after it); if nobody does, sell at ${WAVE_END / 60} min. withSecond / noSecond split the same copies by whether that second buyer came. waitSecMedian = from our buy to the second buyer.`,
-    rows: WAVE_ENTRIES.map((entry) => {
-      const all: number[] = [];
-      const with2: number[] = [];
-      const with5: number[] = [];
-      const none: number[] = [];
-      const waits: number[] = [];
-      for (const list of byMint.values()) {
-        list.forEach((a, i) => {
-          const cost = roundTrip(a);
-          const p0 = price(a, entry);
-          if (cost === null || !p0 || !(cost < 1)) return;
-          const from = a.knownMs + entry * 1000;
-          const b = list.slice(i + 1).find((x) => x.wallet !== a.wallet && x.knownMs > from && x.knownMs <= a.knownMs + WAVE_END * 1000 && x.entries.d0);
-          const back = (p: number | null | undefined) => (p === undefined ? undefined : ((p ?? 0) / p0) * (1 - cost) - 1);
-          if (b) {
-            const v = back(price(b, 2) ?? price(b, 3));
-            const v5 = back(price(b, 5));
-            if (v === undefined) return;
-            all.push(v);
-            with2.push(v);
-            if (v5 !== undefined) with5.push(v5);
-            waits.push((b.knownMs - from) / 1000);
-          } else {
-            const v = back(price(a, WAVE_END));
-            if (v === undefined) return;
-            all.push(v);
-            none.push(v);
+  const groups = ["1", "2", "3 or more", "any"] as const;
+  const rows = WAVE_ENTRIES.flatMap((entry) => WAVE_ENDS.flatMap((end) => {
+    const got = new Map<string, { all: number[]; next: number[]; next5: number[]; none: number[]; waits: number[] }>(groups.map((g) => [g, { all: [], next: [], next5: [], none: [], waits: [] }]));
+    for (const list of byMint.values()) {
+      list.forEach((a, i) => {
+        const b = list[i + 1];
+        const from = a.knownMs + entry * 1000;
+        // another listed buy before we would have bought: the purchase waits for that wave instead
+        if (b && b.knownMs <= from) return;
+        const cost = roundTrip(a);
+        const p0 = price(a, entry);
+        const last = price(a, end);
+        // only a copy whose whole window was checked counts, whether a next buyer came or not
+        if (cost === null || !(cost < 1) || !p0 || last === undefined) return;
+        const back = (p: number | null | undefined) => (p === undefined ? undefined : ((p ?? 0) / p0) * (1 - cost) - 1);
+        const buyers = new Set(list.slice(0, i + 1).filter((x) => a.knownMs - x.knownMs <= REPEAT_MIN * 60_000).map((x) => x.wallet)).size;
+        const into = [got.get(buyers >= 3 ? "3 or more" : String(buyers))!, got.get("any")!];
+        if (b && b.knownMs <= a.knownMs + end * 1000) {
+          const v = back(price(b, 2) ?? price(b, 3));
+          const v5 = back(price(b, 5));
+          if (v === undefined) return;
+          for (const g of into) {
+            g.all.push(v);
+            g.next.push(v);
+            if (v5 !== undefined) g.next5.push(v5);
+            g.waits.push((b.knownMs - from) / 1000);
           }
-        });
-      }
-      return { entrySec: entry, all: tally(all), withSecond: tally(with2), withSecondAt5: tally(with5), noSecond: tally(none), secondPct: all.length ? r((with2.length / all.length) * 100, 0) : null, waitSecMedian: med(waits) === null ? null : r(med(waits)!, 0) };
-    }),
+        } else {
+          const v = back(last)!;
+          for (const g of into) {
+            g.all.push(v);
+            g.none.push(v);
+          }
+        }
+      });
+    }
+    return groups.map((g) => {
+      const x = got.get(g)!;
+      return { entrySec: entry, endSec: end, buyers: g, all: tally(x.all), withNext: tally(x.next), withNextAt5: tally(x.next5), noNext: tally(x.none), nextPct: x.all.length ? r((x.next.length / x.all.length) * 100, 0) : null, waitSecMedian: med(x.waits) === null ? null : r(med(x.waits)!, 0) };
+    });
+  }));
+  return {
+    note: `Paper, every stored buy whose window was checked to the end. Buy the coin entrySec after a listed wallet bought it, if no other listed wallet bought it in between (at the sale price of that moment plus the coin's own in-and-out cost, fees included; a model, not a quoted buy). Sell 2 s after the next listed buy of the coin (withNextAt5: 5 s after), or endSec after the first buy if none comes. buyers = how many listed wallets had bought the coin in the ${REPEAT_MIN} min up to that buy. nextPct = how often the next buyer came in time. waitSecMedian = from our buy to it.`,
+    rows,
   };
 }
 
