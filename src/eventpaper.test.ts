@@ -64,6 +64,7 @@ test("closing price: size-weighted, other token counted at 1 - price, only insid
     { timestamp: 1100, token_id: "B", price: 0.3, size: 30 }, // = A at 0.70
     { timestamp: 5000, token_id: "A", price: 0.9, size: 100 }, // outside
   ];
-  assert.equal(closeVwap(rows, "A", "B", 900, 1200), 0.675);
+  assert.equal(closeVwap(rows, "A", "B", 900, 1200, 1), 0.675);
+  assert.equal(closeVwap(rows, "A", "B", 900, 1200), null); // fewer than 5 prints: no close
   assert.equal(closeVwap(rows, "A", "B", 2000, 3000), null);
 });

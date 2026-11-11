@@ -780,10 +780,11 @@ export function noMakerFill(mk: { bid: number; ahead: number; got: number; share
 type RestBid = { rule: string; marketId: string; cond: string; title: string; outcome: string; idx: number; token: string; other: string; bid: number; ahead: number; got: number; shares: number; t: number; until: number; seen: number; start: number };
 type TapeRow = Parameters<typeof noMakerFill>[1][number];
 const tapeOf = async (cond: string) => (await getJson<{ data?: TapeRow[] }>(`https://data-api.polymarket.com/v2/trades?condition=${cond}&limit=1000&taker_only=true`).catch(() => null))?.data ?? null;
-/** Size-weighted average price of `token` over the trades between `from` and `to` (seconds); trades in the other token count at 1 - price. */
-export function closeVwap(rows: TapeRow[], token: string, other: string, from: number, to: number): number | null {
+/** Size-weighted average price of `token` over the trades between `from` and `to` (seconds); trades in the other token count at 1 - price. Null with fewer than `min` prints, so one stray print never sets the close. */
+export function closeVwap(rows: TapeRow[], token: string, other: string, from: number, to: number, min = 5): number | null {
   let v = 0;
   let n = 0;
+  let k = 0;
   for (const r of rows) {
     const ts = Number(r.timestamp) > 1e12 ? Math.floor(Number(r.timestamp) / 1000) : Number(r.timestamp);
     const price = Number(r.price);
@@ -793,8 +794,9 @@ export function closeVwap(rows: TapeRow[], token: string, other: string, from: n
     if (p == null) continue;
     v += p * size;
     n += size;
+    k += 1;
   }
-  return n > 0 ? Math.round((v / n) * 10000) / 10000 : null;
+  return n > 0 && k >= min ? Math.round((v / n) * 10000) / 10000 : null;
 }
 /**
  * prematch-rest-clv (11 Nov 2026, research thread 'Find a strategy worth pursuing'): tennis and esports match-winner
@@ -858,7 +860,7 @@ async function restTick() {
     if (!rows) continue;
     const close = closeVwap(rows, t.token, String(x.other), Math.floor(x.start / 1000) - 1200, Math.floor(x.start / 1000));
     if (close == null || t.avg == null) {
-      if (now > x.start + 3600_000) x.clv = "no trades";
+      if (now > x.start + 3600_000) x.clv = "under 5 prints";
       continue;
     }
     x.close = close;
