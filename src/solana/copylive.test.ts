@@ -13,7 +13,7 @@ const { HARD_MAX_LOSS_SOL, HARD_STAKE_SOL, parseLive, solanaCopyLiveSummary, tra
 const { _test: run } = await import("./copyrun.js");
 const { buildSigned, wallet } = await import("./keys.js");
 const { base58 } = await import("./whirlpool.js");
-const { recoverMany, HARD_MAX_OPEN, solanaCopyLiveQuiet, solanaCopyLiveWaiting, whyNotSent, MIN_STOP_PCT, exitKey } = await import("./copylive.js");
+const { recoverMany, HARD_MAX_OPEN, solanaCopyLiveQuiet, solanaCopyLiveWaiting, whyNotSent, MIN_STOP_PCT, exitKey, heldTogether } = await import("./copylive.js");
 type Row = import("./copylive.js").Row;
 type LiveConfig = import("./copylive.js").LiveConfig;
 
@@ -505,6 +505,15 @@ test("several at once: two coins held together, each counted from its own transa
   assert.deepEqual({ opens: st().opens.length, baseSol: st().baseSol, driftSol: st().driftSol, trades: st().trades, unread: st().unreadTx }, { opens: 0, baseSol: 0.5, driftSol: 0, trades: 2, unread: 0 });
   assert.equal(c.held.size, 0, "both token accounts were closed");
   assert.equal(solanaCopyLiveSummary().booksVsWalletSol, 0);
+  // the status says that two were out together, so nobody has to catch the few seconds on the dashboard
+  assert.deepEqual(solanaCopyLiveSummary().heldTogether, { copies: 2, most: 2, pairs: 1 });
+  assert.ok(ra.heldAt! >= ra.t && rb.heldAt! > ra.heldAt!);
+  // rows from before the moment was written down are placed from their start and the time the order took
+  const row = (t: number, heldSec: number, pipelineMs = 500): Row => ({ t, name: "", mint: "", leaderSlot: 0, buy: "landed", netSol: 0, sigs: [], heldSec, pipelineMs });
+  assert.deepEqual(heldTogether([row(0, 60), row(20_000, 5), row(50_000, 60), row(200_000, 10), { ...row(205_000, 3), heldSec: undefined }]), { copies: 4, most: 2, pairs: 2 });
+  assert.deepEqual(heldTogether([row(0, 60), row(1000, 60), row(2000, 60), row(100_000, 1)]), { copies: 4, most: 3, pairs: 3 });
+  assert.deepEqual(heldTogether([row(0, 5), row(10_000, 5)]), { copies: 2, most: 1, pairs: 0 });
+  assert.deepEqual(heldTogether([]), { copies: 0, most: 0, pairs: 0 });
   run.setNet(fetch);
   _test.setConfig(null);
   _test.reset();

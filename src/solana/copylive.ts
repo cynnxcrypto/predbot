@@ -147,6 +147,8 @@ export interface Row {
   exit?: "target" | "time" | "stop";
   /** the exit in force when the copy was bought, named like the paper rules ("tp10-t30", "tp10-sl20-t60") */
   exitKey?: string;
+  /** when the coin began to be held, ms (several at once; older rows have only `t`, the moment the copy started) */
+  heldAt?: number;
   /** the best a sale would have brought back while we held, % over the stake */
   bestPct?: number;
   /** sales tried at the target (one that fails, because the price fell back first, costs a fee and the watch goes on) */
@@ -955,6 +957,7 @@ async function tradeMany(b: StreamBuy, c: LiveConfig) {
     if (h.amount > 0n) {
       if (b.leaderPrice > 0) row.fillGapPct = Math.round((c.stakeSol / (Number(h.amount) / 10 ** h.decimals) / b.leaderPrice - 1) * 10000) / 100;
       const heldFrom = Date.now();
+      row.heldAt = heldFrom;
       if (await watch(w, b.mint, h.amount, c, row, heldFrom + c.holdSec * 1000, pos)) row.sold = true;
       else {
         if (c.targetPct > 0 && row.exit !== "stop") row.exit = "time";
@@ -1099,6 +1102,30 @@ function tally(list: Row[]) {
   return { copies: list.length, won: list.filter((r) => r.netSol > 0).length, netSol: sol(list), targetSales: hit.length, targetSalesSol: sol(hit), timeUps: late.length, timeUpsSol: sol(late), stops: cut.length, stopsSol: sol(cut) };
 }
 
+/**
+ * How often coins were really held side by side, from the rows kept (enrique, 11 Nov 2026 23:07 KST: "so far i
+ * havent see us holding more than 1 position, are we sure there's no blockers?"). An overlap lasts seconds, so it is
+ * easy to miss on the dashboard: this counts them. A row from before `heldAt` was written is placed from its start
+ * plus the time the order took, which is good to about a second.
+ */
+export function heldTogether(rows: Row[]) {
+  const spans = rows
+    .filter((r) => r.heldSec !== undefined)
+    .map((r) => {
+      const from = r.heldAt ?? r.t + Math.min(8000, Math.max(0, r.pipelineMs ?? 0)) + 1500;
+      return [from, from + r.heldSec! * 1000] as const;
+    })
+    .sort((x, y) => x[0] - y[0]);
+  let pairs = 0;
+  let most = 0;
+  spans.forEach((x, i) => {
+    // the coins out at the moment this one began; and the later ones that began before this one was sold
+    most = Math.max(most, spans.filter((y) => y[0] <= x[0] && x[0] < y[1]).length);
+    for (let j = i + 1; j < spans.length && spans[j][0] < x[1]; j++) pairs++;
+  });
+  return { copies: spans.length, most, pairs };
+}
+
 export function solanaCopyLiveSummary() {
   if (!loaded) load();
   const c = cfg();
@@ -1128,6 +1155,8 @@ export function solanaCopyLiveSummary() {
     // how many coins may be held at once, and how many are out now
     maxOpen: c.maxOpen,
     openCount: (state.open ? 1 : 0) + state.opens.length,
+    // of the copies kept that held a coin: the most coins out at one moment, and the pairs that were out together
+    heldTogether: heldTogether(rows),
     entryRule: c.minGapPct > 0 ? `buys only when our price is already ${c.minGapPct}% or more above what the wallet paid` : "buys every first buy of a listed wallet",
     skippedLowGap: state.skippedLowGap,
     skippedNoPrice: state.skippedNoPrice,
