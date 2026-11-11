@@ -111,7 +111,7 @@ test("summary: speed first, rules counted, wallets ranked by follow-through", ()
   assert.equal(sum.speed.noWavePct, 50);
   assert.equal(sum.speed.entryGapPctMedian, 10);
   assert.ok(sum.speed.breakEvenPctMedian! > 4);
-  assert.equal(sum.rulesTried, 38);
+  assert.equal(sum.rulesTried, 40);
   assert.equal(sum.wallets[0].name, "Chairman");
   assert.deepEqual(sum.qualified, []);
 });
