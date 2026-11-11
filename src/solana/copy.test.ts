@@ -9,7 +9,7 @@ process.env.DATA_DIR = dir;
 process.env.HELIUS_API_KEY = "SECRETHELIUS";
 process.env.JUPITER_API_KEY = "SECRETJUP";
 
-const { crowd, exitStudy, followerPrice, fomoStudy, GRID, lateStudy, parseBuy, parseDollarBuy, pathRet, ret, rising, roundTrip, sameBlockRet, SAME_BLOCK_SLIP, scalp, scalpCut, sizeStudy, STAKE_SOL, summarize, trail, TX_SOL, traderRet, verdictAt, verdictOf, paceAt, verdictsBefore } = await import("./copy.js");
+const { crowd, exitStudy, followerPrice, fomoStudy, GRID, lateStudy, parseBuy, parseDollarBuy, pathRet, ret, rising, roundTrip, sameBlockRet, SAME_BLOCK_SLIP, scalp, scalpCut, sizeStudy, STAKE_SOL, summarize, trail, TX_SOL, traderRet, verdictAt, verdictOf, paceAt, gapAt, verdictsBefore } = await import("./copy.js");
 const { SOL, USDC } = await import("./pools.js");
 const { validAddress, WALLETS } = await import("./wallets.js");
 const { _test, buildCopySummary, onStreamBuy, scrub } = await import("./copyrun.js");
@@ -201,7 +201,7 @@ test("summary: speed first, rules counted, wallets ranked by follow-through", ()
   assert.equal(sum.speed.noWavePct, 50);
   assert.equal(sum.speed.entryGapPctMedian, 10);
   assert.ok(sum.speed.breakEvenPctMedian! > 4);
-  assert.equal(sum.rulesTried, 88);
+  assert.equal(sum.rulesTried, 90);
   assert.equal(sum.wallets[0].name, "Chairman");
   assert.deepEqual(sum.qualified, []);
 });
@@ -395,6 +395,11 @@ test("traders: a verdict from the earlier copies only, and rules that never see 
   assert.equal(paceAt(bad, "someone else", bad[4].knownMs + 1), "calm");
   assert.deepEqual([rule("copy-d0-calm-tp10-t30").n, rule("copy-d0-busy-tp10-t30").n, rule("copy-d0-busy-tp10-t30").won], [6, 4, 2]);
   assert.deepEqual([rule("copy-d0-gap15-calm-tp10-t30").n, rule("copy-d0-gap15-busy-tp10-t30").n], [0, 0]);
+  // the bar read a second later: the sample buy is 10% above the wallet at once and 20% above a second later; it was
+  // never priced three seconds later. Bought a second later and up 19% at the first look: one copy, won
+  assert.deepEqual([gapAt(bad[0], 0), gapAt(bad[0], 1), gapAt(bad[0], 3)].map((v) => (v === null ? null : Math.round(v * 100))), [10, 20, null]);
+  const late = summarize([sig({ sig: "late", wallet: "late", exits: { d0: {}, d1: { x2: 0.3, x5: 0.3, x10: 0.3, x20: 0.3, x30: 0.3, x60: 0.3, x120: 0.3 }, d3: {} } })], 80).rules;
+  assert.deepEqual(["copy-d1-gap15-tp10-t30", "copy-d3-gap15-tp10-t30"].map((id) => [late.find((x) => x.id === id)!.n, late.find((x) => x.id === id)!.won]), [[1, 1], [0, 0]]);
   // with the 15% bar: the sample buys are 10% above the wallet, so none passes; at 16% above they split the same way
   assert.equal(rule("copy-d0-gap15-trader-notbad-tp10-t30").n, 0);
   const far = (x: Signal): Signal => ({ ...x, entries: { ...x.entries, d0: { ...x.entries.d0!, price: 1.16e-6 } } });

@@ -1384,6 +1384,8 @@ export function solanaCopyLiveSummary() {
       // ... and by what the trader's earlier copies said when each was bought (written on the row from 12 Nov 2026)
       byTrader: [...new Set(gapped.map((r) => r.trader ?? "earlier"))].map((k) => ({ trader: k, ...tally(gapped.filter((r) => (r.trader ?? "earlier") === k)) })),
       byPace: [...new Set(gapped.map((r) => r.pace ?? "earlier"))].map((k) => ({ pace: k, ...tally(gapped.filter((r) => (r.pace ?? "earlier") === k)) })),
+      // the same copies by how many blocks behind the wallet they landed: does landing sooner pay under this rule?
+      byLanding: byLanding(gapped),
     } : null,
     targetExit: {
       copies: aimed.length,

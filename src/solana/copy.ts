@@ -243,6 +243,11 @@ export function scalpStop(s: Signal, tp: number, sl: number): number | undefined
 
 /** How far our own buy price already is above what the wallet paid, as a fraction; null when either price is missing. */
 export const gapOf = (s: Signal): number | null => (s.entries.d0 && s.leaderPrice > 0 ? s.entries.d0.price / s.leaderPrice - 1 : null);
+/** The same gap read `d` seconds after we knew: what a buy made then would pay over the wallet's price. */
+export const gapAt = (s: Signal, d: number): number | null => {
+  const e = s.entries[`d${d}`];
+  return e && s.leaderPrice > 0 ? e.price / s.leaderPrice - 1 : null;
+};
 const GAP9 = `When a tracked wallet buys and our price is already 9% or more above what the wallet paid, buy ${STAKE_SOL} SOL`;
 
 /**
@@ -672,6 +677,10 @@ export function summarize(sigs: Signal[], solUsd: number | null) {
     ...VERDICTS.map((v) => ({ id: `copy-d0-trader-${v}-tp10-t${TRADER_EXIT_SEC}`, text: `The same, but only buys of traders whose earlier copies were ${v === "new" ? `too few to judge (under ${TRADER_MIN})` : v}.`, ...score(sigs, (s) => (before.get(s) === v ? traderRet(s) : undefined), solUsd) })),
     { id: `copy-d0-trader-notbad-tp10-t${TRADER_EXIT_SEC}`, text: `The same, but leaving out the buys of traders whose earlier copies were bad (${TRADER_MIN}+ copies, lost on average, fewer than half won).`, ...score(sigs, (s) => (before.get(s) !== "bad" ? traderRet(s) : undefined), solUsd) },
     ...(["notbad", "bad", "good"] as const).map((v) => ({ id: `copy-d0-gap15-trader-${v}-tp10-t${TRADER_EXIT_SEC}`, text: `When a tracked wallet buys and our price is already 15% or more above what the wallet paid, and the trader's earlier copies were ${v === "notbad" ? "not bad" : v}, buy ${STAKE_SOL} SOL the moment we know, sell as soon as it is up 10% after costs, and sell anyway after ${TRADER_EXIT_SEC} s.`, ...score(sigs, (s) => ((gapOf(s) ?? -1) >= 0.15 && (v === "notbad" ? before.get(s) !== "bad" : before.get(s) === v) ? traderRet(s) : undefined), solUsd) })),
+    // 12 Nov 2026 00:41 KST: of 130 real copies, the 54 that landed in the very next block lost 0.111 SOL, the 38
+    // that landed three or more blocks later made 0.047. So: is the 15% bar still good a second or three later?
+    // Here the bar is read from the price at that later moment, and the copy is bought then.
+    ...[1, 3].map((d) => ({ id: `copy-d${d}-gap15-tp10-t${TRADER_EXIT_SEC}`, text: `When a tracked wallet buys, wait ${d} s; if our price is then 15% or more above what the wallet paid, buy ${STAKE_SOL} SOL, sell as soon as it is up 10% after costs, and sell anyway after ${TRADER_EXIT_SEC} s.`, ...score(sigs, (s) => ((gapAt(s, d) ?? -1) >= 0.15 ? scalp(s, d, 10, TRADER_EXIT_SEC) : undefined), solUsd) })),
     // Pace (see paceAt): the same copy, split by how often the trader had bought in the hours before
     ...PACES.map((v) => ({ id: `copy-d0-${v}-tp10-t${TRADER_EXIT_SEC}`, text: `When a tracked wallet buys and that trader had bought ${v === "busy" ? `${PACE_BUSY} or more` : `fewer than ${PACE_BUSY}`} times in the ${PACE_HOURS} hours before, buy ${STAKE_SOL} SOL of the same token the moment we know, sell as soon as it is up 10% after costs, and sell anyway after ${TRADER_EXIT_SEC} s.`, ...score(sigs, (s) => (pace.get(s) === v ? traderRet(s) : undefined), solUsd) })),
     ...PACES.map((v) => ({ id: `copy-d0-gap15-${v}-tp10-t${TRADER_EXIT_SEC}`, text: `The same, but only when our price is already 15% or more above what the wallet paid.`, ...score(sigs, (s) => ((gapOf(s) ?? -1) >= 0.15 && pace.get(s) === v ? traderRet(s) : undefined), solUsd) })),
