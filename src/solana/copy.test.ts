@@ -201,9 +201,31 @@ test("summary: speed first, rules counted, wallets ranked by follow-through", ()
   assert.equal(sum.speed.noWavePct, 50);
   assert.equal(sum.speed.entryGapPctMedian, 10);
   assert.ok(sum.speed.breakEvenPctMedian! > 4);
-  assert.equal(sum.rulesTried, 64);
+  assert.equal(sum.rulesTried, 69);
   assert.equal(sum.wallets[0].name, "Chairman");
   assert.deepEqual(sum.qualified, []);
+});
+
+test("9% buys under other exits: a look at 20 s, stops, and stricter gaps", () => {
+  // our price is 10% above the wallet's; the copy is up 8% at 5 s, flat at 10 s, down 20% at 20 s and 40% at 60 s
+  const s = sig();
+  const rule = (list: Signal[], id: string) => summarize(list, 80).rules.find((r) => r.id === id)!;
+  const at60 = rule([s], "copy-d0-gap9-tp10-t60");
+  assert.deepEqual({ n: at60.n, won: at60.won }, { n: 1, won: 0 });
+  assert.ok(at60.avgRetPct! < -39);
+  // the look at 20 s and both stops sell at the 20 s check, half the loss of waiting for 60 s
+  for (const id of ["copy-d0-gap9-tp10-cut20-t60", "copy-d0-gap9-tp10-sl10-t60", "copy-d0-gap9-tp10-sl20-t60"]) {
+    const r = rule([s], id);
+    assert.equal(r.n, 1, id);
+    assert.ok(r.avgRetPct! < -19 && r.avgRetPct! > -21, id);
+  }
+  // a 10% gap is not in the stricter bands; a 16% gap is in both, a 13% gap only in the first
+  assert.equal(rule([s], "copy-d0-gap12-tp10-t60").n, 0);
+  const far = (price: number) => sig({ entries: { ...s.entries, d0: { ...s.entries.d0!, price } } });
+  assert.deepEqual([rule([far(1.16e-6)], "copy-d0-gap12-tp10-t60").n, rule([far(1.16e-6)], "copy-d0-gap15-tp10-t60").n], [1, 1]);
+  assert.deepEqual([rule([far(1.13e-6)], "copy-d0-gap12-tp10-t60").n, rule([far(1.13e-6)], "copy-d0-gap15-tp10-t60").n], [1, 0]);
+  // a buy under 9% is in none of them
+  assert.equal(rule([far(1.05e-6)], "copy-d0-gap9-tp10-cut20-t60").n, 0);
 });
 
 test("exit study: long path, trailing exit, and nothing invented for times never checked", () => {
