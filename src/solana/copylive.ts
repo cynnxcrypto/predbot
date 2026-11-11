@@ -1,10 +1,14 @@
 /**
  * REAL MONEY (small, capped): the landing-speed test for wallet copying. enrique, 11 Nov 2026 16:21 KST: "go 0.5".
  *
- * What it does: when a tracked wallet's buy arrives on the fast stream, buy STAKE of the same token at once, hold a
- * few seconds, sell everything, and record where our buy really landed (how many slots behind the wallet, how
- * many transactions ahead of us), what we really paid against the wallet's price, and what came back. The purpose
- * is to measure, not to earn: paper cannot tell whether our own order lands in time.
+ * What it does: when a tracked wallet's buy arrives on the fast stream, buy STAKE of the same token at once, hold
+ * it, sell everything, and record where our buy really landed (how many slots behind the wallet, how many
+ * transactions ahead of us), what we really paid against the wallet's price, and what came back. The purpose is to
+ * measure, not to earn: paper cannot tell whether our own order lands in time.
+ *
+ * The exit (enrique, 11 Nov 2026 18:13 KST, on a decision card: "Switch to +10% or 60 s"): while holding, ask every
+ * moment what a sale would bring back; sell as soon as that is `targetPct` above the stake, and sell anyway after
+ * `holdSec`. With targetPct 0 it is the old fixed hold. No stop: on paper the stops cost more than they saved.
  *
  * Guards, all in code:
  *  - OFF unless deploy/live-rules.json has "solanaCopy": { "on": true, ... } (MAIN owns that file). SOLANA_LIVE=off
@@ -41,12 +45,14 @@ export interface LiveConfig {
   stakeSol: number;
   maxLossSol: number;
   holdSec: number;
+  /** sell as soon as a sale would bring back this much more than the stake, %; 0 = hold the full time */
+  targetPct: number;
   maxPerDay: number;
   slippageBps: number;
   /** most we will pay in priority fee per transaction, lamports */
   maxFeeLamports: number;
 }
-const OFF: LiveConfig = { on: false, stakeSol: 0, maxLossSol: 0, holdSec: 5, maxPerDay: 0, slippageBps: 1500, maxFeeLamports: 0 };
+const OFF: LiveConfig = { on: false, stakeSol: 0, maxLossSol: 0, holdSec: 5, targetPct: 0, maxPerDay: 0, slippageBps: 1500, maxFeeLamports: 0 };
 const num = (v: unknown, d: number) => (typeof v === "number" && Number.isFinite(v) ? v : d);
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 
@@ -61,6 +67,7 @@ export function parseLive(text: string): LiveConfig {
     return {
       on: true, stakeSol, maxLossSol,
       holdSec: clamp(num(p.holdSec, 5), 1, 60),
+      targetPct: clamp(num(p.targetPct, 0), 0, 50),
       maxPerDay: clamp(Math.floor(num(p.maxPerDay, 80)), 1, 200),
       slippageBps: clamp(Math.floor(num(p.slippageBps, 1500)), 100, 3000),
       maxFeeLamports: clamp(Math.floor(num(p.maxFeeLamports, 1_000_000)), 10_000, 2_000_000),
@@ -100,6 +107,12 @@ export interface Row {
   sold?: boolean;
   sellTries?: number;
   heldSec?: number;
+  /** how the position was closed: at the profit target, or because the time was up (absent = the old fixed hold) */
+  exit?: "target" | "time";
+  /** the best a sale would have brought back while we held, % over the stake */
+  bestPct?: number;
+  /** sales tried at the target (one that fails, because the price fell back first, costs a fee and the watch goes on) */
+  targetTries?: number;
   /** wallet balance after minus before: the true result, every fee included */
   netSol: number;
   /** follower transactions that landed in an earlier slot than ours / no later than ours */
@@ -117,7 +130,7 @@ interface State {
   note: string;
   balanceSol: number | null;
   /** a copy that is under way or could not be closed: the token, the balance it is counted from, when, clean-up tries */
-  open: { mint: string; bal0: number; t: number; tries: number } | null;
+  open: { mint: string; bal0: number; t: number; tries: number; worthSol?: number; nowPct?: number; bestPct?: number } | null;
   rows: Row[];
 }
 let state: State = { netSol: 0, trades: 0, day: "", dayCount: 0, halted: "", note: "", balanceSol: null, open: null, rows: [] };
@@ -232,6 +245,52 @@ async function sellAll(w: Wallet, mint: string, maxFee: number, row: Row): Promi
     const h = await held(w.address, mint).catch(() => null);
     if (h) return h.amount === 0n;
     await sleep(1000);
+  }
+  return false;
+}
+
+/** How often the held position is priced, and how much of the quoted amount a target sale may give back. */
+let pollMs = 750;
+const TARGET_SLIP_BPS = 500;
+
+/**
+ * Hold a position until `until`: every pollMs ask what selling all of it would bring back now. With a target, sell
+ * as soon as that is `targetPct` above the stake. That sale is built from the very quote that showed the profit and
+ * may give back at most TARGET_SLIP_BPS of it: if the price fell back first it fails (one fee) and the watch goes on.
+ * True = sold here. False = the time is up (or nothing could be priced): the caller sells at whatever the price is.
+ * Never throws.
+ */
+async function watch(w: Wallet, mint: string, amount: bigint, c: LiveConfig, row: Row, until: number): Promise<boolean> {
+  while (Date.now() < until) {
+    const t = Date.now();
+    try {
+      const q = await quote(mint, SOL, amount.toString(), TARGET_SLIP_BPS);
+      const out = Number(q.outAmount);
+      if (out > 0 && c.stakeSol > 0) {
+        const up = (out / 1e9 / c.stakeSol - 1) * 100;
+        row.bestPct = Math.round(Math.max(row.bestPct ?? -100, up) * 10) / 10;
+        if (state.open) state.open = { ...state.open, worthSol: Math.round(out / 1e3) / 1e6, nowPct: Math.round(up * 10) / 10, bestPct: row.bestPct };
+        if (c.targetPct > 0 && up >= c.targetPct) {
+          row.targetTries = (row.targetTries ?? 0) + 1;
+          row.sellTries = (row.sellTries ?? 0) + 1;
+          const tx = signTransaction(await swapTx(q, w.address, c.maxFeeLamports), w);
+          row.sigs.push(sigOf(tx));
+          // as with every send: an answer that got lost proves nothing, so the wallet is looked at afterwards
+          await send(tx).catch((e) => void (row.error = scrub(String((e as Error).message))));
+          await landed(sigOf(tx), 8000);
+          await sleep(300);
+          const h = await held(w.address, mint);
+          if (h.amount === 0n) {
+            row.exit = "target";
+            return true;
+          }
+          amount = h.amount;
+        }
+      }
+    } catch (e) {
+      row.error = scrub(String((e as Error).message));
+    }
+    await sleep(Math.max(50, pollMs - (Date.now() - t)));
   }
   return false;
 }
@@ -353,8 +412,11 @@ export async function trade(b: StreamBuy) {
     if (h.amount > 0n) {
       if (b.leaderPrice > 0) row.fillGapPct = Math.round((c.stakeSol / (Number(h.amount) / 10 ** h.decimals) / b.leaderPrice - 1) * 10000) / 100;
       const heldFrom = Date.now();
-      await sleep(c.holdSec * 1000);
-      row.sold = await sellAll(w, b.mint, c.maxFeeLamports, row);
+      if (await watch(w, b.mint, h.amount, c, row, heldFrom + c.holdSec * 1000)) row.sold = true;
+      else {
+        if (c.targetPct > 0) row.exit = "time";
+        row.sold = await sellAll(w, b.mint, c.maxFeeLamports, row);
+      }
       row.heldSec = Math.round((Date.now() - heldFrom) / 100) / 10;
       if (!row.sold) {
         closed = false;
@@ -448,6 +510,8 @@ export function solanaCopyLiveSummary() {
   const c = cfg();
   const rows = state.rows;
   const land = rows.filter((r) => r.buy === "landed");
+  // the copies made since the exit became "target or time", counted apart from the fixed-hold ones before them
+  const aimed = rows.filter((r) => r.exit);
   return {
     mode: "REAL",
     on: c.on && !state.halted && walletReady,
@@ -460,6 +524,22 @@ export function solanaCopyLiveSummary() {
     netSol: state.netSol,
     balanceSol: state.balanceSol,
     openPosition: state.open != null,
+    exitRule: c.targetPct > 0 ? `sells at +${c.targetPct}% or after ${c.holdSec} s` : `sells after ${c.holdSec} s`,
+    /**
+     * What is held right now, in numbers only (the dashboard's "holding now" block reads these names). The token is
+     * left out on purpose: a token and a moment are enough to find our transaction, and with it the wallet.
+     * worthSol = what selling it all would bring back at the last look.
+     */
+    open: state.open ? { stakeSol: c.stakeSol || HARD_STAKE_SOL, heldSec: Math.max(0, Math.round((Date.now() - state.open.t) / 1000)), tries: state.open.tries, worthSol: state.open.worthSol ?? null, nowPct: state.open.nowPct ?? null, bestPct: state.open.bestPct ?? null } : null,
+    targetExit: {
+      copies: aimed.length,
+      atTarget: aimed.filter((r) => r.exit === "target").length,
+      atTimeUp: aimed.filter((r) => r.exit === "time").length,
+      won: aimed.filter((r) => r.netSol > 0).length,
+      netSol: Math.round(aimed.reduce((a, r) => a + r.netSol, 0) * 1e6) / 1e6,
+      bestPctMedian: med(nums(aimed.map((r) => r.bestPct))),
+      missedTargetSales: aimed.reduce((a, r) => a + Math.max(0, (r.targetTries ?? 0) - (r.exit === "target" ? 1 : 0)), 0),
+    },
     copies: rows.filter((r) => r.buy !== "not sent").length,
     landed: land.length,
     notLanded: rows.filter((r) => r.buy === "did not land" || r.buy === "failed on chain").length,
@@ -473,7 +553,7 @@ export function solanaCopyLiveSummary() {
     buildMsMedian: med(nums(rows.map((r) => r.buildMs))),
     sendMsMedian: med(nums(rows.map((r) => r.sendMs))),
     fillGapPctMedian: med(nums(land.map((r) => r.fillGapPct))),
-    recent: rows.slice(-15).reverse().map((r) => ({ buy: r.buy, slotsBehind: r.slotsBehind ?? null, ahead: r.ahead ?? null, pipelineMs: r.pipelineMs ?? null, fillGapPct: r.fillGapPct ?? null, sold: r.sold ?? null, heldSec: r.heldSec ?? null, netSol: r.netSol })),
+    recent: rows.slice(-15).reverse().map((r) => ({ buy: r.buy, slotsBehind: r.slotsBehind ?? null, ahead: r.ahead ?? null, pipelineMs: r.pipelineMs ?? null, fillGapPct: r.fillGapPct ?? null, sold: r.sold ?? null, heldSec: r.heldSec ?? null, exit: r.exit ?? null, bestPct: r.bestPct ?? null, netSol: r.netSol })),
   };
 }
 
@@ -510,4 +590,6 @@ export const _test = {
     wallet();
     walletReady = true;
   },
+  watch,
+  setPoll: (ms: number) => (pollMs = ms),
 };
