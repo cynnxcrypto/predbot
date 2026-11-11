@@ -58,12 +58,16 @@ const rpcUrl = () => (helius() ? `https://mainnet.helius-rpc.com/?api-key=${heli
 const wsUrl = () => (helius() ? `wss://mainnet.helius-rpc.com/?api-key=${helius()}` : "wss://api.mainnet-beta.solana.com");
 
 let gate: Promise<unknown> = Promise.resolve();
+/** After a 429 (rate limit) every RPC call waits until this time. First run on the public RPC, 11 Nov 2026: 119
+ *  errors in the first minute, all "http 429", and the liquidity reader shares that limit. */
+let coolUntil = 0;
 /** One RPC call at a time with a small gap, so a burst of signals cannot trip the rate limit. */
 async function rpc<T>(method: string, params: unknown[]): Promise<T> {
-  const turn = gate.then(() => sleep(helius() ? 25 : 150));
+  const turn = gate.then(() => sleep(Math.max(helius() ? 25 : 400, coolUntil - Date.now())));
   gate = turn.catch(() => undefined);
   await turn;
   const res = await net(rpcUrl(), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }), signal: AbortSignal.timeout(8000) });
+  if (res.status === 429) coolUntil = Date.now() + (helius() ? 1000 : 5000);
   if (!res.ok) throw new Error(`rpc ${method} http ${res.status}`);
   const j = (await res.json()) as { result?: T; error?: { message: string } };
   if (j.error) throw new Error(`rpc ${method}: ${j.error.message}`);
@@ -235,6 +239,10 @@ async function onTx(w: Tracked, sig: string, seenMs: number) {
 // ---- live feed --------------------------------------------------------------------------------------------------
 let ws: WebSocket | null = null;
 let stopped = false;
+/** Transactions being looked at now. Every one queues RPC reads; past this many new ones are dropped, so a very
+ *  busy wallet cannot build an endless queue in the process that also runs the Polymarket bot. */
+let pending = 0;
+const MAX_PENDING = 200;
 
 function connect() {
   if (stopped) return;
@@ -280,7 +288,13 @@ function connect() {
     else if (m.method === "logsNotification" && m.params) {
       const w = subOf.get(m.params.subscription);
       const v = m.params.result.value;
-      if (w && v && !v.err && !/^1+$/.test(v.signature)) void onTx(w, v.signature, now).catch(fail);
+      if (w && v && !v.err && !/^1+$/.test(v.signature)) {
+        if (pending >= MAX_PENDING) health.skippedBusy++;
+        else {
+          pending++;
+          void onTx(w, v.signature, now).catch(fail).finally(() => pending--);
+        }
+      }
     }
   };
   sock.onerror = () => fail(new Error("websocket error"));
