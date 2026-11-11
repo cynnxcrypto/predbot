@@ -165,3 +165,28 @@ test("pairfast: the twin of the real rule starts pairs only at 17-83c and stops 
   // no new pair in the last 2 minutes
   run(newSim(T0, 300), real, book(0.48, 30), book(0.51, 20), at(185));
 });
+
+test("pairfast: research twins: favourite-only first leg, late start, and a bid pulled while spot moves against it", () => {
+  const by = (n: string) => PAIRFAST.find((p) => p.name === n)!;
+  const fav = newSim(T0, 300);
+  run(fav, by("pairfast-fav60-lock-5m"), book(0.36, 30), book(0.63, 20), at(30));
+  assert.deepEqual(view(fav), [["D", 0.63, null, 6]]);
+  // once the favourite has filled, the other side may be bid to complete the pair (never above 99c together)
+  Object.assign(fav, { orders: [], inv: { U: 0, D: 6 }, cost: { U: 0, D: 3.78 } });
+  run(fav, by("pairfast-fav60-lock-5m"), book(0.36, 30), book(0.63, 20), at(40));
+  assert.deepEqual(view(fav), [["U", 0.36, null, 6]]);
+  const late = newSim(T0, 300);
+  run(late, by("pairfast-late-lock-5m"), book(0.48, 30), book(0.51, 20), at(100));
+  assert.equal(late.orders.length, 0);
+  run(late, by("pairfast-late-lock-5m"), book(0.48, 30), book(0.51, 20), at(130));
+  assert.equal(late.orders.length, 2);
+  const pull = newSim(T0, 300);
+  const sp = by("pairfast-pull-lock-5m");
+  sync(pull, book(0.48, 30), book(0.51, 20), at(30));
+  quote(pull, sp, book(0.48, 30), book(0.51, 20), at(30));
+  assert.equal(pull.orders.length, 2);
+  // spot fell: the Up bid is cancelled (it can still be hit for LAG ms), the Down bid stays
+  sync(pull, book(0.48, 30), book(0.51, 20), at(31));
+  quote(pull, sp, book(0.48, 30), book(0.51, 20), at(31), { U: true });
+  assert.deepEqual(pull.orders.map((o) => [o.side, o.deadAt != null]), [["U", true], ["D", false]]);
+});
