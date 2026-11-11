@@ -31,8 +31,14 @@ import { base58 } from "./whirlpool.js";
 
 export const HARD_STAKE_SOL = 0.05;
 export const HARD_MAX_LOSS_SOL = 0.5;
-/** enrique agreed to fund 0.5 SOL. With clearly more than that in the wallet nothing trades (MAIN review, 11 Nov 2026). */
+/**
+ * enrique agreed to fund 0.5 SOL. With clearly more than that put into the wallet nothing trades (MAIN review, 11 Nov
+ * 2026). What the test itself has won is not "more put in": the limit moves up with the booked profit (walletLimit),
+ * so a winning test never stops itself. His rule: a hidden setting must never silently stop trading.
+ */
 export const MAX_WALLET_SOL = 0.6;
+const walletLimit = () => Math.round((MAX_WALLET_SOL + Math.max(0, state.netSol)) * 1e6) / 1e6;
+const tooMuch = () => `the wallet holds more than was agreed (${MAX_WALLET_SOL} SOL plus what the test has won, ${walletLimit()} SOL now): not buying until the extra is taken out`;
 /** Room kept under the cap for the fees of one copy (a buy, up to six sale tries, an unclosed token account). */
 export const FEE_ROOM_SOL = 0.03;
 export const MAX_RECOVERIES = 3;
@@ -530,8 +536,8 @@ export async function trade(b: StreamBuy) {
     }
     // The transactions come from an API and are signed unread, so what is at risk is whatever the wallet holds:
     // with more in it than was agreed, nothing trades.
-    if (bal0 > MAX_WALLET_SOL) {
-      state.note = `the wallet holds more than ${MAX_WALLET_SOL} SOL: not trading until the extra is taken out`;
+    if (bal0 > walletLimit()) {
+      state.note = tooMuch();
       return;
     }
     state.note = "";
@@ -794,8 +800,8 @@ async function tradeMany(b: StreamBuy, c: LiveConfig) {
       state.note = "wallet balance too low for a copy";
       return;
     }
-    if (bal0 > MAX_WALLET_SOL) {
-      state.note = `the wallet holds more than ${MAX_WALLET_SOL} SOL: not trading until the extra is taken out`;
+    if (bal0 > walletLimit()) {
+      state.note = tooMuch();
       return;
     }
     // the start the books are checked against: the balance with nothing out, less the result so far
