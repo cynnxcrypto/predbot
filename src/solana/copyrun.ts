@@ -46,7 +46,7 @@ export function scrub(s: string): string {
 }
 
 const health = {
-  startedAt: 0, feed: "public", quotes: "none", wsUp: false, subs: 0, badWallets: [] as string[],
+  startedAt: 0, feed: "public", stream: "not tried", streamTx: 0, quotes: "none", wsUp: false, subs: 0, badWallets: [] as string[],
   txSeen: 0, buys: 0, skippedBusy: 0, active: 0, rpcErrors: 0, quoteErrors: 0, quoteOk: 0, lastError: "",
 };
 const fail = (e: unknown) => (health.lastError = scrub(String((e as Error)?.message ?? e)));
@@ -136,7 +136,9 @@ export function buildCopySummary() {
       // leftOutSlow = read on the Helius feed but known more than 30 s late. Those ARE about our speed: if this
       // number keeps growing while the feed is healthy, the medians below flatter us.
       const slow = helius() ? signals.filter((x) => x.feed.startsWith("helius") && x.leaderTime > 0 && x.knownMs - x.leaderTime * 1000 > 30_000).length : 0;
-      return { leftOut: signals.length - clean.length, leftOutSlow: slow, ...summarize(clean, solUsd) };
+      // Speed per feed, so the fast stream and the slower signature feed are never averaged together.
+      const byFeed = [...new Set(clean.map((x) => x.feed))].map((feed) => ({ feed, ...summarize(clean.filter((x) => x.feed === feed), solUsd).speed }));
+      return { leftOut: signals.length - clean.length, leftOutSlow: slow, byFeed, ...summarize(clean, solUsd) };
     })(),
   };
 }
@@ -181,12 +183,12 @@ async function waveAfter(mint: string, sig: string, leaderSlot: number): Promise
   return null; // too busy to count from the start
 }
 
-async function onTx(w: Tracked, sig: string, seenMs: number) {
+async function onTx(w: Tracked, sig: string, seenMs: number, ready: ParsedTx | null = null) {
   if (seen.has(sig)) return;
   seen.add(sig);
   if (seen.size > 20_000) seen.clear();
   health.txSeen++;
-  let tx: ParsedTx | null = null;
+  let tx: ParsedTx | null = ready; // the transaction stream hands us the whole transaction: no lookup, no wait
   // Without the Helius key the public RPC refuses most of these (11 Nov 2026: 2,534 errors and 3 buys read in 45
   // min), so only two tries there: more would just add to a limit the liquidity reader shares.
   // Version 1 transactions exist on mainnet (11 Nov 2026: asking for version 0 only made Helius refuse them, 787
@@ -215,7 +217,7 @@ async function onTx(w: Tracked, sig: string, seenMs: number) {
   const knownMs = Date.now();
   const s: Signal = {
     sig, wallet: w.address, name: w.name, mint: buy.mint, leaderSlot: buy.slot, leaderTime: buy.blockTime, leaderSol: buy.sol, leaderPrice: buy.price,
-    seenMs, knownMs, lagSlots: slotNow ? slotNow - buy.slot : null, feed: health.feed, entries: {}, exits: {}, crowd: null,
+    seenMs, knownMs, lagSlots: slotNow ? slotNow - buy.slot : null, feed: ready ? "helius transaction stream" : health.feed, entries: {}, exits: {}, crowd: null,
   };
   try {
     const dec = await tokenDecimals(buy.mint).catch(() => 6);
@@ -240,6 +242,7 @@ async function onTx(w: Tracked, sig: string, seenMs: number) {
       }));
     }));
     await sleep(Math.max(0, knownMs + 70_000 - Date.now()));
+    if (!s.leaderTime) s.leaderTime = (await rpc<number | null>("getBlockTime", [buy.slot]).catch(() => null)) ?? 0;
     const wave = await waveAfter(buy.mint, sig, buy.slot).catch((e) => (health.rpcErrors++, fail(e), null));
     if (wave) s.crowd = crowd(wave, buy.slot, s.entries);
     signals.push(s);
@@ -281,6 +284,10 @@ function connect() {
   sock.onopen = () => {
     health.wsUp = true;
     sock.send(JSON.stringify({ jsonrpc: "2.0", id: 1, method: "slotSubscribe" }));
+    // Fast path (Helius only): one subscription that pushes the whole transaction as soon as it is processed, so we
+    // know the token without a second request. If the plan or the endpoint refuses it, the reply is an error, the
+    // stream stays off and the signature feed below carries on as before.
+    if (helius()) sock.send(JSON.stringify({ jsonrpc: "2.0", id: 3, method: "transactionSubscribe", params: [{ accountInclude: list.map((w) => w.address), vote: false, failed: false }, { commitment: "processed", encoding: "jsonParsed", transactionDetails: "full", showRewards: false, maxSupportedTransactionVersion: 1 }] }));
     list.forEach((w, i) => {
       reqOf.set(100 + i, w);
       sock.send(JSON.stringify({ jsonrpc: "2.0", id: 100 + i, method: "logsSubscribe", params: [{ mentions: [w.address] }, { commitment: "processed" }] }));
@@ -292,6 +299,29 @@ function connect() {
     try {
       m = JSON.parse(String(ev.data));
     } catch {
+      return;
+    }
+    if (m.id === 3) {
+      health.stream = m.error ? `refused: ${scrub(m.error.message)}` : "on";
+      return;
+    }
+    if (m.method === "transactionNotification") {
+      const r = (m.params?.result ?? {}) as unknown as { signature?: string; slot?: number; transaction?: { transaction?: ParsedTx["transaction"]; meta?: ParsedTx["meta"] } };
+      const t = r.transaction;
+      if (!r.signature || !r.slot || !t?.meta || t.meta.err || Array.isArray(t.transaction) || !t.transaction?.message) return;
+      health.streamTx++;
+      const tx: ParsedTx = { slot: r.slot, blockTime: null, meta: t.meta, transaction: t.transaction };
+      const keys = new Set(tx.transaction.message.accountKeys.map((k) => (typeof k === "string" ? k : k.pubkey)));
+      const w = list.find((x) => keys.has(x.address) && parseBuy(tx, x.address));
+      if (!w) {
+        seen.add(r.signature); // not a buy by a tracked wallet: nothing to look up when the signature feed repeats it
+        return;
+      }
+      if (pending >= MAX_PENDING) health.skippedBusy++;
+      else {
+        pending++;
+        void onTx(w, r.signature, now, tx).catch(fail).finally(() => pending--);
+      }
       return;
     }
     if (m.id !== undefined) {
