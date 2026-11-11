@@ -131,7 +131,8 @@ test("runner: a buy becomes a scored signal, and keys never leak", async () => {
     assert.equal(quotes, 3 + 3 * 7 + 1);
     const sum = buildCopySummary();
     assert.equal(sum.mode, "paper");
-    assert.equal(sum.speed.buysSeen, 1);
+    assert.equal(sum.speed.buysSeen, 0); // the test buy is from 2027 block time on a non-Helius feed: left out
+    assert.equal(sum.leftOut, 1);
     const files = readFileSync(join(dir, "solana", "copy-signals.jsonl"), "utf8") + readFileSync(join(dir, "solana-copy-summary.json"), "utf8");
     assert.ok(!files.includes("SECRET"));
   } finally {
