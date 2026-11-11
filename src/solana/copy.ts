@@ -24,6 +24,16 @@ export const TX_SOL = 0.001;
 export const MIN_BUY_SOL = 0.1;
 export const DELAYS = [0, 1, 3] as const;
 export const EXITS = [2, 5, 10, 20, 30, 60, 120] as const;
+/**
+ * The exit study (enrique, 11 Nov 2026 17:38 KST: is it right to get out on the first pump of copy traders, and if
+ * it only goes up moderately, how long does it make sense to hold?). Extra checks on the fastest copy only, in
+ * seconds: finer in the first seconds and out to 10 minutes. GRID is every time the fastest copy is checked at.
+ */
+export const PATH = [1, 3, 15, 45, 90, 180, 300, 600] as const;
+export const GRID: readonly number[] = [...EXITS, ...PATH].sort((a, b) => a - b);
+export const HOLD_MAX = 600;
+/** Trailing exits: sell at the first check where the copy is this many points below its best level so far. */
+export const TRAILS = [5, 10, 20] as const;
 /** Scalp rules: sell at the first check where the return reaches the target (%), otherwise at the time stop (s). */
 export const TARGETS = [3, 5, 10] as const;
 export const TIME_STOP = 60;
@@ -102,6 +112,8 @@ export interface Signal {
   /** SOL received selling the entry's tokens, by delay then exit; null = no quote */
   exits: Record<string, Record<string, number | null>>;
   crowd: Crowd | null;
+  /** SOL received selling the fastest entry's tokens at the PATH times; a missing key = not checked (older signal, or a restart cut it short) */
+  path?: Record<string, number | null>;
   /** MEASURED: what the first followers really paid, those that landed in the wallet's block or the next one (median SOL per token over n of them, at most 5) */
   near?: { n: number; price: number } | null;
 }
@@ -191,6 +203,43 @@ export function ret(s: Signal, d: number, x: number): number | undefined {
   return (out - 2 * TX_SOL) / STAKE_SOL - 1;
 }
 
+/** SOL the fastest copy would get back x seconds after its entry. undefined = not checked at that time. */
+export function outAt(s: Signal, x: number): number | null | undefined {
+  const k = `x${x}`;
+  const ex = s.exits.d0;
+  if (ex && k in ex) return ex[k];
+  if (s.path && k in s.path) return s.path[k];
+  return undefined;
+}
+
+/**
+ * Return of the fastest copy sold x seconds after its entry, as a fraction of the stake after costs, over the whole
+ * GRID. A missing quote is a total loss only when no later check got a quote either (the token could not be sold
+ * any more); a time that was never checked cannot be scored.
+ */
+export function pathRet(s: Signal, x: number): number | undefined {
+  if (!s.entries.d0) return undefined;
+  const out = outAt(s, x);
+  if (out === undefined) return undefined;
+  if (out === null) return GRID.filter((g) => g > x).map((g) => outAt(s, g)).every((v) => v == null) ? -1 : undefined;
+  return (out - 2 * TX_SOL) / STAKE_SOL - 1;
+}
+
+export const trailId = (t: number) => `copy-d0-trail${t}-t${HOLD_MAX}`;
+export const trailText = (t: number) =>
+  `When a tracked wallet buys, buy ${STAKE_SOL} SOL of the same token the moment we know, sell at the first check where it is ${t} points below its best level since we bought (so also at -${t}%), and sell anyway after ${HOLD_MAX / 60} min.`;
+/** Trailing exit over the GRID checks. Cannot be scored when it neither triggered nor was followed to the end. */
+export function trail(s: Signal, t: number): number | undefined {
+  let peak = 0;
+  for (const x of GRID) {
+    const v = pathRet(s, x);
+    if (v === undefined) continue;
+    if (v > peak) peak = v;
+    if (v === -1 || v <= peak - t / 100 || x === HOLD_MAX) return v;
+  }
+  return undefined;
+}
+
 /** Assumed extra paid over the wallet's own average price by a buy landing right behind it (same or next block). */
 export const SAME_BLOCK_SLIP = 0.02;
 export const sameId = (x: number) => `same-block-x${x}`;
@@ -226,6 +275,65 @@ function score(sigs: Signal[], f: (s: Signal) => number | undefined, solUsd: num
   return { n: rs.length, won: rs.filter((v) => v > 0).length, netSol: r(net, 4), netUsd: solUsd ? r(net * solUsd) : null, medianRetPct: r((med(rs) ?? 0) * 100), avgRetPct: rs.length ? r((net / STAKE_SOL / rs.length) * 100) : null };
 }
 
+/**
+ * The exit study: how the fastest paper copy stands at every check, when it stood best, and whether the first
+ * wave's strength or the first 5 seconds tell how long to hold. Numbers only, no rule picked.
+ */
+export function exitStudy(sigs: Signal[]) {
+  const ss = sigs.filter((s) => s.entries.d0);
+  const cell = (g: Signal[], x: number) => {
+    const rs = nums(g.map((s) => pathRet(s, x)));
+    return { sec: x, n: rs.length, won: rs.filter((v) => v > 0).length, medianRetPct: r((med(rs) ?? NaN) * 100), avgRetPct: rs.length ? r((rs.reduce((a, b) => a + b, 0) / rs.length) * 100) : null };
+  };
+  const best = ss.flatMap((s) => {
+    let b: { x: number; v: number } | null = null;
+    for (const x of GRID) {
+      const v = pathRet(s, x);
+      if (v !== undefined && (!b || v > b.v)) b = { x, v };
+    }
+    return b ? [b] : [];
+  });
+  const share = (f: (b: { x: number; v: number }) => boolean) => (best.length ? r((best.filter(f).length / best.length) * 100, 0) : null);
+  const cut = Math.max(1, Math.ceil(med(nums(ss.map((s) => s.crowd?.s10))) ?? 1));
+  const waved = ss.filter((s) => s.crowd);
+  const at5 = (lo: number, hi: number) => ss.filter((s) => {
+    const v = pathRet(s, 5);
+    return v !== undefined && v >= lo && v < hi;
+  });
+  const group = (name: string, g: Signal[], holds: number[]) => ({ group: name, n: g.length, holds: holds.map((x) => cell(g, x)), target10: (() => {
+    const rs = nums(g.map((s) => scalp(s, 0, 10)));
+    return { n: rs.length, won: rs.filter((v) => v > 0).length, medianRetPct: r((med(rs) ?? NaN) * 100) };
+  })() });
+  return {
+    note: "Paper, fastest copy only, after costs. Checks are at fixed times, so a spike between two checks is missed. The 3 to 10 minute checks exist only for buys seen since 11 Nov 2026 18:00 KST. `target10` = sell at the first check up 10%, else at 60 s.",
+    n: ss.length,
+    /** how the copy stands at each check: how many are above zero, typical and average return */
+    path: GRID.map((x) => cell(ss, x)),
+    /** when each copy stood best */
+    best: {
+      n: best.length,
+      medianBestPct: r((med(best.map((b) => b.v)) ?? NaN) * 100),
+      medianBestSec: med(best.map((b) => b.x)),
+      bestWithin5sPct: share((b) => b.x <= 5),
+      bestWithin30sPct: share((b) => b.x <= 30),
+      bestAfter2minPct: share((b) => b.x > 120),
+      everUp3Pct: share((b) => b.v >= 0.03),
+      everUp10Pct: share((b) => b.v >= 0.1),
+    },
+    /** does a strong first wave of followers change the answer */
+    byWave: [
+      group(`strong first wave (${cut}+ follower transactions in ~4 s)`, waved.filter((s) => s.crowd!.s10 >= cut), [5, 30, 60, 120, 300, 600]),
+      group(`weak first wave (under ${cut})`, waved.filter((s) => s.crowd!.s10 < cut), [5, 30, 60, 120, 300, 600]),
+    ],
+    /** given where the copy stands after 5 s, what holding on did */
+    byStart: [
+      group("down at 5 s", at5(-Infinity, 0), [10, 30, 60, 120, 300, 600]),
+      group("up moderately at 5 s (0 to 10%)", at5(0, 0.1), [10, 30, 60, 120, 300, 600]),
+      group("up strongly at 5 s (10% or more)", at5(0.1, Infinity), [10, 30, 60, 120, 300, 600]),
+    ],
+  };
+}
+
 export function summarize(sigs: Signal[], solUsd: number | null) {
   const lagMs = nums(sigs.map((s) => (s.leaderTime ? s.knownMs - s.leaderTime * 1000 : null)));
   const speed = {
@@ -255,6 +363,8 @@ export function summarize(sigs: Signal[], solUsd: number | null) {
     ...DELAYS.flatMap((d) => EXITS.map((x) => ({ id: ruleId(d, x), text: ruleText(d, x), ...score(sigs, (s) => ret(s, d, x), solUsd) }))),
     ...DELAYS.flatMap((d) => TARGETS.map((tp) => ({ id: scalpId(d, tp), text: scalpText(d, tp), ...score(sigs, (s) => scalp(s, d, tp), solUsd) }))),
     ...STOPS.map(([tp, sl]) => ({ id: stopId(tp, sl), text: stopText(tp, sl), ...score(sigs, (s) => scalpStop(s, tp, sl), solUsd) })),
+    ...[300, 600].map((x) => ({ id: ruleId(0, x), text: ruleText(0, x), ...score(sigs, (s) => pathRet(s, x), solUsd) })),
+    ...TRAILS.map((t) => ({ id: trailId(t), text: trailText(t), ...score(sigs, (s) => trail(s, t), solUsd) })),
   ];
   const by = new Map<string, Signal[]>();
   for (const s of sigs) by.set(s.wallet, [...(by.get(s.wallet) ?? []), s]);
@@ -287,5 +397,5 @@ export function summarize(sigs: Signal[], solUsd: number | null) {
     rules: EXITS.map((x) => ({ id: sameId(x), ...score(sigs, (s) => sameBlockRet(s, x), solUsd) })),
   };
   const qualified = rules.filter((x) => x.n >= 100 && x.won / x.n >= 0.5 && (x.netSol ?? 0) > 0).map((x) => x.id);
-  return { speed, rulesTried: rules.length, inProfit: rules.filter((x) => (x.netSol ?? 0) > 0).length, qualified, rules, sameBlock, wallets, recent };
+  return { speed, rulesTried: rules.length, inProfit: rules.filter((x) => (x.netSol ?? 0) > 0).length, qualified, rules, exitStudy: exitStudy(sigs), sameBlock, wallets, recent };
 }
