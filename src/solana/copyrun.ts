@@ -13,6 +13,7 @@ import { fileURLToPath } from "node:url";
 import { DATA } from "../config.js";
 import { crowd, DELAYS, EXITS, followerPrice, parseBuy, STAKE_SOL, summarize, TX_SOL, type Entry, type ParsedTx, type Signal } from "./copy.js";
 import { SOL, USDC } from "./pools.js";
+import { discoverSummary, foundWallets, startDiscover, stopDiscover } from "./discover.js";
 import { validAddress, WALLETS, type Tracked } from "./wallets.js";
 
 const SIGNALS = () => join(DATA, "solana", "copy-signals.jsonl");
@@ -46,7 +47,7 @@ export function scrub(s: string): string {
 }
 
 const health = {
-  startedAt: 0, feed: "public", stream: "not tried", streamTx: 0, quotes: "none", wsUp: false, wallets: 0, subs: 0, badWallets: [] as string[],
+  startedAt: 0, feed: "public", stream: "not tried", streamTx: 0, quotes: "none", wsUp: false, wallets: 0, found: 0, subs: 0, badWallets: [] as string[],
   senderPingMs: {} as Record<string, number | null>, quoteMsMedian: null as number | null,
   txSeen: 0, buys: 0, skippedBusy: 0, active: 0, rpcErrors: 0, quoteErrors: 0, quoteOk: 0, lastError: "",
 };
@@ -121,7 +122,12 @@ function load() {
 /** With a Helius key, how many wallets also get the slower signature feed (each of its buys costs a second request). */
 const LOGS_MAX = 50;
 
-function tracked(): Tracked[] {
+/** Most wallets the finder may add to one connection. */
+const FOUND_MAX = 100;
+const foundAs = (address: string): Tracked => ({ name: `found ${address.slice(0, 4)}`, address, found: true });
+
+/** The listed wallets: the built-in list, or data/solana-wallets.json when it exists. */
+function listed(): Tracked[] {
   let list = WALLETS;
   try {
     list = JSON.parse(readFileSync(join(DATA, "solana-wallets.json"), "utf8")) as Tracked[];
@@ -129,8 +135,17 @@ function tracked(): Tracked[] {
     /* built-in list */
   }
   health.badWallets = list.filter((w) => !validAddress(w.address)).map((w) => w.name);
-  list = list.filter((w) => validAddress(w.address));
+  return list.filter((w) => validAddress(w.address));
+}
+
+/** Listed wallets first (their order matters: the first LOGS_MAX keep the signature feed), then the found ones. */
+function tracked(): Tracked[] {
+  const list = [...listed()];
+  const have = new Set(list.map((w) => w.address));
+  const found = foundWallets().filter((a) => !have.has(a) && validAddress(a)).slice(0, FOUND_MAX).map(foundAs);
+  list.push(...found);
   health.wallets = list.length;
+  health.found = found.length;
   return list;
 }
 
@@ -141,6 +156,7 @@ export function buildCopySummary() {
     updatedAt: Date.now(),
     solUsd,
     health: { ...health, active: health.active },
+    discovery: discoverSummary(),
     ...(() => {
       // With the Helius key, score only buys read on the Helius feed and known within 30 s. Buys from the keyless
       // period, or read late out of a backlog, say nothing about our speed and would poison the medians.
@@ -246,7 +262,7 @@ async function onTx(w: Tracked, sig: string, seenMs: number, ready: ParsedTx | n
   health.buys++;
   const knownMs = Date.now();
   // the real test (copylive.ts) acts only on fast-stream buys, and first, before any paper quote is asked for
-  if (ready && buyHook) {
+  if (ready && buyHook && !w.found) {
     try {
       buyHook({ sig, name: w.name, mint: buy.mint, leaderSlot: buy.slot, leaderPrice: buy.price, knownMs });
     } catch (e) {
@@ -315,9 +331,26 @@ let stopped = false;
 let pending = 0;
 const MAX_PENDING = 200;
 
+/** The wallet list of the open connection: the finder's new wallets are added to it without reconnecting. */
+let current: Tracked[] = [];
+
+/** Watch newly found wallets on the open stream (one more subscription; no reconnect, no gap in the feed). */
+function watchFound() {
+  if (!ws || ws.readyState !== WebSocket.OPEN || !helius()) return;
+  const have = new Set(current.map((w) => w.address));
+  const room = FOUND_MAX - current.filter((w) => w.found).length;
+  const fresh = foundWallets().filter((a) => !have.has(a) && validAddress(a)).slice(0, Math.max(0, room));
+  if (!fresh.length) return;
+  current.push(...fresh.map(foundAs));
+  health.wallets = current.length;
+  health.found = current.filter((w) => w.found).length;
+  ws.send(JSON.stringify({ jsonrpc: "2.0", id: 4, method: "transactionSubscribe", params: [{ accountInclude: fresh, vote: false, failed: false }, { commitment: "processed", encoding: "jsonParsed", transactionDetails: "full", showRewards: false, maxSupportedTransactionVersion: 1 }] }));
+}
+
 function connect() {
   if (stopped) return;
   const list = tracked();
+  current = list;
   health.feed = helius() ? "helius websocket" : "public websocket";
   const subOf = new Map<number, Tracked>();
   const reqOf = new Map<number, Tracked>();
@@ -444,6 +477,8 @@ export function startSolanaCopy(fetcher: Fetch = fetch) {
   health.startedAt = Date.now();
   stopped = false;
   connect();
+  // the wallet finder (read-only): its own connection, its own data cap; SOLANA_DISCOVER=off disables
+  startDiscover(() => (helius() ? wsUrl() : null), () => listed().map((w) => w.address));
   void refreshSolUsd();
   void pingSenders();
   let n = 0;
@@ -459,12 +494,14 @@ export function startSolanaCopy(fetcher: Fetch = fetch) {
       ws?.close();
     }
     if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ jsonrpc: "2.0", id: 2, method: "getSlot" }));
+    watchFound();
   }, 30_000);
 }
 
 export function stopSolanaCopy() {
   stopped = true;
   ws?.close();
+  stopDiscover();
 }
 
 /** Test hooks. */

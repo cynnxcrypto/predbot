@@ -7,6 +7,8 @@
 export interface Tracked {
   name: string;
   address: string;
+  /** found by the wallet finder (discover.ts), not from a list: watched on paper only */
+  found?: boolean;
 }
 
 export const WALLETS: Tracked[] = [
