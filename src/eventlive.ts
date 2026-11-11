@@ -140,12 +140,23 @@ export async function getClient(funder: string): Promise<ClobClient> {
 
 let busy = false;
 /**
+ * A stop is coming (the bot restarts after every update): no new real order is started, and one that is being sent
+ * is finished first, see the SIGTERM handler in src/eventpaper.ts. Not kept on disk: the next start trades again.
+ */
+let stopping = false;
+export const eventLiveStop = () => void (stopping = true);
+/** A real order is being sent right now. */
+export const eventLiveBusy = () => busy;
+/** For tests only. */
+export const _eventLiveTest = { busy: (b: boolean) => void (busy = b), reset: () => void ((busy = false), (stopping = false)) };
+/**
  * Copy one paper trade with real money if the guards allow. Returns a short text for the log: what was bought or why not.
  * Never throws. `conditionId` and `negRisk` come from the caller's Gamma lookup of the market.
  */
 export async function eventLiveBuy(group: string, p: { rule: string; marketId: string; title: string; outcome: string; idx: number; token: string; ask: number; depth: number; fillable: boolean; feeRate: number; conditionId: string | null; negRisk: boolean }): Promise<string | null> {
   const cfg = eventLiveConfig();
   if (!cfg.groups[group]?.rules.includes(p.rule)) return null;
+  if (stopping) return "restart pending: no new real order";
   if (busy) return "another real order is in flight";
   busy = true;
   try {
@@ -164,6 +175,7 @@ export async function eventLiveBuy(group: string, p: { rule: string; marketId: s
     if (negRisk) return "neg-risk market (claims not supported)";
     const order = await timed(c.createMarketOrder({ tokenID: p.token, amount: g.size, side: Side.BUY, price: p.ask, orderType: OrderType.FAK }, { tickSize, negRisk: false }), "signing the order");
     const row: EventLiveRow = { t: Date.now(), group, rule: p.rule, marketId: p.marketId, conditionId: p.conditionId, title: p.title, outcome: p.outcome, idx: p.idx, ask: p.ask, size: g.size, cost: g.size, shares: 0, fee: 0, ok: false, status: "unknown", error: null };
+    if (stopping) return "restart pending: order not sent";
     // Written BEFORE the order is sent, as an open bet of unknown outcome: if the process dies or the reply is lost, the
     // slot and the cap stay held instead of the order being repeated.
     rows.push(row);
