@@ -133,14 +133,14 @@ eventPaperTimer = setTimeout(runEventPaper, 30_000);
  * tap into"). research/trader-collector.py is read-only on Polymarket's public APIs and publishes to the server-data
  * branch. Started once, 3 minutes in, only on the server (it needs ~/.predbot-github-token), detached so bot restarts
  * do not kill it; the script holds a lock (a second copy exits), is niced and memory-capped, and writes
- * data/traders/DONE-v3 when finished so it never starts again. TRADERS=off disables it.
+ * data/traders/DONE-v4 when finished so it never starts again. TRADERS=off disables it.
  */
 // Tried 3 minutes in and again every 10 minutes: an older copy may still hold the lock (the new one then exits at once).
-const COLLECTOR_VERSION = "3"; // bump when research/trader-collector.py changes and must restart
+const COLLECTOR_VERSION = "4"; // bump when research/trader-collector.py changes and must restart
 const startTraders = () => {
   try {
     const home = process.env.HOME ?? "";
-    if (process.env.TRADERS === "off" || !home || !existsSync(join(home, ".predbot-github-token")) || existsSync(join(ROOT, "data", "traders", "DONE-v3"))) return;
+    if (process.env.TRADERS === "off" || !home || !existsSync(join(home, ".predbot-github-token")) || existsSync(join(ROOT, "data", "traders", "DONE-v4"))) return;
     // A newer collector script: stop the copy still running the old code once (it holds the lock), then start the new one.
     const verFile = join(ROOT, "data", "traders", "VERSION");
     let ver = "";

@@ -103,6 +103,9 @@ export function eventLiveBlock(cfg: EventLiveConfig, group: string, rule: string
   if (depth < g.minDepth - 1e-9) return `only $${depth.toFixed(0)} within 2c of the ask (needs $${g.minDepth})`;
   const mine = rows.filter((r) => r.group === group && (r.shares > 0 || !r.ok));
   if (mine.some((r) => r.marketId === marketId)) return "already bet on this match";
+  // One real bet per market across ALL groups (12 Nov 2026: a copied tennis wallet and the tennis rule could otherwise
+  // both bet the same match, even on opposite sides).
+  if (rows.some((r) => r.marketId === marketId && r.group !== group && (r.shares > 0 || r.status === "unknown"))) return "another real test already bet on this market";
   // A row whose order outcome is unknown (ok false, no shares, status "unknown") is held as open so a fault cannot loop.
   const open = mine.filter((r) => r.pnl == null && (r.shares > 0 || r.status === "unknown"));
   if (open.length >= g.maxOpen) return `${open.length} real bets open (max ${g.maxOpen})`;

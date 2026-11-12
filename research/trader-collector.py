@@ -14,7 +14,7 @@ It publishes to the server-data branch under server/traders/ as it goes (same to
   tape/<group>.json.gz          every fill (both sides, maker/taker flag) of a sample of resolved markets
   tapestats/<group>.json.gz     per-wallet profit over that sample
   wallets/<address>.json.gz     the selected wallets' own trades (30 days) plus redeems, merges, rewards
-Stdlib only. Safe to re-run: finished pieces are skipped (state in ~/predbot/data/traders/v2/; marker DONE-v3).
+Stdlib only. Safe to re-run: finished pieces are skipped (state in ~/predbot/data/traders/v2/; marker DONE-v4).
 Uses the Data API v2 routes (v1 answers 410 Gone since 2 Nov 2026)."""
 import base64, fcntl, gzip, json, os, resource, sys, time, urllib.request, urllib.error, urllib.parse, collections
 
@@ -128,6 +128,7 @@ def step(msg):
     PROGRESS["steps"].append([int(time.time()) - NOW, msg])
     PROGRESS["updated"] = int(time.time())
     publish("progress.json", PROGRESS, gz=False)
+    time.sleep(3)  # 12 Nov 2026: a re-run goes through every finished step at once; leave room for the status posts
 
 
 def done(name):
@@ -347,8 +348,20 @@ def main():
     for cat in ["WEATHER", "POLITICS", "ECONOMICS", "FINANCE", "TECH", "CULTURE", "OVERALL"]:
         add([r[1] for r in lb.get(f"{cat}/MONTH", [])[:12]], f"lb-{cat.lower()}")
     pull_all("all")
+    # 12 Nov 2026 (v4): extra wallets the research wants verified, one address a line in research/extra-wallets.txt.
+    # One wallet at a time with a pause, so the status posts to the same branch are not crowded out.
+    try:
+        extra = [x.strip().lower() for x in open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "extra-wallets.txt")) if x.strip().startswith("0x")]
+    except OSError:
+        extra = []
+    add(extra, "wide-12nov")
+    for i, w in enumerate(extra):
+        if w in chosen and not done(f"wallets/{w}.json.gz"):
+            wallet_pull(w, chosen[w]); log(f"extra wallet {i + 1}/{len(extra)} {w}")
+            time.sleep(20)
+    step(f"wallets after wide-12nov: {len(chosen)}")
     step("DONE")
-    open(os.path.join(OUT, "DONE-v3"), "w").write(str(int(time.time())))
+    open(os.path.join(OUT, "DONE-v4"), "w").write(str(int(time.time())))
 
 
 if __name__ == "__main__":
