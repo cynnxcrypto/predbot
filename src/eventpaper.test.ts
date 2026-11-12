@@ -98,6 +98,6 @@ test("wallet copies: new buys only, with the outcome index, and every wallet has
     { type: "TRADE", side: "BUY", price: 0.4, timestamp: 10, condition_id: c, outcome_index: 0 },
   ];
   assert.deepEqual(copyBuys(rows, 10), [{ ts: 40, cond: c, idx: 0, price: 0.4 }, { ts: 50, cond: c, idx: 1, price: 0.9 }]);
-  assert.equal(COPY_WALLETS.length, 11);
+  assert.equal(COPY_WALLETS.length, 17);
   assert.ok(COPY_WALLETS.every((w) => /^0x[0-9a-f]{40}$/.test(w.address) && /^[a-z0-9-]+$/.test(w.name)));
 });

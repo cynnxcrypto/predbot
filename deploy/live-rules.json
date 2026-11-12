@@ -5,7 +5,7 @@
   "claimEveryMin": 30,
   "events": {
     "copy": {
-      "note": "12 Nov 2026 11:22 KST, enrique: 'just fking copy them all' and 'i dont care if we lose 50usd on this'. Real copy of the paper copy-take rules (other public niche wallets): $3 a bet at the ask when it is within 2c of the price the wallet paid. ONE shared budget of $50 for all copied wallets: money lost so far plus open stakes; it ends for good at $50 lost until his new word. No count limit (dayLosses is not a stop here). Grouped 'neg-risk' markets (weather buckets, most multi-outcome events) are refused by the order code until claims for them are built and tested.",
+      "note": "12 Nov 2026 11:22 KST, enrique: 'just fking copy them all' and 'i dont care if we lose 50usd on this'. Real copy of the paper copy-take rules (other public niche wallets): $3 a bet at the ask when it is within 5c of the price the wallet paid (2c until 13:35 KST 12 Nov; his 'why would we care about the price moving a bit'). ONE shared budget of $50 for all copied wallets: money lost so far plus open stakes; it ends for good at $50 lost until his new word. No count limit (dayLosses is not a stop here). Grouped 'neg-risk' markets (weather buckets, most multi-outcome events) are refused by the order code until claims for them are built and tested.",
       "rules": [
         "copy-take-betty4",
         "copy-take-perfectnostalgia",
@@ -13,7 +13,8 @@
         "copy-take-taemaxx",
         "copy-take-ecash",
         "copy-take-paddaa",
-        "copy-take-yesmate"
+        "copy-take-yesmate",
+        "copy-take-youngalphagoat"
       ],
       "size": 3,
       "maxAsk": 0.97,
