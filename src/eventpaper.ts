@@ -840,7 +840,8 @@ async function restTick() {
   // 2. fills, one tape read per market
   const tapes = new Map<string, TapeRow[] | null>();
   const keep: RestBid[] = [];
-  for (const rb of state.rest) {
+  const mine = state.rest.slice(); // the copy loop may add bids while the tapes are read: those are kept as they are
+  for (const rb of mine) {
     if (now >= rb.until) continue; // cancelled unfilled
     if (!tapes.has(rb.cond)) tapes.set(rb.cond, await tapeOf(rb.cond));
     const rows = tapes.get(rb.cond);
@@ -856,7 +857,7 @@ async function restTick() {
     state.trades.push({ rule: rb.rule, marketId: rb.marketId, title: rb.title, outcome: rb.outcome, idx: rb.idx, token: rb.token, t: now, ask: rb.bid, avg: rb.bid, shares: rb.shares, cost: 3, fee: 0, fillable: true, feeRate: 0, extra: { bidAt: rb.t, fillMin: Math.round((now - rb.t) / 60_000), cond: rb.cond, other: rb.other, start: rb.start, close: null, clv: null } });
     log(`${rb.rule} ${rb.title} ${rb.outcome}: bid filled at ${Math.round(rb.bid * 1000) / 10}c`);
   }
-  state.rest = keep;
+  state.rest = [...keep, ...state.rest.filter((x) => !mine.includes(x))];
   // 3. closing price for fills whose match has started
   for (const t of state.trades) {
     const x = t.extra;
@@ -1648,8 +1649,20 @@ async function guard(name: string, f: () => Promise<void>) {
     h.errAt = Date.now();
   }
 }
+/**
+ * The wallet copies run on their own clock (12 Nov 2026, enrique: "try to be as fast as possible"): every 15 s, not
+ * behind the other loggers of the main loop, whose round can take a minute or more.
+ */
+async function copyLoop() {
+  for (;;) {
+    await guard("wallet copies", copyTick);
+    await guard("weather wallet copy", wxCopyTick);
+    await sleep(15_000);
+  }
+}
 async function main() {
   log("started (paper only)");
+  void copyLoop();
   let last = { esList: 0, idx: 0, pol: 0, mk: 0, nomk: 0, settle: 0, fb: 0, wx: 0, tn: 0, ck: 0, us: 0, wxc: 0 };
   for (;;) {
     const now = Date.now();
@@ -1694,11 +1707,6 @@ async function main() {
     if (now - last.mk > 60_000) {
       last.mk = now;
       await guard("makers", makersTick);
-    }
-    if (now - last.wxc > 2 * 60_000) {
-      last.wxc = now;
-      await guard("weather wallet copy", wxCopyTick);
-      await guard("wallet copies", copyTick);
     }
     if (now - last.nomk > 10 * 60_000) {
       last.nomk = now;
