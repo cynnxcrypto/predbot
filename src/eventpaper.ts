@@ -639,6 +639,8 @@ const RULE_TEXT: Record<string, [string, string]> = {
   "weather-dayahead-all": ["weather", "11 Nov 2026 02:50 KST (top-traders lead: one wallet, one week, +$3,269 on $10,573 as a pure maker buying 10-50c buckets 24-48 h before the close; a lead, not proof): the day before, at 12:00 station local time (36 h before the market day ends), rest a $5 bid at the best bid on up to 3 temperature buckets asking 10-50c; never take; cancel 20 h before the close; hold fills to settlement. This is the no-forecast baseline; the copy that only bids where a weather-model forecast disagrees with the price is still to come. Tickets win under half the time by design."],
   "weather-dayahead-yes": ["weather", "Round 341 (11 Nov 2026 07:15 KST): forecast copy of weather-dayahead-all. The day before, at 12:00 station local time, read the free Open-Meteo ensemble forecast (about 80 model runs) of the day's highest temperature at the station and count the share of runs landing in each bucket; rest a $5 bid at the best bid only on buckets asking 10-50c where that share is 15+ points over the ask; never take; cancel 20 h before the close; hold fills. Untested assumptions: the model grid point matches the airport thermometer, and raw model shares are honest odds. The forecast and the asks are logged for every city-day so both can be checked."],
   "wx-no-maker": ["weather", "11 Nov 2026 (research thread 'Find a strategy worth pursuing', reviews/strategy-worth-pursuing-2026-11-11.md): bet AGAINST the unlikely temperature buckets as a maker. 36 h before the market day ends, for every bucket whose YES trades at 8-30c with a spread of 5c or less, rest a $5 bid on NO at the best NO bid; every 10 min re-join the best bid while it is within 2c of the first; cancel 12 h before the end; hold fills. A fill counts only from real trades at our price after the shares that were ahead of us traded. History 19 Oct-8 Nov, 1,823 bucket-days: NO won 85.5% at 81.7c, +4.6% if every bid fills, -0.1% if only the bad fills happen. Bar 300+ fills, 84%+ won, net over 0; killed at 300 fills with net at or under 0 or a 30-minute markout worse than -1.5c."],
+  "wx-copy-rest": ["weather", "12 Nov 2026 11:17 KST, enrique: 'copy trade that weather wallet'. PAPER copy of one public Polymarket wallet that trades only highest-temperature markets with resting orders (traced in reviews/strategy-worth-pursuing-2026-11-11.md: +$40,704 since January, median clip $2.55, +6.9% of turnover over 30 days; about 150 bucket-sides a day). Its fills are read every 2 min; on its FIRST buy of a bucket side a $3 bid is rested at the price it paid, on the same side; cancelled after 12 h. A fill counts only from real trades at our price after the shares that were ahead of us traded. Catch: we see a fill only after it happened, so we queue behind everyone and may get only the fills nobody wanted. extra.fc = the free Open-Meteo forecast share for that bucket side. Bar 300+ fills, net over 0."],
+  "wx-copy-take": ["weather", "Twin of wx-copy-rest that does not wait: when the wallet's first buy of a bucket side is seen, it takes the ask for $3 if the ask is no more than 2c above the price the wallet paid (walks the book; fillable only when the whole $3 fits). Pays the spread and the taker fee the wallet never pays; shown next to the resting copy to tell what waiting is worth."],
   "wx-no-maker-815": ["weather", "Twin of wx-no-maker counting only buckets whose YES was 8-15c when the bid was placed."],
   "wx-no-maker-1530": ["weather", "11 Nov 2026 19:45 KST: the other half of wx-no-maker, counting only buckets whose YES was above 15c and up to 30c when the bid was placed. With the 8-15c twin it shows which price band carries the result (a NO at 85-92c loses 6-11 wins on one miss; a NO at 70-85c loses 2-6). Same bar as the parent."],
   "prematch-rest-clv-tennis": ["tennis", "11 Nov 2026 (research thread 'Find a strategy worth pursuing'): from 6 h before a tennis match, rest a $3 bid at the best bid on BOTH players, leave it, cancel 20 min before the start; a fill counts only from real trades at our price after the shares ahead of us traded. Each fill is scored against the average traded price of the last 20 min before the start (the closing price) as well as the result. Research: resting orders averaged +0.6% against the close on tennis and esports. Bar 300+ fills averaging +0.5% against the close."],
@@ -868,6 +870,88 @@ async function restTick() {
     x.clv = Math.round((close - t.avg) * 10000) / 10000;
   }
 }
+// ---------- wx-copy: paper copy of one public weather wallet (see RULES) ----------
+export const WX_COPY_WALLET = "0x6a8d1709bfb718d8555d315a983c4816278350f9";
+const WX_COPY_STAKE = 3;
+type ActRow = { type?: string; side?: string; price?: number | string; timestamp?: number | string; condition_id?: string; outcome?: string };
+/** The wallet's buys newer than `seen` (seconds), oldest first: condition id, side bought and price paid. */
+export function wxCopyBuys(rows: ActRow[], seen: number): { ts: number; cond: string; yes: boolean; price: number }[] {
+  return rows
+    .map((r) => ({ type: r.type, side: String(r.side ?? "").toUpperCase(), ts: Number(r.timestamp) > 1e12 ? Math.floor(Number(r.timestamp) / 1000) : Math.floor(Number(r.timestamp)), cond: String(r.condition_id ?? ""), outcome: String(r.outcome ?? ""), price: Number(r.price) }))
+    .filter((r) => r.type === "TRADE" && r.side === "BUY" && Number.isFinite(r.ts) && r.ts > seen && r.cond && /^(yes|no)$/i.test(r.outcome) && r.price > 0 && r.price < 1)
+    .sort((a, b) => a.ts - b.ts)
+    .map((r) => ({ ts: r.ts, cond: r.cond, yes: /^yes$/i.test(r.outcome), price: r.price }));
+}
+const wxCopyStats = { looks: 0, buysSeen: 0, notTracked: 0, repeats: 0, restPlaced: 0, restSkipped: 0, takeSkipped: 0, lastError: "", lastAt: 0 };
+const wxFc = new Map<string, { at: number; maxC: number[] }>();
+async function wxCopyTick() {
+  const now = Date.now();
+  wxCopyStats.looks += 1;
+  if (!state.done["wxcopy:seen"]) state.done["wxcopy:seen"] = Math.floor(now / 1000); // no backfill: only buys made from now on
+  let rows: ActRow[];
+  try {
+    rows = (await getJson<{ data?: ActRow[] }>(`https://data-api.polymarket.com/v2/activity?user=${WX_COPY_WALLET}&limit=300`)).data ?? [];
+    wxCopyStats.lastError = "";
+    wxCopyStats.lastAt = now;
+  } catch (e) {
+    wxCopyStats.lastError = (e as Error).message.slice(0, 60);
+    return;
+  }
+  const buys = wxCopyBuys(rows, state.done["wxcopy:seen"]);
+  const byCond = new Map<string, { ev: WxEvent; bu: WxEvent["buckets"][number] }>();
+  for (const ev of Object.values(state.wx)) for (const bu of ev.buckets) if (bu.cond && bu.no) byCond.set(bu.cond, { ev, bu });
+  for (const b of buys) {
+    state.done["wxcopy:seen"] = Math.max(state.done["wxcopy:seen"], b.ts);
+    wxCopyStats.buysSeen += 1;
+    const hit = byCond.get(b.cond);
+    if (!hit) {
+      wxCopyStats.notTracked += 1;
+      continue;
+    }
+    const key = `wxcopy|${b.cond}|${b.yes ? "y" : "n"}`;
+    if (state.done[key]) {
+      wxCopyStats.repeats += 1;
+      continue;
+    }
+    state.done[key] = now;
+    const { ev, bu } = hit;
+    const token = b.yes ? bu.token : bu.no!;
+    const other = b.yes ? bu.no! : bu.token;
+    const idx = b.yes ? 1 - bu.noIdx! : bu.noIdx!;
+    const outcome = `${b.yes ? "Yes" : "No"} (${bu.label})`;
+    const bk = await book(token).catch(() => null);
+    if (!bk) continue;
+    let fc: number | null = null;
+    try {
+      let f = wxFc.get(ev.id);
+      if (!f || now - f.at > 3600_000) wxFc.set(ev.id, (f = { at: now, maxC: await wxEnsemble(ev) }));
+      const pYes = wxBucketProb(bu.label, f.maxC);
+      fc = pYes == null ? null : Math.round((b.yes ? pYes : 1 - pYes) * 1000) / 1000;
+    } catch {
+      fc = null;
+    }
+    const extra = { wallet: b.price, lagSec: Math.floor(now / 1000) - b.ts, bid: bk.bestBid, ask: bk.bestAsk, fc, station: ev.station };
+    // resting copy: the same price on the same side, behind whatever rests there now
+    if (bk.bestAsk != null && bk.bestAsk <= b.price + 1e-9) {
+      wxCopyStats.restSkipped += 1;
+      signal("wx-copy-rest", ev.title, false, { ...extra, bucket: outcome, skip: "the ask is already at or under the price it paid" });
+    } else {
+      const ahead = bk.bids.filter((x) => Math.abs(x.price - b.price) < 1e-9).reduce((x, y) => x + y.size, 0);
+      state.rest.push({ rule: "wx-copy-rest", marketId: bu.id, cond: b.cond, title: ev.title, outcome, idx, token, other, bid: b.price, ahead, got: 0, shares: WX_COPY_STAKE / b.price, t: now, until: now + 12 * 3600_000, seen: Math.floor(now / 1000), start: 0 });
+      wxCopyStats.restPlaced += 1;
+      signal("wx-copy-rest", ev.title, false, { ...extra, bucket: outcome, placed: true });
+    }
+    // taking copy: the ask, if it is within 2c of the price the wallet paid
+    const w = walk(bk.asks, WX_COPY_STAKE, b.price + 0.02);
+    if (bk.bestAsk == null || w.shares <= 0 || w.avg == null) {
+      wxCopyStats.takeSkipped += 1;
+      signal("wx-copy-take", ev.title, false, { ...extra, bucket: outcome, skip: "ask more than 2c above the price it paid" });
+    } else {
+      state.trades.push({ rule: "wx-copy-take", marketId: bu.id, title: ev.title, outcome, idx, token, t: now, ask: bk.bestAsk, avg: w.avg, shares: w.shares, cost: w.cost, fee: feeOf(bu.feeRate, w.shares, w.avg), fillable: w.full, feeRate: bu.feeRate, extra });
+    }
+  }
+}
+
 /** wx-no-maker: every 10 min read the tape and the book of each resting NO bid; fill, re-join or cancel. */
 async function noMakerTick() {
   const now = Date.now();
@@ -1364,14 +1448,14 @@ const GROUPS: Record<string, string[]> = {
   esports: ["esports-map1", "esports-fav-shadow", "esports-map1-dota", "esports-lol-fav90", "esports-cs2-fav90", "prematch-rest-clv-esports"],
   indices: ["gold-momentum", "spx-underdog", "spy-underdog"],
   politics: ["election-lock-taker", "election-lock-maker"],
-  weather: ["weather-fav16", "weather-fav15", "weather-fav16-wide", "weather-fav16-mid", "weather-fav16-ask1", "weather-fav16-hi", "weather-fav15-ask1", "weather-dayahead-all", "weather-dayahead-yes", "wx-no-maker", "wx-no-maker-815", "wx-no-maker-1530"],
+  weather: ["weather-fav16", "weather-fav15", "weather-fav16-wide", "weather-fav16-mid", "weather-fav16-ask1", "weather-fav16-hi", "weather-fav15-ask1", "weather-dayahead-all", "weather-dayahead-yes", "wx-no-maker", "wx-no-maker-815", "wx-no-maker-1530", "wx-copy-rest", "wx-copy-take"],
   tennis: ["tennis-wta-fav90", "tennis-atp-fav90", "tennis-wta-fav85", "tennis-itf-fav90", "tennis-fav95", "tennis-fav90-mid", "prematch-rest-clv-tennis"],
   cricket: ["cricket-fav10", "cricket-fav60", "cricket-dog-control"],
   usports: ["nba-fav85", "cbb-fav85", "nfl-fav85", "nba-fav85-mid", "us-prematch-fav-bid", "us-prematch-dog-bid"],
   football: ["football-laliga-home", "football-portugal-home", "football-italy-away", "football-laliga-home55"],
 };
 function summarize() {
-  const out: Record<string, unknown> = { at: Date.now(), health };
+  const out: Record<string, unknown> = { at: Date.now(), health, wxCopy: { ...wxCopyStats, resting: state.rest.filter((x) => x.rule === "wx-copy-rest").length } };
   for (const [g, rules] of Object.entries(GROUPS)) {
     out[g] = {
       rules: rules.map((r) => {
@@ -1467,7 +1551,7 @@ async function guard(name: string, f: () => Promise<void>) {
 }
 async function main() {
   log("started (paper only)");
-  let last = { esList: 0, idx: 0, pol: 0, mk: 0, nomk: 0, settle: 0, fb: 0, wx: 0, tn: 0, ck: 0, us: 0 };
+  let last = { esList: 0, idx: 0, pol: 0, mk: 0, nomk: 0, settle: 0, fb: 0, wx: 0, tn: 0, ck: 0, us: 0, wxc: 0 };
   for (;;) {
     const now = Date.now();
     if (now - last.esList > 5 * 60_000) {
@@ -1511,6 +1595,10 @@ async function main() {
     if (now - last.mk > 60_000) {
       last.mk = now;
       await guard("makers", makersTick);
+    }
+    if (now - last.wxc > 2 * 60_000) {
+      last.wxc = now;
+      await guard("weather wallet copy", wxCopyTick);
     }
     if (now - last.nomk > 10 * 60_000) {
       last.nomk = now;

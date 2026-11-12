@@ -68,3 +68,20 @@ test("closing price: size-weighted, other token counted at 1 - price, only insid
   assert.equal(closeVwap(rows, "A", "B", 900, 1200), null); // fewer than 5 prints: no close
   assert.equal(closeVwap(rows, "A", "B", 2000, 3000), null);
 });
+
+test("wx-copy: only the wallet's new buys are read, oldest first", async () => {
+  const { wxCopyBuys, WX_COPY_WALLET } = await import("./eventpaper.js");
+  assert.match(WX_COPY_WALLET, /^0x[0-9a-f]{40}$/);
+  const rows = [
+    { type: "TRADE", side: "BUY", price: "0.33", timestamp: 2000, condition_id: "0xb", outcome: "Yes" },
+    { type: "TRADE", side: "SELL", price: 0.4, timestamp: 2001, condition_id: "0xc", outcome: "Yes" },
+    { type: "REDEEM", timestamp: 2002, condition_id: "0xd" },
+    { type: "TRADE", side: "BUY", price: 0.8, timestamp: 1500, condition_id: "0xa", outcome: "No" },
+    { type: "TRADE", side: "BUY", price: 0.5, timestamp: 1000, condition_id: "0xe", outcome: "Yes" },
+    { type: "TRADE", side: "BUY", price: 1, timestamp: 3000, condition_id: "0xf", outcome: "Yes" },
+  ];
+  assert.deepEqual(wxCopyBuys(rows, 1000), [
+    { ts: 1500, cond: "0xa", yes: false, price: 0.8 },
+    { ts: 2000, cond: "0xb", yes: true, price: 0.33 },
+  ]);
+});
