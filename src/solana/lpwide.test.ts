@@ -6,7 +6,6 @@ import { test } from "node:test";
 
 const dir = mkdtempSync(join(tmpdir(), "solwide-"));
 process.env.DATA_DIR = dir;
-process.env.SOLANA_DLMM = "off";
 
 const { findProgramAddress, onCurve, ORCA_PROGRAM, ordered, pubkeyBytes, whirlpoolAddress } = await import("./pda.js");
 const { candidates, discover, mintDecimals, usdOfB, validFound, WIDE_VERSION } = await import("./lpwide.js");
