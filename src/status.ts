@@ -355,6 +355,7 @@ const SECTIONS: { id: string; label: string; soon?: string; paper?: boolean }[] 
   { id: "tennis", paper: true, label: "Tennis", soon: "Polymarket tennis match markets." },
   { id: "weather", paper: true, label: "Weather", soon: "Polymarket daily city temperature markets will live here with their own panels and paper lab." },
   { id: "politics", paper: true, label: "Politics", soon: "Polymarket politics and election markets will live here with their own panels and paper lab." },
+  { id: "copy", paper: true, label: "Wallet copy", soon: "Copies of public Polymarket wallets." },
   { id: "other", paper: true, label: "Other", soon: "Event markets that fit no other tab will live here." },
 ];
 const hx = (x: string) => x.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
