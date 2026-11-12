@@ -641,6 +641,14 @@ const RULE_TEXT: Record<string, [string, string]> = {
   "wx-no-maker": ["weather", "11 Nov 2026 (research thread 'Find a strategy worth pursuing', reviews/strategy-worth-pursuing-2026-11-11.md): bet AGAINST the unlikely temperature buckets as a maker. 36 h before the market day ends, for every bucket whose YES trades at 8-30c with a spread of 5c or less, rest a $5 bid on NO at the best NO bid; every 10 min re-join the best bid while it is within 2c of the first; cancel 12 h before the end; hold fills. A fill counts only from real trades at our price after the shares that were ahead of us traded. History 19 Oct-8 Nov, 1,823 bucket-days: NO won 85.5% at 81.7c, +4.6% if every bid fills, -0.1% if only the bad fills happen. Bar 300+ fills, 84%+ won, net over 0; killed at 300 fills with net at or under 0 or a 30-minute markout worse than -1.5c."],
   "wx-copy-rest": ["weather", "12 Nov 2026 11:17 KST, enrique: 'copy trade that weather wallet'. PAPER copy of one public Polymarket wallet that trades only highest-temperature markets with resting orders (traced in reviews/strategy-worth-pursuing-2026-11-11.md: +$40,704 since January, median clip $2.55, +6.9% of turnover over 30 days; about 150 bucket-sides a day). Its fills are read every 2 min; on its FIRST buy of a bucket side a $3 bid is rested at the price it paid, on the same side; cancelled after 12 h. A fill counts only from real trades at our price after the shares that were ahead of us traded. Catch: we see a fill only after it happened, so we queue behind everyone and may get only the fills nobody wanted. extra.fc = the free Open-Meteo forecast share for that bucket side. Bar 300+ fills, net over 0."],
   "wx-copy-take": ["weather", "Twin of wx-copy-rest that does not wait: when the wallet's first buy of a bucket side is seen, it takes the ask for $3 if the ask is no more than 2c above the price the wallet paid (walks the book; fillable only when the whole $3 fits). Pays the spread and the taker fee the wallet never pays; shown next to the resting copy to tell what waiting is worth."],
+  "copy-rest-betty4": ["copy", "12 Nov 2026 11:22 KST, enrique: 'just fking copy them all'. PAPER copy of the public Polymarket wallet betty4: oil, gold and silver price ladders (+$9.5k in 5.8 months, $12 clips, 82% resting; real record about 2 months); shortlist in reviews/niche-wallets-to-copy-2026-11-12.md (219 wallets screened; found because they won, so part of it is luck). Its fills are read every 2 min; on its FIRST buy of a market side a $3 bid is rested at the price it paid for up to 6 h. A fill counts only from real trades at our price after the shares ahead of us traded. Its sells are not mirrored: fills are held to the result. Bar 100+ filled copies, net over 0."],
+  "copy-take-betty4": ["copy", "Twin of copy-rest-betty4 that takes the ask for $3 when the ask is no more than 2c above the price betty4 paid. This twin is the one copied with REAL money when the 'copy' group is live (deploy/live-rules.json events.copy; one shared loss budget for all copied wallets), and only on markets the bot can claim (not grouped 'neg-risk' markets such as weather buckets)."],
+  "copy-rest-perfectnostalgia": ["copy", "12 Nov 2026 11:22 KST, enrique: 'just fking copy them all'. PAPER copy of the public Polymarket wallet perfectnostalgia: central bank decisions, inflation, elections (+$175k in 31.6 months, favourites at 70-99c, about 2 new markets a day); shortlist in reviews/niche-wallets-to-copy-2026-11-12.md (219 wallets screened; found because they won, so part of it is luck). Its fills are read every 2 min; on its FIRST buy of a market side a $3 bid is rested at the price it paid for up to 6 h. A fill counts only from real trades at our price after the shares ahead of us traded. Its sells are not mirrored: fills are held to the result. Bar 100+ filled copies, net over 0."],
+  "copy-take-perfectnostalgia": ["copy", "Twin of copy-rest-perfectnostalgia that takes the ask for $3 when the ask is no more than 2c above the price perfectnostalgia paid. This twin is the one copied with REAL money when the 'copy' group is live (deploy/live-rules.json events.copy; one shared loss budget for all copied wallets), and only on markets the bot can claim (not grouped 'neg-risk' markets such as weather buckets)."],
+  "copy-rest-lex-tang": ["copy", "12 Nov 2026 11:22 KST, enrique: 'just fking copy them all'. PAPER copy of the public Polymarket wallet lex-tang: Asian weather (+$20.4k in 28.7 months, $1.67 clips, cheap tickets around 19c); shortlist in reviews/niche-wallets-to-copy-2026-11-12.md (219 wallets screened; found because they won, so part of it is luck). Its fills are read every 2 min; on its FIRST buy of a market side a $3 bid is rested at the price it paid for up to 6 h. A fill counts only from real trades at our price after the shares ahead of us traded. Its sells are not mirrored: fills are held to the result. Bar 100+ filled copies, net over 0."],
+  "copy-take-lex-tang": ["copy", "Twin of copy-rest-lex-tang that takes the ask for $3 when the ask is no more than 2c above the price lex-tang paid. This twin is the one copied with REAL money when the 'copy' group is live (deploy/live-rules.json events.copy; one shared loss budget for all copied wallets), and only on markets the bot can claim (not grouped 'neg-risk' markets such as weather buckets)."],
+  "copy-rest-taemaxx": ["copy", "12 Nov 2026 11:22 KST, enrique: 'just fking copy them all'. PAPER copy of the public Polymarket wallet taemaxx: League of Legends totals (+$12.3k in 12.6 months, 2.8% on turnover: weak); shortlist in reviews/niche-wallets-to-copy-2026-11-12.md (219 wallets screened; found because they won, so part of it is luck). Its fills are read every 2 min; on its FIRST buy of a market side a $3 bid is rested at the price it paid for up to 6 h. A fill counts only from real trades at our price after the shares ahead of us traded. Its sells are not mirrored: fills are held to the result. Bar 100+ filled copies, net over 0."],
+  "copy-take-taemaxx": ["copy", "Twin of copy-rest-taemaxx that takes the ask for $3 when the ask is no more than 2c above the price taemaxx paid. This twin is the one copied with REAL money when the 'copy' group is live (deploy/live-rules.json events.copy; one shared loss budget for all copied wallets), and only on markets the bot can claim (not grouped 'neg-risk' markets such as weather buckets)."],
   "wx-no-maker-815": ["weather", "Twin of wx-no-maker counting only buckets whose YES was 8-15c when the bid was placed."],
   "wx-no-maker-1530": ["weather", "11 Nov 2026 19:45 KST: the other half of wx-no-maker, counting only buckets whose YES was above 15c and up to 30c when the bid was placed. With the 8-15c twin it shows which price band carries the result (a NO at 85-92c loses 6-11 wins on one miss; a NO at 70-85c loses 2-6). Same bar as the parent."],
   "prematch-rest-clv-tennis": ["tennis", "11 Nov 2026 (research thread 'Find a strategy worth pursuing'): from 6 h before a tennis match, rest a $3 bid at the best bid on BOTH players, leave it, cancel 20 min before the start; a fill counts only from real trades at our price after the shares ahead of us traded. Each fill is scored against the average traded price of the last 20 min before the start (the closing price) as well as the result. Research: resting orders averaged +0.6% against the close on tennis and esports. Bar 300+ fills averaging +0.5% against the close."],
@@ -948,6 +956,96 @@ async function wxCopyTick() {
       signal("wx-copy-take", ev.title, false, { ...extra, bucket: outcome, skip: "ask more than 2c above the price it paid" });
     } else {
       state.trades.push({ rule: "wx-copy-take", marketId: bu.id, title: ev.title, outcome, idx, token, t: now, ask: bk.bestAsk, avg: w.avg, shares: w.shares, cost: w.cost, fee: feeOf(bu.feeRate, w.shares, w.avg), fillable: w.full, feeRate: bu.feeRate, extra });
+    }
+  }
+}
+
+// ---------- copy: paper (and, when live, real) copies of other public niche wallets (see RULES) ----------
+export const COPY_WALLETS: { name: string; address: string }[] = [
+  { name: "betty4", address: "0xf9edf363ac755fcc48e6254909ce3c64f2557ee9" },
+  { name: "perfectnostalgia", address: "0x0ffcad4963e25dc150774363f4061ebe840c8236" },
+  { name: "lex-tang", address: "0xaa930fdc4caa3c0f6067404a7bd7899ca45f0bc7" },
+  { name: "taemaxx", address: "0x37b278ab19e1cdc0e392da980dcc59ef802a8681" },
+];
+type CopyRow = ActRow & { outcome_index?: number | string; title?: string };
+/** A wallet's buys newer than `seen` (seconds), oldest first. */
+export function copyBuys(rows: CopyRow[], seen: number): { ts: number; cond: string; idx: number; price: number }[] {
+  return rows
+    .map((r) => ({ type: r.type, side: String(r.side ?? "").toUpperCase(), ts: Number(r.timestamp) > 1e12 ? Math.floor(Number(r.timestamp) / 1000) : Math.floor(Number(r.timestamp)), cond: String(r.condition_id ?? ""), idx: r.outcome_index == null || r.outcome_index === "" ? NaN : Number(r.outcome_index), price: Number(r.price) }))
+    .filter((r) => r.type === "TRADE" && r.side === "BUY" && Number.isFinite(r.ts) && r.ts > seen && /^0x[0-9a-fA-F]{64}$/.test(r.cond) && (r.idx === 0 || r.idx === 1) && r.price > 0 && r.price < 1)
+    .sort((a, b) => a.ts - b.ts)
+    .map((r) => ({ ts: r.ts, cond: r.cond, idx: r.idx, price: r.price }));
+}
+const copyStats: Record<string, { buysSeen: number; repeats: number; noMarket: number; restPlaced: number; taken: number; takeSkipped: number; lastError: string; lastAt: number }> = {};
+const copyNotes: { t: number; title: string; why: string }[] = [];
+const copyMarkets = new Map<string, (GMarket & { conditionId?: string; negRisk?: boolean }) | null>();
+async function copyTick() {
+  const now = Date.now();
+  for (const wl of COPY_WALLETS) {
+    const st = (copyStats[wl.name] ??= { buysSeen: 0, repeats: 0, noMarket: 0, restPlaced: 0, taken: 0, takeSkipped: 0, lastError: "", lastAt: 0 });
+    const seenKey = `copy:seen:${wl.name}`;
+    if (!state.done[seenKey]) state.done[seenKey] = Math.floor(now / 1000); // no backfill: only buys made from now on
+    let rows: CopyRow[];
+    try {
+      rows = (await getJson<{ data?: CopyRow[] }>(`https://data-api.polymarket.com/v2/activity?user=${wl.address}&limit=200`)).data ?? [];
+      st.lastError = "";
+      st.lastAt = now;
+    } catch (e) {
+      st.lastError = (e as Error).message.slice(0, 60);
+      continue;
+    }
+    for (const b of copyBuys(rows, state.done[seenKey])) {
+      state.done[seenKey] = Math.max(state.done[seenKey], b.ts);
+      st.buysSeen += 1;
+      if (Math.floor(now / 1000) - b.ts > 1800) continue; // read too late (the bot was down): not a copy any more
+      const key = `copy|${wl.name}|${b.cond}|${b.idx}`;
+      if (state.done[key]) {
+        st.repeats += 1;
+        continue;
+      }
+      state.done[key] = now;
+      if (!copyMarkets.has(b.cond)) copyMarkets.set(b.cond, (await getJson<GMarket[]>(`${GAMMA}/markets?condition_ids=${b.cond}`).catch(() => []))[0] ?? null);
+      const m = copyMarkets.get(b.cond);
+      const tokens = jl<string[]>(m?.clobTokenIds, []);
+      const outcomes = jl<string[]>(m?.outcomes, []);
+      if (!m?.id || m.closed || tokens.length !== 2) {
+        st.noMarket += 1;
+        continue;
+      }
+      const title = `${m.question ?? m.id}`;
+      const outcome = outcomes[b.idx] ?? String(b.idx);
+      const token = tokens[b.idx];
+      const bk = await book(token).catch(() => null);
+      if (!bk) continue;
+      const feeRate = Number(m.feeSchedule?.rate ?? 0);
+      const extra = { wallet: b.price, lagSec: Math.floor(now / 1000) - b.ts, bid: bk.bestBid, ask: bk.bestAsk, negRisk: Boolean(m.negRisk) };
+      if (!(bk.bestAsk != null && bk.bestAsk <= b.price + 1e-9)) {
+        const ahead = bk.bids.filter((x) => Math.abs(x.price - b.price) < 1e-9).reduce((x, y) => x + y.size, 0);
+        state.rest.push({ rule: `copy-rest-${wl.name}`, marketId: m.id, cond: b.cond, title, outcome, idx: b.idx, token, other: tokens[1 - b.idx], bid: b.price, ahead, got: 0, shares: WX_COPY_STAKE / b.price, t: now, until: now + 6 * 3600_000, seen: Math.floor(now / 1000), start: 0 });
+        st.restPlaced += 1;
+      }
+      const rule = `copy-take-${wl.name}`;
+      const w = walk(bk.asks, WX_COPY_STAKE, b.price + 0.02);
+      if (bk.bestAsk == null || w.shares <= 0 || w.avg == null) {
+        st.takeSkipped += 1;
+        signal(rule, title, false, { ...extra, bucket: outcome, skip: "ask more than 2c above the price it paid" });
+        continue;
+      }
+      st.taken += 1;
+      state.trades.push({ rule, marketId: m.id, title, outcome, idx: b.idx, token, t: now, ask: bk.bestAsk, avg: w.avg, shares: w.shares, cost: w.cost, fee: feeOf(feeRate, w.shares, w.avg), fillable: w.full, feeRate, extra });
+      if (eventLiveConfig().groups.copy?.rules.includes(rule)) {
+        try {
+          const depth = bk.asks.filter((a) => a.price <= bk.bestAsk! + 0.02 + 1e-9).reduce((x, a) => x + a.price * a.size, 0);
+          const real = await eventLiveBuy("copy", { rule, marketId: m.id, title, outcome, idx: b.idx, token, ask: bk.bestAsk, depth, fillable: w.full, feeRate, conditionId: b.cond, negRisk: Boolean(m.negRisk) });
+          if (real) {
+            log(`copy ${wl.name} ${title} ${outcome}: ${real}`);
+            copyNotes.push({ t: now, title: `${wl.name}: ${title}`, why: real });
+            if (copyNotes.length > 50) copyNotes.splice(0, copyNotes.length - 50);
+          }
+        } catch (e) {
+          log(`copy real order failed: ${(e as Error).message}`);
+        }
+      }
     }
   }
 }
@@ -1453,9 +1551,10 @@ const GROUPS: Record<string, string[]> = {
   cricket: ["cricket-fav10", "cricket-fav60", "cricket-dog-control"],
   usports: ["nba-fav85", "cbb-fav85", "nfl-fav85", "nba-fav85-mid", "us-prematch-fav-bid", "us-prematch-dog-bid"],
   football: ["football-laliga-home", "football-portugal-home", "football-italy-away", "football-laliga-home55"],
+  copy: COPY_WALLETS.flatMap((w) => [`copy-rest-${w.name}`, `copy-take-${w.name}`]),
 };
 function summarize() {
-  const out: Record<string, unknown> = { at: Date.now(), health, wxCopy: { ...wxCopyStats, resting: state.rest.filter((x) => x.rule === "wx-copy-rest").length } };
+  const out: Record<string, unknown> = { at: Date.now(), health, wxCopy: { ...wxCopyStats, resting: state.rest.filter((x) => x.rule === "wx-copy-rest").length }, copyWallets: copyStats };
   for (const [g, rules] of Object.entries(GROUPS)) {
     out[g] = {
       rules: rules.map((r) => {
@@ -1506,7 +1605,7 @@ function summarize() {
       notes: g === "esports" ? Object.values(state.matches).reduce<Record<string, number>>((o, m) => ((o[m.evaluated ? m.note ?? (m.tEnd != null ? "evaluated" : "done") : m.tEnd != null ? "map 1 over, waiting" : m.start <= Date.now() ? "live" : "upcoming"] = (o[m.evaluated ? m.note ?? (m.tEnd != null ? "evaluated" : "done") : m.tEnd != null ? "map 1 over, waiting" : m.start <= Date.now() ? "live" : "upcoming"] ?? 0) + 1), o), {}) : undefined,
       skips: g === "football" || g === "weather" || g === "tennis" || g === "cricket" || g === "usports" ? state.signals.filter((x) => rules.includes(x.rule) && x.extra.skip).slice(-15).reverse().map((x) => ({ rule: x.rule, t: x.t, title: x.title, why: x.extra.skip, ask: x.extra.ask })) : undefined,
       upcoming: g === "football" ? Object.values(state.fixtures).filter((f) => !f.done).length : g === "weather" ? Object.keys(state.wx).length : g === "tennis" ? Object.values(state.tennis).filter((t) => !t.done).length : g === "usports" ? Object.values(state.usports).filter((m) => !m.done).length : g === "cricket" ? Object.values(state.cricket).filter((c) => !c.done10).length : undefined,
-      real: g === "tennis" ? { ...eventLiveSummary("tennis"), notes: realNotes.slice(-10).reverse() } : undefined,
+      real: g === "tennis" ? { ...eventLiveSummary("tennis"), notes: realNotes.slice(-10).reverse() } : g === "copy" ? { ...eventLiveSummary("copy"), notes: copyNotes.slice(-10).reverse() } : undefined,
       watch: watchOf(g),
       watchAt: g === "politics" ? polWatchAt : undefined,
       sigs: state.signals
@@ -1599,6 +1698,7 @@ async function main() {
     if (now - last.wxc > 2 * 60_000) {
       last.wxc = now;
       await guard("weather wallet copy", wxCopyTick);
+      await guard("wallet copies", copyTick);
     }
     if (now - last.nomk > 10 * 60_000) {
       last.nomk = now;

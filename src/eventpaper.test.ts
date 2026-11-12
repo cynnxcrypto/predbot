@@ -85,3 +85,19 @@ test("wx-copy: only the wallet's new buys are read, oldest first", async () => {
     { ts: 2000, cond: "0xb", yes: true, price: 0.33 },
   ]);
 });
+
+test("wallet copies: new buys only, with the outcome index, and every wallet has its two rules", async () => {
+  const { copyBuys, COPY_WALLETS } = await import("./eventpaper.js");
+  const c = "0x" + "ab".repeat(32);
+  const rows = [
+    { type: "TRADE", side: "BUY", price: 0.9, timestamp: 50, condition_id: c, outcome_index: 1 },
+    { type: "TRADE", side: "BUY", price: 0.9, timestamp: 60, condition_id: c },
+    { type: "TRADE", side: "BUY", price: 0.9, timestamp: 61, condition_id: "0xshort", outcome_index: 0 },
+    { type: "TRADE", side: "SELL", price: 0.9, timestamp: 62, condition_id: c, outcome_index: 0 },
+    { type: "TRADE", side: "BUY", price: 0.4, timestamp: 40, condition_id: c, outcome_index: "0" },
+    { type: "TRADE", side: "BUY", price: 0.4, timestamp: 10, condition_id: c, outcome_index: 0 },
+  ];
+  assert.deepEqual(copyBuys(rows, 10), [{ ts: 40, cond: c, idx: 0, price: 0.4 }, { ts: 50, cond: c, idx: 1, price: 0.9 }]);
+  assert.equal(COPY_WALLETS.length, 4);
+  assert.ok(COPY_WALLETS.every((w) => /^0x[0-9a-f]{40}$/.test(w.address) && /^[a-z0-9-]+$/.test(w.name)));
+});

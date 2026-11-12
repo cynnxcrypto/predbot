@@ -1,9 +1,24 @@
 {
   "mode": "live",
-  "minBalance": 180,
+  "minBalance": 150,
   "solanaCopy": { "on": true, "maxLossSol": 0.5, "stakeSol": 0.05, "holdSec": 60, "targetPct": 10, "stopPct": 15, "minGapPct": 0, "maxGapPct": 9, "traders": "cut-busy", "maxOpen": 5 },
   "claimEveryMin": 30,
   "events": {
+    "copy": {
+      "note": "12 Nov 2026 11:22 KST, enrique: 'just fking copy them all' and 'i dont care if we lose 50usd on this'. Real copy of the paper copy-take rules (other public niche wallets): $3 a bet at the ask when it is within 2c of the price the wallet paid. ONE shared budget of $50 for all copied wallets: money lost so far plus open stakes; it ends for good at $50 lost until his new word. No count limit (dayLosses is not a stop here). Grouped 'neg-risk' markets (weather buckets, most multi-outcome events) are refused by the order code until claims for them are built and tested.",
+      "rules": [
+        "copy-take-betty4",
+        "copy-take-perfectnostalgia",
+        "copy-take-lex-tang",
+        "copy-take-taemaxx"
+      ],
+      "size": 3,
+      "maxAsk": 0.97,
+      "minDepth": 3,
+      "dayLosses": 99,
+      "maxOpen": 16,
+      "maxLoss": 50
+    },
     "tennis": {
       "note": "10 Nov 2026 17:28 KST, enrique: start tennis. Real copy of the paper tennis favourite rules (mid 90-95c, 10 min before the start, ask within 2c of mid). $3 a bet, Jev sizing off, only when $25+ rests within 2c of the ask. Guards: 2 losses in a KST day stop it until the next day, 4 bets open at most, its own budget of $10 (enrique 17:56 KST: 10usd for tennis is totally fine, outside of what i said for crypto; lost + open stakes), separate from the crypto $70 cap (enrique 17:45 KST: tennis should have its own little budget). 11 Nov 2026 19:46 KST, enrique: extend tennis budget risk to 30 so there can be 10 different bets online instead of just 3: budget $10 -> $30, bets open at most 4 -> 10; $3 a bet and the 2-losses-a-day stop unchanged. Code src/eventlive.ts.",
       "rules": [
