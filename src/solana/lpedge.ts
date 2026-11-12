@@ -73,12 +73,16 @@ export interface EdgeState {
 const zero = (): Sums => ({ fee: 0, c30: 0, c5: 0, c60: 0, ms: 0 });
 const cost = (p0: number, p: number) => (Math.sqrt(p / p0) - 1) ** 2;
 
-export function edgeStart(pool: PoolDef, t: number): EdgeState {
+export function edgeStart(pool: { key: string }, t: number): EdgeState {
   return { pool: pool.key, startedAt: t, a5: null, a60: null, dayKey: dayOf(t), day: zero(), days: [], all: zero(), calm: CALM_LABELS.map(() => ({ n: 0, fee: 0, c5: 0, c60: 0 })) };
 }
 
-/** One step from the previous read to this one. A gap longer than EDGE_GAP_MS counts for nothing and restarts the clocks. */
-export function edgeStep(e: EdgeState, pool: PoolDef, prev: Read, now: Read) {
+/**
+ * One step from the previous read to this one, for any pool: prev and now carry the time and the price, fee is what
+ * one unit of liquidity value was paid over the step. A gap longer than EDGE_GAP_MS counts for nothing and restarts
+ * the clocks.
+ */
+export function edgeAdd(e: EdgeState, prev: { t: number; p: number }, now: { t: number; p: number }, fee: number) {
   const dt = now.t - prev.t;
   if (dt <= 0 || !(prev.p > 0) || !(now.p > 0)) return;
   const day = dayOf(now.t);
@@ -89,17 +93,13 @@ export function edgeStep(e: EdgeState, pool: PoolDef, prev: Read, now: Read) {
     e.day = zero();
   }
   if (dt > EDGE_GAP_MS) {
-    e.a5 = null;
-    e.a60 = null;
+    edgeSkip(e);
     return;
   }
   const add = (k: "fee" | "c30" | "c5" | "c60", x: number) => {
     e.day[k] += x;
     e.all[k] += x;
   };
-  // fee value per unit of whole-token liquidity, in token B, over the value that liquidity stands for (sqrt(p))
-  const scale = 10 ** ((pool.decA + pool.decB) / 2);
-  const fee = (((growth(prev.fgA, now.fgA) * now.p) / 10 ** pool.decA + growth(prev.fgB, now.fgB) / 10 ** pool.decB) * scale) / Math.sqrt(now.p);
   const paid = fee >= 0 && fee < MAX_FEE_STEP ? fee : 0; // a jump this large is a bad read, not income
   add("fee", paid);
   add("c30", cost(prev.p, now.p));
@@ -128,6 +128,20 @@ export function edgeStep(e: EdgeState, pool: PoolDef, prev: Read, now: Read) {
   }
 }
 
+/** The stretch up to the next read was not seen: the 5 minute and 1 hour clocks start again. */
+export function edgeSkip(e: EdgeState) {
+  e.a5 = null;
+  e.a60 = null;
+}
+
+/** An Orca pool: the fee is the growth of its two fee counters, in token B, over the value a unit of liquidity stands for. */
+export function edgeStep(e: EdgeState, pool: PoolDef, prev: Read, now: Read) {
+  if (!(now.p > 0)) return;
+  const scale = 10 ** ((pool.decA + pool.decB) / 2);
+  const fee = (((growth(prev.fgA, now.fgA) * now.p) / 10 ** pool.decA + growth(prev.fgB, now.fgB) / 10 ** pool.decB) * scale) / Math.sqrt(now.p);
+  edgeAdd(e, prev, now, fee);
+}
+
 /** value of one unit of liquidity in a range of +-w, as a share of L x sqrt(p) */
 const share = (w: number) => 2 - 1 / Math.sqrt(1 + w) - Math.sqrt(1 - w);
 const sig = (x: number) => +x.toPrecision(4);
@@ -141,7 +155,7 @@ function line(s: Sums, k: number) {
   };
 }
 
-export function edgeSummary(e: EdgeState, pool: PoolDef) {
+export function edgeSummary(e: EdgeState, pool: { key: string; label: string; kind?: string }) {
   const ref = pool.kind === "pegged" ? REF_PEGGED : REF_VOLATILE;
   const k = 100 / share(ref);
   return {

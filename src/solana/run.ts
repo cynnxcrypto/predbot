@@ -15,12 +15,14 @@
  *
  * Summary key "edge" (lpedge.ts): for every pool followed, what its fee counters paid against what the price moves
  * cost, which does not depend on where the price happens to end. It starts from the reads already on disk.
+ * Summary key "meteora" (dlmmrun.ts): the same reading for Meteora's SOL/USDC pools, once a minute.
  */
 import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { DATA } from "../config.js";
 import { PEG_RULES, RULES, rulesFor, start, step, summarize, type RuleState } from "./lp.js";
+import { dlmmSummary, dlmmTick } from "./dlmmrun.js";
 import { EDGE_NOTE, edgeStart, edgeStep, edgeSummary, type EdgeState, type Read } from "./lpedge.js";
 import { discover, usdOfB, validFound, type Account, type Found } from "./lpwide.js";
 import { POOLS, type PoolDef } from "./pools.js";
@@ -243,6 +245,7 @@ export function buildSummary() {
     qualified: qualified.map((r) => `${r.id}@${r.pool}`),
     rules: rows,
     wide: wideSummary(),
+    meteora: dlmmSummary(),
     edge: {
       mode: "paper",
       note: EDGE_NOTE,
@@ -317,6 +320,14 @@ export async function tick(fetcher: typeof fetch = fetch) {
     }
     snaps.set(pool.key, snap);
   });
+  // Meteora's pools, once a minute, with their own state and their own health line
+  if (wide.ticks % 2 === 1) {
+    try {
+      await dlmmTick((a) => readAccounts(a, RPC, fetcher));
+    } catch {
+      // never lets the fee test down
+    }
+  }
   wide.ticks++;
   save(STATE(), { rules, wide: wideRules, edge: edges, snaps: Object.fromEntries(snaps) });
   save(SUMMARY(), buildSummary());

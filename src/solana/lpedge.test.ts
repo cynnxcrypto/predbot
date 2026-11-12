@@ -6,6 +6,7 @@ import { test } from "node:test";
 
 const dir = mkdtempSync(join(tmpdir(), "soledge-"));
 process.env.DATA_DIR = dir;
+process.env.SOLANA_DLMM = "off";
 process.env.SOLANA_LP_WIDE = "off";
 
 const { CALM_LABELS, EDGE_GAP_MS, MAX_FEE_STEP, REF_VOLATILE, edgeStart, edgeStep, edgeSummary } = await import("./lpedge.js");
