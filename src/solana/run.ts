@@ -12,16 +12,12 @@
  * (lpwide.ts) and kept in solana-lp-pools.json. They are read in the same call as the two SOL/USDC pools; a pool
  * that cannot be read is skipped and named, and never stops the others. The SOL/USDC rules, their state and their
  * summary fields are untouched. SOLANA_LP_WIDE=off turns the wider part off.
- *
- * Summary key "edge" (lpedge.ts): for every pool followed, what its fee counters paid against what the price moves
- * cost, which does not depend on where the price happens to end. It starts from the reads already on disk.
  */
 import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { DATA } from "../config.js";
 import { PEG_RULES, RULES, rulesFor, start, step, summarize, type RuleState } from "./lp.js";
-import { EDGE_NOTE, edgeStart, edgeStep, edgeSummary, type EdgeState, type Read } from "./lpedge.js";
 import { discover, usdOfB, validFound, type Account, type Found } from "./lpwide.js";
 import { POOLS, type PoolDef } from "./pools.js";
 import { decodeWhirlpool, price, type PoolSnap } from "./whirlpool.js";
@@ -38,7 +34,6 @@ const WIDE_RETRY_MS = 10 * 60_000;
 interface Saved {
   rules: RuleState[];
   wide?: RuleState[];
-  edge?: EdgeState[];
   snaps: Record<string, Record<string, string | number>>;
 }
 
@@ -82,7 +77,6 @@ export async function readPools(pools: PoolDef[], rpc = RPC, fetcher: typeof fet
 
 let rules: RuleState[] = [];
 let wideRules: RuleState[] = [];
-let edges: EdgeState[] = [];
 let found: Found | null = null;
 const snaps = new Map<string, PoolSnap>();
 const health = { startedAt: 0, lastOk: 0, reads: 0, errors: 0, lastError: "" };
@@ -96,53 +90,11 @@ function load() {
     const s = JSON.parse(readFileSync(STATE(), "utf8")) as Saved;
     rules = s.rules ?? [];
     wideRules = s.wide ?? [];
-    edges = s.edge ?? [];
     for (const [k, v] of Object.entries(s.snaps ?? {})) snaps.set(k, reviveSnap(v));
   } catch {
     rules = [];
     wideRules = [];
-    edges = [];
   }
-  // the fees-against-cost reading starts from the reads already on disk, so it does not begin at zero
-  for (const pool of POOLS) {
-    if (edges.some((e) => e.pool === pool.key)) continue;
-    const e = replay(pool);
-    if (e) edges.push(e);
-  }
-}
-
-const readOf = (pool: PoolDef, s: PoolSnap): Read => ({ t: s.t, p: price(s, pool.decA, pool.decB), fgA: s.feeGrowthA, fgB: s.feeGrowthB });
-
-/** The reading for one pool from its recorded reads (the last 14 days of files). Null when there are none. */
-function replay(pool: PoolDef): EdgeState | null {
-  if (!existsSync(DIR())) return null;
-  const files = readdirSync(DIR()).filter((f) => f.startsWith(`${pool.key}-`) && /^\d{4}-\d{2}-\d{2}\.jsonl$/.test(f.slice(pool.key.length + 1))).sort().slice(-14);
-  let e: EdgeState | null = null;
-  let prev: Read | null = null;
-  for (const f of files) {
-    for (const ln of readFileSync(join(DIR(), f), "utf8").split("\n")) {
-      if (!ln) continue;
-      try {
-        const [t, p, , a, b] = JSON.parse(ln) as [number, number, string, string, string];
-        const now: Read = { t, p, fgA: BigInt(a), fgB: BigInt(b) };
-        if (!e) e = edgeStart(pool, t);
-        if (prev) edgeStep(e, pool, prev, now);
-        prev = now;
-      } catch {
-        // a torn line: skip it
-      }
-    }
-  }
-  return e;
-}
-
-function meter(pool: PoolDef, prev: PoolSnap | undefined, snap: PoolSnap) {
-  let e = edges.find((x) => x.pool === pool.key);
-  if (!e) {
-    e = edgeStart(pool, snap.t);
-    edges.push(e);
-  }
-  if (prev) edgeStep(e, pool, readOf(pool, prev), readOf(pool, snap));
 }
 
 /** The extra pools: the saved answer if there is one, else one look at the chain (again every 10 minutes until it works). */
@@ -243,14 +195,6 @@ export function buildSummary() {
     qualified: qualified.map((r) => `${r.id}@${r.pool}`),
     rules: rows,
     wide: wideSummary(),
-    edge: {
-      mode: "paper",
-      note: EDGE_NOTE,
-      pools: [...POOLS, ...(wideOn() ? (found?.pools ?? []) : [])].flatMap((p) => {
-        const e = edges.find((x) => x.pool === p.key);
-        return e ? [edgeSummary(e, p)] : [];
-      }),
-    },
   };
 }
 
@@ -279,7 +223,6 @@ export async function tick(fetcher: typeof fetch = fetch) {
     const snap = now.get(pool.key)!;
     const prev = snaps.get(pool.key);
     record(pool, snap);
-    meter(pool, prev, snap);
     for (const def of RULES) {
       let s = rules.find((r) => r.id === def.id && r.pool === pool.key);
       if (!s) {
@@ -307,7 +250,6 @@ export async function tick(fetcher: typeof fetch = fetch) {
     }
     const prev = snaps.get(pool.key);
     if (wide.ticks % 2 === 0) record(pool, snap); // once a minute is enough for a replay
-    meter(pool, prev, snap);
     for (const def of rulesFor(pool)) {
       let s = wideRules.find((r) => r.id === def.id && r.pool === pool.key);
       if (!s) {
@@ -318,7 +260,7 @@ export async function tick(fetcher: typeof fetch = fetch) {
     snaps.set(pool.key, snap);
   });
   wide.ticks++;
-  save(STATE(), { rules, wide: wideRules, edge: edges, snaps: Object.fromEntries(snaps) });
+  save(STATE(), { rules, wide: wideRules, snaps: Object.fromEntries(snaps) });
   save(SUMMARY(), buildSummary());
 }
 
@@ -326,7 +268,6 @@ export const _lpTest = {
   reset() {
     rules = [];
     wideRules = [];
-    edges = [];
     found = null;
     snaps.clear();
     loaded = true;
@@ -334,13 +275,6 @@ export const _lpTest = {
     Object.assign(health, { startedAt: 0, lastOk: 0, reads: 0, errors: 0, lastError: "" });
   },
   wide: () => ({ found, rules: wideRules, health: wide }),
-  edges: () => edges,
-  /** as after a restart: the state is read from disk again at the next tick */
-  restart() {
-    loaded = false;
-    found = null;
-    snaps.clear();
-  },
 };
 
 /** For the status page: the last summary written to disk (null until the first read). */
