@@ -9,6 +9,14 @@
  * costs; and the deeper the fall the bigger the bounce (6%: +0.8% on 444 trades, 12%: +1.9% on 89). It failed on
  * small Solana coins. One trade lost 40%. That is history, 41 rules were tried, and nothing is proven.
  *
+ * The frequent end (12 Nov 2026, enrique: "i dont want a bot that does 10 trades in a year"). Ten versions that
+ * trade more often were run over the same history (research/sol-dip-frequency.py). The more often a version trades
+ * the thinner it gets: those trading about 240 times a year make nothing after costs, and on BTC and ETH the
+ * frequent versions lose. Two SOL versions that trade about twice a week kept a small plus (+0.2 to +0.4% a trade,
+ * also in the last 12 months): a 4% fall in 24 hours sold at +5% or after 24 hours (769 trades), and a 2% fall in
+ * one hour sold at +3% or after 12 hours (968 trades). They are followed here too. Fifty-one rules tried in all,
+ * so a plus this thin may be luck.
+ *
  * What this adds: the same rules followed live, with a real price quote for a $100 swap of USDC into SOL at the
  * moment the rule buys and for the swap back when it sells. The history priced a trade at the next hour's open
  * less 0.10% a side; this shows what a swap really costs at that moment, which is the one thing a backtest cannot.
@@ -38,6 +46,9 @@ export const DIP_RULES: DipRule[] = [
   { id: "dip24-8-tp10-24h", fallHours: 24, fallPct: 8, targetPct: 10, holdHours: 24 },
   { id: "dip24-6-tp10-24h", fallHours: 24, fallPct: 6, targetPct: 10, holdHours: 24 },
   { id: "dip4-5-tp10-72h", fallHours: 4, fallPct: 5, targetPct: 10, holdHours: 72 },
+  // the frequent end: about two trades a week each in the history, a thin plus
+  { id: "dip24-4-tp5-24h", fallHours: 24, fallPct: 4, targetPct: 5, holdHours: 24 },
+  { id: "dip1-2-tp3-12h", fallHours: 1, fallPct: 2, targetPct: 3, holdHours: 12 },
 ];
 export const DIP_STAKE_USD = 100;
 /** network fee of one plain swap, in dollars (a real copy's three transactions cost 0.00016 SOL in all) */
@@ -212,10 +223,10 @@ export async function dipTick(deps: DipDeps, now = Date.now()): Promise<void> {
 
 export function dipSummary() {
   if (!loaded) load();
-  const text = (x: DipRule) => `Buys $${DIP_STAKE_USD} of SOL when the price is ${x.fallPct}% or more below ${x.fallHours} hours earlier; sells at +${x.targetPct}% or after ${x.holdHours} hours.`;
+  const text = (x: DipRule) => `Buys $${DIP_STAKE_USD} of SOL when the price is ${x.fallPct}% or more below ${x.fallHours} hour${x.fallHours === 1 ? "" : "s"} earlier; sells at +${x.targetPct}% or after ${x.holdHours} hours.`;
   return {
     mode: "paper",
-    note: `Paper only, nothing is sent. Rules found on 5.7 years of hourly prices (41 tried; history, not proof), followed live: each trade is priced with a real quote for a $${DIP_STAKE_USD} swap at the moment the rule buys and sells. testPct is the same trade as the history test would count it; the difference is what a swap really costs. The 10% rule traded about once a month in the history, so months are needed.`,
+    note: `Paper only, nothing is sent. Rules found on 5.7 years of hourly prices (51 tried; history, not proof), followed live: each trade is priced with a real quote for a $${DIP_STAKE_USD} swap at the moment the rule buys and sells. testPct is the same trade as the history test would count it; the difference is what a swap really costs. The 10% rule traded about once a month in the history; the two shallow ones (4% in a day, 2% in an hour) about twice a week with a much thinner plus. Weeks to months are needed.`,
     lastLook: state.last && { hourEndsAt: (state.last.hour + 1) * 3_600_000, price: state.last.close, change4hPct: state.last.change4hPct, change24hPct: state.last.change24hPct },
     missedEntries: state.missedEntries,
     error: state.error,
