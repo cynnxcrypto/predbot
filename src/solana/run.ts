@@ -6,12 +6,19 @@
  * Files in the data folder: solana-lp.json (state), solana-lp-summary.json (what the dashboard and status read),
  * solana/<pool>-<KST day>.jsonl (one line per read: [t, price, liquidity, feeGrowthA, feeGrowthB], kept 60 days, so
  * any other range rule can be replayed later against the same real fees).
+ *
+ * The wider test (12 Nov 2026, summary key "wide"): the same rules on more pairs (SOL/USDT, staked SOL against SOL,
+ * BTC against SOL), so 30 days of evidence cover more than one pair. Its pools are found on the chain once
+ * (lpwide.ts) and kept in solana-lp-pools.json. They are read in the same call as the two SOL/USDC pools; a pool
+ * that cannot be read is skipped and named, and never stops the others. The SOL/USDC rules, their state and their
+ * summary fields are untouched. SOLANA_LP_WIDE=off turns the wider part off.
  */
 import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { DATA } from "../config.js";
-import { RULES, start, step, summarize, type RuleState } from "./lp.js";
+import { PEG_RULES, RULES, rulesFor, start, step, summarize, type RuleState } from "./lp.js";
+import { discover, usdOfB, validFound, type Account, type Found } from "./lpwide.js";
 import { POOLS, type PoolDef } from "./pools.js";
 import { decodeWhirlpool, price, type PoolSnap } from "./whirlpool.js";
 
@@ -20,9 +27,13 @@ const TICK_MS = 30_000;
 const STATE = () => join(DATA, "solana-lp.json");
 const SUMMARY = () => join(DATA, "solana-lp-summary.json");
 const DIR = () => join(DATA, "solana");
+const WIDE_FILE = () => join(DATA, "solana-lp-pools.json");
+const wideOn = () => process.env.SOLANA_LP_WIDE !== "off";
+const WIDE_RETRY_MS = 10 * 60_000;
 
 interface Saved {
   rules: RuleState[];
+  wide?: RuleState[];
   snaps: Record<string, Record<string, string | number>>;
 }
 
@@ -37,31 +48,40 @@ function save(file: string, body: unknown) {
   renameSync(file + ".tmp", file);
 }
 
-export async function readPools(pools: PoolDef[], rpc = RPC, fetcher: typeof fetch = fetch): Promise<Map<string, PoolSnap>> {
+/** Accounts as the chain has them now (null where there is none), up to 100 in one call. */
+export async function readAccounts(addresses: string[], rpc = RPC, fetcher: typeof fetch = fetch): Promise<(Account | null)[]> {
   const res = await fetcher(rpc, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "getMultipleAccounts", params: [pools.map((p) => p.address), { encoding: "base64", commitment: "confirmed" }] }),
+    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "getMultipleAccounts", params: [addresses, { encoding: "base64", commitment: "confirmed" }] }),
     signal: AbortSignal.timeout(10_000),
   });
   if (!res.ok) throw new Error(`rpc http ${res.status}`);
-  const j = (await res.json()) as { error?: { message: string }; result?: { value: ({ data: [string, string] } | null)[] } };
+  const j = (await res.json()) as { error?: { message: string }; result?: { value: ({ data: [string, string]; owner?: string } | null)[] } };
   if (j.error || !j.result) throw new Error(`rpc: ${j.error?.message ?? "no result"}`);
+  return j.result.value.map((acc) => (acc ? { data: Buffer.from(acc.data[0], "base64"), owner: acc.owner ?? "" } : null));
+}
+
+function snapOf(def: PoolDef, acc: Account | null | undefined, t: number): PoolSnap {
+  if (!acc) throw new Error(`${def.key}: account not found`);
+  const snap = decodeWhirlpool(acc.data, t);
+  if (snap.mintA !== def.mintA || snap.mintB !== def.mintB) throw new Error(`${def.key}: not the expected pool (mints differ)`);
+  return snap;
+}
+
+export async function readPools(pools: PoolDef[], rpc = RPC, fetcher: typeof fetch = fetch): Promise<Map<string, PoolSnap>> {
+  const accs = await readAccounts(pools.map((p) => p.address), rpc, fetcher);
   const t = Date.now();
-  const out = new Map<string, PoolSnap>();
-  j.result.value.forEach((acc, i) => {
-    const def = pools[i];
-    if (!acc) throw new Error(`${def.key}: account not found`);
-    const snap = decodeWhirlpool(Buffer.from(acc.data[0], "base64"), t);
-    if (snap.mintA !== def.mintA || snap.mintB !== def.mintB) throw new Error(`${def.key}: not the expected pool (mints differ)`);
-    out.set(def.key, snap);
-  });
-  return out;
+  return new Map(pools.map((def, i) => [def.key, snapOf(def, accs[i], t)]));
 }
 
 let rules: RuleState[] = [];
+let wideRules: RuleState[] = [];
+let found: Found | null = null;
 const snaps = new Map<string, PoolSnap>();
 const health = { startedAt: 0, lastOk: 0, reads: 0, errors: 0, lastError: "" };
+/** the wider test: bad = pools that could not be read at the last tick, in our own fixed words */
+const wide = { tries: 0, nextTry: 0, error: "", bad: {} as Record<string, string>, ticks: 0 };
 let loaded = false;
 
 function load() {
@@ -69,16 +89,39 @@ function load() {
   try {
     const s = JSON.parse(readFileSync(STATE(), "utf8")) as Saved;
     rules = s.rules ?? [];
+    wideRules = s.wide ?? [];
     for (const [k, v] of Object.entries(s.snaps ?? {})) snaps.set(k, reviveSnap(v));
   } catch {
     rules = [];
+    wideRules = [];
+  }
+}
+
+/** The extra pools: the saved answer if there is one, else one look at the chain (again every 10 minutes until it works). */
+async function findWide(fetcher: typeof fetch) {
+  if (!wideOn() || found) return;
+  try {
+    found = validFound(JSON.parse(readFileSync(WIDE_FILE(), "utf8")));
+  } catch {
+    found = null;
+  }
+  if (found || Date.now() < wide.nextTry) return;
+  wide.nextTry = Date.now() + WIDE_RETRY_MS;
+  wide.tries++;
+  try {
+    found = await discover((a) => readAccounts(a, RPC, fetcher));
+    save(WIDE_FILE(), found);
+    wide.error = "";
+  } catch {
+    wide.error = "the pools could not be looked up on the chain yet; it is tried again every 10 minutes";
   }
 }
 
 function record(pool: PoolDef, snap: PoolSnap) {
   mkdirSync(DIR(), { recursive: true });
   const day = new Date(snap.t + 9 * 3600_000).toISOString().slice(0, 10);
-  appendFileSync(join(DIR(), `${pool.key}-${day}.jsonl`), JSON.stringify([snap.t, +price(snap, pool.decA, pool.decB).toFixed(4), snap.liquidity.toString(), snap.feeGrowthA.toString(), snap.feeGrowthB.toString()]) + "\n");
+  const p = price(snap, pool.decA, pool.decB);
+  appendFileSync(join(DIR(), `${pool.key}-${day}.jsonl`), JSON.stringify([snap.t, pool.pair ? +p.toPrecision(8) : +p.toFixed(4), snap.liquidity.toString(), snap.feeGrowthA.toString(), snap.feeGrowthB.toString()]) + "\n");
 }
 
 function prune() {
@@ -90,6 +133,46 @@ function prune() {
   }
 }
 
+const BAR = (r: { closedDays: number; vsHold: number; daysWon: number; cycles: number }) => r.closedDays >= 30 && r.vsHold > 0 && r.daysWon / r.closedDays >= 0.5 && (r.cycles === 0 || r.cycles >= 100);
+
+/** The wider test, compact: one line per rule and pool, everything in dollars. */
+function wideSummary() {
+  if (!wideOn()) return { mode: "paper", on: false };
+  const extra = found?.pools ?? [];
+  const rows = wideRules.flatMap((s) => {
+    const pool = extra.find((p) => p.key === s.pool);
+    const def = pool && rulesFor(pool).find((r) => r.id === s.id);
+    return def && pool ? [summarize(s, def, pool)] : [];
+  });
+  rows.sort((a, b) => b.vsHold - a.vsHold);
+  return {
+    mode: "paper",
+    on: true,
+    note: "Paper only, nothing is sent. The same fee test as SOL/USDC on more pairs: $200 on paper in a price range, real fees read from each pool's own counters, score vsHold = position + fees - costs against simply holding the two tokens, in dollars. Staked SOL pairs get much narrower ranges because they barely move. The cost of a re-centring swap is assumed per pair. Same bar: 30+ closed days, at least half of them ahead of hold, net ahead, 100+ range cycles for rules that re-centre. Days are needed; the first days say nothing.",
+    found: !!found,
+    foundAt: found?.at ?? null,
+    error: found ? "" : wide.error,
+    noPool: found?.none ?? [],
+    pools: extra.map((p) => {
+      const s = snaps.get(p.key);
+      const mine = rows.filter((r) => r.pool === p.key);
+      return {
+        key: p.key, label: p.label, pair: p.pair, kind: p.kind, price: s ? +price(s, p.decA, p.decB).toPrecision(6) : null, feeRatePct: s ? s.feeRate * 100 : null, lastRead: s?.t ?? null,
+        problem: wide.bad[p.key] ?? "", rules: mine.length, aheadOfHold: mine.filter((r) => r.vsHold > 0).length,
+        best: mine[0] ? { id: mine[0].id, vsHold: mine[0].vsHold, fees: mine[0].fees, feeAprPct: mine[0].feeAprPct } : null,
+      };
+    }),
+    rulesTried: rows.length,
+    aheadOfHold: rows.filter((r) => r.vsHold > 0).length,
+    qualified: rows.filter(BAR).map((r) => `${r.id}@${r.pool}`),
+    texts: Object.fromEntries([...RULES, ...PEG_RULES].map((r) => [r.id, r.text])),
+    rows: rows.map((r) => ({
+      id: r.id, pool: r.pool, days: r.days, net: r.net, vsHold: r.vsHold, fees: r.fees, costs: r.costs, feeAprPct: r.feeAprPct, inRangePct: r.inRangePct,
+      cycles: r.cycles, cyclesWon: r.cyclesWon, closedDays: r.closedDays, daysWon: r.daysWon, todayVsHold: r.todayVsHold,
+    })),
+  };
+}
+
 export function buildSummary() {
   const rows = rules.flatMap((s) => {
     const def = RULES.find((r) => r.id === s.id);
@@ -97,7 +180,7 @@ export function buildSummary() {
     return def && pool ? [summarize(s, def, pool)] : [];
   });
   rows.sort((a, b) => b.vsHold - a.vsHold);
-  const qualified = rows.filter((r) => r.closedDays >= 30 && r.vsHold > 0 && r.daysWon / r.closedDays >= 0.5 && (r.cycles === 0 || r.cycles >= 100));
+  const qualified = rows.filter(BAR);
   return {
     mode: "paper",
     note: "Paper only. Score is vsHold: position + fees - costs, against holding the starting SOL and USDC. Bar for real: 30+ closed days, at least half of them ahead of hold, net ahead of hold, and 100+ range cycles for rules that re-centre.",
@@ -111,15 +194,23 @@ export function buildSummary() {
     aheadOfHold: rows.filter((r) => r.vsHold > 0).length,
     qualified: qualified.map((r) => `${r.id}@${r.pool}`),
     rules: rows,
+    wide: wideSummary(),
   };
 }
 
 export async function tick(fetcher: typeof fetch = fetch) {
   if (!loaded) load();
   if (!health.startedAt) health.startedAt = Date.now();
+  await findWide(fetcher);
+  const extra = wideOn() ? (found?.pools ?? []) : [];
   let now: Map<string, PoolSnap>;
+  let accs: (Account | null)[];
+  let t: number;
   try {
-    now = await readPools(POOLS, RPC, fetcher);
+    // one call for everything; the two SOL/USDC pools must both be right, as before
+    accs = await readAccounts([...POOLS, ...extra].map((p) => p.address), RPC, fetcher);
+    t = Date.now();
+    now = new Map(POOLS.map((def, i) => [def.key, snapOf(def, accs[i], t)]));
   } catch (e) {
     health.errors++;
     health.lastError = String((e as Error).message).slice(0, 200);
@@ -141,9 +232,50 @@ export async function tick(fetcher: typeof fetch = fetch) {
     }
     snaps.set(pool.key, snap);
   }
-  save(STATE(), { rules, snaps: Object.fromEntries(snaps) });
+  // the wider test: each pool on its own, a bad one is named and skipped
+  const solUsd = price(now.get(POOLS[0].key)!, POOLS[0].decA, POOLS[0].decB);
+  wide.bad = {};
+  extra.forEach((pool, i) => {
+    let snap: PoolSnap;
+    try {
+      snap = snapOf(pool, accs[POOLS.length + i], t);
+    } catch (e) {
+      wide.bad[pool.key] = /not found/.test(String((e as Error).message)) ? "account not found" : /mints differ/.test(String((e as Error).message)) ? "not the expected pool" : "could not be read";
+      return;
+    }
+    const usdB = usdOfB(pool, price(snap, pool.decA, pool.decB), solUsd);
+    if (usdB === null) {
+      wide.bad[pool.key] = "no dollar price";
+      return;
+    }
+    const prev = snaps.get(pool.key);
+    if (wide.ticks % 2 === 0) record(pool, snap); // once a minute is enough for a replay
+    for (const def of rulesFor(pool)) {
+      let s = wideRules.find((r) => r.id === def.id && r.pool === pool.key);
+      if (!s) {
+        s = start(def, pool, snap, usdB);
+        wideRules.push(s);
+      } else if (prev) step(s, def, pool, prev, snap, usdB);
+    }
+    snaps.set(pool.key, snap);
+  });
+  wide.ticks++;
+  save(STATE(), { rules, wide: wideRules, snaps: Object.fromEntries(snaps) });
   save(SUMMARY(), buildSummary());
 }
+
+export const _lpTest = {
+  reset() {
+    rules = [];
+    wideRules = [];
+    found = null;
+    snaps.clear();
+    loaded = true;
+    Object.assign(wide, { tries: 0, nextTry: 0, error: "", bad: {}, ticks: 0 });
+    Object.assign(health, { startedAt: 0, lastOk: 0, reads: 0, errors: 0, lastError: "" });
+  },
+  wide: () => ({ found, rules: wideRules, health: wide }),
+};
 
 /** For the status page: the last summary written to disk (null until the first read). */
 export function solanaSummary(): unknown {
