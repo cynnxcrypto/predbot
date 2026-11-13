@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { parseBook, slugDate, solveQ, tennisTour, walk, winMarketFor, zonedUtc } from "./eventpaper.js";
+import { copyBetUsd, copyResolveAt, copyStake, copyUsualBet, parseBook, slugDate, solveQ, tennisTour, walk, winMarketFor, zonedUtc } from "./eventpaper.js";
 
 test("eventpaper helpers", () => {
   const q = solveQ(0.648);
@@ -67,4 +67,66 @@ test("closing price: size-weighted, other token counted at 1 - price, only insid
   assert.equal(closeVwap(rows, "A", "B", 900, 1200, 1), 0.675);
   assert.equal(closeVwap(rows, "A", "B", 900, 1200), null); // fewer than 5 prints: no close
   assert.equal(closeVwap(rows, "A", "B", 2000, 3000), null);
+});
+
+test("wx-copy: only the wallet's new buys are read, oldest first", async () => {
+  const { wxCopyBuys, WX_COPY_WALLET } = await import("./eventpaper.js");
+  assert.match(WX_COPY_WALLET, /^0x[0-9a-f]{40}$/);
+  const rows = [
+    { type: "TRADE", side: "BUY", price: "0.33", timestamp: 2000, condition_id: "0xb", outcome: "Yes" },
+    { type: "TRADE", side: "SELL", price: 0.4, timestamp: 2001, condition_id: "0xc", outcome: "Yes" },
+    { type: "REDEEM", timestamp: 2002, condition_id: "0xd" },
+    { type: "TRADE", side: "BUY", price: 0.8, timestamp: 1500, condition_id: "0xa", outcome: "No" },
+    { type: "TRADE", side: "BUY", price: 0.5, timestamp: 1000, condition_id: "0xe", outcome: "Yes" },
+    { type: "TRADE", side: "BUY", price: 1, timestamp: 3000, condition_id: "0xf", outcome: "Yes" },
+  ];
+  assert.deepEqual(wxCopyBuys(rows, 1000), [
+    { ts: 1500, cond: "0xa", yes: false, price: 0.8 },
+    { ts: 2000, cond: "0xb", yes: true, price: 0.33 },
+  ]);
+});
+
+test("wallet copies: new buys only, with the outcome index, and every wallet has its two rules", async () => {
+  const { copyBuys, COPY_WALLETS } = await import("./eventpaper.js");
+  const c = "0x" + "ab".repeat(32);
+  const rows = [
+    { type: "TRADE", side: "BUY", price: 0.9, timestamp: 50, condition_id: c, outcome_index: 1 },
+    { type: "TRADE", side: "BUY", price: 0.9, timestamp: 60, condition_id: c },
+    { type: "TRADE", side: "BUY", price: 0.9, timestamp: 61, condition_id: "0xshort", outcome_index: 0 },
+    { type: "TRADE", side: "SELL", price: 0.9, timestamp: 62, condition_id: c, outcome_index: 0 },
+    { type: "TRADE", side: "BUY", price: 0.4, timestamp: 40, condition_id: c, outcome_index: "0" },
+    { type: "TRADE", side: "BUY", price: 0.4, timestamp: 10, condition_id: c, outcome_index: 0 },
+  ];
+  assert.deepEqual(copyBuys(rows, 10), [{ ts: 40, cond: c, idx: 0, price: 0.4 }, { ts: 50, cond: c, idx: 1, price: 0.9 }]);
+  assert.equal(COPY_WALLETS.length, 17);
+  assert.ok(COPY_WALLETS.every((w) => /^0x[0-9a-f]{40}$/.test(w.address) && /^[a-z0-9-]+$/.test(w.name)));
+});
+
+test("copy sizing: $3 for a usual bet, $10 for ten times its usual bet or a quarter of its money, in between by size", () => {
+  assert.equal(copyStake(12, 12, null), 3);
+  assert.equal(copyStake(12, 12, 10_000), 3.03, "0.1% of its money");
+  assert.equal(copyStake(5, null, null), 3, "nothing known: the smallest bet");
+  assert.equal(copyStake(120, 12, 10_000), 10, "ten times its usual bet");
+  assert.equal(copyStake(2_500, 1_000_000, 10_000), 10, "a quarter of its money");
+  assert.equal(copyStake(10_000, null, 10_000), 10, "the whole wallet");
+  assert.equal(copyStake(500, null, 10_000), 4.4, "5% of its money");
+  assert.equal(copyStake(37.95, 12, null), 6.5, "about 3 times its usual bet: half way on the log scale");
+  assert.ok(copyStake(1e9, 1, 1) <= 10 && copyStake(0, 0, 0) === 3);
+  const rows = [
+    { type: "TRADE", side: "BUY", condition_id: "c1", outcome_index: 0, usdc_size: 10 },
+    { type: "TRADE", side: "BUY", condition_id: "c1", outcome_index: 0, usdc_size: "5" },
+    { type: "TRADE", side: "BUY", condition_id: "c1", outcome_index: 1, usdc_size: 7 },
+    { type: "TRADE", side: "SELL", condition_id: "c1", outcome_index: 0, usdc_size: 99 },
+    { type: "REDEEM", condition_id: "c1", outcome_index: 0, usdc_size: 99 },
+    ...["c2", "c3", "c4"].map((c) => ({ type: "TRADE", side: "BUY", condition_id: c, outcome_index: 0, usdcSize: 2 })),
+  ];
+  assert.equal(copyBetUsd(rows, "c1", (r) => Number(r.outcome_index) === 0), 15, "fills of one side summed; sells and claims left out");
+  assert.equal(copyUsualBet(rows), 2, "median of 5 bets (15, 7, 2, 2, 2)");
+  assert.equal(copyUsualBet(rows.slice(0, 4)), null, "under 5 bets: unknown");
+});
+
+test("copy resolve date: the match start for game markets, else the end date", () => {
+  assert.equal(copyResolveAt({ gameStartTime: "2026-11-13 10:00:00+00", endDate: "2026-11-20T10:00:00Z" }), Date.parse("2026-11-13T10:00:00Z"));
+  assert.equal(copyResolveAt({ endDate: "2026-12-31T12:00:00Z" }), Date.parse("2026-12-31T12:00:00Z"));
+  assert.ok(Number.isNaN(copyResolveAt({})));
 });

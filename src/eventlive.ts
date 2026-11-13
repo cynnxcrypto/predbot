@@ -9,11 +9,17 @@
  *                             "dayLosses": 2, "maxOpen": 4, "maxLoss": 12 } }
  *
  *   rules      paper rules whose trades are copied with real money (empty or missing = off)
- *   size       dollars per bet (never above 5)
+ *   size       dollars per bet (the smallest bet when the caller sizes it)
+ *   maxSize    largest bet when the caller sizes it (13 Nov 2026 copy sizing; never above MAX_STAKE = $10)
+ *   maxDays    no bet on a market that resolves more than this many days ahead (0 = no limit; 13 Nov 2026, enrique:
+ *              "make sure we dont enter anything that takes more than 2 weeks to resolve")
+ *   perWallet  copies only: real bets open at once per copied wallet (0 = no own limit)
  *   maxAsk     no order when the favourite asks more than this
  *   minDepth   dollars that must rest within 2c of the ask (the paper "fillable" test)
  *   dayLosses  after this many settled losses in one KST day the group stops until the next KST day
  *   maxOpen    unsettled real bets allowed at once
+ *   negRisk    true lets the group also bet grouped ("neg-risk") markets such as weather buckets (12 Nov 2026); see
+ *              negRiskBlock() for the extra guards
  *   maxLoss    the group's own BUDGET: dollars lost so far + open stakes + the new bet must stay inside it; once it is
  *              lost the group stops until enrique or a review gives it more. Separate from the crypto "lossCap".
  *
@@ -53,10 +59,16 @@ export type EventLiveRow = {
   pay?: number | null;
   pnl?: number | null;
   settledAt?: number | null;
+  /** Grouped ("neg-risk") market: claimed through Polymarket's neg-risk adapter (src/live.ts redeemEvents). */
+  negRisk?: boolean;
+  /** The outcome token bought; kept so the claim can be checked on chain. Never in the status file. */
+  token?: string;
 };
-export type EventLiveGroup = { rules: string[]; size: number; maxAsk: number; minDepth: number; dayLosses: number; maxOpen: number; maxLoss: number };
+export type EventLiveGroup = { rules: string[]; size: number; maxAsk: number; minDepth: number; dayLosses: number; maxOpen: number; maxLoss: number; negRisk: boolean; maxSize: number; maxDays: number; perWallet: number };
 export type EventLiveConfig = { mode: string; minBalance: number; lossCap?: LossCap; groups: Record<string, EventLiveGroup> };
 
+/** No single real event bet is ever larger than this (13 Nov 2026, enrique: "Min $3 max $10"). */
+export const MAX_STAKE = 10;
 const num = (x: unknown, fallback: number) => (Number.isFinite(Number(x)) && x != null ? Number(x) : fallback);
 
 /** Parse the repo rules text and the server's local live.json into the event config. Anything malformed means off. */
@@ -74,9 +86,10 @@ export function parseEventLive(repoText: string, local: { mode?: string; funder?
   for (const [g, v] of Object.entries(repo.events ?? {})) {
     if (!v || typeof v !== "object" || !Array.isArray(v.rules)) continue;
     const rules = v.rules.filter((r): r is string => typeof r === "string" && r.length > 0);
-    const size = Math.min(5, num(v.size, 0));
+    const size = Math.min(MAX_STAKE, num(v.size, 0));
     if (!rules.length || !(size >= 1)) continue;
-    groups[g] = { rules, size, maxAsk: Math.min(0.99, num(v.maxAsk, 0.96)), minDepth: Math.max(0, num(v.minDepth, 25)), dayLosses: Math.max(1, Math.floor(num(v.dayLosses, 2))), maxOpen: Math.max(1, Math.floor(num(v.maxOpen, 4))), maxLoss: Math.max(0, num(v.maxLoss, 12)) };
+    const maxSize = Math.min(MAX_STAKE, Math.max(size, num(v.maxSize, size)));
+    groups[g] = { rules, size, maxAsk: Math.min(0.99, num(v.maxAsk, 0.96)), minDepth: Math.max(0, num(v.minDepth, 25)), dayLosses: Math.max(1, Math.floor(num(v.dayLosses, 2))), maxOpen: Math.max(1, Math.floor(num(v.maxOpen, 4))), maxLoss: Math.max(0, num(v.maxLoss, 12)), negRisk: v.negRisk === true, maxSize, maxDays: Math.max(0, num(v.maxDays, 0)), perWallet: Math.max(0, Math.floor(num(v.perWallet, 0))) };
   }
   const since = typeof repo.lossCap?.since === "number" ? repo.lossCap.since : Date.parse(String(repo.lossCap?.since ?? ""));
   const maxLoss = Number(repo.lossCap?.maxLoss);
@@ -94,15 +107,24 @@ export function eventLiveConfig(): EventLiveConfig {
 }
 
 /** Why a real order must not go out, or null when every guard passes. Pure: the caller supplies the rows and the clock. */
-export function eventLiveBlock(cfg: EventLiveConfig, group: string, rule: string, marketId: string, ask: number, depth: number, fillable: boolean, rows: EventLiveRow[], now: number): string | null {
+export function eventLiveBlock(cfg: EventLiveConfig, group: string, rule: string, marketId: string, ask: number, depth: number, fillable: boolean, rows: EventLiveRow[], now: number, stake?: number, resolveAt?: number): string | null {
   const g = cfg.groups[group];
   if (!g || !g.rules.includes(rule)) return "rule not live";
   if (cfg.mode !== "live") return `mode ${cfg.mode}`;
   if (!fillable) return "paper trade not fully fillable";
   if (!(ask > 0) || ask > g.maxAsk + 1e-9) return `ask ${Math.round(ask * 100)}c over the ${Math.round(g.maxAsk * 100)}c limit`;
+  const bet = stake ?? g.size;
+  if (g.maxDays > 0) {
+    if (!(resolveAt != null && Number.isFinite(resolveAt))) return "resolve date unknown";
+    const days = (resolveAt - now) / 86400_000;
+    if (days > g.maxDays) return `resolves in ${Math.round(days)} days (limit ${g.maxDays})`;
+  }
   if (depth < g.minDepth - 1e-9) return `only $${depth.toFixed(0)} within 2c of the ask (needs $${g.minDepth})`;
   const mine = rows.filter((r) => r.group === group && (r.shares > 0 || !r.ok));
   if (mine.some((r) => r.marketId === marketId)) return "already bet on this match";
+  // One real bet per market across ALL groups (12 Nov 2026: a copied tennis wallet and the tennis rule could otherwise
+  // both bet the same match, even on opposite sides).
+  if (rows.some((r) => r.marketId === marketId && r.group !== group && (r.shares > 0 || r.status === "unknown"))) return "another real test already bet on this market";
   // A row whose order outcome is unknown (ok false, no shares, status "unknown") is held as open so a fault cannot loop.
   const open = mine.filter((r) => r.pnl == null && (r.shares > 0 || r.status === "unknown"));
   if (open.length >= g.maxOpen) return `${open.length} real bets open (max ${g.maxOpen})`;
@@ -112,11 +134,31 @@ export function eventLiveBlock(cfg: EventLiveConfig, group: string, rule: string
   // every open stake plus this bet must fit inside maxLoss. Wins do not raise the budget.
   const lost = Math.max(0, -net);
   const staked = open.reduce((s, r) => s + r.cost, 0);
-  if (lost + staked + g.size > g.maxLoss + 1e-9) return lost >= g.maxLoss - 1e-9 ? `budget used up: $${lost.toFixed(2)} lost of $${g.maxLoss}` : `budget: $${lost.toFixed(2)} lost + $${staked.toFixed(2)} open + $${g.size} would pass $${g.maxLoss}`;
+  if (lost + staked + bet > g.maxLoss + 1e-9) return lost >= g.maxLoss - 1e-9 ? `budget used up: $${lost.toFixed(2)} lost of $${g.maxLoss}` : `budget: $${lost.toFixed(2)} lost + $${staked.toFixed(2)} open + $${bet.toFixed(2)} would pass $${g.maxLoss}`;
   const today = kstDay(now);
   const lostToday = settled.filter((r) => r.won === false && kstDay(r.settledAt ?? r.t) === today).length;
   if (lostToday >= g.dayLosses) return `${lostToday} losses today: stopped until the next KST day`;
   return null;
+}
+
+export const NEG_READY_FILE = "negrisk-ready.json";
+/** Written by src/live.ts negRiskSetup(): whether the wallet holds every permission grouped markets need. */
+export type NegRiskReady = { at?: number; ready?: boolean; missing?: string[]; tries?: number; lastTryAt?: number; error?: string | null };
+type NegClaims = Record<string, { tx?: string | null; negRisk?: boolean }>;
+/** Grouped-market bets allowed before the first claim of one has been confirmed on chain. */
+export const NEG_TRIAL = 2;
+/**
+ * Extra guards for a grouped ("neg-risk") market, or null when the bet may go (12 Nov 2026, enrique: "we cant claim
+ * weather buys so we are not trading"). The group must allow it, the wallet's permissions must have been checked on
+ * chain, and until one claim of such a bet is confirmed at most NEG_TRIAL of them may be open or won and unclaimed:
+ * the claim path could only be tested with a real win.
+ */
+export function negRiskBlock(g: EventLiveGroup, ready: NegRiskReady, rows: EventLiveRow[], claims: NegClaims): string | null {
+  if (!g.negRisk) return "neg-risk market (not switched on for this test)";
+  if (!ready.ready) return `grouped market: wallet permissions not ready${ready.error ? ` (${ready.error.slice(0, 60)})` : ""}`;
+  if (Object.values(claims).some((d) => d?.negRisk && d.tx)) return null;
+  const pending = rows.filter((r) => r.negRisk && (r.shares > 0 || r.status === "unknown") && (r.pnl == null || ((r.pay ?? 0) > 0 && !claims[r.conditionId ?? ""]?.tx))).length;
+  return pending >= NEG_TRIAL ? `grouped market test: ${pending} bets until the first claim is confirmed` : null;
 }
 
 export function eventLiveRows(): EventLiveRow[] {
@@ -153,7 +195,7 @@ export const _eventLiveTest = { busy: (b: boolean) => void (busy = b), reset: ()
  * Copy one paper trade with real money if the guards allow. Returns a short text for the log: what was bought or why not.
  * Never throws. `conditionId` and `negRisk` come from the caller's Gamma lookup of the market.
  */
-export async function eventLiveBuy(group: string, p: { rule: string; marketId: string; title: string; outcome: string; idx: number; token: string; ask: number; depth: number; fillable: boolean; feeRate: number; conditionId: string | null; negRisk: boolean }): Promise<string | null> {
+export async function eventLiveBuy(group: string, p: { rule: string; marketId: string; title: string; outcome: string; idx: number; token: string; ask: number; depth: number; fillable: boolean; feeRate: number; conditionId: string | null; negRisk?: boolean; stake?: number; resolveAt?: number }): Promise<string | null> {
   const cfg = eventLiveConfig();
   if (!cfg.groups[group]?.rules.includes(p.rule)) return null;
   if (stopping) return "restart pending: no new real order";
@@ -161,20 +203,28 @@ export async function eventLiveBuy(group: string, p: { rule: string; marketId: s
   busy = true;
   try {
     const g = cfg.groups[group];
+    // A caller-sized bet (wallet copies, 13 Nov 2026) stays between the group's size and maxSize, in whole cents.
+    const stake = p.stake == null ? g.size : Math.round(Math.min(g.maxSize, Math.max(g.size, p.stake)) * 100) / 100;
     const rows = eventLiveRows();
-    const why = eventLiveBlock(cfg, group, p.rule, p.marketId, p.ask, p.depth, p.fillable, rows, Date.now());
+    const why = eventLiveBlock(cfg, group, p.rule, p.marketId, p.ask, p.depth, p.fillable, rows, Date.now(), stake, p.resolveAt);
     if (why) return why;
-    if (p.negRisk) return "neg-risk market (claims not supported)";
     if (!p.conditionId) return "no condition id";
+    // The bot claims through the conditional-token contract and its adapters only; newer markets with a 31-byte id
+    // are claimed another way that is not built.
+    if (!/^0x[0-9a-fA-F]{64}$/.test(p.conditionId)) return "market type the bot cannot claim";
     const funder = String(loadJson<{ funder?: string }>("live.json", {}).funder ?? "").trim();
     const c = await getClient(funder);
     const bal = Number((await timed(c.getBalanceAllowance({ asset_type: AssetType.COLLATERAL }), "reading the balance")).balance) / 1e6;
     if (!Number.isFinite(bal)) return "balance unknown";
-    if (bal - g.size < cfg.minBalance) return `wallet $${bal.toFixed(2)} would fall under the $${cfg.minBalance} floor`;
+    if (bal - stake < cfg.minBalance) return `wallet $${bal.toFixed(2)} would fall under the $${cfg.minBalance} floor`;
     const [tickSize, negRisk] = await timed(Promise.all([c.getTickSize(p.token), c.getNegRisk(p.token)]), "reading the market");
-    if (negRisk) return "neg-risk market (claims not supported)";
-    const order = await timed(c.createMarketOrder({ tokenID: p.token, amount: g.size, side: Side.BUY, price: p.ask, orderType: OrderType.FAK }, { tickSize, negRisk: false }), "signing the order");
-    const row: EventLiveRow = { t: Date.now(), group, rule: p.rule, marketId: p.marketId, conditionId: p.conditionId, title: p.title, outcome: p.outcome, idx: p.idx, ask: p.ask, size: g.size, cost: g.size, shares: 0, fee: 0, ok: false, status: "unknown", error: null };
+    const neg = Boolean(negRisk);
+    if (neg) {
+      const no = negRiskBlock(g, loadJson<NegRiskReady>(NEG_READY_FILE, {}), rows, loadJson<NegClaims>("eventlive-claims.json", {}));
+      if (no) return no;
+    }
+    const order = await timed(c.createMarketOrder({ tokenID: p.token, amount: stake, side: Side.BUY, price: p.ask, orderType: OrderType.FAK }, { tickSize, negRisk: neg }), "signing the order");
+    const row: EventLiveRow = { t: Date.now(), group, rule: p.rule, marketId: p.marketId, conditionId: p.conditionId, title: p.title, outcome: p.outcome, idx: p.idx, ask: p.ask, size: stake, cost: stake, shares: 0, fee: 0, ok: false, status: "unknown", error: null, token: p.token, ...(neg ? { negRisk: true } : {}) };
     if (stopping) return "restart pending: order not sent";
     // Written BEFORE the order is sent, as an open bet of unknown outcome: if the process dies or the reply is lost, the
     // slot and the cap stay held instead of the order being repeated.
@@ -199,7 +249,7 @@ export async function eventLiveBuy(group: string, p: { rule: string; marketId: s
       }
     } catch (e) {
       row.error = e instanceof Error ? e.message : String(e);
-      row.cost = g.size;
+      row.cost = stake;
     }
     saveJson(EVENT_LIVE_FILE, rows);
     return row.shares > 0 ? `REAL bought ${row.shares.toFixed(2)} for $${row.cost.toFixed(2)} (${Math.round((row.cost / row.shares) * 1000) / 10}c)` : `REAL order not filled (${row.error ?? row.status ?? "no fill"})`;

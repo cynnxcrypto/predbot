@@ -114,6 +114,16 @@ export const CATS: Record<string, Cat> = {
     plan: "Paper taker + maker (1c under). Cross-venue gap log. Real only after 100+ fillable trades.",
     report: "reviews/politics-thesis-2026-11-07.md",
   },
+  copy: {
+    group: "copy",
+    books: () => false,
+    collector: [],
+    research: [
+      "Copies the buys of public Polymarket wallets picked for a steady record in one niche (commodity price ladders, central banks and elections, Asian weather, League of Legends totals).",
+      "Nothing is proven: a wallet's past profit does not carry over to a copy that buys later and at a worse price.",
+    ],
+    plan: "Real: $3 a bet at the ask when it is within 2c of the price the wallet paid, one shared $50 budget (lost + open stakes), ends for good at $50 lost. Paper twins rest a bid at the wallet's own price.",
+  },
   other: {
     group: "cricket",
     books: (m) => m.family === "games" && !US.test(m.series ?? ""),
@@ -295,7 +305,7 @@ function realInfo(group: string): { budget: unknown; guards: Record<string, numb
     const g = repo.events?.[group];
     if (g) {
       guards = {};
-      for (const k of ["size", "maxAsk", "minDepth", "dayLosses", "maxOpen", "maxLoss"]) if (Number.isFinite(Number(g[k])) && g[k] != null) guards[k] = Number(g[k]);
+      for (const k of ["size", "maxSize", "maxDays", "perWallet", "maxAsk", "minDepth", "dayLosses", "maxOpen", "maxLoss"]) if (Number.isFinite(Number(g[k])) && g[k] != null) guards[k] = Number(g[k]);
     }
   } catch {
     // no rules file: the tab shows the real section without guard details
@@ -308,7 +318,7 @@ function realInfo(group: string): { budget: unknown; guards: Record<string, numb
   return { budget, guards };
 }
 
-type RealRow = { t: number; group?: string; rule: string; title: string; outcome: string; ask: number; cost: number; shares: number; status: string | null; error: string | null; pnl?: number | null; settledAt?: number | null };
+type RealRow = { t: number; group?: string; marketId?: string; rule: string; title: string; outcome: string; ask: number; cost: number; shares: number; status: string | null; error: string | null; pnl?: number | null; settledAt?: number | null };
 /** Every real bet of a category from data/eventlive.json (read only): per rule today / all time, Korean days, latest orders. */
 function realRecord(group: string): unknown {
   const all = loadJson<RealRow[]>("eventlive.json", []);
@@ -351,8 +361,39 @@ function realRecord(group: string): unknown {
     byRule,
     tot,
     days: Object.keys(days).sort().reverse().slice(0, 30).map((day) => ({ day, ...days[day] })),
-    log: rows.slice(-60).reverse().map((r) => ({ t: r.t, rule: r.rule, title: r.title, outcome: r.outcome, ask: r.ask, cost: r.cost, shares: r.shares, status: r.status, error: r.error, pnl: r.pnl ?? null, settledAt: r.settledAt ?? null })),
+    log: rows.slice(-60).reverse().map((r) => ({ t: r.t, marketId: r.marketId ?? null, rule: r.rule, title: r.title, outcome: r.outcome, ask: r.ask, cost: r.cost, shares: r.shares, status: r.status, error: r.error, pnl: r.pnl ?? null, settledAt: r.settledAt ?? null })),
   };
+}
+
+// When an open real bet is expected to resolve: the match start for game markets (their end date sits days after the
+// match), otherwise the market's end date. Read from Gamma once an hour per market; a failed read leaves the row without a time.
+const endMemo = new Map<string, { at: number; end: number | null; game: boolean }>();
+const gts = (x: unknown): number => {
+  const v = Date.parse(String(x ?? "").replace(" ", "T").replace(/\+00$/, "Z"));
+  return Number.isFinite(v) ? v : 0;
+};
+async function withResolveTimes(rec: unknown): Promise<unknown> {
+  const log = (rec as { log?: { marketId?: string | null; shares: number; pnl: number | null; end?: number | null; game?: boolean }[] } | null)?.log;
+  if (!Array.isArray(log)) return rec;
+  const open = log.filter((r) => r.marketId && r.shares > 0 && r.pnl == null);
+  const need = [...new Set(open.map((r) => r.marketId!))].filter((id) => !endMemo.has(id) || Date.now() - endMemo.get(id)!.at > 3600_000).slice(0, 20);
+  const work = Promise.all(
+    need.map(async (id) => {
+      try {
+        const m = ((await (await get(`${GAMMA}/markets?id=${encodeURIComponent(id)}`, 4000)).json()) as { endDate?: string; gameStartTime?: string }[])[0];
+        const game = gts(m?.gameStartTime);
+        endMemo.set(id, { at: Date.now(), end: game || gts(m?.endDate) || null, game: game > 0 });
+      } catch {
+        if (!endMemo.has(id)) endMemo.set(id, { at: Date.now() - 3300_000, end: null, game: false }); // try again in 5 min
+      }
+    }),
+  );
+  await Promise.race([work, new Promise((ok) => setTimeout(ok, 2500))]);
+  for (const r of open) {
+    const c = endMemo.get(r.marketId!);
+    if (c?.end) Object.assign(r, { end: c.end, game: c.game });
+  }
+  return rec;
 }
 
 /** /api/events?sec=<id>: everything one category tab shows. */
@@ -368,7 +409,7 @@ export async function eventsStatus(sec: string): Promise<unknown> {
     at: Date.now(),
     paper: cat.group ? (sum[cat.group] ?? null) : null,
     real: cat.group ? realInfo(cat.group) : null,
-    realRec: cat.group ? realRecord(cat.group) : null,
+    realRec: cat.group ? await withResolveTimes(realRecord(cat.group)) : null,
     paperAt: sum.at ?? null,
     health: sum.health ?? null,
     names: RULE_NAMES,
@@ -443,6 +484,7 @@ var EVD={},EVBUSY=false;
 var evE=function(x){return String(x==null?"":x).replace(/[&<>"]/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]})};
 var evS=function(v){return v==null?"—":(v<0?"-$":"+$")+Math.abs(v).toFixed(2)};
 var evC=function(p){return p==null||!isFinite(p)?"—":(p*100<1&&p>0?(p*100).toFixed(1):Math.round(p*100))+"c"};
+var evEnds=function(t){var d=t.end-Date.now(),h=d/3600000;var w=d<=0?(t.game?"playing":"due"):(t.game?"plays in ":"ends in ")+(h<1?Math.max(1,Math.round(d/60000))+"m":h<48?Math.round(h)+"h":Math.round(h/24)+"d");return '<span class="dt" style="align-items:flex-end" title="'+(t.game?"match start":"market end date; it can resolve earlier")+'"><i>'+new Date(t.end).toLocaleDateString("en-GB",{timeZone:"Asia/Seoul",day:"numeric",month:"short"})+" "+evT(t.end)+'</i>'+w+'</span>'};
 var evT=function(ms){return new Date(ms).toLocaleTimeString("en-GB",{timeZone:"Asia/Seoul",hour:"2-digit",minute:"2-digit"})};
 var evD=function(ms){return new Date(ms).toLocaleString("en-GB",{timeZone:"Asia/Seoul",weekday:"short",day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"})};
 var evAgo=function(ms){if(!ms)return "never";var s=Math.max(0,(Date.now()-ms)/1000);return s<90?Math.round(s)+" s ago":s<5400?Math.round(s/60)+" min ago":s<172800?Math.round(s/3600)+" h ago":Math.round(s/86400)+" days ago"};
@@ -456,21 +498,21 @@ var evTile=function(k,v,c,t){return '<div><div class="k"'+(t?' title="'+evE(t)+'
 var evPct=function(x){return x&&x.settled?(x.won/x.settled*100).toFixed(1)+"%":"—"};
 var evPill=function(c,h,t){return '<span class="wp '+c+'"'+(t?' title="'+evE(t)+'"':'')+'><span class="d"></span>'+h+'</span>'};
 function evReal(sec,D){var id="ev-"+sec,q=function(k){return el(id+"-"+k)};if(!q("rstats"))return;var P=D.paper,R=P&&P.real||null,X=D.real||{},G=X.guards||{},Bd=X.budget,Q=D.realRec||{},BR=Q.byRule||{},T=Q.tot||{},L=Q.log||[];
-var rules=R&&R.rules?R.rules.slice():[];Object.keys(BR).forEach(function(r){if(rules.indexOf(r)<0)rules.push(r)});var live=R&&R.on?(R.rules||[]).length:0;var sz=(R&&R.size)||G.size||0;var ta=T.all||{trades:0,open:0,settled:0,won:0,net:0},tt=T.today||{trades:0,settled:0,won:0,net:0};
+var WW=!!(Bd&&Bd.budget>=1000);var rules=R&&R.rules?R.rules.slice():[];Object.keys(BR).forEach(function(r){if(rules.indexOf(r)<0)rules.push(r)});var live=R&&R.on?(R.rules||[]).length:0;var sz=(R&&R.size)||G.size||0;var ta=T.all||{trades:0,open:0,settled:0,won:0,net:0},tt=T.today||{trades:0,settled:0,won:0,net:0};
 q("lrule").textContent=live?live+" live":"none live";
 q("rstats").innerHTML=evTile("today",signed(tt.net),cls(tt.net),"real net of bets settled today (KST)")+evTile("all time",signed(ta.net),cls(ta.net),"real net of every settled bet")+evTile("trades",ta.trades,"")+evTile("won",evPct(ta),"",ta.settled?ta.won+" of "+ta.settled+" settled":"");
-setH(q("rviz"),(ta.settled?vbar('<b class="ok">'+ta.won+'</b> won','<b class="bad">'+(ta.settled-ta.won)+'</b> lost',[[ta.won/ta.settled*100,"up"],[(ta.settled-ta.won)/ta.settled*100,"down"]]):"")+(Bd&&Bd.budget?vbar("budget "+money(Bd.budget)+' · <span class="bad">●</span> lost '+money(Bd.lost)+' · <span style="color:var(--acc)">●</span> open '+money(Bd.open),'<b>'+money(Math.max(0,Bd.left))+'</b> left',[[Bd.lost/Bd.budget*100,"down"],[Bd.open/Bd.budget*100,"acc"]]):""));
-q("ledger").textContent=rules.length?[sz?"$"+sz+" a bet":"",G.maxAsk?"ask up to "+evC(G.maxAsk):"",G.maxOpen?"max "+G.maxOpen+" open":"",G.dayLosses?"stops after "+G.dayLosses+" losses in a day":"","Jev not used"].filter(Boolean).join(" · "):"No real money is traded in this category. Everything further down is paper.";
-q("lrules").innerHTML=rules.length?rules.map(function(r){var b=BR[r]||{},d=b.today||{trades:0},a=b.all||{trades:0,net:0};var on=R&&R.on&&(R.rules||[]).indexOf(r)>=0;return '<tr class="'+(on?"":"dim")+'"><td title="'+evE(r)+'"><b>'+evE(evName(D,r))+'</b>'+(on?"":'<i class="st mut">paper now</i>')+'</td><td class="r">'+(sz?"$"+sz:"—")+'</td><td class="r tdy '+(d.trades?cls(d.net):"mut")+'">'+(d.trades?signed(d.net):"—")+'</td><td class="r tdy">'+(d.trades||"—")+'</td><td class="r tdy">'+evPct(d)+'</td><td class="r alt '+cls(a.net)+'">'+signed(a.net||0)+'</td><td class="r alt">'+a.trades+'</td><td class="r alt">'+evPct(a)+'</td></tr>'}).join(""):'<tr><td class="empty" colspan="8">no real rule in this category</td></tr>';
+setH(q("rviz"),(ta.settled?vbar('<b class="ok">'+ta.won+'</b> won','<b class="bad">'+(ta.settled-ta.won)+'</b> lost',[[ta.won/ta.settled*100,"up"],[(ta.settled-ta.won)/ta.settled*100,"down"]]):"")+(Bd&&WW?'<div class="vb"><div class="hl"><span><b>Budget: whole wallet</b></span><span><span class="bad">●</span> lost '+money(Bd.lost)+' · <span style="color:var(--acc)">●</span> open '+money(Bd.open)+'</span></div></div>':Bd&&Bd.budget?vbar("budget "+money(Bd.budget)+' · <span class="bad">●</span> lost '+money(Bd.lost)+' · <span style="color:var(--acc)">●</span> open '+money(Bd.open),'<b>'+money(Math.max(0,Bd.left))+'</b> left',[[Bd.lost/Bd.budget*100,"down"],[Bd.open/Bd.budget*100,"acc"]]):""));
+q("ledger").textContent=rules.length?[sz?"$"+sz+(G.maxSize>sz?"-$"+G.maxSize:"")+" a bet":"",G.maxDays?"resolves within "+G.maxDays+" days":"",G.perWallet?"max "+G.perWallet+" open per wallet":"",G.maxAsk?"ask up to "+evC(G.maxAsk):"",G.maxOpen?"max "+G.maxOpen+" open":"",G.dayLosses&&G.dayLosses<50?"stops after "+G.dayLosses+" losses in a day":"","Jev not used"].filter(Boolean).join(" · "):"No real money is traded in this category. Everything further down is paper.";
+q("lrules").innerHTML=rules.length?rules.map(function(r){var b=BR[r]||{},d=b.today||{trades:0},a=b.all||{trades:0,net:0};var on=R&&R.on&&(R.rules||[]).indexOf(r)>=0;return '<tr class="'+(on?"":"dim")+'"><td title="'+evE(r)+'"><b>'+evE(evName(D,r))+'</b>'+(on?"":'<i class="st mut">paper now</i>')+'</td><td class="r">'+(function(){var cm=/^(?:copy-take-(.+)|(wx)-copy-take)$/.exec(r),z=cm&&R&&R.sizes?R.sizes[cm[1]||"wx"]||R.sizes[cm[1]||"weather"]:null;return z&&z.n?'<span title="average of '+z.n+' bets, largest $'+z.max+'">$'+Number(z.avg).toFixed(2)+'</span>':sz?"$"+sz+(G.maxSize>sz?"-"+G.maxSize:""):"—"})()+'</td><td class="r tdy '+(d.trades?cls(d.net):"mut")+'">'+(d.trades?signed(d.net):"—")+'</td><td class="r tdy">'+(d.trades||"—")+'</td><td class="r tdy">'+evPct(d)+'</td><td class="r alt '+cls(a.net)+'">'+signed(a.net||0)+'</td><td class="r alt">'+a.trades+'</td><td class="r alt">'+evPct(a)+'</td></tr>'}).join(""):'<tr><td class="empty" colspan="8">no real rule in this category</td></tr>';
 var ps=[];if(!rules.length)ps.push(evPill("","real orders <b>none</b>","nothing here trades real money; real starts only on your word"));else if(!R||!R.on)ps.push(evPill("bad","real orders <b>off</b>"));else if(Bd&&Bd.left<sz&&Bd.open>0)ps.push(evPill("ok","live · <b>budget in open bets</b>","next bet when one settles"));else if(Bd&&Bd.left<sz)ps.push(evPill("bad","<b>stopped</b> · budget spent"));else if(G.maxOpen&&R.open>=G.maxOpen)ps.push(evPill("ok","live · <b>"+R.open+" open</b> (max "+G.maxOpen+")","next bet when one settles"));else ps.push(evPill("ok","live · <b>waiting for the next bet</b>"));
-if(R&&R.unknown)ps.push(evPill("bad","<b>"+R.unknown+"</b> order"+(R.unknown>1?"s":"")+" with no reply"));if(Bd)ps.push(evPill("","lost <b>"+money(Bd.lost)+"</b> of "+money(Bd.budget)));q("lstate").innerHTML=ps.join("");
-var rk=function(t){return !(t.shares>0)?3:t.pnl==null?0:2};var NF=L.filter(function(t){return !(t.shares>0)}).length;var rows=L.filter(function(t){return t.shares>0}).sort(function(a,b){return rk(a)-rk(b)||((b.settledAt||b.t)-(a.settledAt||a.t))});setH(q("rbars"),barsH(rows.filter(function(t){return t.pnl!=null}).slice(0,40).map(function(t){return +t.pnl}).reverse()));var lastG=-1,lastD="";
-q("rlog").innerHTML=rows.length?rows.map(function(t){var g=rk(t),hd="";if(g!==lastG){lastG=g;lastD="";hd+='<tr class="grp"><td colspan="6">'+({0:"open orders",2:"settled trades",3:"orders that did not fill"})[g]+'</td></tr>'}if(g>=2){var dl=evDayLab(t.settledAt||t.t);if(dl!==lastD){lastD=dl;hd+='<tr class="dsep"><td colspan="6">'+dl+'</td></tr>'}}var ok=t.shares>0;var px=ok?Math.round(t.cost/t.shares*100)+"¢":evC(t.ask).replace("c","¢");return hd+'<tr class="'+(ok?"":"dim")+'"><td><span class="dot'+(g===0?" on":"")+'"></span><span class="dt"><i>'+new Date(t.t).toLocaleDateString("en-GB",{timeZone:"Asia/Seoul",day:"numeric",month:"short"})+'</i>'+evT(t.t)+'</span></td><td class="mkt" title="'+evE(t.title)+'"><b>'+evE(t.outcome)+'</b></td><td class="mut rn" title="'+evE(t.rule)+'">'+evE(evName(D,t.rule))+'</td><td>'+px+(ok?" × "+t.shares.toFixed(1):"")+'</td><td class="r">'+(ok?money(t.cost):"")+'</td><td class="r '+(t.pnl==null?"mut":cls(t.pnl))+'">'+(!ok?(t.status==="unknown"?"no reply":"no fill"):t.pnl==null?"open":signed(t.pnl))+'</td></tr>'}).join(""):'<tr><td class="empty" colspan="6">'+(rules.length?"no filled orders yet":"no real trades in this category")+'</td></tr>';
+if(R&&R.unknown)ps.push(evPill("bad","<b>"+R.unknown+"</b> order"+(R.unknown>1?"s":"")+" with no reply"));if(Bd)ps.push(evPill("","lost <b>"+money(Bd.lost)+"</b>"+(WW?" · budget: whole wallet":" of "+money(Bd.budget))));var GR=R&&R.grouped;if(GR&&GR.on)ps.push(evPill(GR.ready?"":"bad","grouped markets <b>"+(GR.ready?"ready":"not ready")+"</b>"+(GR.open?" · "+GR.open+" open":"")+(GR.claimsDone?" · "+GR.claimsDone+" claimed":"")+(GR.claimErrors?" · "+GR.claimErrors+" claim errors":""),"weather-type markets, claimed through their own adapter"));q("lstate").innerHTML=ps.join("");
+var rk=function(t){return !(t.shares>0)?3:t.pnl==null?0:2};var NF=L.filter(function(t){return !(t.shares>0)}).length;var rows=L.filter(function(t){return t.shares>0}).sort(function(a,b){if(rk(a)!==rk(b))return rk(a)-rk(b);if(rk(a)===0)return (a.end||9e15)-(b.end||9e15)||(b.t-a.t);return (b.settledAt||b.t)-(a.settledAt||a.t)});setH(q("rbars"),barsH(rows.filter(function(t){return t.pnl!=null}).slice(0,40).map(function(t){return +t.pnl}).reverse()));var lastG=-1,lastD="";
+q("rlog").innerHTML=rows.length?rows.map(function(t){var g=rk(t),hd="";if(g!==lastG){lastG=g;lastD="";hd+='<tr class="grp"><td colspan="6">'+({0:"open orders",2:"settled trades",3:"orders that did not fill"})[g]+'</td></tr>'}if(g>=2){var dl=evDayLab(t.settledAt||t.t);if(dl!==lastD){lastD=dl;hd+='<tr class="dsep"><td colspan="6">'+dl+'</td></tr>'}}var ok=t.shares>0;var px=ok?Math.round(t.cost/t.shares*100)+"¢":evC(t.ask).replace("c","¢");return hd+'<tr class="'+(ok?"":"dim")+'"><td><span class="dot'+(g===0?" on":"")+'"></span><span class="dt"><i>'+new Date(t.t).toLocaleDateString("en-GB",{timeZone:"Asia/Seoul",day:"numeric",month:"short"})+'</i>'+evT(t.t)+'</span></td><td class="mkt" title="'+evE(t.title)+'"><b>'+evE(/^(yes|no|over|under|up|down)$/i.test(t.outcome||"")?t.outcome+" · "+t.title:t.outcome)+'</b></td><td class="mut rn" title="'+evE(t.rule)+'">'+evE(evName(D,t.rule))+'</td><td>'+px+(ok?" × "+t.shares.toFixed(1):"")+'</td><td class="r">'+(ok?money(t.cost):"")+'</td><td class="r '+(t.pnl==null?"mut":cls(t.pnl))+'">'+(!ok?(t.status==="unknown"?"no reply":"no fill"):t.pnl==null?(t.end?evEnds(t):"open"):signed(t.pnl))+'</td></tr>'}).join(""):'<tr><td class="empty" colspan="6">'+(rules.length?"no filled orders yet":"no real trades in this category")+'</td></tr>';
 q("lopen").textContent=ta.trades?[rows.length+" shown · "+ta.won+"/"+ta.settled+" won · "+signed(ta.net),ta.open?ta.open+" open":"",NF?NF+" not filled, hidden":""].filter(Boolean).join(" · "):"";
 var DS=Q.days||[];q("cmp").innerHTML=DS.length?DS.map(function(o){return '<tr><td>'+o.day+'</td><td class="r">'+o.settled+'</td><td class="r">'+Math.round(100*o.won/o.settled)+'%</td><td class="r '+cls(o.net)+'"><b>'+signed(o.net)+'</b></td><td><span class="wps">'+Object.keys(o.by).map(function(r){var m=o.by[r];return '<span class="wp" title="'+m.won+'/'+m.settled+' won">'+evE(evName(D,r))+' <b class="'+cls(m.net)+'">'+signed(m.net)+'</b></span>'}).join("")+'</span></td></tr>'}).join(""):'<tr><td class="empty" colspan="5">nothing yet</td></tr>';
 return {live:live,open:ta.open,stake:Bd?Bd.open:0}}
 var evTbl=function(head,rows,empty){return rows.length?'<table class="log"><thead><tr>'+head.map(function(h){var a=h.split("|");return '<th class="'+(a[1]||"")+'">'+a[0]+'</th>'}).join("")+'</tr></thead><tbody>'+rows.join("")+'</tbody></table>':'<div class="empty">'+empty+'</div>'};
-var evName=function(D,r){return (D.names&&D.names[r])||(D.names&&D.names[r.replace(/-nearmiss$/,"")]?D.names[r.replace(/-nearmiss$/,"")]+" (near miss)":r)};
+var evName=function(D,r){var cm=/^copy-(take|rest)-(.+)$/.exec(r)||(/^wx-copy-(take|rest)$/.test(r)?[r,r.slice(8),"weather wallet"]:null);if(cm&&!(D.names&&D.names[r]))return "copy "+cm[2]+(cm[1]==="take"?", take the ask":", resting bid");return (D.names&&D.names[r])||(D.names&&D.names[r.replace(/-nearmiss$/,"")]?D.names[r.replace(/-nearmiss$/,"")]+" (near miss)":r)};
 var evShadow=function(D,r){return (D.shadow||[]).indexOf(r)>=0};
 function evPoll(force){if(SEC==="crypto"||SEC==="solana"||EVBUSY)return;var sec=SEC;if(!force&&EVD[sec]&&Date.now()-EVD[sec].got<20000)return;EVBUSY=true;fetch("/api/events?sec="+encodeURIComponent(sec)).then(function(r){return r.json()}).then(function(D){D.got=Date.now();EVD[sec]=D;try{evRender(sec,D)}catch(e){console.error(e)}}).catch(function(){}).then(function(){EVBUSY=false})}
 function evTick(){var xs=document.querySelectorAll("[data-cd]");for(var i=0;i<xs.length;i++){var ms=Number(xs[i].getAttribute("data-cd"));xs[i].textContent=evLeft(ms);var s=(ms-Date.now())/1000;xs[i].className=(xs[i].classList.contains("clock")?"clock":"cd")+(s<=0&&s>-10800?" live":s<1800?" soon":"")}}

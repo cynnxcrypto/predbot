@@ -185,6 +185,7 @@ export class Recorder {
       this.balanceTimer = setInterval(() => {
         void live.refreshBalance().then(() => live.wrapPending()).then(() => live.swapNative());
         void live.redeemPending();
+        void live.negRiskSetup();
       }, 60000);
     }
     this.timer = setInterval(() => void this.tick(), 1000);
