@@ -381,6 +381,10 @@ export function stopDiscover() {
   saveMeter();
 }
 
+/** The wallets the finder has seen make the most buys of LEAD_SOL or more (addresses, busiest first): candidates for slow.ts. */
+export const busyWallets = (k: number, min = 3): string[] =>
+  [...finder.wallets].filter(([, s]) => s.n >= min).sort((a, b) => b[1].n - a[1].n).slice(0, k).map(([w]) => w);
+
 /** Found wallets for the copy test to watch as well (addresses only, best first). */
 export const foundWallets = (): string[] => picked.map((c) => c.wallet);
 

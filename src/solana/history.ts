@@ -32,7 +32,7 @@ const KEEP_BUYS = 120;
 const WALLET_PAGES = 12; // x100 transactions
 const MINT_PAGES = 4;
 const REFRESH_MS = 6 * 3_600_000;
-const CREDITS_DAY = Math.max(1000, Number(process.env.SOLANA_HISTORY_CREDITS_DAY) || 350_000);
+const CREDITS_DAY = Math.max(1000, Number(process.env.SOLANA_HISTORY_CREDITS_DAY) || 150_000);
 const WINDOWS = { m5: [10, 15], m10: [22, 28], m30: [70, 80], m60: [140, 160] } as const;
 
 export type ISwap = Swap & { index: number };
