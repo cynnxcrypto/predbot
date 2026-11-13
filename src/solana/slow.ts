@@ -16,6 +16,15 @@
  *     entry not made before its sale is dropped. MAX_HOLD_H closes what it never sold. The copy runner's stream
  *     hands over the followed wallets' transactions (slowTx).
  *
+ * DAY HOLDERS (enrique, 13 Nov: "what about wallets that are not about quick fast trades?"). The first pass found
+ * none among the listed wallets and the busiest pump.fun buyers: they flip in minutes. A third source of candidates:
+ * coins that keep trading for days (Jupiter's most-traded, top organic and trending lists, 3+ days old, no stables or
+ * staked SOL; plus coins our read wallets traded on 3+ different days), and the wallets that bought 0.2 SOL or more of
+ * them at a few points over the past week (one page of 100 transactions a point, launch day left out). Buyers of more
+ * of these coins come first. Cheaper reads: a full first page inside BOT_PAGE_H hours is a program and is not read
+ * further; a wallet whose newest FAST_PAGES pages are already FAST_TRIPS+ trips with a median hold under FAST_HOLD_MIN
+ * min is a flipper and is not read further either. Both are read again weekly.
+ *
  * Small-buy bait (enrique, 13 Nov): every trip records the wallet's first buy size; the screen reports how many
  * trips started under half its usual size and the delay check splits the copier's result the same way.
  * Prices are before our own fees except where TX_SOL is taken off; realised SOL is before network fees.
@@ -55,8 +64,24 @@ export const TX_SOL = 0.001;
 export const ENTRY_DELAYS = [5, 30, 300, 1800] as const;
 export const EXIT_DELAYS = [5, 30] as const;
 export const MAX_HOLD_H = 72;
+// cheaper reads
+export const BOT_PAGE_H = 3; // 100 transactions in under 3 hours: 800+ a day
+export const FAST_PAGES = 2;
+export const FAST_TRIPS = 10;
+export const FAST_HOLD_MIN = 10;
+// day-holder candidates
+export const COIN_MIN_AGE_D = 3;
+export const SAMPLE_DAYS = [0.5, 2, 4, 6] as const;
+export const MIN_BUYER_SOL = 0.2;
+export const MAX_COINS = 150; // sampled a week
+export const MAX_COIN_BUYERS = 1500;
+const COIN_REFRESH_MS = 6 * 3_600_000;
+const COIN_RESAMPLE_MS = 7 * 86_400_000;
+const MAX_POOL = 6000;
+const JUP_LISTS = ["toptraded/24h", "toporganicscore/24h", "toptrending/24h"] as const;
 const LAMPORTS = 1e9;
 const SOL_MINT = "So11111111111111111111111111111111111111112";
+const STABLES = new Set(["EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB"]);
 
 const median = (xs: number[]) => {
   if (!xs.length) return null;
@@ -262,6 +287,22 @@ const when = (d: number) => (d < 60 ? `${d} s` : `${d / 60} min`);
 type Packed = [number, number, string, 0 | 1, number, number];
 const pack = (s: SSwap): Packed => [s.t, s.slot, s.mint, s.buy ? 1 : 0, Math.round(s.sol * 1e6) / 1e6, Number(s.tokens.toPrecision(8))];
 const unpack = ([t, slot, mint, b, sol, tokens]: Packed): SSwap => ({ t, slot, mint, buy: b === 1, sol, tokens });
+type Source = "list" | "busy" | "coin";
+interface Cand {
+  name: string;
+  address: string;
+  source?: Source;
+}
+const srcOf = (c: Cand): Source => c.source ?? (c.name.startsWith("seen ") ? "busy" : "list");
+/** A coin that trades for days: where it came from, the days it was on a list, when its buyers were sampled. */
+interface Coin {
+  symbol: string;
+  from: "jupiter" | "ours";
+  days: string[];
+  createdMs: number | null;
+  sampledAt?: number;
+  buyers?: number;
+}
 interface WState {
   name: string;
   doneAt: number;
@@ -271,6 +312,8 @@ interface WState {
   spanDays: number;
   /** a program by its pace: its swaps are not kept and it is read again only weekly */
   bot?: boolean;
+  /** a flipper by its newest transactions (not read further): trips, median hold, realised SOL, % won; read again weekly */
+  fast?: { trips: number; holdMin: number; sol: number; wonPct: number };
   swaps: Packed[];
   /** delay-check prices by `${mint}|${slot0}` */
   late: Record<string, { e30: number | null; e300: number | null; x30: number | null }>;
@@ -278,8 +321,11 @@ interface WState {
 interface State {
   day: string;
   credits: number;
-  candidates: { name: string; address: string }[];
+  candidates: Cand[];
   wallets: Record<string, WState>;
+  coins: Record<string, Coin>;
+  /** buyers seen in the coin samples, not yet candidates: [coin keys joined by commas, SOL bought] */
+  pool: Record<string, [string, number]>;
   open: Pos[];
   recent: Pos[];
 }
@@ -287,12 +333,14 @@ interface State {
 const FILE = () => join(DATA, "solana", "slow-wallets.json");
 const PAPER = () => join(DATA, "solana", "slow-paper.json");
 const ROWS = () => join(DATA, "solana", "slow-copies.jsonl");
-let state: State = { day: "", credits: 0, candidates: [], wallets: {}, open: [], recent: [] };
+const empty = (): State => ({ day: "", credits: 0, candidates: [], wallets: {}, coins: {}, pool: {}, open: [], recent: [] });
+let state: State = empty();
 let savedAt = 0;
 const health = { state: "off", calls: 0, errors: 0, lastError: "", working: "", entries: 0, exits: 0, quoteMisses: 0, sellsSeen: 0, buysSeen: 0 };
+const coinHealth = { lists: "not asked", listsAt: 0, lastError: "" };
 let stopped = true;
 type Quote = (inMint: string, outMint: string, amount: string) => Promise<bigint | null | undefined>;
-let cfg: { rpcUrl: () => string | null; fetch: () => typeof fetch; listed: () => Tracked[]; busy: (k: number) => string[]; quote: Quote } | null = null;
+let cfg: { rpcUrl: () => string | null; fetch: () => typeof fetch; listed: () => Tracked[]; busy: (k: number) => string[]; quote: Quote; jup?: (path: string) => Promise<unknown> } | null = null;
 const sleep = (ms: number) => new Promise((res) => setTimeout(res, ms));
 const timers = new Set<NodeJS.Timeout>();
 const later = (ms: number, f: () => void) => {
@@ -356,23 +404,171 @@ function refreshCandidates() {
   for (const w of cfg?.listed() ?? []) {
     if (have.has(w.address) || w.fomo) continue;
     have.add(w.address);
-    state.candidates.push({ name: w.name, address: w.address });
+    state.candidates.push({ name: w.name, address: w.address, source: "list" });
   }
+  let base = state.candidates.filter((c) => srcOf(c) !== "coin").length;
   for (const a of cfg?.busy(MAX_CANDIDATES) ?? []) {
-    if (state.candidates.length >= MAX_CANDIDATES) break;
+    if (base >= MAX_CANDIDATES) break;
     if (have.has(a)) continue;
     have.add(a);
-    state.candidates.push({ name: `seen ${a.slice(0, 4)}`, address: a });
+    state.candidates.push({ name: `seen ${a.slice(0, 4)}`, address: a, source: "busy" });
+    base++;
   }
+}
+
+// ---- day-holder candidates: buyers of coins that keep trading for days ---------------------------------------------
+/** Coins from one of Jupiter's token lists: no SOL, no stablecoins, no staked SOL. createdMs = its first pool, if given. */
+export function jupCoins(rows: unknown): { mint: string; symbol: string; createdMs: number | null }[] {
+  if (!Array.isArray(rows)) return [];
+  const out: { mint: string; symbol: string; createdMs: number | null }[] = [];
+  for (const x of rows as Record<string, unknown>[]) {
+    const mint = typeof x?.id === "string" ? x.id : typeof x?.address === "string" ? x.address : null;
+    if (!mint || mint === SOL_MINT || STABLES.has(mint)) continue;
+    const symbol = String(x.symbol ?? "").replace(/[^A-Za-z0-9]/g, "").slice(0, 12) || mint.slice(0, 4);
+    const tags = Array.isArray(x.tags) ? x.tags.map(String) : [];
+    if (tags.includes("lst") || /USD/i.test(symbol) || (symbol.length > 3 && symbol.toUpperCase().endsWith("SOL"))) continue;
+    const created = Date.parse(String((x.firstPool as { createdAt?: unknown } | undefined)?.createdAt ?? ""));
+    out.push({ mint, symbol, createdMs: Number.isFinite(created) ? created : null });
+  }
+  return out;
+}
+/** Trades for days: its first pool is COIN_MIN_AGE_D+ days old, or (no date given) it was on a list on 2+ days, or ours. */
+export const coinOld = (c: Coin, nowMs: number) => c.from === "ours" || (c.createdMs !== null ? nowMs - c.createdMs >= COIN_MIN_AGE_D * 86_400_000 : c.days.length >= 2);
+/** Coins the read wallets traded on 3+ different days (free: from swaps already read). */
+function ourCoins(): string[] {
+  const days = new Map<string, Set<number>>();
+  for (const w of Object.values(state.wallets))
+    for (const s of w.swaps) {
+      let d = days.get(s[2]);
+      if (!d) days.set(s[2], (d = new Set()));
+      d.add(Math.floor(s[0] / 86_400));
+    }
+  return [...days]
+    .filter(([m, d]) => d.size >= 3 && m !== SOL_MINT && !STABLES.has(m))
+    .sort((a, b) => b[1].size - a[1].size)
+    .slice(0, 50)
+    .map(([m]) => m);
+}
+async function refreshCoins() {
+  if (Date.now() - coinHealth.listsAt < COIN_REFRESH_MS) return;
+  coinHealth.listsAt = Date.now();
+  const day = new Date().toISOString().slice(0, 10);
+  const add = (mint: string, symbol: string, createdMs: number | null, from: Coin["from"]) => {
+    const c = (state.coins[mint] ??= { symbol, from, days: [], createdMs });
+    if (createdMs !== null) c.createdMs = createdMs;
+    if (from === "jupiter") c.from = "jupiter";
+    if (!c.days.includes(day)) c.days = [...c.days, day].slice(-7);
+  };
+  if (cfg?.jup) {
+    let ok = 0;
+    for (const l of JUP_LISTS) {
+      try {
+        for (const x of jupCoins(await cfg.jup(`/tokens/v2/${l}?limit=100`))) add(x.mint, x.symbol, x.createdMs, "jupiter");
+        ok++;
+      } catch (e) {
+        coinHealth.lastError = scrub(String((e as Error)?.message ?? e));
+      }
+    }
+    coinHealth.lists = `${ok} of ${JUP_LISTS.length} answered`;
+  } else coinHealth.lists = "no list reader";
+  for (const m of ourCoins()) add(m, m.slice(0, 4), null, "ours");
+  // forget coins off every list for 14 days whose sample is over a week old
+  const cut = new Date(Date.now() - 14 * 86_400_000).toISOString().slice(0, 10);
+  for (const [m, c] of Object.entries(state.coins)) if ((c.days.at(-1) ?? "") < cut && !(c.sampledAt && Date.now() - c.sampledAt < COIN_RESAMPLE_MS)) delete state.coins[m];
+}
+/** One coin's buyers of MIN_BUYER_SOL+ at SAMPLE_DAYS points (one page each, never its first day): into the pool. */
+async function sampleCoin(mint: string): Promise<boolean> {
+  const c = state.coins[mint];
+  const now = Date.now();
+  const seen = new Map<string, number>();
+  for (const d of SAMPLE_DAYS) {
+    const from = now - d * 86_400_000;
+    if (c.createdMs !== null && from < c.createdMs + 86_400_000) continue; // launch-day buyers are snipers
+    const pg = await page(mint, { blockTime: { gte: Math.floor(from / 1000) } }, "asc", null);
+    if (!pg) return false;
+    for (const it of pg.data) {
+      const payer = payerOf(it);
+      const s = payer ? swapOf(it.meta, payer, it.slot) : null;
+      if (!s || s.wallet !== payer || s.mint !== mint || !s.buy || s.sol < MIN_BUYER_SOL) continue;
+      seen.set(payer!, (seen.get(payer!) ?? 0) + s.sol);
+    }
+  }
+  c.sampledAt = now;
+  c.buyers = seen.size;
+  const key = mint.slice(0, 6);
+  for (const [w, sol] of seen) {
+    const p = state.pool[w] ?? ["", 0];
+    const keys = p[0] ? p[0].split(",") : [];
+    if (!keys.includes(key)) keys.push(key);
+    state.pool[w] = [keys.slice(-20).join(","), Math.round((p[1] + sol) * 1000) / 1000];
+  }
+  return true;
+}
+/** The pool's best buyers (more of these coins first, then more SOL) become candidates, up to MAX_COIN_BUYERS. */
+function promote() {
+  const have = new Set(state.candidates.map((c) => c.address));
+  for (const w of Object.keys(state.pool)) if (have.has(w)) delete state.pool[w];
+  let n = state.candidates.filter((c) => srcOf(c) === "coin").length;
+  const ranked = Object.entries(state.pool)
+    .filter(([w]) => !have.has(w))
+    .map(([w, [k, sol]]) => ({ w, coins: k.split(",").length, sol }))
+    .sort((a, b) => b.coins - a.coins || b.sol - a.sol);
+  for (const x of ranked) {
+    if (n >= MAX_COIN_BUYERS) break;
+    state.candidates.push({ name: `coin buyer ${x.w.slice(0, 4)}`, address: x.w, source: "coin" });
+    delete state.pool[x.w];
+    n++;
+  }
+  // the pool keeps its best MAX_POOL for later
+  const rest = Object.keys(state.pool);
+  if (rest.length > MAX_POOL) {
+    const keep = new Set(ranked.filter((x) => state.pool[x.w]).slice(0, MAX_POOL).map((x) => x.w));
+    for (const w of rest) if (!keep.has(w)) delete state.pool[w];
+  }
+}
+/** The coin lists every 6 h, then due coins sampled (MAX_COINS a week), then buyers promoted. false = credit cap. */
+async function coinStep(): Promise<boolean> {
+  await refreshCoins();
+  const now = Date.now();
+  const recent = Object.values(state.coins).filter((c) => c.sampledAt && now - c.sampledAt < COIN_RESAMPLE_MS).length;
+  const due = Object.entries(state.coins)
+    .filter(([, c]) => coinOld(c, now) && !(c.sampledAt && now - c.sampledAt < COIN_RESAMPLE_MS))
+    .sort((a, b) => (a[1].from === b[1].from ? b[1].days.length - a[1].days.length : a[1].from === "jupiter" ? -1 : 1))
+    .slice(0, Math.max(0, MAX_COINS - recent));
+  let ok = true;
+  for (const [m, c] of due) {
+    if (stopped) break;
+    health.working = `coin ${c.symbol}`;
+    if (!(await sampleCoin(m))) {
+      ok = false;
+      break;
+    }
+    saveScreen();
+  }
+  promote();
+  return ok;
 }
 
 async function readWallet(c: { name: string; address: string }) {
   const now = Math.floor(Date.now() / 1000);
   const prev = state.wallets[c.address];
-  const since = Math.max(prev?.newest ?? 0, now - DAYS_BACK * 86_400);
+  const cut = now - DAYS_BACK * 86_400;
+  // a program or a flipper kept nothing: read its whole window again
+  const whole = !prev || !!prev.bot || !!prev.fast;
+  const since = whole ? cut : Math.max(prev.newest, cut);
   const items: Item[] = [];
+  const own = (list: Item[]) => {
+    const out: SSwap[] = [];
+    for (const it of list) {
+      if (!it.blockTime || payerOf(it) !== c.address) continue;
+      const s = sswapOf(it.meta, c.address, it.slot, it.blockTime);
+      if (s) out.push(s);
+    }
+    return out;
+  };
   let token: string | null = null;
   let more = false;
+  let early: "bot" | WState["fast"] | null = null;
   for (let p = 0; p < WALLET_PAGES; p++) {
     const pg = await page(c.address, { blockTime: { gt: since }, tokenAccounts: "balanceChanged" }, "desc", token);
     if (!pg) return false;
@@ -380,30 +576,44 @@ async function readWallet(c: { name: string; address: string }) {
     token = pg.paginationToken;
     more = !!token;
     if (!token || !pg.data.length) break;
+    if (!whole) continue;
+    // cheaper: a full first page inside BOT_PAGE_H hours is a program; a flipper shows in its newest pages
+    if (p === 0) {
+      const ts = pg.data.map((x) => x.blockTime ?? 0).filter(Boolean);
+      if (ts.length && (Math.max(...ts) - Math.min(...ts)) / 3600 < BOT_PAGE_H) {
+        early = "bot";
+        break;
+      }
+    }
+    if (p === FAST_PAGES - 1) {
+      const { trips } = tripsOf(own(items));
+      const hold = median(trips.map(holdMin));
+      if (trips.length >= FAST_TRIPS && hold !== null && hold < FAST_HOLD_MIN) {
+        const sol = trips.reduce((a, t) => a + pnl(t), 0);
+        early = { trips: trips.length, holdMin: r(hold, 0)!, sol: r(sol, 2)!, wonPct: Math.round((trips.filter((t) => pnl(t) > 0).length / trips.length) * 100) };
+        break;
+      }
+    }
   }
   const times = items.map((x) => x.blockTime ?? 0).filter(Boolean);
   const spanDays = Math.max(1 / 24, (now - (more && times.length ? Math.min(...times) : since)) / 86_400);
-  const fresh: SSwap[] = [];
-  for (const it of items) {
-    if (!it.blockTime || payerOf(it) !== c.address) continue;
-    const s = sswapOf(it.meta, c.address, it.slot, it.blockTime);
-    if (s) fresh.push(s);
-  }
-  const cut = now - DAYS_BACK * 86_400;
-  const swaps = [...(prev?.swaps ?? []).map(unpack), ...fresh].filter((s) => s.t > cut).sort((a, b) => a.slot - b.slot).slice(-KEEP_SWAPS);
-  const firstPass = !prev || spanDays >= 1;
-  const txPerDay = firstPass ? items.length / spanDays : prev!.txPerDay;
-  const buysPerDay = firstPass ? fresh.filter((s) => s.buy).length / spanDays : prev!.buysPerDay;
-  const bot = txPerDay > 400 || buysPerDay > 60;
+  const fresh = own(items);
+  const swaps = [...(whole ? [] : prev.swaps.map(unpack)), ...fresh].filter((s) => s.t > cut).sort((a, b) => a.slot - b.slot).slice(-KEEP_SWAPS);
+  const firstPass = whole || spanDays >= 1;
+  const txPerDay = firstPass ? items.length / spanDays : prev.txPerDay;
+  const buysPerDay = firstPass ? fresh.filter((s) => s.buy).length / spanDays : prev.buysPerDay;
+  const bot = early === "bot" || txPerDay > 400 || buysPerDay > 60;
+  const fast = !bot && early && early !== "bot" ? early : undefined;
   state.wallets[c.address] = {
     name: c.name,
     doneAt: Date.now(),
     newest: times.length ? Math.max(...times) : (prev?.newest ?? since),
     txPerDay,
     buysPerDay,
-    spanDays: firstPass ? Math.min(DAYS_BACK, spanDays) : prev!.spanDays,
+    spanDays: firstPass ? Math.min(DAYS_BACK, spanDays) : prev.spanDays,
     ...(bot ? { bot } : {}),
-    swaps: bot ? [] : swaps.map(pack),
+    ...(fast ? { fast } : {}),
+    swaps: bot || fast ? [] : swaps.map(pack),
     late: prev?.late ?? {},
   };
   return true;
@@ -439,14 +649,25 @@ async function checkLate(address: string) {
 export function reportOf(address: string) {
   const w = state.wallets[address];
   if (!w) return null;
+  const o = { txPerDay: w.txPerDay, buysPerDay: w.buysPerDay, spanDays: w.spanDays };
+  if (w.fast) {
+    // a flipper read only as far as its newest pages: its own numbers from those, never a pass
+    const s = screen([], { ...o, open: 0 });
+    const f = w.fast;
+    return { name: w.name, address, ...s, trips: f.trips, realisedSol: f.sol, wonPct: f.wonPct, holdMinMedian: f.holdMin, bot: s.bot || f.holdMin < 2, fast: true, pass: false, why: [`holds ${f.holdMin} min`] };
+  }
   const { trips, open } = tripsOf(w.swaps.map(unpack));
   for (const t of trips) Object.assign(t, w.late[`${t.mint}|${t.slot0}`] ?? {});
-  return { name: w.name, address, ...screen(trips, { txPerDay: w.txPerDay, buysPerDay: w.buysPerDay, spanDays: w.spanDays, open }) };
+  return { name: w.name, address, ...screen(trips, { ...o, open }), fast: false };
 }
-type Report = NonNullable<ReturnType<typeof reportOf>>;
+type Report = NonNullable<ReturnType<typeof reportOf>> & { source: Source };
 let cache: Report[] | null = null;
 /** Every candidate read so far; worked out again only after a wallet was read or checked. */
-const reports = (): Report[] => (cache ??= state.candidates.map((c) => reportOf(c.address)).filter((x): x is Report => !!x));
+const reports = (): Report[] =>
+  (cache ??= state.candidates.flatMap((c) => {
+    const x = reportOf(c.address);
+    return x ? [{ ...x, source: srcOf(c) }] : [];
+  }));
 /** Wallets followed on paper: those that pass, best 5 min late result first (unchecked last). */
 export function followed(): { name: string; address: string }[] {
   return reports()
@@ -464,6 +685,14 @@ async function loop() {
   while (!stopped) {
     refreshCandidates();
     let did = false;
+    try {
+      if (!(await coinStep())) health.state = cfg?.rpcUrl() ? "resting until tomorrow (daily credit cap)" : "waiting for the Helius key";
+      else if (health.state.startsWith("resting") || health.state === "starting") health.state = "reading";
+      cache = null;
+    } catch (e) {
+      health.errors++;
+      coinHealth.lastError = scrub(String((e as Error)?.message ?? e));
+    }
     for (const c of state.candidates) {
       if (stopped) return;
       const st = state.wallets[c.address];
@@ -656,19 +885,36 @@ export function stopSlow() {
 
 export function slowSummary() {
   const reps = reports();
-  const people = reps.filter((x) => !x.bot);
-  const slim = (x: (typeof reps)[number]) => ({ name: x.name, address: x.address, trips: x.trips, tripsPerDay: x.tripsPerDay, realisedSol: x.realisedSol, wonPct: x.wonPct, holdMinMedian: x.holdMinMedian, holdOverHourPct: x.holdOverHourPct, buySolMedian: x.buySolMedian, smallStartPct: x.smallStartPct, topTradeSharePct: x.topTradeSharePct, olderSol: x.olderSol, newerSol: x.newerSol, late: x.late, why: x.why });
+  const people = reps.filter((x) => !x.bot && !x.fast);
+  const slim = (x: (typeof reps)[number]) => ({ name: x.name, address: x.address, source: x.source, trips: x.trips, tripsPerDay: x.tripsPerDay, realisedSol: x.realisedSol, wonPct: x.wonPct, holdMinMedian: x.holdMinMedian, holdOverHourPct: x.holdOverHourPct, buySolMedian: x.buySolMedian, smallStartPct: x.smallStartPct, topTradeSharePct: x.topTradeSharePct, olderSol: x.olderSol, newerSol: x.newerSol, late: x.late, why: x.why });
   const pass = people.filter((x) => x.pass);
   const done = state.recent.filter((p) => p.closed);
   const fol = followed();
   return {
-    note: `Paper and read-only. SCREEN: each candidate's own SOL swaps over the last ${DAYS_BACK} days as round trips (first buy until ${CLOSE_SHARE * 100}% sold). Passes = not a bot, ${MIN_TRIPS}+ trips, first sell a median ${MIN_HOLD_MIN}+ min after its first buy, realised SOL positive in BOTH halves of the period, ${MIN_WIN * 100}%+ won, no single trade half or more of the profit. Realised SOL is before network fees. LATE: for its newest ${DELAY_TRIPS} trips, a copier entering 30 s / 5 min after its first buy and selling ${EXIT_SEC} s after its first sale, priced from other people's trades, ${DELAY_COST * 100}% cost taken off: an estimate. smallStartPct = trips whose first buy was under half the wallet's usual. PAPER: followed wallets copied live with ${STAKE_SOL} SOL at Jupiter quotes, ${ENTRY_DELAYS.map(when).join(" / ")} after we see the buy, sold ${EXIT_DELAYS.join(" / ")} s after its first sale (or at ${MAX_HOLD_H} h). Leads to test, not proof.`,
+    note: `Paper and read-only. CANDIDATES: the listed wallets, the busiest pump.fun buyers, and (day holders) wallets that bought ${MIN_BUYER_SOL}+ SOL of coins that keep trading for days (Jupiter's lists, ${COIN_MIN_AGE_D}+ days old, no stables or staked SOL; coins our wallets traded on 3+ days), sampled at ${SAMPLE_DAYS.join(" / ")} days back. A full first page inside ${BOT_PAGE_H} h = bot; ${FAST_TRIPS}+ trips in its newest ${FAST_PAGES * 100} transactions with a median hold under ${FAST_HOLD_MIN} min = fast (flipper); neither is read further. SCREEN: each candidate's own SOL swaps over the last ${DAYS_BACK} days as round trips (first buy until ${CLOSE_SHARE * 100}% sold). Passes = not a bot, ${MIN_TRIPS}+ trips, first sell a median ${MIN_HOLD_MIN}+ min after its first buy, realised SOL positive in BOTH halves of the period, ${MIN_WIN * 100}%+ won, no single trade half or more of the profit. Realised SOL is before network fees. LATE: for its newest ${DELAY_TRIPS} trips, a copier entering 30 s / 5 min after its first buy and selling ${EXIT_SEC} s after its first sale, priced from other people's trades, ${DELAY_COST * 100}% cost taken off: an estimate. smallStartPct = trips whose first buy was under half the wallet's usual. PAPER: followed wallets copied live with ${STAKE_SOL} SOL at Jupiter quotes, ${ENTRY_DELAYS.map(when).join(" / ")} after we see the buy, sold ${EXIT_DELAYS.join(" / ")} s after its first sale (or at ${MAX_HOLD_H} h). Leads to test, not proof.`,
     state: health.state,
     working: health.working,
     candidates: state.candidates.length,
     read: reps.length,
     bots: reps.filter((x) => x.bot).length,
+    fast: reps.filter((x) => x.fast && !x.bot).length,
     passing: pass.length,
+    bySource: Object.fromEntries(
+      (["list", "busy", "coin"] as const).map((s) => {
+        const rs = reps.filter((x) => x.source === s);
+        return [s, { candidates: state.candidates.filter((c) => srcOf(c) === s).length, read: rs.length, bots: rs.filter((x) => x.bot).length, fast: rs.filter((x) => x.fast && !x.bot).length, passing: rs.filter((x) => x.pass).length }];
+      }),
+    ),
+    coins: {
+      lists: coinHealth.lists,
+      kept: Object.keys(state.coins).length,
+      oldEnough: Object.values(state.coins).filter((c) => coinOld(c, Date.now())).length,
+      sampledThisWeek: Object.values(state.coins).filter((c) => c.sampledAt && Date.now() - c.sampledAt < COIN_RESAMPLE_MS).length,
+      buyersInPool: Object.keys(state.pool).length,
+      lastError: coinHealth.lastError,
+    },
+    /** people (not bots, not flippers) with 10+ trips whose median hold is MIN_HOLD_MIN+ min, most realised SOL first */
+    holders: people.filter((x) => x.trips >= 10 && (x.holdMinMedian ?? 0) >= MIN_HOLD_MIN).sort((a, b) => (b.realisedSol ?? 0) - (a.realisedSol ?? 0)).slice(0, 15).map(slim),
     tripsPerDayPassing: r(pass.reduce((a, x) => a + (x.tripsPerDay ?? 0), 0)),
     pass: pass.map(slim),
     /** people with 10+ trips, most realised SOL first: a ranking, not a pick */
@@ -701,8 +947,11 @@ export const _test = {
   setCfg: (c: typeof cfg) => ((stopped = !c), (cfg = c)),
   state: () => state,
   reset: () => {
-    state = { day: "", credits: 0, candidates: [], wallets: {}, open: [], recent: [] };
+    state = empty();
     cache = null;
+    coinHealth.listsAt = 0;
+    coinHealth.lists = "not asked";
+    coinHealth.lastError = "";
     followSet = new Set();
     for (const t of timers) clearTimeout(t);
     timers.clear();
@@ -710,6 +959,7 @@ export const _test = {
   follow: (a: string[]) => (followSet = new Set(a)),
   readWallet,
   checkLate,
+  coinStep,
   catchUp,
   onSell,
 };
