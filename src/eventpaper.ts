@@ -967,7 +967,9 @@ async function wxCopyTick() {
     } catch {
       fc = null;
     }
-    const extra = { wallet: b.price, lagSec: Math.floor(now / 1000) - b.ts, bid: bk.bestBid, ask: bk.bestAsk, fc, station: ev.station };
+    const betUsd = copyBetUsd(rows, b.cond, (r) => /^yes$/i.test(String(r.outcome ?? "")) === b.yes);
+    const usualUsd = copyUsualBet(rows);
+    const extra = { wallet: b.price, lagSec: Math.floor(now / 1000) - b.ts, bid: bk.bestBid, ask: bk.bestAsk, fc, station: ev.station, betUsd, usualUsd, small: copyLooksBait(betUsd, usualUsd) };
     // resting copy: the same price on the same side, behind whatever rests there now
     if (bk.bestAsk != null && bk.bestAsk <= b.price + 1e-9) {
       wxCopyStats.restSkipped += 1;
@@ -994,11 +996,13 @@ async function wxCopyTick() {
         if (openMine < each) {
           const depth = bk.asks.filter((a) => a.price <= bk.bestAsk! + 0.02 + 1e-9).reduce((x, a) => x + a.price * a.size, 0);
           const bet = copyBetUsd(rows, b.cond, (r) => /^yes$/i.test(String(r.outcome ?? "")) === b.yes);
-          const stake = copyStake(bet, copyUsualBet(rows), await walletValue(WX_COPY_WALLET, now));
-          noteSize("weather wallet", stake);
+          const usual = copyUsualBet(rows);
+          const stake = copyStake(bet, usual, await walletValue(WX_COPY_WALLET, now));
           // a weather bucket resolves on its own day: the end of that day (UTC+14 at the latest) is a safe upper bound
           const resolveAt = Date.UTC(ev.date[0], ev.date[1] - 1, ev.date[2]) + 86400_000;
-          real = await eventLiveBuy("copy", { rule, marketId: bu.id, title: ev.title, outcome, idx, token, ask: bk.bestAsk, depth, fillable: w.full, feeRate: bu.feeRate, conditionId: b.cond, stake, resolveAt }).catch((e) => `REAL order failed (${(e as Error).message})`);
+          if (copyLooksBait(bet, usual)) real = `small bet: $${bet.toFixed(2)} against its usual $${usual!.toFixed(2)} (paper only)`;
+          else noteSize("weather wallet", stake);
+          if (!copyLooksBait(bet, usual)) real = await eventLiveBuy("copy", { rule, marketId: bu.id, title: ev.title, outcome, idx, token, ask: bk.bestAsk, depth, fillable: w.full, feeRate: bu.feeRate, conditionId: b.cond, stake, resolveAt }).catch((e) => `REAL order failed (${(e as Error).message})`);
         }
         if (real) {
           log(`copy weather wallet ${ev.title} ${outcome}: ${real}`);
@@ -1076,6 +1080,17 @@ async function walletValue(address: string, now: number): Promise<number | null>
   walletValues.set(address, { at: now, v });
   return v;
 }
+/**
+ * Bait check (13 Nov 2026, enrique: "if the traders are using a very small amount of their wallet for the trade, it's
+ * probably something we shouldnt follow, as it might be something they're doing to bait people"): no REAL copy of a
+ * bet under COPY_BAIT of the wallet's usual bet. Paper still copies it, with the sizes in `extra`, so it can be judged.
+ * The wallets' own 30-day histories (265 wallets, 143,000 bets) neither confirm nor rule this out: small bets won about
+ * as often against their price as normal ones, but small losing bets are seen settled less often, so that is not proof.
+ */
+export const COPY_BAIT = 0.1;
+export function copyLooksBait(bet: number, usual: number | null): boolean {
+  return usual != null && usual > 0 && bet < COPY_BAIT * usual;
+}
 /** When a copied market resolves: the match start for game markets (their end date is days after), else the end date. */
 export function copyResolveAt(m: { gameStartTime?: string; endDate?: string }): number {
   const g = tsOf(m.gameStartTime);
@@ -1152,7 +1167,9 @@ async function copyTick() {
       const bk = await book(token).catch(() => null);
       if (!bk) continue;
       const feeRate = Number(m.feeSchedule?.rate ?? 0);
-      const extra = { wallet: b.price, lagSec: Math.floor(now / 1000) - b.ts, bid: bk.bestBid, ask: bk.bestAsk, negRisk: Boolean(m.negRisk) };
+      const betUsd = copyBetUsd(rows, b.cond, (r) => Number(r.outcome_index) === b.idx);
+      const usualUsd = copyUsualBet(rows);
+      const extra = { wallet: b.price, lagSec: Math.floor(now / 1000) - b.ts, bid: bk.bestBid, ask: bk.bestAsk, negRisk: Boolean(m.negRisk), betUsd, usualUsd, small: copyLooksBait(betUsd, usualUsd) };
       if (!(bk.bestAsk != null && bk.bestAsk <= b.price + 1e-9)) {
         const ahead = bk.bids.filter((x) => Math.abs(x.price - b.price) < 1e-9).reduce((x, y) => x + y.size, 0);
         state.rest.push({ rule: `copy-rest-${wl.name}`, marketId: m.id, cond: b.cond, title, outcome, idx: b.idx, token, other: tokens[1 - b.idx], bid: b.price, ahead, got: 0, shares: WX_COPY_STAKE / b.price, t: now, until: now + 6 * 3600_000, seen: Math.floor(now / 1000), start: 0 });
@@ -1182,9 +1199,10 @@ async function copyTick() {
         try {
           const depth = bk.asks.filter((a) => a.price <= bk.bestAsk! + 0.02 + 1e-9).reduce((x, a) => x + a.price * a.size, 0);
           const bet = copyBetUsd(rows, b.cond, (r) => Number(r.outcome_index) === b.idx);
-          const stake = copyStake(bet, copyUsualBet(rows), await walletValue(wl.address, now));
-          noteSize(wl.name, stake);
-          const real = await eventLiveBuy("copy", { rule, marketId: m.id, title, outcome, idx: b.idx, token, ask: bk.bestAsk, depth, fillable: w.full, feeRate, conditionId: b.cond, negRisk: Boolean(m.negRisk), stake, resolveAt: copyResolveAt(m) });
+          const usual = copyUsualBet(rows);
+          const stake = copyStake(bet, usual, await walletValue(wl.address, now));
+          if (!copyLooksBait(bet, usual)) noteSize(wl.name, stake);
+          const real = copyLooksBait(bet, usual) ? `small bet: $${bet.toFixed(2)} against its usual $${usual!.toFixed(2)} (paper only)` : await eventLiveBuy("copy", { rule, marketId: m.id, title, outcome, idx: b.idx, token, ask: bk.bestAsk, depth, fillable: w.full, feeRate, conditionId: b.cond, negRisk: Boolean(m.negRisk), stake, resolveAt: copyResolveAt(m) });
           if (real) {
             log(`copy ${wl.name} ${title} ${outcome}: ${real}`);
             copyNotes.push({ t: now, title: `${wl.name}: ${title}`, why: real });
