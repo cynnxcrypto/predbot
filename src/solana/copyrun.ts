@@ -12,7 +12,7 @@ import { appendFileSync, mkdirSync, readFileSync, renameSync, writeFileSync } fr
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { DATA } from "../config.js";
-import { crowd, EXITS, followerPrice, fomoStudy, LATE_CHECK_MS, LATE_ENTRY_MS, parseBuy, parseDollarBuy, PATH, REPEAT_MIN, SIZE_EXITS, SIZES, STAKE_SOL, paceAt, summarize, TX_SOL, unlate, unrefuse, verdictAt, WAVE_ENDS, WAVE_ENTRIES, WAVE_MIN_BUYERS, WAVE_STAKE_SOL, waveQuotedStudy, type Entry, type Pace, type ParsedTx, type Signal, type Verdict, type WaveLot, type WaveTrade } from "./copy.js";
+import { crowd, type RealCopy, EXITS, followerPrice, fomoStudy, LATE_CHECK_MS, LATE_ENTRY_MS, parseBuy, parseDollarBuy, PATH, REPEAT_MIN, SIZE_EXITS, SIZES, STAKE_SOL, paceAt, summarize, TX_SOL, unlate, unrefuse, verdictAt, WAVE_ENDS, WAVE_ENTRIES, WAVE_MIN_BUYERS, WAVE_STAKE_SOL, waveQuotedStudy, type Entry, type Pace, type ParsedTx, type Signal, type Verdict, type WaveLot, type WaveTrade } from "./copy.js";
 import { SOL, USDC } from "./pools.js";
 import { discoverSummary, foundWallets, startDiscover, stopDiscover } from "./discover.js";
 import { historySummary, startHistory, stopHistory } from "./history.js";
@@ -239,6 +239,28 @@ function load() {
   for (const x of signals) if (!x.fomo && x.feed === "helius transaction stream" && Date.now() - x.knownMs <= REPEAT_MIN * 60_000) mintBuys.set(x.mint, [...(mintBuys.get(x.mint) ?? []), { wallet: x.wallet, t: x.knownMs }]);
 }
 
+/**
+ * The real test's finished copies (copylive.ts writes them), read only for the buy-size table: coin, the wallet's
+ * slot, how the buy went and the SOL it made or lost. Nothing else of our own wallet is read. A missing file = none.
+ */
+function realCopies(): RealCopy[] {
+  try {
+    const out: RealCopy[] = [];
+    for (const l of readFileSync(join(DATA, "solana", "copylive-trades.jsonl"), "utf8").split("\n")) {
+      if (!l) continue;
+      try {
+        const x = JSON.parse(l);
+        if (typeof x?.mint === "string" && typeof x.leaderSlot === "number" && typeof x.netSol === "number" && typeof x.buy === "string") out.push({ mint: x.mint, leaderSlot: x.leaderSlot, buy: x.buy, netSol: x.netSol });
+      } catch {
+        /* a torn line */
+      }
+    }
+    return out;
+  } catch {
+    return [];
+  }
+}
+
 /** With a Helius key, how many wallets also get the slower signature feed (each of its buys costs a second request). */
 const LOGS_MAX = 50;
 
@@ -312,7 +334,7 @@ export function buildCopySummary() {
       // we would trade with, and mixing in the slower feed's entries would blur exactly what we are trying to see.
       const fast = clean.filter((x) => x.feed === "helius transaction stream");
       const scored = fast.length ? fast : clean;
-      return { leftOut: own.length - scored.length, leftOutSlow: slow, scoredFeed: fast.length ? "helius transaction stream" : "all clean feeds", byFeed, ...summarize(scored, solUsd) };
+      return { leftOut: own.length - scored.length, leftOutSlow: slow, scoredFeed: fast.length ? "helius transaction stream" : "all clean feeds", byFeed, ...summarize(scored, solUsd, realCopies()) };
     })(),
   };
 }

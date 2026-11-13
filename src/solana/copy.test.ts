@@ -9,7 +9,7 @@ process.env.DATA_DIR = dir;
 process.env.HELIUS_API_KEY = "SECRETHELIUS";
 process.env.JUPITER_API_KEY = "SECRETJUP";
 
-const { crowd, exitStudy, followerPrice, fomoStudy, GRID, lateStudy, parseBuy, parseDollarBuy, pathRet, ret, rising, roundTrip, sameBlockRet, SAME_BLOCK_SLIP, scalp, scalpCut, sizeStudy, STAKE_SOL, summarize, trail, TX_SOL, traderRet, verdictAt, verdictOf, paceAt, gapAt, verdictsBefore, unrefuse, REFUSED_FROM, REFUSED_TO, unlate, LATE_FROM, LATE_CHECK_MS } = await import("./copy.js");
+const { crowd, exitStudy, followerPrice, fomoStudy, GRID, lateStudy, parseBuy, parseDollarBuy, pathRet, ret, rising, roundTrip, sameBlockRet, SAME_BLOCK_SLIP, scalp, scalpCut, sizeStudy, STAKE_SOL, summarize, buySizeRatios, buySizeStudy, relGroup, trail, TX_SOL, traderRet, verdictAt, verdictOf, paceAt, gapAt, verdictsBefore, unrefuse, REFUSED_FROM, REFUSED_TO, unlate, LATE_FROM, LATE_CHECK_MS } = await import("./copy.js");
 const { SOL, USDC } = await import("./pools.js");
 const { validAddress, WALLETS } = await import("./wallets.js");
 const { _test, buildCopySummary, onStreamBuy, scrub } = await import("./copyrun.js");
@@ -722,4 +722,42 @@ test("walk-forward: only buys made after the pace rule was written are scored, b
   const w2 = walkStudy([dip], pacesBefore([dip])).cells.find((c) => c.pace === "calm" && c.gap === "under 9%")!;
   assert.deepEqual([w2.t60.won, w2.t60sl10.won, w2.t60sl15.won, w2.t60sl20.won, w2.late1t60.won, w2.late1t60sl10.won, w2.late1t60sl15.won], [1, 0, 1, 1, 1, 0, 1]);
   assert.ok(w2.t60sl10.avgRetPct! < -12 && w2.t60sl10.avgRetPct! > -14);
+});
+
+test("buy size: judged against the wallet's earlier buys only; real copies matched by coin and slot", () => {
+  const d1 = (x10: number) => ({ x2: x10, x5: x10, x10, x20: x10, x30: x10, x60: x10, x120: x10 });
+  // one wallet: five 1 SOL buys, then a 0.2 SOL buy (small), then a 3 SOL buy (big); another wallet's first buy
+  const mk = (i: number, sol: number, out: number, wallet = W) =>
+    sig({ sig: `s${i}`, wallet, mint: `m${i}`, leaderSlot: 2000 + i, leaderSol: sol, knownMs: 1_800_000_000_000 + i * 60_000, exits: { d0: d1(out), d1: d1(out), d3: {} } });
+  const sigs = [0, 1, 2, 3, 4].map((i) => mk(i, 1, 0.26)).concat([mk(5, 0.2, 0.2), mk(6, 3, 0.3), mk(7, 0.2, 0.3, "other")]);
+  const ratio = buySizeRatios(sigs);
+  assert.equal(ratio.get(sigs[4]), null); // only 4 earlier buys
+  assert.equal(ratio.get(sigs[5]), 0.2);
+  assert.ok(Math.abs(ratio.get(sigs[6])! - 3 / 1) < 1e-12); // the median of the earlier six is 1
+  assert.equal(ratio.get(sigs[7]), null); // the other wallet has no history: a small buy is not called small
+  assert.equal(relGroup(0.2), "under 1/4 of usual");
+  assert.equal(relGroup(0.3), "1/4 to 1/2 of usual");
+  assert.equal(relGroup(1), "usual (1/2 to 2x)");
+  assert.equal(relGroup(3), "over 2x usual");
+  const real = [
+    { mint: "m5", leaderSlot: 2005, buy: "landed", netSol: -0.01 },
+    { mint: "m6", leaderSlot: 2006, buy: "landed", netSol: 0.004 },
+    { mint: "m6", leaderSlot: 9999, buy: "landed", netSol: -0.002 }, // another buy of the coin: not this one
+    { mint: "m1", leaderSlot: 2001, buy: "not sent", netSol: 0 },
+  ];
+  const b = buySizeStudy(sigs, new Map(), real, null);
+  const row = (g: string) => b.byUsual.find((x) => x.group === g)!;
+  assert.equal(row("under 1/4 of usual").late1.n, 1);
+  assert.equal(row("under 1/4 of usual").late1.won, 0);
+  assert.equal(row("over 2x usual").late1.won, 1);
+  assert.equal(row("no history").late1.n, 6);
+  assert.equal(b.skipSmall.kept.late1.n, 7);
+  assert.equal(b.real.sent, 3);
+  assert.equal(b.real.matched, 2);
+  const rr = (g: string) => b.real.byUsual.find((x) => x.group === g)!;
+  assert.deepEqual([rr("under 1/4 of usual").copies, rr("under 1/4 of usual").netSol], [1, -0.01]);
+  assert.deepEqual([rr("over 2x usual").copies, rr("over 2x usual").won], [1, 1]);
+  assert.equal(rr("not matched").copies, 1);
+  assert.equal(b.bySol.find((x) => x.group === "under 0.5 SOL")!.late1.n, 2);
+  assert.ok(!JSON.stringify(b).includes("m5")); // totals only, no coin
 });
