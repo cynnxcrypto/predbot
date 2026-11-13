@@ -15,6 +15,10 @@
  *              "make sure we dont enter anything that takes more than 2 weeks to resolve")
  *   stopNet    stop for good once the settled net result is this many dollars down or worse (0 = off; open bets
  *              still settle; 13 Nov 2026, enrique: "okay if tennis goes -10 then stop it")
+ *   openUsd    dollars that may sit in open bets of the group at once (0 = off). A stake cap, not a trade-count cap:
+ *              14 Nov 2026, enrique: "i want way more bets in general" with the whole wallet as budget, so the copies
+ *              cannot tie up all the cash and starve tennis.
+ *   walletUsd  dollars that may sit in open bets of ONE rule (one copied wallet) at once (0 = off)
  *   perWallet  copies only: real bets open at once per copied wallet (0 = no own limit)
  *   maxAsk     no order when the favourite asks more than this
  *   minDepth   dollars that must rest within 2c of the ask (the paper "fillable" test)
@@ -66,7 +70,7 @@ export type EventLiveRow = {
   /** The outcome token bought; kept so the claim can be checked on chain. Never in the status file. */
   token?: string;
 };
-export type EventLiveGroup = { rules: string[]; size: number; maxAsk: number; minDepth: number; dayLosses: number; maxOpen: number; maxLoss: number; negRisk: boolean; maxSize: number; maxDays: number; perWallet: number; stopNet: number };
+export type EventLiveGroup = { rules: string[]; size: number; maxAsk: number; minDepth: number; dayLosses: number; maxOpen: number; maxLoss: number; negRisk: boolean; maxSize: number; maxDays: number; perWallet: number; stopNet: number; openUsd: number; walletUsd: number };
 export type EventLiveConfig = { mode: string; minBalance: number; lossCap?: LossCap; groups: Record<string, EventLiveGroup> };
 
 /** No single real event bet is ever larger than this (13 Nov 2026, enrique: "Min $3 max $10"). */
@@ -91,7 +95,7 @@ export function parseEventLive(repoText: string, local: { mode?: string; funder?
     const size = Math.min(MAX_STAKE, num(v.size, 0));
     if (!rules.length || !(size >= 1)) continue;
     const maxSize = Math.min(MAX_STAKE, Math.max(size, num(v.maxSize, size)));
-    groups[g] = { rules, size, maxAsk: Math.min(0.99, num(v.maxAsk, 0.96)), minDepth: Math.max(0, num(v.minDepth, 25)), dayLosses: Math.max(1, Math.floor(num(v.dayLosses, 2))), maxOpen: Math.max(1, Math.floor(num(v.maxOpen, 4))), maxLoss: Math.max(0, num(v.maxLoss, 12)), negRisk: v.negRisk === true, maxSize, maxDays: Math.max(0, num(v.maxDays, 0)), perWallet: Math.max(0, Math.floor(num(v.perWallet, 0))), stopNet: Math.max(0, num(v.stopNet, 0)) };
+    groups[g] = { rules, size, maxAsk: Math.min(0.99, num(v.maxAsk, 0.96)), minDepth: Math.max(0, num(v.minDepth, 25)), dayLosses: Math.max(1, Math.floor(num(v.dayLosses, 2))), maxOpen: Math.max(1, Math.floor(num(v.maxOpen, 4))), maxLoss: Math.max(0, num(v.maxLoss, 12)), negRisk: v.negRisk === true, maxSize, maxDays: Math.max(0, num(v.maxDays, 0)), perWallet: Math.max(0, Math.floor(num(v.perWallet, 0))), stopNet: Math.max(0, num(v.stopNet, 0)), openUsd: Math.max(0, num(v.openUsd, 0)), walletUsd: Math.max(0, num(v.walletUsd, 0)) };
   }
   const since = typeof repo.lossCap?.since === "number" ? repo.lossCap.since : Date.parse(String(repo.lossCap?.since ?? ""));
   const maxLoss = Number(repo.lossCap?.maxLoss);
@@ -130,6 +134,10 @@ export function eventLiveBlock(cfg: EventLiveConfig, group: string, rule: string
   // A row whose order outcome is unknown (ok false, no shares, status "unknown") is held as open so a fault cannot loop.
   const open = mine.filter((r) => r.pnl == null && (r.shares > 0 || r.status === "unknown"));
   if (open.length >= g.maxOpen) return `${open.length} real bets open (max ${g.maxOpen})`;
+  const openUsd = open.reduce((s, r) => s + r.cost, 0);
+  if (g.openUsd > 0 && openUsd + bet > g.openUsd + 1e-9) return `$${openUsd.toFixed(2)} in open bets + $${bet.toFixed(2)} would pass the $${g.openUsd} stake cap`;
+  const ruleUsd = open.filter((r) => r.rule === rule).reduce((s, r) => s + r.cost, 0);
+  if (g.walletUsd > 0 && ruleUsd + bet > g.walletUsd + 1e-9) return `$${ruleUsd.toFixed(2)} open on this wallet + $${bet.toFixed(2)} would pass its $${g.walletUsd} stake cap`;
   const settled = mine.filter((r) => r.pnl != null);
   const net = settled.reduce((s, r) => s + (r.pnl ?? 0), 0);
   // The group's own budget (10 Nov 2026, enrique: "tennis should have its own little budget"): money lost so far plus
@@ -148,8 +156,12 @@ export const NEG_READY_FILE = "negrisk-ready.json";
 /** Written by src/live.ts negRiskSetup(): whether the wallet holds every permission grouped markets need. */
 export type NegRiskReady = { at?: number; ready?: boolean; missing?: string[]; tries?: number; lastTryAt?: number; error?: string | null };
 type NegClaims = Record<string, { tx?: string | null; negRisk?: boolean }>;
-/** Grouped-market bets allowed before the first claim of one has been confirmed on chain. */
-export const NEG_TRIAL = 2;
+/**
+ * Grouped-market bets allowed before the first claim of one has been confirmed on chain (0 = no limit). 2 from
+ * 12 Nov 2026; 0 since 14 Nov 2026 01:25 KST, enrique: "u are copying a guy tht does 100 bets a day on weather and is
+ * profitable. u copy two random trades of 100 and are waitin for a win". A failed claim shows as claimErrors in status.
+ */
+export const NEG_TRIAL = 0;
 /**
  * Extra guards for a grouped ("neg-risk") market, or null when the bet may go (12 Nov 2026, enrique: "we cant claim
  * weather buys so we are not trading"). The group must allow it, the wallet's permissions must have been checked on
@@ -161,7 +173,7 @@ export function negRiskBlock(g: EventLiveGroup, ready: NegRiskReady, rows: Event
   if (!ready.ready) return `grouped market: wallet permissions not ready${ready.error ? ` (${ready.error.slice(0, 60)})` : ""}`;
   if (Object.values(claims).some((d) => d?.negRisk && d.tx)) return null;
   const pending = rows.filter((r) => r.negRisk && (r.shares > 0 || r.status === "unknown") && (r.pnl == null || ((r.pay ?? 0) > 0 && !claims[r.conditionId ?? ""]?.tx))).length;
-  return pending >= NEG_TRIAL ? `grouped market test: ${pending} bets until the first claim is confirmed` : null;
+  return NEG_TRIAL > 0 && pending >= NEG_TRIAL ? `grouped market test: ${pending} bets until the first claim is confirmed` : null;
 }
 
 export function eventLiveRows(): EventLiveRow[] {

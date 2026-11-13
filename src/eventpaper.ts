@@ -684,6 +684,10 @@ const RULE_TEXT: Record<string, [string, string]> = {
   "prematch-rest-clv-us": ["usports", "13 Nov 2026: the same pre-match resting bids on both teams of US sports moneylines (NBA, NFL, college), from 6 h before the start, cancelled 20 min before; strict tape fills; scored on the result and against the closing price."],
   "weather-fc-yes": ["weather", "13 Nov 2026 (enrique: 'think beyond favourites rules'; 'weather with a forecast' was the top idea in reviews of how people earn): on the market day at 09:00 station local time, read the Open-Meteo ensemble (about 80 model runs) of the day's highest temperature and take the ask ($3) on every bucket asking 5-60c where the share of runs in that bucket is 15+ points over the ask. Same untested assumptions as weather-dayahead-yes (grid point vs airport thermometer, raw model shares as odds)."],
   "weather-fc-no": ["weather", "13 Nov 2026: the other side of weather-fc-yes. At 09:00 station local time on the market day, take NO ($3) on every bucket whose YES bid is 20+ points over the forecast share of runs in it (YES bid 25c or more): the market thinks a temperature is more likely than the weather models do."],
+  "weather-fc-yes10": ["weather", "14 Nov 2026 (enrique: 'can we do more weather'): looser twin of weather-fc-yes, 09:00 local, YES taken where the models give 10+ points more than the ask."],
+  "weather-fc-no15": ["weather", "Looser twin of weather-fc-no: NO taken where the YES bid is 15+ points over the models' share (YES bid 25c or more)."],
+  "weather-fc-yes-13": ["weather", "weather-fc-yes looked at again at 13:00 local on the market day (forecast closer to the high, prices sharper)."],
+  "weather-fc-no-13": ["weather", "weather-fc-no looked at again at 13:00 local on the market day."],
   "prematch-rest-clv-esports": ["esports", "The same pre-match resting bids on both teams of esports match-winner markets, scored against the closing price (see prematch-rest-clv-tennis)."],
   "weather-fav16-hi": ["weather", "10 Nov 2026 17:10 KST: 16:00 rule for city-days whose leading bucket is already 85-95c (the main rule only takes 50-85c and dropped these without a line). Buys the ask when it is within 2c of mid. No backtest for this band: it measures whether late near-certain buckets pay after the spread."],
   "weather-fav15-ask1": ["weather", "10 Nov 2026 17:10 KST: 15:00 copy of the 1c-under-ask maker shadow. The 15:00 taker saw 22 signals in three days and took 1 (asks 4c+ over mid), so this rests a $5 bid 1c under the ask for up to 6 h on every 15:00 signal."],
@@ -988,12 +992,17 @@ async function wxCopyTick() {
       signal("wx-copy-rest", ev.title, false, { ...extra, bucket: outcome, placed: true });
     }
     // taking copy: the ask, if it is within 5c of the price the wallet paid (2c until 12 Nov 2026 22:30 KST)
-    const w = walk(bk.asks, WX_COPY_STAKE, b.price + COPY_SLIP);
-    if (bk.bestAsk == null || w.shares <= 0 || w.avg == null) {
+    const w0 = walk(bk.asks, WX_COPY_STAKE, b.price + COPY_SLIP);
+    if (bk.bestAsk == null || w0.shares <= 0 || w0.avg == null) {
       wxCopyStats.takeSkipped += 1;
       signal("wx-copy-take", ev.title, false, { ...extra, bucket: outcome, skip: "ask more than 5c above the price it paid" });
     } else {
-      state.trades.push({ rule: "wx-copy-take", marketId: bu.id, title: ev.title, outcome, idx, token, t: now, ask: bk.bestAsk, avg: w.avg, shares: w.shares, cost: w.cost, fee: feeOf(bu.feeRate, w.shares, w.avg), fillable: w.full, feeRate: bu.feeRate, extra });
+      state.trades.push({ rule: "wx-copy-take", marketId: bu.id, title: ev.title, outcome, idx, token, t: now, ask: bk.bestAsk, avg: w0.avg, shares: w0.shares, cost: w0.cost, fee: feeOf(bu.feeRate, w0.shares, w0.avg), fillable: w0.full, feeRate: bu.feeRate, extra });
+    }
+    // REAL copy of every buy, whatever the price moved (14 Nov 2026 01:28 KST, enrique: "i want to copy all"); only the
+    // group's maxAsk still limits it. Paper wx-copy-take keeps the 5c check.
+    const w = walk(bk.asks, WX_COPY_STAKE, 0.999);
+    if (bk.bestAsk != null && w.shares > 0 && w.avg != null) {
       // Real copy inside the shared "copy" budget when the rule is listed there (12 Nov 2026); same share per wallet.
       const rule = "wx-copy-take";
       if (eventLiveConfig().groups.copy?.rules.includes(rule)) {
@@ -1040,10 +1049,23 @@ export const COPY_WALLETS: { name: string; address: string }[] = [
   { name: "beefslayer", address: "0x331bf91c132af9d921e1908ca0979363fc47193f" },
   { name: "0bot", address: "0xf787b8a3a4c6990f48614a0b9af8422e3e7a1b63" },
   { name: "dragontree", address: "0x2c3928af89565c352afe8e2a1b25deed77a056dc" },
+  // 14 Nov 2026 01:22 KST (enrique: "can we do more weather"): weather wallets from the 265 pulled, up in each of their
+  // last four weeks (30-day profit at the pull, 11 Nov): paper only.
+  { name: "wx-65f7", address: "0x65f7226a82e093e5115e47ec2f4f7e733cd28b98" },
+  { name: "hello67", address: "0x2e3ecedec4b004c61670f0dcda382ec0da1f0f92" },
+  { name: "wx-241532", address: "0xce0b1054a2adb61a3efe8bcd42acc8d40154b974" },
+  { name: "0xyahn", address: "0x33c8f2e65c1ffc09a7af6ad0bfc6987a4db1de24" },
+  { name: "hightemptation", address: "0x6011655c4afb76f36dd1b08a137a1ba73466b31e" },
+  { name: "sylar012", address: "0x9b7b804c3bf0342ea073c30244a0d0228e7bec5b" },
+  { name: "alexd87", address: "0x482943e8126e83a63695cebde33a9498ee7497eb" },
 ];
 /** Real bets open at once per copied wallet when deploy/live-rules.json events.copy has no "perWallet" (12 Nov 2026). */
 const COPY_OPEN_EACH = 3;
-const copyPerWallet = () => eventLiveConfig().groups.copy?.perWallet || COPY_OPEN_EACH;
+// perWallet 0 in the live config = no count limit (14 Nov 2026: the stake caps openUsd / walletUsd hold instead)
+const copyPerWallet = () => {
+  const g = eventLiveConfig().groups.copy;
+  return g ? g.perWallet || Infinity : COPY_OPEN_EACH;
+};
 type CopyRow = ActRow & { outcome_index?: number | string; title?: string; usdc_size?: number | string; usdcSize?: number | string };
 const usdOf = (r: CopyRow) => Number(r.usdc_size ?? r.usdcSize) || 0;
 const isBuy = (r: CopyRow) => r.type === "TRADE" && String(r.side ?? "").toUpperCase() === "BUY";
@@ -1098,6 +1120,12 @@ export const COPY_BAIT = 0.1;
 export function copyLooksBait(bet: number, usual: number | null): boolean {
   return usual != null && usual > 0 && bet < COPY_BAIT * usual;
 }
+/** Forecast-against-price weather looks (weather-fc-*): local hour, and how many points the models must differ by. */
+const WX_FC: { yes: string; no: string; hour: number; yesEdge: number; noEdge: number }[] = [
+  { yes: "weather-fc-yes", no: "weather-fc-no", hour: 9, yesEdge: 0.15, noEdge: 0.2 },
+  { yes: "weather-fc-yes10", no: "weather-fc-no15", hour: 9, yesEdge: 0.1, noEdge: 0.15 },
+  { yes: "weather-fc-yes-13", no: "weather-fc-no-13", hour: 13, yesEdge: 0.15, noEdge: 0.2 },
+];
 /** When a copied market resolves: the match start for game markets (their end date is days after), else the end date. */
 export function copyResolveAt(m: { gameStartTime?: string; endDate?: string }): number {
   const g = tsOf(m.gameStartTime);
@@ -1188,14 +1216,19 @@ async function copyTick() {
       const rule = `copy-take-${wl.name}`;
       const any = walk(bk.asks, WX_COPY_STAKE, 0.999);
       if (bk.bestAsk != null && any.shares > 0 && any.avg != null) state.trades.push({ rule: `copy-any-${wl.name}`, marketId: m.id, title, outcome, idx: b.idx, token, t: now, ask: bk.bestAsk, avg: any.avg, shares: any.shares, cost: any.cost, fee: feeOf(feeRate, any.shares, any.avg), fillable: any.full, feeRate, extra });
-      const w = walk(bk.asks, WX_COPY_STAKE, b.price + COPY_SLIP);
-      if (bk.bestAsk == null || w.shares <= 0 || w.avg == null) {
+      const w0 = walk(bk.asks, WX_COPY_STAKE, b.price + COPY_SLIP);
+      if (bk.bestAsk == null || w0.shares <= 0 || w0.avg == null) {
         st.takeSkipped += 1;
         signal(rule, title, false, { ...extra, bucket: outcome, skip: "ask more than 5c above the price it paid" });
-        continue;
+      } else {
+        st.taken += 1;
+        state.trades.push({ rule, marketId: m.id, title, outcome, idx: b.idx, token, t: now, ask: bk.bestAsk, avg: w0.avg, shares: w0.shares, cost: w0.cost, fee: feeOf(feeRate, w0.shares, w0.avg), fillable: w0.full, feeRate, extra });
       }
-      st.taken += 1;
-      state.trades.push({ rule, marketId: m.id, title, outcome, idx: b.idx, token, t: now, ask: bk.bestAsk, avg: w.avg, shares: w.shares, cost: w.cost, fee: feeOf(feeRate, w.shares, w.avg), fillable: w.full, feeRate, extra });
+      // REAL copy of every buy (14 Nov 2026 01:28 KST, enrique: "i want to copy all"): no 5c price check any more, only
+      // the group's maxAsk. The paper copy-any twins (no price limit) did no worse than copy-take (lex-tang +$33 vs +$16,
+      // betty4 -$10.55 vs -$12.82, maximus374 the same at 13 Nov 2026). Paper copy-take keeps the 5c check.
+      if (bk.bestAsk == null || any.shares <= 0 || any.avg == null) continue;
+      const w = any;
       // Each copied wallet may hold at most COPY_OPEN_EACH real bets at once, so one busy wallet cannot fill the shared
       // budget with open stakes and leave the others without a single copy to judge them by.
       const openMine = eventLiveRows().filter((r) => r.group === "copy" && r.rule === rule && r.pnl == null && (r.shares > 0 || r.status === "unknown")).length;
@@ -1315,10 +1348,11 @@ async function weatherTick() {
         signal("weather-dayahead-all", ev.title, false, { station: ev.station, bids: picks.map((x) => `${x.bu.label} ${Math.round(x.bk!.bestBid! * 100)}c`), ...(picks.length ? {} : { skip: "no bucket asking 10-50c" }) });
       }
     }
-    {
-      // weather-fc-yes / weather-fc-no (13 Nov 2026): the market day at 09:00 station local time, forecast against price.
-      const key = `weather-fc|${ev.id}`;
-      const at = zonedUtc(ev.date[0], ev.date[1], ev.date[2], 9, ev.tz);
+    for (const fv of WX_FC) {
+      // weather-fc-yes / weather-fc-no (13 Nov 2026): the market day at 09:00 station local time, forecast against price;
+      // 14 Nov 2026 01:22 KST (enrique: "can we do more weather"): a looser 10/15-point twin and a 13:00 look.
+      const key = fv.yes === "weather-fc-yes" ? `weather-fc|${ev.id}` : `${fv.yes}|${ev.id}`;
+      const at = zonedUtc(ev.date[0], ev.date[1], ev.date[2], fv.hour, ev.tz);
       if (!state.done[key] && now >= at && now < at + 20 * 60_000) {
         state.done[key] = now;
         try {
@@ -1332,25 +1366,25 @@ async function weatherTick() {
             const p = wxBucketProb(bu.label, maxC);
             if (p == null || !bk || bk.bestAsk == null) continue;
             const extra = { station: ev.station, bucket: bu.label, fc: Math.round(p * 1000) / 1000, members: maxC.length, bid: bk.bestBid, ask: bk.bestAsk };
-            if (bk.bestAsk >= 0.05 - 1e-9 && bk.bestAsk <= 0.6 + 1e-9 && p - bk.bestAsk >= 0.15 - 1e-9) {
+            if (bk.bestAsk >= 0.05 - 1e-9 && bk.bestAsk <= 0.6 + 1e-9 && p - bk.bestAsk >= fv.yesEdge - 1e-9) {
               const w = walk(bk.asks, 3, bk.bestAsk + 0.02);
               if (w.shares > 0 && w.avg != null) {
-                state.trades.push({ rule: "weather-fc-yes", marketId: bu.id, title: ev.title, outcome: `Yes (${bu.label})`, idx: bu.noIdx != null ? 1 - bu.noIdx : 0, token: bu.token, t: now, ask: bk.bestAsk, avg: w.avg, shares: w.shares, cost: w.cost, fee: feeOf(bu.feeRate, w.shares, w.avg), fillable: w.full, feeRate: bu.feeRate, extra });
+                state.trades.push({ rule: fv.yes, marketId: bu.id, title: ev.title, outcome: `Yes (${bu.label})`, idx: bu.noIdx != null ? 1 - bu.noIdx : 0, token: bu.token, t: now, ask: bk.bestAsk, avg: w.avg, shares: w.shares, cost: w.cost, fee: feeOf(bu.feeRate, w.shares, w.avg), fillable: w.full, feeRate: bu.feeRate, extra });
                 picks.push(`yes ${bu.label}`);
               }
             }
-            if (bu.no && bu.noIdx != null && bk.bestBid != null && bk.bestBid >= 0.25 - 1e-9 && bk.bestBid - p >= 0.2 - 1e-9) {
+            if (bu.no && bu.noIdx != null && bk.bestBid != null && bk.bestBid >= 0.25 - 1e-9 && bk.bestBid - p >= fv.noEdge - 1e-9) {
               const nb = await book(bu.no).catch(() => null);
               const w = nb?.bestAsk != null ? walk(nb.asks, 3, nb.bestAsk + 0.02) : null;
               if (nb?.bestAsk != null && w && w.shares > 0 && w.avg != null) {
-                state.trades.push({ rule: "weather-fc-no", marketId: bu.id, title: ev.title, outcome: `No (${bu.label})`, idx: bu.noIdx, token: bu.no, t: now, ask: nb.bestAsk, avg: w.avg, shares: w.shares, cost: w.cost, fee: feeOf(bu.feeRate, w.shares, w.avg), fillable: w.full, feeRate: bu.feeRate, extra });
+                state.trades.push({ rule: fv.no, marketId: bu.id, title: ev.title, outcome: `No (${bu.label})`, idx: bu.noIdx, token: bu.no, t: now, ask: nb.bestAsk, avg: w.avg, shares: w.shares, cost: w.cost, fee: feeOf(bu.feeRate, w.shares, w.avg), fillable: w.full, feeRate: bu.feeRate, extra });
                 picks.push(`no ${bu.label}`);
               }
             }
           }
-          signal("weather-fc-yes", ev.title, picks.length > 0, { station: ev.station, members: maxC.length, picks, ...(picks.length ? {} : { skip: "forecast and price agree" }) });
+          signal(fv.yes, ev.title, picks.length > 0, { station: ev.station, members: maxC.length, picks, ...(picks.length ? {} : { skip: "forecast and price agree" }) });
         } catch (e) {
-          signal("weather-fc-yes", ev.title, false, { station: ev.station, skip: `forecast failed: ${(e as Error).message.slice(0, 80)}` });
+          signal(fv.yes, ev.title, false, { station: ev.station, skip: `forecast failed: ${(e as Error).message.slice(0, 80)}` });
         }
       }
     }
@@ -1761,7 +1795,7 @@ const GROUPS: Record<string, string[]> = {
   esports: ["esports-map1", "esports-fav-shadow", "esports-map1-dota", "esports-lol-fav90", "esports-cs2-fav90", "prematch-rest-clv-esports"],
   indices: ["gold-momentum", "spx-underdog", "spy-underdog"],
   politics: ["election-lock-taker", "election-lock-maker"],
-  weather: ["weather-fav16", "weather-fav15", "weather-fav16-wide", "weather-fav16-mid", "weather-fav16-ask1", "weather-fav16-hi", "weather-fav15-ask1", "weather-dayahead-all", "weather-dayahead-yes", "weather-fc-yes", "weather-fc-no", "wx-no-maker", "wx-no-maker-815", "wx-no-maker-1530", "wx-copy-rest", "wx-copy-take"],
+  weather: ["weather-fav16", "weather-fav15", "weather-fav16-wide", "weather-fav16-mid", "weather-fav16-ask1", "weather-fav16-hi", "weather-fav15-ask1", "weather-dayahead-all", "weather-dayahead-yes", "weather-fc-yes", "weather-fc-no", "weather-fc-yes10", "weather-fc-no15", "weather-fc-yes-13", "weather-fc-no-13", "wx-no-maker", "wx-no-maker-815", "wx-no-maker-1530", "wx-copy-rest", "wx-copy-take"],
   tennis: ["tennis-wta-fav90", "tennis-atp-fav90", "tennis-wta-fav85", "tennis-itf-fav90", "tennis-fav95", "tennis-fav85", "tennis-fav80", "tennis-fav90-mid", "prematch-rest-clv-tennis"],
   cricket: ["cricket-fav10", "cricket-fav60", "cricket-dog-control", "prematch-rest-clv-cricket"],
   usports: ["nba-fav85", "cbb-fav85", "nfl-fav85", "nba-fav85-mid", "us-prematch-fav-bid", "us-prematch-dog-bid", "prematch-rest-clv-us"],

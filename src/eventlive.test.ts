@@ -96,14 +96,13 @@ test("grouped (neg-risk) markets: off unless the group says so, wait for the wal
   assert.match(negRiskBlock(g, { ready: false, error: "relayer said no" }, [], {})!, /relayer said no/);
   assert.equal(negRiskBlock(g, { ready: true }, [], {}), null);
   assert.equal(negRiskBlock(g, { ready: true }, [row({})], {}), null);
-  assert.equal(NEG_TRIAL, 2);
-  assert.match(negRiskBlock(g, { ready: true }, [row({}), row({ conditionId: "0xc2", status: "unknown", shares: 0 })], {})!, /2 bets until the first claim/);
+  assert.equal(NEG_TRIAL, 0, "14 Nov 2026, enrique: no trial limit");
+  assert.equal(negRiskBlock(g, { ready: true }, [row({}), row({ conditionId: "0xc2", status: "unknown", shares: 0 })], {}), null);
   // plain bets and lost grouped bets do not count; a won one counts until it is claimed
   const lost = row({ conditionId: "0xc3", pnl: -3, pay: 0 });
   const won = row({ conditionId: "0xc4", pnl: 3, pay: 1 });
   assert.equal(negRiskBlock(g, { ready: true }, [row({}), lost, row({ negRisk: undefined })], {}), null);
-  assert.match(negRiskBlock(g, { ready: true }, [row({}), won], {})!, /first claim/);
-  assert.match(negRiskBlock(g, { ready: true }, [row({}), won], { "0xc4": { tx: null, negRisk: true }, "0xc9": { tx: "0xabc" } })!, /first claim/, "a failed grouped claim or a plain claim proves nothing");
+  assert.equal(negRiskBlock(g, { ready: true }, [row({}), won], {}), null);
   assert.equal(negRiskBlock(g, { ready: true }, [row({}), row({ conditionId: "0xc2" }), row({ conditionId: "0xc5" }), won], { "0xc4": { tx: "0xabc", negRisk: true } }), null, "one confirmed claim lifts the limit");
 });
 
@@ -137,6 +136,13 @@ test("copy limits: stake between size and maxSize, and no bet that resolves more
   assert.match(blk(NaN)!, /resolve date unknown/);
   const open = (cost: number, i: number): EventLiveRow => ({ t: 0, group: "copy", rule: "a", marketId: `o${i}`, conditionId: null, title: "", outcome: "", idx: 0, ask: 0.5, size: cost, cost, shares: 2 * cost, fee: 0, ok: true, status: "matched", error: null });
   assert.match(blk(NOW2 + day, 10, Array.from({ length: 100 }, (_, i) => open(9.95, i)))!, /real bets open \(max 60\)/);
+  const capped = parseEventLive(JSON.stringify({ mode: "live", events: { copy: { rules: ["a", "b"], size: 3, maxSize: 10, maxOpen: 999, maxLoss: 1000, openUsd: 20, walletUsd: 9, minDepth: 0, maxAsk: 0.97 } } }), { funder: "0x1" });
+  const cb = (rule: string, rows: EventLiveRow[], stake = 3) => eventLiveBlock(capped, "copy", rule, "new", 0.5, 10, true, rows, NOW2, stake);
+  const two = [open(3, 1), open(3, 2)];
+  assert.equal(cb("a", two), null, "$6 open on wallet a + $3 = $9");
+  assert.match(cb("a", two, 4)!, /would pass its \$9 stake cap/);
+  assert.equal(cb("b", two, 4), null, "another wallet is not held by a's cap");
+  assert.match(cb("b", [...two, open(3, 3), open(3, 4), open(3, 5)].map((r, i) => ({ ...r, rule: i < 2 ? "a" : "c" })), 6)!, /would pass the \$20 stake cap/);
   const tennis = parseEventLive(JSON.stringify({ mode: "live", events: { tennis: { rules: ["t"], size: 3 } } }), { funder: "0x1" }).groups.tennis;
   assert.deepEqual([tennis.maxSize, tennis.maxDays, tennis.perWallet], [3, 0, 0], "groups without the new keys behave as before");
 });
@@ -146,6 +152,7 @@ test("deploy/live-rules.json: wallet copies stay inside enrique's 13 Nov limits"
   const g = cfg.groups.copy;
   if (!g) return;
   assert.ok(g.size >= 3 && g.maxSize <= 10 && g.maxDays > 0 && g.maxDays <= 14);
+  assert.ok(g.openUsd > 0 && g.openUsd <= 200 && g.walletUsd > 0 && g.walletUsd <= g.openUsd, "a stake cap keeps cash for tennis");
 });
 
 test("stopNet: no new bet once the settled result is that far down; open bets do not count", () => {
