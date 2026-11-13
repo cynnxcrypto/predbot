@@ -14,7 +14,8 @@ import { fileURLToPath } from "node:url";
 import { DATA } from "../config.js";
 import { crowd, type RealCopy, EXITS, followerPrice, fomoStudy, LATE_CHECK_MS, LATE_ENTRY_MS, parseBuy, parseDollarBuy, PATH, REPEAT_MIN, SIZE_EXITS, SIZES, STAKE_SOL, paceAt, summarize, TX_SOL, unlate, unrefuse, verdictAt, WAVE_ENDS, WAVE_ENTRIES, WAVE_MIN_BUYERS, WAVE_STAKE_SOL, waveQuotedStudy, type Entry, type Pace, type ParsedTx, type Signal, type Verdict, type WaveLot, type WaveTrade } from "./copy.js";
 import { SOL, USDC } from "./pools.js";
-import { discoverSummary, foundWallets, startDiscover, stopDiscover } from "./discover.js";
+import { busyWallets, discoverSummary, foundWallets, startDiscover, stopDiscover } from "./discover.js";
+import { slowSummary, slowTx, slowWatch, startSlow, stopSlow } from "./slow.js";
 import { historySummary, startHistory, stopHistory } from "./history.js";
 import { linkedWallets, linksSummary, seedWallets, startLinks, stopLinks } from "./links.js";
 import { preconfSeen, preconfSummary, startPreconf, stopPreconf } from "./preconf.js";
@@ -313,6 +314,7 @@ export function buildCopySummary() {
     health: { ...health, active: health.active },
     discovery: discoverSummary(),
     history: historySummary(),
+    slow: slowSummary(),
     links: linksSummary(),
     preconf: preconfSummary(),
     fomo: fomoStudy(signals.filter((x) => x.fomo), solUsd),
@@ -671,8 +673,19 @@ function watchFound() {
   ws.send(JSON.stringify({ jsonrpc: "2.0", id: 4, method: "transactionSubscribe", params: [{ accountInclude: fresh, vote: false, failed: false }, { commitment: "processed", encoding: "jsonParsed", transactionDetails: "full", showRewards: false, maxSupportedTransactionVersion: 1 }] }));
 }
 
+/** Slow-study wallets on the open stream (slow.ts): one more subscription for the ones not carried yet. */
+let slowCarried = new Set<string>();
+function watchSlow() {
+  if (!ws || ws.readyState !== WebSocket.OPEN || !helius()) return;
+  const fresh = slowWatch().filter((a) => !slowCarried.has(a) && validAddress(a));
+  if (!fresh.length) return;
+  for (const a of fresh) slowCarried.add(a);
+  ws.send(JSON.stringify({ jsonrpc: "2.0", id: 5, method: "transactionSubscribe", params: [{ accountInclude: fresh, vote: false, failed: false }, { commitment: "confirmed", encoding: "jsonParsed", transactionDetails: "full", showRewards: false, maxSupportedTransactionVersion: 1 }] }));
+}
+
 function connect() {
   if (stopped) return;
+  slowCarried = new Set();
   const list = tracked();
   current = list;
   health.feed = helius() ? "helius websocket" : "public websocket";
@@ -701,6 +714,7 @@ function connect() {
       reqOf.set(100 + i, w);
       sock.send(JSON.stringify({ jsonrpc: "2.0", id: 100 + i, method: "logsSubscribe", params: [{ mentions: [w.address] }, { commitment: "processed" }] }));
     });
+    watchSlow();
   };
   sock.onmessage = (ev) => {
     const now = Date.now();
@@ -708,6 +722,10 @@ function connect() {
     try {
       m = JSON.parse(String(ev.data));
     } catch {
+      return;
+    }
+    if (m.id === 5) {
+      if (m.error) fail(new Error(`slow subscribe: ${m.error.message}`));
       return;
     }
     if (m.id === 3) {
@@ -720,6 +738,11 @@ function connect() {
       if (!r.signature || !r.slot || !t?.meta || t.meta.err || Array.isArray(t.transaction) || !t.transaction?.message) return;
       health.streamTx++;
       const tx: ParsedTx = { slot: r.slot, blockTime: null, meta: t.meta, transaction: t.transaction };
+      try {
+        slowTx(tx, now);
+      } catch (e) {
+        fail(e);
+      }
       const keys = new Set(tx.transaction.message.accountKeys.map((k) => (typeof k === "string" ? k : k.pubkey)));
       // for the early-stream measurement: a transaction a listed trader signed (the first key pays and signs)
       const payer = keys.values().next().value;
@@ -808,6 +831,9 @@ export function startSolanaCopy(fetcher: Fetch = fetch) {
   startDiscover(() => (helius() ? wsUrl() : null), () => listed().map((w) => w.address));
   // the wallet history study (read-only): past buys of each listed wallet; SOLANA_HISTORY=off disables
   startHistory({ rpcUrl: () => (helius() ? rpcUrl() : null), fetch: () => net, wallets: () => listed() });
+  // slow wallets (read-only screen, then a paper copy of the ones that pass); SOLANA_SLOW=off disables. A slow copy
+  // waits seconds to minutes anyway, so its quotes may wait their turn up to two minutes.
+  startSlow({ rpcUrl: () => (helius() ? rpcUrl() : null), fetch: () => net, listed: () => listed(), busy: (k) => busyWallets(k), quote: (a, b, amount) => quote(a, b, amount, false, 120_000) });
   // the tracer (read-only): the wallets behind the fomo traders in seeds.ts; SOLANA_LINKS=off disables
   startLinks({ rpcUrl: () => (helius() ? rpcUrl() : null), fetch: () => net });
   // the early-stream measurement (read-only, one short run with a credit budget); SOLANA_PRECONF=off disables
@@ -834,6 +860,7 @@ export function startSolanaCopy(fetcher: Fetch = fetch) {
     }
     if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ jsonrpc: "2.0", id: 2, method: "getSlot" }));
     watchFound();
+    watchSlow();
   }, 30_000);
 }
 
@@ -842,6 +869,7 @@ export function stopSolanaCopy() {
   ws?.close();
   stopDiscover();
   stopHistory();
+  stopSlow();
   stopLinks();
   stopPreconf();
   stopDip();
