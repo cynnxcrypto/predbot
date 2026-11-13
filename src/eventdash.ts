@@ -318,7 +318,7 @@ function realInfo(group: string): { budget: unknown; guards: Record<string, numb
   return { budget, guards };
 }
 
-type RealRow = { t: number; group?: string; marketId?: string; rule: string; title: string; outcome: string; ask: number; cost: number; shares: number; status: string | null; error: string | null; pnl?: number | null; settledAt?: number | null };
+type RealRow = { t: number; group?: string; marketId?: string; idx?: number; rule: string; title: string; outcome: string; ask: number; cost: number; shares: number; status: string | null; error: string | null; pnl?: number | null; settledAt?: number | null };
 /** Every real bet of a category from data/eventlive.json (read only): per rule today / all time, Korean days, latest orders. */
 function realRecord(group: string): unknown {
   const all = loadJson<RealRow[]>("eventlive.json", []);
@@ -361,30 +361,36 @@ function realRecord(group: string): unknown {
     byRule,
     tot,
     days: Object.keys(days).sort().reverse().slice(0, 30).map((day) => ({ day, ...days[day] })),
-    log: rows.slice(-60).reverse().map((r) => ({ t: r.t, marketId: r.marketId ?? null, rule: r.rule, title: r.title, outcome: r.outcome, ask: r.ask, cost: r.cost, shares: r.shares, status: r.status, error: r.error, pnl: r.pnl ?? null, settledAt: r.settledAt ?? null })),
+    log: rows.slice(-60).reverse().map((r) => ({ t: r.t, marketId: r.marketId ?? null, idx: r.idx ?? null, rule: r.rule, title: r.title, outcome: r.outcome, ask: r.ask, cost: r.cost, shares: r.shares, status: r.status, error: r.error, pnl: r.pnl ?? null, settledAt: r.settledAt ?? null })),
   };
 }
 
 // When an open real bet is expected to resolve: the match start for game markets (their end date sits days after the
 // match), otherwise the market's end date. Read from Gamma once an hour per market; a failed read leaves the row without a time.
-const endMemo = new Map<string, { at: number; end: number | null; game: boolean }>();
+const endMemo = new Map<string, { at: number; end: number | null; game: boolean; px?: number[] | null }>();
 const gts = (x: unknown): number => {
   const v = Date.parse(String(x ?? "").replace(" ", "T").replace(/\+00$/, "Z"));
   return Number.isFinite(v) ? v : 0;
 };
 async function withResolveTimes(rec: unknown): Promise<unknown> {
-  const log = (rec as { log?: { marketId?: string | null; shares: number; pnl: number | null; end?: number | null; game?: boolean }[] } | null)?.log;
+  const log = (rec as { log?: { marketId?: string | null; idx?: number | null; shares: number; cost: number; pnl: number | null; end?: number | null; game?: boolean }[] } | null)?.log;
   if (!Array.isArray(log)) return rec;
   const open = log.filter((r) => r.marketId && r.shares > 0 && r.pnl == null);
-  const need = [...new Set(open.map((r) => r.marketId!))].filter((id) => !endMemo.has(id) || Date.now() - endMemo.get(id)!.at > 3600_000).slice(0, 20);
+  const need = [...new Set(open.map((r) => r.marketId!))].filter((id) => !endMemo.has(id) || Date.now() - endMemo.get(id)!.at > 60_000).slice(0, 60);
   const work = Promise.all(
     need.map(async (id) => {
       try {
-        const m = ((await (await get(`${GAMMA}/markets?id=${encodeURIComponent(id)}`, 4000)).json()) as { endDate?: string; gameStartTime?: string }[])[0];
+        const m = ((await (await get(`${GAMMA}/markets?id=${encodeURIComponent(id)}`, 4000)).json()) as { endDate?: string; gameStartTime?: string; outcomePrices?: string }[])[0];
         const game = gts(m?.gameStartTime);
-        endMemo.set(id, { at: Date.now(), end: game || gts(m?.endDate) || null, game: game > 0 });
+        let px: number[] | null = null;
+        try {
+          px = (JSON.parse(m?.outcomePrices ?? "null") as string[] | null)?.map(Number) ?? null;
+        } catch {
+          px = null;
+        }
+        endMemo.set(id, { at: Date.now(), end: game || gts(m?.endDate) || null, game: game > 0, px });
       } catch {
-        if (!endMemo.has(id)) endMemo.set(id, { at: Date.now() - 3300_000, end: null, game: false }); // try again in 5 min
+        if (!endMemo.has(id)) endMemo.set(id, { at: Date.now(), end: null, game: false }); // try again in a minute
       }
     }),
   );
@@ -392,6 +398,10 @@ async function withResolveTimes(rec: unknown): Promise<unknown> {
   for (const r of open) {
     const c = endMemo.get(r.marketId!);
     if (c?.end) Object.assign(r, { end: c.end, game: c.game });
+    // Price now (13 Nov 2026, enrique: "if we're winning or losing and at what price is our bet now"): Polymarket's
+    // displayed price of our outcome (the book mid, or the last trade when the spread is over 10c), refreshed each minute.
+    const now = r.idx != null ? c?.px?.[r.idx] : undefined;
+    if (now != null && Number.isFinite(now)) Object.assign(r, { now, upnl: Math.round((r.shares * now - r.cost) * 100) / 100 });
   }
   return rec;
 }
@@ -459,6 +469,8 @@ export async function eventsStatus(sec: string): Promise<unknown> {
 
 // ---------- page parts ----------
 export const EV_CSS = String.raw`
+.ev .opn{font-weight:700;margin-left:8px;letter-spacing:0;text-transform:none}.ev tr.grp .mut{letter-spacing:0;text-transform:none;font-size:11px}.ev .pct{font-size:10px;margin-left:3px}.ev .nowp{white-space:nowrap}.ev .nowp~.dt{display:flex}.ev td.nwc{white-space:nowrap}
+@media(max-width:700px){.ev .nowp .pct{display:none}.ev tr.grp td{white-space:normal}}@media(max-width:420px){.ev .log td.mkt{max-width:92px}}
 .ev .cap{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 22px;margin:2px 0 12px}.ev .cap .ch{flex-basis:100%;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--mut)}.ev .cap>div:not(.ch):not(.note){display:flex;align-items:baseline;gap:7px}.ev .cap .k{font-size:12px;color:var(--mut)}.ev .cap .k i{display:inline-block;width:10px;height:3px;border-radius:2px;margin-right:5px;vertical-align:3px}.ev .cap b{font-size:24px;font-weight:600}.ev .cap .note{flex-basis:100%;font-size:11px}.ev .wn{font-size:10px;color:var(--mut);font-weight:400}
 @media(max-width:500px){.ev .cap b{font-size:19px}.ev .cap{gap:4px 14px}}
 .ev .hero{gap:22px 34px}.ev .hero .clock{font-size:52px}.ev .nxt{min-width:0;max-width:100%}.ev .nxt .t{color:var(--mut);font-size:12px;max-width:min(520px,80vw);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -543,7 +555,8 @@ q("lrules").innerHTML=rules.length?rules.map(function(r){var b=BR[r]||{},d=b.tod
 var ps=[];if(!rules.length)ps.push(evPill("","real orders <b>none</b>","nothing here trades real money; real starts only on your word"));else if(!R||!R.on)ps.push(evPill("bad","real orders <b>off</b>"));else if(Bd&&Bd.left<sz&&Bd.open>0)ps.push(evPill("ok","live · <b>budget in open bets</b>","next bet when one settles"));else if(Bd&&Bd.left<sz)ps.push(evPill("bad","<b>stopped</b> · budget spent"));else if(G.maxOpen&&R.open>=G.maxOpen)ps.push(evPill("ok","live · <b>"+R.open+" open</b> (max "+G.maxOpen+")","next bet when one settles"));else ps.push(evPill("ok","live · <b>waiting for the next bet</b>"));
 if(R&&R.unknown)ps.push(evPill("bad","<b>"+R.unknown+"</b> order"+(R.unknown>1?"s":"")+" with no reply"));if(Bd)ps.push(evPill("","lost <b>"+money(Bd.lost)+"</b>"+(WW?" · budget: whole wallet":" of "+money(Bd.budget))));var GR=R&&R.grouped;if(GR&&GR.on)ps.push(evPill(GR.ready?"":"bad","grouped markets <b>"+(GR.ready?"ready":"not ready")+"</b>"+(GR.open?" · "+GR.open+" open":"")+(GR.claimsDone?" · "+GR.claimsDone+" claimed":"")+(GR.claimErrors?" · "+GR.claimErrors+" claim errors":""),"weather-type markets, claimed through their own adapter"));q("lstate").innerHTML=ps.join("");
 var rk=function(t){return !(t.shares>0)?3:t.pnl==null?0:2};var NF=L.filter(function(t){return !(t.shares>0)}).length;var rows=L.filter(function(t){return t.shares>0}).sort(function(a,b){if(rk(a)!==rk(b))return rk(a)-rk(b);if(rk(a)===0)return (a.end||9e15)-(b.end||9e15)||(b.t-a.t);return (b.settledAt||b.t)-(a.settledAt||a.t)});setH(q("rbars"),barsH(rows.filter(function(t){return t.pnl!=null}).slice(0,40).map(function(t){return +t.pnl}).reverse()));var lastG=-1,lastD="";
-q("rlog").innerHTML=rows.length?rows.map(function(t){var g=rk(t),hd="";if(g!==lastG){lastG=g;lastD="";hd+='<tr class="grp"><td colspan="6">'+({0:"open orders",2:"settled trades",3:"orders that did not fill"})[g]+'</td></tr>'}if(g>=2){var dl=evDayLab(t.settledAt||t.t);if(dl!==lastD){lastD=dl;hd+='<tr class="dsep"><td colspan="6">'+dl+'</td></tr>'}}var ok=t.shares>0;var px=ok?Math.round(t.cost/t.shares*100)+"¢":evC(t.ask).replace("c","¢");return hd+'<tr class="'+(ok?"":"dim")+'"><td><span class="dot'+(g===0?" on":"")+'"></span><span class="dt"><i>'+new Date(t.t).toLocaleDateString("en-GB",{timeZone:"Asia/Seoul",day:"numeric",month:"short"})+'</i>'+evT(t.t)+'</span></td><td class="mkt" title="'+evE(t.title)+'"><b>'+evE(/^(yes|no|over|under|up|down)$/i.test(t.outcome||"")?t.outcome+" · "+t.title:t.outcome)+'</b></td><td class="mut rn" title="'+evE(t.rule)+'">'+evE(evName(D,t.rule))+'</td><td>'+px+(ok?" × "+t.shares.toFixed(1):"")+'</td><td class="r">'+(ok?money(t.cost):"")+'</td><td class="r '+(t.pnl==null?"mut":cls(t.pnl))+'">'+(!ok?(t.status==="unknown"?"no reply":"no fill"):t.pnl==null?(t.end?evEnds(t):"open"):signed(t.pnl))+'</td></tr>'}).join(""):'<tr><td class="empty" colspan="6">'+(rules.length?"no filled orders yet":"no real trades in this category")+'</td></tr>';
+var OP=rows.filter(function(t){return rk(t)===0}),OPp=OP.filter(function(t){return t.upnl!=null}),OPu=OPp.reduce(function(a,t){return a+t.upnl},0),OPc=OPp.reduce(function(a,t){return a+t.cost},0);var opH=OPp.length?' <span class="opn '+cls(OPu)+'">'+(OPu>=0?"▲ ":"▼ ")+signed(Math.round(OPu*100)/100)+(OPc>0?" ("+(OPu>=0?"+":"")+Math.round(100*OPu/OPc)+"%)":"")+'</span> <span class="mut">at the price now · '+OPp.filter(function(t){return t.upnl>0}).length+' up, '+OPp.filter(function(t){return t.upnl<0}).length+' down'+(OPp.length<OP.length?", "+(OP.length-OPp.length)+" no price":"")+'</span>':"";
+q("rlog").innerHTML=rows.length?rows.map(function(t){var g=rk(t),hd="";if(g!==lastG){lastG=g;lastD="";hd+='<tr class="grp"><td colspan="6">'+({0:"open orders",2:"settled trades",3:"orders that did not fill"})[g]+(g===0?opH:"")+'</td></tr>'}if(g>=2){var dl=evDayLab(t.settledAt||t.t);if(dl!==lastD){lastD=dl;hd+='<tr class="dsep"><td colspan="6">'+dl+'</td></tr>'}}var ok=t.shares>0;var px=ok?Math.round(t.cost/t.shares*100)+"¢":evC(t.ask).replace("c","¢");return hd+'<tr class="'+(ok?"":"dim")+'"><td><span class="dot'+(g===0?" on":"")+'"></span><span class="dt"><i>'+new Date(t.t).toLocaleDateString("en-GB",{timeZone:"Asia/Seoul",day:"numeric",month:"short"})+'</i>'+evT(t.t)+'</span></td><td class="mkt" title="'+evE(t.title)+'"><b>'+evE(/^(yes|no|over|under|up|down)$/i.test(t.outcome||"")?t.outcome+" · "+t.title:t.outcome)+'</b></td><td class="mut rn" title="'+evE(t.rule)+'">'+evE(evName(D,t.rule))+'</td><td class="nwc">'+px+(ok&&g===0?(t.now!=null?' <span class="'+cls(t.upnl)+'">'+(t.upnl>0?"▲":t.upnl<0?"▼":"→")+" "+Math.round(t.now*100)+'¢</span>':' <span class="mut">→ —</span>'):"")+(ok?'<span class="nm"> × '+t.shares.toFixed(1)+'</span>':"")+'</td><td class="r nm">'+(ok?money(t.cost):"")+'</td><td class="r '+(t.pnl==null?"mut":cls(t.pnl))+'">'+(!ok?(t.status==="unknown"?"no reply":"no fill"):t.pnl==null?(t.upnl!=null?'<div class="nowp"><b class="'+cls(t.upnl)+'">'+signed(t.upnl)+'</b>'+(t.cost>0?' <span class="pct '+cls(t.upnl)+'">'+(t.upnl>=0?"+":"")+Math.round(100*t.upnl/t.cost)+'%</span>':"")+'</div>':"")+(t.end?evEnds(t):t.upnl!=null?"":"open"):signed(t.pnl))+'</td></tr>'}).join(""):'<tr><td class="empty" colspan="6">'+(rules.length?"no filled orders yet":"no real trades in this category")+'</td></tr>';
 q("lopen").textContent=ta.trades?[rows.length+" shown · "+ta.won+"/"+ta.settled+" won · "+signed(ta.net),ta.open?ta.open+" open":"",NF?NF+" not filled, hidden":""].filter(Boolean).join(" · "):"";
 var DS=Q.days||[];q("cmp").innerHTML=DS.length?DS.map(function(o){return '<tr><td>'+o.day+'</td><td class="r">'+o.settled+'</td><td class="r">'+Math.round(100*o.won/o.settled)+'%</td><td class="r '+cls(o.net)+'"><b>'+signed(o.net)+'</b></td><td><span class="wps">'+Object.keys(o.by).map(function(r){var m=o.by[r];return '<span class="wp" title="'+m.won+'/'+m.settled+' won">'+evE(evName(D,r))+' <b class="'+cls(m.net)+'">'+signed(m.net)+'</b></span>'}).join("")+'</span></td></tr>'}).join(""):'<tr><td class="empty" colspan="5">nothing yet</td></tr>';
 return {live:live,open:ta.open,stake:Bd?Bd.open:0}}
