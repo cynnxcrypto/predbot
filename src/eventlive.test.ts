@@ -2,19 +2,20 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
-import { _eventLiveTest, eventLiveBlock, eventLiveBuy, eventLiveConfig, parseEventLive, type EventLiveRow } from "./eventlive.js";
+import { NEG_TRIAL, _eventLiveTest, eventLiveBlock, eventLiveBuy, eventLiveConfig, negRiskBlock, parseEventLive, type EventLiveRow } from "./eventlive.js";
+import { NEG_PERMS, eventClaimCalls, negRiskCalls } from "./live.js";
 import { stopWhenOrderDone } from "./eventpaper.js";
 
 const repo = JSON.stringify({ mode: "live", minBalance: 270, lossCap: { since: "2026-10-31T07:11:00Z", maxLoss: 70 }, events: { tennis: { rules: ["tennis-atp-fav90"], size: 3, maxAsk: 0.96, minDepth: 25, dayLosses: 2, maxOpen: 2, maxLoss: 9 } } }); // test fixture, not the live amount
 const row = (o: Partial<EventLiveRow>): EventLiveRow => ({ t: 0, group: "tennis", rule: "tennis-atp-fav90", marketId: "m", conditionId: null, title: "", outcome: "", idx: 0, ask: 0.93, size: 3, cost: 3, shares: 3.2, fee: 0, ok: true, status: "matched", error: null, ...o });
 const NOW = Date.parse("2026-11-10T09:00:00Z");
 
-test("event live config: local off, missing funder or broken repo text all mean off; size is capped at $5", () => {
+test("event live config: local off, missing funder or broken repo text all mean off; size is capped at $10 (was $5 until 13 Nov 2026)", () => {
   assert.equal(parseEventLive(repo, { mode: "live", funder: "0xabc" }).mode, "live");
   assert.equal(parseEventLive(repo, { mode: "off", funder: "0xabc" }).mode, "off");
   assert.equal(parseEventLive(repo, { mode: "live" }).mode, "off");
   assert.deepEqual(parseEventLive("{", { mode: "live", funder: "0xabc" }).groups, {});
-  assert.equal(parseEventLive(JSON.stringify({ mode: "live", events: { tennis: { rules: ["x"], size: 50 } } }), { funder: "0x1" }).groups.tennis.size, 5);
+  assert.equal(parseEventLive(JSON.stringify({ mode: "live", events: { tennis: { rules: ["x"], size: 50 } } }), { funder: "0x1" }).groups.tennis.size, 10);
   assert.deepEqual(parseEventLive(JSON.stringify({ mode: "live", events: { tennis: { rules: [], size: 3 } } }), { funder: "0x1" }).groups, {});
 });
 
@@ -81,4 +82,66 @@ test("a stop waits for a real order that is being sent, starts no new one, and n
   await sleep(120);
   assert.equal(late, 1);
   _eventLiveTest.reset();
+});
+
+test("grouped (neg-risk) markets: off unless the group says so, wait for the wallet permissions, and 2 bets until a claim is confirmed", () => {
+  const cfg = parseEventLive(JSON.stringify({ mode: "live", events: { copy: { rules: ["a"], size: 3, negRisk: true }, tennis: { rules: ["b"], size: 3 }, odd: { rules: ["c"], size: 3, negRisk: "yes" } } }), { funder: "0x1" });
+  assert.deepEqual([cfg.groups.copy.negRisk, cfg.groups.tennis.negRisk, cfg.groups.odd.negRisk], [true, false, false]);
+  const g = cfg.groups.copy;
+  const row = (over: Partial<EventLiveRow>): EventLiveRow => ({ t: 0, group: "copy", rule: "a", marketId: "m", conditionId: "0xc1", title: "", outcome: "", idx: 0, ask: 0.5, size: 3, cost: 3, shares: 6, fee: 0, ok: true, status: "matched", error: null, negRisk: true, ...over });
+  assert.match(negRiskBlock(cfg.groups.tennis, { ready: true }, [], {})!, /not switched on/);
+  assert.match(negRiskBlock(g, {}, [], {})!, /permissions not ready/);
+  assert.match(negRiskBlock(g, { ready: false, error: "relayer said no" }, [], {})!, /relayer said no/);
+  assert.equal(negRiskBlock(g, { ready: true }, [], {}), null);
+  assert.equal(negRiskBlock(g, { ready: true }, [row({})], {}), null);
+  assert.equal(NEG_TRIAL, 2);
+  assert.match(negRiskBlock(g, { ready: true }, [row({}), row({ conditionId: "0xc2", status: "unknown", shares: 0 })], {})!, /2 bets until the first claim/);
+  // plain bets and lost grouped bets do not count; a won one counts until it is claimed
+  const lost = row({ conditionId: "0xc3", pnl: -3, pay: 0 });
+  const won = row({ conditionId: "0xc4", pnl: 3, pay: 1 });
+  assert.equal(negRiskBlock(g, { ready: true }, [row({}), lost, row({ negRisk: undefined })], {}), null);
+  assert.match(negRiskBlock(g, { ready: true }, [row({}), won], {})!, /first claim/);
+  assert.match(negRiskBlock(g, { ready: true }, [row({}), won], { "0xc4": { tx: null, negRisk: true }, "0xc9": { tx: "0xabc" } })!, /first claim/, "a failed grouped claim or a plain claim proves nothing");
+  assert.equal(negRiskBlock(g, { ready: true }, [row({}), row({ conditionId: "0xc2" }), row({ conditionId: "0xc5" }), won], { "0xc4": { tx: "0xabc", negRisk: true } }), null, "one confirmed claim lifts the limit");
+});
+
+test("grouped markets: only the missing permissions are granted, and a claim goes to the neg-risk adapter with pUSD", () => {
+  assert.equal(NEG_PERMS.length, 5);
+  assert.equal(negRiskCalls([true, true, true, true, true]).length, 0);
+  const calls = negRiskCalls([true, false, true, true, false]);
+  assert.deepEqual(calls.map((c) => c.target.toLowerCase()), ["0xc011a7e12a19f7b1f670d46f03b03f3342e82dfb", "0x4d97dcd97ec945f40cf65f87097ace5ea0476045"]);
+  assert.ok(calls[0].data.startsWith("0x095ea7b3") && calls[0].data.toLowerCase().includes("d91e80cf2e7be2e162c6513ced06f1dd0da35296"), "approve(neg-risk adapter)");
+  assert.ok(calls[1].data.startsWith("0xa22cb465") && calls[1].data.toLowerCase().includes("ada2005600dec949baf300f4c6120000bdb6eaab"), "setApprovalForAll(claim adapter)");
+  const cond = `0x${"ab".repeat(32)}`;
+  const neg = eventClaimCalls(cond, true);
+  assert.equal(neg.length, 1);
+  assert.equal(neg[0].target, "0xadA2005600Dec949baf300f4C6120000bDB6eAab");
+  assert.ok(neg[0].data.toLowerCase().includes("c011a7e12a19f7b1f670d46f03b03f3342e82dfb") && neg[0].data.includes("ab".repeat(32)));
+  const plain = eventClaimCalls(cond, false);
+  assert.equal(plain.length, 3);
+  assert.ok(plain.every((c) => c.target === "0x4D97DCd97eC945f40cF65F87097ACe5EA0476045"));
+});
+
+test("copy limits: stake between size and maxSize, and no bet that resolves more than maxDays ahead", () => {
+  const NOW2 = Date.parse("2026-11-13T01:00:00Z");
+  const cfg = parseEventLive(JSON.stringify({ mode: "live", events: { copy: { rules: ["a"], size: 3, maxSize: 25, maxDays: 14, perWallet: 6, maxOpen: 60, maxLoss: 1000, minDepth: 0, maxAsk: 0.97 } } }), { funder: "0x1" });
+  const g = cfg.groups.copy;
+  assert.deepEqual([g.size, g.maxSize, g.maxDays, g.perWallet], [3, 10, 14, 6], "maxSize is never above $10");
+  const day = 86400_000;
+  const blk = (resolveAt?: number, stake?: number, rows: EventLiveRow[] = []) => eventLiveBlock(cfg, "copy", "a", "m", 0.5, 10, true, rows, NOW2, stake, resolveAt);
+  assert.equal(blk(NOW2 + 13 * day), null);
+  assert.match(blk(NOW2 + 30 * day)!, /resolves in 30 days \(limit 14\)/);
+  assert.match(blk(undefined)!, /resolve date unknown/);
+  assert.match(blk(NaN)!, /resolve date unknown/);
+  const open = (cost: number, i: number): EventLiveRow => ({ t: 0, group: "copy", rule: "a", marketId: `o${i}`, conditionId: null, title: "", outcome: "", idx: 0, ask: 0.5, size: cost, cost, shares: 2 * cost, fee: 0, ok: true, status: "matched", error: null });
+  assert.match(blk(NOW2 + day, 10, Array.from({ length: 100 }, (_, i) => open(9.95, i)))!, /real bets open \(max 60\)/);
+  const tennis = parseEventLive(JSON.stringify({ mode: "live", events: { tennis: { rules: ["t"], size: 3 } } }), { funder: "0x1" }).groups.tennis;
+  assert.deepEqual([tennis.maxSize, tennis.maxDays, tennis.perWallet], [3, 0, 0], "groups without the new keys behave as before");
+});
+
+test("deploy/live-rules.json: wallet copies stay inside enrique's 13 Nov limits", () => {
+  const cfg = parseEventLive(readFileSync(join(process.cwd(), "deploy", "live-rules.json"), "utf8"), { mode: "live", funder: "0xabc" });
+  const g = cfg.groups.copy;
+  if (!g) return;
+  assert.ok(g.size >= 3 && g.maxSize <= 10 && g.maxDays > 0 && g.maxDays <= 14);
 });

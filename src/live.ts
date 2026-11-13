@@ -44,6 +44,7 @@ import { RelayClient } from "@polymarket/builder-relayer-client";
 import { BuilderConfig } from "@polymarket/builder-signing-sdk";
 import { AssetType, Chain, ClobClient, OrderType, Side, type ApiKeyCreds } from "@polymarket/clob-client-v2";
 import { ROOT, SERIES, prefixOf, type Series, kstDay } from "./config.js";
+import { NEG_READY_FILE, eventLiveConfig, type NegRiskReady } from "./eventlive.js";
 import type { PaperTrade } from "./paperlive.js";
 import { book, marketFor, type Market } from "./polymarket.js";
 import { append, loadJson, readAll, saveJson } from "./store.js";
@@ -294,7 +295,35 @@ const TOKEN_NAMES = ["pUSD", "USDC.e", "USDC"];
 const USDC_E = COLLATERALS[1];
 /** Polymarket's CollateralOnramp: converts USDC.e into pUSD 1:1 (claimed winnings come out of the CTF as USDC.e). */
 const ONRAMP = "0x93070a847efEf7F70739046A929D47a521F5B8ee";
-const erc20 = new Interface(["function balanceOf(address owner) view returns (uint256)", "function approve(address spender, uint256 amount) returns (bool)"]);
+const erc20 = new Interface(["function balanceOf(address owner) view returns (uint256)", "function approve(address spender, uint256 amount) returns (bool)", "function allowance(address owner, address spender) view returns (uint256)"]);
+/**
+ * Grouped ("neg-risk") markets, from docs.polymarket.com/trading/deposit-wallets and /trading/ctf/redeem (read 12 Nov
+ * 2026): pUSD must be approved for the neg-risk exchange and adapter, the outcome tokens for both of them, and a claim
+ * goes through the neg-risk collateral adapter (same redeemPositions arguments, pUSD comes out), which must be an
+ * approved operator of the outcome tokens too.
+ */
+const PUSD = COLLATERALS[0];
+const NEG_EXCHANGE = "0xe2222d279d744050d28e00520010520000310F59";
+const NEG_ADAPTER = "0xd91E80cF2E7be2e162c6513ceD06f1dD0dA35296";
+const NEG_REDEEM = "0xadA2005600Dec949baf300f4C6120000bDB6eAab";
+const MAX_UINT = `0x${"f".repeat(64)}`;
+/** The permissions grouped markets need: [name for the log, kind, spender or operator]. */
+export const NEG_PERMS: [string, "erc20" | "ctf", string][] = [
+  ["pUSD for the neg-risk exchange", "erc20", NEG_EXCHANGE],
+  ["pUSD for the neg-risk adapter", "erc20", NEG_ADAPTER],
+  ["outcome tokens for the neg-risk exchange", "ctf", NEG_EXCHANGE],
+  ["outcome tokens for the neg-risk adapter", "ctf", NEG_ADAPTER],
+  ["outcome tokens for the neg-risk claim adapter", "ctf", NEG_REDEEM],
+];
+/** The relayer calls that grant the permissions still missing (`have[i]` says whether NEG_PERMS[i] is in place). */
+export function negRiskCalls(have: boolean[]): { target: string; value: string; data: string }[] {
+  return NEG_PERMS.flatMap(([, kind, who], i) => (have[i] ? [] : [kind === "erc20" ? { target: PUSD, value: "0", data: erc20.encodeFunctionData("approve", [who, MAX_UINT]) } : { target: CTF, value: "0", data: ctfAbi.encodeFunctionData("setApprovalForAll", [who, true]) }]));
+}
+/** The claim call for one settled real event bet: the plain conditional-token contract, or the neg-risk claim adapter. */
+export function eventClaimCalls(cond: string, negRisk: boolean): { target: string; value: string; data: string }[] {
+  if (negRisk) return [{ target: NEG_REDEEM, value: "0", data: ctfAbi.encodeFunctionData("redeemPositions", [PUSD, ZERO32, cond, [1, 2]]) }];
+  return COLLATERALS.map((collateral) => ({ target: CTF, value: "0", data: ctfAbi.encodeFunctionData("redeemPositions", [collateral, ZERO32, cond, [1, 2]]) }));
+}
 const onrampAbi = new Interface(["function wrap(address _asset, address _to, uint256 _amount)"]);
 /** Native USDC (what exchanges send) is not accepted by the onramp; Uniswap v3's 0.01% USDC/USDC.e pool turns it into USDC.e first. */
 const USDC_NATIVE = COLLATERALS[2];
@@ -309,6 +338,8 @@ const ctfAbi = new Interface([
   "function getCollectionId(bytes32 parentCollectionId, bytes32 conditionId, uint256 indexSet) view returns (bytes32)",
   "function getPositionId(address collateralToken, bytes32 collectionId) view returns (uint256)",
   "function balanceOf(address owner, uint256 id) view returns (uint256)",
+  "function isApprovedForAll(address owner, address operator) view returns (bool)",
+  "function setApprovalForAll(address operator, bool approved)",
 ]);
 
 /** Winning shares the funds wallet still holds for a condition, over every collateral and both outcomes. */
@@ -1473,47 +1504,112 @@ export class LiveTrader {
    */
   private async redeemEvents(): Promise<boolean> {
     const now = Date.now();
-    const done = loadJson<Record<string, { at: number; tx: string | null; tries: number; nextAt: number; error: string | null }>>("eventlive-claims.json", {});
-    const last = Math.max(0, ...Object.values(done).map((d) => d.at ?? 0));
-    if (now - last < 3 * 3600_000) return false;
-    const rows = loadJson<{ conditionId?: string | null; shares?: number; pay?: number | null; settledAt?: number | null }[]>("eventlive.json", []);
-    const byCond = new Map<string, number>();
-    for (const r of Array.isArray(rows) ? rows : []) {
-      if (!r.conditionId || !/^0x[0-9a-fA-F]{64}$/.test(r.conditionId) || !((r.shares ?? 0) > 0) || !((r.pay ?? 0) > 0) || !(r.settledAt != null && r.settledAt < now - 30 * 60_000)) continue;
-      const d = done[r.conditionId];
-      if (d && (d.tx || d.tries >= 5 || d.nextAt > now)) continue;
-      byCond.set(r.conditionId, (byCond.get(r.conditionId) ?? 0) + (r.shares ?? 0) * (r.pay ?? 0));
-    }
-    const batch = [...byCond.entries()].slice(0, 8);
-    if (!batch.length) return false;
-    this.redeeming = true;
-    relayBusy = true;
-    try {
-      const relay = this.relay();
-      const calls: { target: string; value: string; data: string }[] = [];
-      for (const [cond] of batch) for (const collateral of COLLATERALS) calls.push({ target: CTF, value: "0", data: ctfAbi.encodeFunctionData("redeemPositions", [collateral, ZERO32, cond, [1, 2]]) });
-      noteRelayCall();
-      const sent = await relay.executeDepositWalletBatch(calls, this.config.funder, String(Math.floor(Date.now() / 1000) + 600));
-      const fin = await sent.wait();
-      const hash = fin?.transactionHash || sent.transactionHash || null;
-      if (!hash) throw new Error(`relayer did not confirm (state ${fin?.state ?? sent.state ?? "unknown"})`);
-      for (const [cond] of batch) done[cond] = { at: Date.now(), tx: hash, tries: (done[cond]?.tries ?? 0) + 1, nextAt: 0, error: null };
-      console.log(`live: claimed ${batch.reduce((s, [, v]) => s + v, 0).toFixed(2)} event shares from ${batch.length} market(s) (${hash})`);
-      await this.refreshBalance();
-    } catch (error) {
-      const text = noteRelayError(error);
-      for (const [cond] of batch) {
-        const tries = (done[cond]?.tries ?? 0) + 1;
-        done[cond] = { at: Date.now(), tx: null, tries, nextAt: Math.max(relayerBlockedUntil, Date.now() + 3 * 3600_000), error: text };
-        if (tries >= 5) console.log(`live: giving up on claiming event market ${cond.slice(0, 10)} after 5 tries (${text}); claim it on polymarket.com`);
+    type Done = { at: number; tx: string | null; tries: number; nextAt: number; error: string | null; negRisk?: boolean };
+    const done = loadJson<Record<string, Done>>("eventlive-claims.json", {});
+    const rows = loadJson<{ conditionId?: string | null; shares?: number; pay?: number | null; settledAt?: number | null; negRisk?: boolean; token?: string }[]>("eventlive.json", []);
+    // Plain and grouped (neg-risk) bets are claimed in separate transactions, each kind at most once every 3 hours: the
+    // grouped claim is new (12 Nov 2026) and must never be able to revert a batch of plain claims.
+    for (const neg of [false, true]) {
+      const last = Math.max(0, ...Object.values(done).filter((d) => Boolean(d.negRisk) === neg).map((d) => d.at ?? 0));
+      if (now - last < 3 * 3600_000) continue;
+      const byCond = new Map<string, { shares: number; tokens: string[] }>();
+      for (const r of Array.isArray(rows) ? rows : []) {
+        if (Boolean(r.negRisk) !== neg || !r.conditionId || !/^0x[0-9a-fA-F]{64}$/.test(r.conditionId) || !((r.shares ?? 0) > 0) || !((r.pay ?? 0) > 0) || !(r.settledAt != null && r.settledAt < now - 30 * 60_000)) continue;
+        const d = done[r.conditionId];
+        if (d && (d.tx || d.tries >= 5 || d.nextAt > now)) continue;
+        const e = byCond.get(r.conditionId) ?? { shares: 0, tokens: [] };
+        e.shares += (r.shares ?? 0) * (r.pay ?? 0);
+        if (r.token) e.tokens.push(r.token);
+        byCond.set(r.conditionId, e);
       }
-      console.log(`live: event claim not done (${text})`);
-    } finally {
-      saveJson("eventlive-claims.json", done);
-      this.redeeming = false;
-      relayBusy = false;
+      const batch = [...byCond.entries()].slice(0, neg ? 4 : 8);
+      if (!batch.length) continue;
+      this.redeeming = true;
+      relayBusy = true;
+      const fail = (cond: string, text: string) => {
+        const tries = (done[cond]?.tries ?? 0) + 1;
+        done[cond] = { at: Date.now(), tx: null, tries, nextAt: Math.max(relayerBlockedUntil, Date.now() + 3 * 3600_000), error: text, ...(neg ? { negRisk: true } : {}) };
+        if (tries >= 5) console.log(`live: giving up on claiming event market ${cond.slice(0, 10)} after 5 tries (${text}); claim it on polymarket.com`);
+      };
+      try {
+        const relay = this.relay();
+        const calls = batch.flatMap(([cond]) => eventClaimCalls(cond, neg));
+        noteRelayCall();
+        const sent = await relay.executeDepositWalletBatch(calls, this.config.funder, String(Math.floor(Date.now() / 1000) + 600));
+        const fin = await sent.wait();
+        const hash = fin?.transactionHash || sent.transactionHash || null;
+        if (!hash) throw new Error(`relayer did not confirm (state ${fin?.state ?? sent.state ?? "unknown"})`);
+        for (const [cond, e] of batch) {
+          // A grouped claim counts only when the chain shows the winning shares gone: it is what lifts the trial limit.
+          let left = 0;
+          if (neg) {
+            if (!e.tokens.length) left = NaN;
+            for (const token of e.tokens) left += Number(BigInt(await provider.call({ to: CTF, data: ctfAbi.encodeFunctionData("balanceOf", [this.config.funder, token]) }))) / 1e6;
+          }
+          if (neg && !(left < 0.01)) fail(cond, Number.isNaN(left) ? "claim sent but could not be checked" : `claim sent but ${left.toFixed(2)} shares are still in the wallet`);
+          else done[cond] = { at: Date.now(), tx: hash, tries: (done[cond]?.tries ?? 0) + 1, nextAt: 0, error: null, ...(neg ? { negRisk: true } : {}) };
+        }
+        console.log(`live: claimed ${batch.reduce((s, [, v]) => s + v.shares, 0).toFixed(2)} ${neg ? "grouped-market " : ""}event shares from ${batch.length} market(s) (${hash})`);
+        await this.refreshBalance();
+      } catch (error) {
+        const text = noteRelayError(error);
+        for (const [cond] of batch) fail(cond, text);
+        console.log(`live: event claim not done (${text})`);
+      } finally {
+        saveJson("eventlive-claims.json", done);
+        this.redeeming = false;
+        relayBusy = false;
+      }
+      return true;
     }
-    return true;
+    return false;
+  }
+
+  /**
+   * Grouped ("neg-risk") markets need wallet permissions the plain ones do not (NEG_PERMS). When a real event group has
+   * "negRisk": true in deploy/live-rules.json, read them from the chain and grant the missing ones in one relayer
+   * transaction (at most 3 tries, an hour apart). The result goes to data/negrisk-ready.json; src/eventlive.ts sends no
+   * grouped-market order until it says ready. Checked again every 6 hours. Only Polymarket's own contracts are approved.
+   */
+  async negRiskSetup() {
+    if (this.series.key || relayBusy || this.config.mode === "off" || !this.config.funder) return;
+    const now = Date.now();
+    const st = loadJson<NegRiskReady>(NEG_READY_FILE, {});
+    if (now - (st.at ?? 0) < (st.ready ? 6 * 3600_000 : 5 * 60_000)) return;
+    if (!Object.values(eventLiveConfig().groups).some((g) => g.negRisk)) return;
+    const next: NegRiskReady = { at: now, ready: false, missing: [], tries: st.tries ?? 0, lastTryAt: st.lastTryAt ?? 0, error: st.error ?? null };
+    try {
+      const have = await Promise.all(NEG_PERMS.map(async ([, kind, who]) => {
+        if (kind === "erc20") return BigInt(await provider.call({ to: PUSD, data: erc20.encodeFunctionData("allowance", [this.config.funder, who]) })) >= 1_000_000_000n;
+        return BigInt(await provider.call({ to: CTF, data: ctfAbi.encodeFunctionData("isApprovedForAll", [this.config.funder, who]) })) === 1n;
+      }));
+      next.missing = NEG_PERMS.filter((_, i) => !have[i]).map(([name]) => name);
+      next.ready = next.missing.length === 0;
+      if (next.ready) next.error = null;
+      else if (!relayerBlocked() && next.tries! < 3 && now - next.lastTryAt! > 3600_000) {
+        next.tries = next.tries! + 1;
+        next.lastTryAt = now;
+        relayBusy = true;
+        try {
+          noteRelayCall();
+          const sent = await this.relay().executeDepositWalletBatch(negRiskCalls(have), this.config.funder, String(Math.floor(Date.now() / 1000) + 600));
+          const fin = await sent.wait();
+          const hash = fin?.transactionHash || sent.transactionHash || null;
+          if (!hash) throw new Error(`relayer did not confirm (state ${fin?.state ?? sent.state ?? "unknown"})`);
+          next.error = null;
+          next.at = 0; // read the chain again on the next minute
+          console.log(`live: granted ${next.missing.length} grouped-market permission(s) (${hash})`);
+        } catch (error) {
+          next.error = noteRelayError(error);
+          console.log(`live: granting grouped-market permissions failed (${next.error})`);
+        } finally {
+          relayBusy = false;
+        }
+      }
+    } catch (error) {
+      next.error = `chain read failed: ${error instanceof Error ? error.message : String(error)}`.slice(0, 120);
+    }
+    saveJson(NEG_READY_FILE, next);
   }
 
   addRedeem(window: number, shares: number) {
