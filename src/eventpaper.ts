@@ -680,6 +680,10 @@ const RULE_TEXT: Record<string, [string, string]> = {
   "wx-no-maker-815": ["weather", "Twin of wx-no-maker counting only buckets whose YES was 8-15c when the bid was placed."],
   "wx-no-maker-1530": ["weather", "11 Nov 2026 19:45 KST: the other half of wx-no-maker, counting only buckets whose YES was above 15c and up to 30c when the bid was placed. With the 8-15c twin it shows which price band carries the result (a NO at 85-92c loses 6-11 wins on one miss; a NO at 70-85c loses 2-6). Same bar as the parent."],
   "prematch-rest-clv-tennis": ["tennis", "11 Nov 2026 (research thread 'Find a strategy worth pursuing'): from 6 h before a tennis match, rest a $3 bid at the best bid on BOTH players, leave it, cancel 20 min before the start; a fill counts only from real trades at our price after the shares ahead of us traded. Each fill is scored against the average traded price of the last 20 min before the start (the closing price) as well as the result. Research: resting orders averaged +0.6% against the close on tennis and esports. Bar 300+ fills averaging +0.5% against the close."],
+  "prematch-rest-clv-cricket": ["cricket", "13 Nov 2026 (enrique: 'think beyond favourites rules'): the same pre-match resting bids on both sides of cricket match-winner markets, from 6 h before the start, cancelled 20 min before; strict tape fills; scored on the result and against the closing price. The tennis version is the only paper rule over the bar (167 settled, 51% won, +$100 on $3 bids at 13 Nov 2026)."],
+  "prematch-rest-clv-us": ["usports", "13 Nov 2026: the same pre-match resting bids on both teams of US sports moneylines (NBA, NFL, college), from 6 h before the start, cancelled 20 min before; strict tape fills; scored on the result and against the closing price."],
+  "weather-fc-yes": ["weather", "13 Nov 2026 (enrique: 'think beyond favourites rules'; 'weather with a forecast' was the top idea in reviews of how people earn): on the market day at 09:00 station local time, read the Open-Meteo ensemble (about 80 model runs) of the day's highest temperature and take the ask ($3) on every bucket asking 5-60c where the share of runs in that bucket is 15+ points over the ask. Same untested assumptions as weather-dayahead-yes (grid point vs airport thermometer, raw model shares as odds)."],
+  "weather-fc-no": ["weather", "13 Nov 2026: the other side of weather-fc-yes. At 09:00 station local time on the market day, take NO ($3) on every bucket whose YES bid is 20+ points over the forecast share of runs in it (YES bid 25c or more): the market thinks a temperature is more likely than the weather models do."],
   "prematch-rest-clv-esports": ["esports", "The same pre-match resting bids on both teams of esports match-winner markets, scored against the closing price (see prematch-rest-clv-tennis)."],
   "weather-fav16-hi": ["weather", "10 Nov 2026 17:10 KST: 16:00 rule for city-days whose leading bucket is already 85-95c (the main rule only takes 50-85c and dropped these without a line). Buys the ask when it is within 2c of mid. No backtest for this band: it measures whether late near-certain buckets pay after the spread."],
   "weather-fav15-ask1": ["weather", "10 Nov 2026 17:10 KST: 15:00 copy of the 1c-under-ask maker shadow. The 15:00 taker saw 22 signals in three days and took 1 (asks 4c+ over mid), so this rests a $5 bid 1c under the ask for up to 6 h on every 15:00 signal."],
@@ -849,6 +853,9 @@ async function restTick() {
   const cands: { rule: string; m: { id: string; title: string; start: number; tokens: string[]; outcomes: string[] } }[] = [
     ...Object.values(state.tennis).map((m) => ({ rule: "prematch-rest-clv-tennis", m })),
     ...Object.values(state.matches).map((m) => ({ rule: "prematch-rest-clv-esports", m })),
+    // 13 Nov 2026 (enrique: "think beyond favourites rules"): the only paper rule over the bar, tried on two more sports
+    ...Object.values(state.cricket).map((m) => ({ rule: "prematch-rest-clv-cricket", m })),
+    ...Object.values(state.usports).map((m) => ({ rule: "prematch-rest-clv-us", m })),
   ];
   let placed = 0;
   for (const { rule, m } of cands) {
@@ -1308,6 +1315,45 @@ async function weatherTick() {
         signal("weather-dayahead-all", ev.title, false, { station: ev.station, bids: picks.map((x) => `${x.bu.label} ${Math.round(x.bk!.bestBid! * 100)}c`), ...(picks.length ? {} : { skip: "no bucket asking 10-50c" }) });
       }
     }
+    {
+      // weather-fc-yes / weather-fc-no (13 Nov 2026): the market day at 09:00 station local time, forecast against price.
+      const key = `weather-fc|${ev.id}`;
+      const at = zonedUtc(ev.date[0], ev.date[1], ev.date[2], 9, ev.tz);
+      if (!state.done[key] && now >= at && now < at + 20 * 60_000) {
+        state.done[key] = now;
+        try {
+          const maxC = await wxEnsemble(ev);
+          if (!maxC.length) throw new Error("no forecast");
+          const yesBooks = await Promise.all(ev.buckets.map((b) => book(b.token).catch(() => null)));
+          const picks: string[] = [];
+          for (let i = 0; i < ev.buckets.length; i++) {
+            const bu = ev.buckets[i];
+            const bk = yesBooks[i];
+            const p = wxBucketProb(bu.label, maxC);
+            if (p == null || !bk || bk.bestAsk == null) continue;
+            const extra = { station: ev.station, bucket: bu.label, fc: Math.round(p * 1000) / 1000, members: maxC.length, bid: bk.bestBid, ask: bk.bestAsk };
+            if (bk.bestAsk >= 0.05 - 1e-9 && bk.bestAsk <= 0.6 + 1e-9 && p - bk.bestAsk >= 0.15 - 1e-9) {
+              const w = walk(bk.asks, 3, bk.bestAsk + 0.02);
+              if (w.shares > 0 && w.avg != null) {
+                state.trades.push({ rule: "weather-fc-yes", marketId: bu.id, title: ev.title, outcome: `Yes (${bu.label})`, idx: bu.noIdx != null ? 1 - bu.noIdx : 0, token: bu.token, t: now, ask: bk.bestAsk, avg: w.avg, shares: w.shares, cost: w.cost, fee: feeOf(bu.feeRate, w.shares, w.avg), fillable: w.full, feeRate: bu.feeRate, extra });
+                picks.push(`yes ${bu.label}`);
+              }
+            }
+            if (bu.no && bu.noIdx != null && bk.bestBid != null && bk.bestBid >= 0.25 - 1e-9 && bk.bestBid - p >= 0.2 - 1e-9) {
+              const nb = await book(bu.no).catch(() => null);
+              const w = nb?.bestAsk != null ? walk(nb.asks, 3, nb.bestAsk + 0.02) : null;
+              if (nb?.bestAsk != null && w && w.shares > 0 && w.avg != null) {
+                state.trades.push({ rule: "weather-fc-no", marketId: bu.id, title: ev.title, outcome: `No (${bu.label})`, idx: bu.noIdx, token: bu.no, t: now, ask: nb.bestAsk, avg: w.avg, shares: w.shares, cost: w.cost, fee: feeOf(bu.feeRate, w.shares, w.avg), fillable: w.full, feeRate: bu.feeRate, extra });
+                picks.push(`no ${bu.label}`);
+              }
+            }
+          }
+          signal("weather-fc-yes", ev.title, picks.length > 0, { station: ev.station, members: maxC.length, picks, ...(picks.length ? {} : { skip: "forecast and price agree" }) });
+        } catch (e) {
+          signal("weather-fc-yes", ev.title, false, { station: ev.station, skip: `forecast failed: ${(e as Error).message.slice(0, 80)}` });
+        }
+      }
+    }
     for (const { rule, hour, slip = 0.02, lo = 0.5, hi = 0.85 } of WX_RULES) {
       const key = `${rule}|${ev.id}`;
       if (state.done[key]) continue;
@@ -1715,10 +1761,10 @@ const GROUPS: Record<string, string[]> = {
   esports: ["esports-map1", "esports-fav-shadow", "esports-map1-dota", "esports-lol-fav90", "esports-cs2-fav90", "prematch-rest-clv-esports"],
   indices: ["gold-momentum", "spx-underdog", "spy-underdog"],
   politics: ["election-lock-taker", "election-lock-maker"],
-  weather: ["weather-fav16", "weather-fav15", "weather-fav16-wide", "weather-fav16-mid", "weather-fav16-ask1", "weather-fav16-hi", "weather-fav15-ask1", "weather-dayahead-all", "weather-dayahead-yes", "wx-no-maker", "wx-no-maker-815", "wx-no-maker-1530", "wx-copy-rest", "wx-copy-take"],
+  weather: ["weather-fav16", "weather-fav15", "weather-fav16-wide", "weather-fav16-mid", "weather-fav16-ask1", "weather-fav16-hi", "weather-fav15-ask1", "weather-dayahead-all", "weather-dayahead-yes", "weather-fc-yes", "weather-fc-no", "wx-no-maker", "wx-no-maker-815", "wx-no-maker-1530", "wx-copy-rest", "wx-copy-take"],
   tennis: ["tennis-wta-fav90", "tennis-atp-fav90", "tennis-wta-fav85", "tennis-itf-fav90", "tennis-fav95", "tennis-fav85", "tennis-fav80", "tennis-fav90-mid", "prematch-rest-clv-tennis"],
-  cricket: ["cricket-fav10", "cricket-fav60", "cricket-dog-control"],
-  usports: ["nba-fav85", "cbb-fav85", "nfl-fav85", "nba-fav85-mid", "us-prematch-fav-bid", "us-prematch-dog-bid"],
+  cricket: ["cricket-fav10", "cricket-fav60", "cricket-dog-control", "prematch-rest-clv-cricket"],
+  usports: ["nba-fav85", "cbb-fav85", "nfl-fav85", "nba-fav85-mid", "us-prematch-fav-bid", "us-prematch-dog-bid", "prematch-rest-clv-us"],
   football: ["football-laliga-home", "football-portugal-home", "football-italy-away", "football-laliga-home55"],
   copy: COPY_WALLETS.flatMap((w) => [`copy-rest-${w.name}`, `copy-take-${w.name}`, `copy-any-${w.name}`]),
 };
