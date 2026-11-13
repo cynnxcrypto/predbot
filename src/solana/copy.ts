@@ -932,7 +932,7 @@ export function exitStudy(sigs: Signal[]) {
   };
 }
 
-export function summarize(sigs: Signal[], solUsd: number | null) {
+export function summarize(sigs: Signal[], solUsd: number | null, realRows: RealCopy[] = []) {
   const lagMs = nums(sigs.map((s) => (s.leaderTime ? s.knownMs - s.leaderTime * 1000 : null)));
   const speed = {
     buysSeen: sigs.length,
@@ -1083,5 +1083,66 @@ export function summarize(sigs: Signal[], solUsd: number | null) {
     rules: EXITS.map((x) => ({ id: sameId(x), ...score(sigs, (s) => sameBlockRet(s, x), solUsd) })),
   };
   const qualified = rules.filter((x) => x.n >= 100 && x.won / x.n >= 0.5 && (x.netSol ?? 0) > 0).map((x) => x.id);
-  return { speed, rulesTried: rules.length, inProfit: rules.filter((x) => (x.netSol ?? 0) > 0).length, qualified, rules, exitStudy: exitStudy(sigs), sizeStudy: sizeStudy(sigs), lateStudy: lateStudy(sigs), walk: walkStudy(sigs, pace), hours: hourStudy(sigs), repeats: repeatStudy(sigs), secondWave: secondWaveStudy(sigs), sameBlock, traders, wallets, recent };
+  return { speed, rulesTried: rules.length, inProfit: rules.filter((x) => (x.netSol ?? 0) > 0).length, qualified, rules, exitStudy: exitStudy(sigs), sizeStudy: sizeStudy(sigs), lateStudy: lateStudy(sigs), walk: walkStudy(sigs, pace), hours: hourStudy(sigs), repeats: repeatStudy(sigs), secondWave: secondWaveStudy(sigs), buySize: buySizeStudy(sigs, before, realRows, solUsd), sameBlock, traders, wallets, recent };
+}
+
+/**
+ * enrique, 13 Nov 2026: "if the traders are using a very small amount of their wallet for the trade, it's probably
+ * something we shouldnt follow, as it might be something they're doing to bait people". The wallet's holdings at
+ * the time are not recorded, so the stand-in is the buy's size against that wallet's usual buy: the median of its
+ * EARLIER buys only (BUY_SIZE_HISTORY or more), so no hindsight. Also in plain SOL. Buys under MIN_BUY_SOL were never
+ * recorded at all. Priced 1 s after we knew (where the real test landed) and, for reference, the instant we knew.
+ * Real copies are matched to their buy by coin and the wallet's slot; only totals per group, as in byTrader.
+ */
+export const BUY_SIZE_HISTORY = 5;
+export const BUY_SIZE_SMALL = 0.5;
+export type RealCopy = { mint: string; leaderSlot: number; buy: string; netSol: number };
+export function buySizeRatios(sigs: Signal[]): Map<Signal, number | null> {
+  const earlier = new Map<string, number[]>();
+  const out = new Map<Signal, number | null>();
+  for (const s of [...sigs].sort((a, b) => a.knownMs - b.knownMs)) {
+    const e = earlier.get(s.wallet) ?? [];
+    const usual = e.length >= BUY_SIZE_HISTORY ? med(e) : null;
+    out.set(s, usual && s.leaderSol > 0 ? s.leaderSol / usual : null);
+    earlier.set(s.wallet, [...e, s.leaderSol]);
+  }
+  return out;
+}
+export const relGroup = (x: number | null | undefined) =>
+  x == null ? "no history" : x < 0.25 ? "under 1/4 of usual" : x < BUY_SIZE_SMALL ? "1/4 to 1/2 of usual" : x <= 2 ? "usual (1/2 to 2x)" : "over 2x usual";
+export const solGroup = (sol: number) => (sol < 0.5 ? "under 0.5 SOL" : sol < 1 ? "0.5-1 SOL" : sol < 2 ? "1-2 SOL" : sol < 5 ? "2-5 SOL" : "5+ SOL");
+export const REL_GROUPS = ["under 1/4 of usual", "1/4 to 1/2 of usual", "usual (1/2 to 2x)", "over 2x usual", "no history"];
+export const SOL_GROUPS = ["under 0.5 SOL", "0.5-1 SOL", "1-2 SOL", "2-5 SOL", "5+ SOL"];
+export function buySizeStudy(sigs: Signal[], before: Map<Signal, Verdict>, real: RealCopy[], solUsd: number | null) {
+  const ratio = buySizeRatios(sigs);
+  const cells = (list: Signal[]) => ({
+    late1: score(list, (s) => scalp(s, 1, 10), solUsd),
+    late1x30: score(list, (s) => ret(s, 1, 30), solUsd),
+    instant: score(list, (s) => scalp(s, 0, 10), solUsd),
+  });
+  const rows = (groups: string[], key: (s: Signal) => string) => groups.map((g) => ({ group: g, ...cells(sigs.filter((s) => key(s) === g)) }));
+  const small = (s: Signal) => (ratio.get(s) ?? 1) < BUY_SIZE_SMALL;
+  const bySlot = new Map(sigs.map((s) => [`${s.mint}|${s.leaderSlot}`, s] as const));
+  const sent = real.filter((c) => c.buy !== "not sent" && typeof c.netSol === "number");
+  const matched = sent.map((c) => ({ c, s: bySlot.get(`${c.mint}|${c.leaderSlot}`) }));
+  const realRows = (groups: string[], key: (s: Signal) => string) =>
+    [...groups, "not matched"].map((g) => {
+      const g2 = matched.filter((m) => (m.s ? key(m.s) : "not matched") === g).map((m) => m.c.netSol);
+      const net = g2.reduce((a, b) => a + b, 0);
+      return { group: g, copies: g2.length, won: g2.filter((v) => v > 0).length, netSol: r(net, 4) };
+    });
+  // the newer half on its own, to see whether a difference holds over time
+  const mid = sigs.length ? [...sigs].sort((a, b) => a.knownMs - b.knownMs)[Math.floor(sigs.length / 2)].knownMs : 0;
+  return {
+    note: `Paper, every scored buy, split by the size of the wallet's buy: against its usual buy (the median of its ${BUY_SIZE_HISTORY}+ earlier buys, no hindsight) and in SOL. Holdings are not recorded, so "share of the wallet" cannot be read. Buys under ${MIN_BUY_SOL} SOL were never recorded. late1 = bought 1 s after we knew (where the real test landed), +10% or 60 s; late1x30 = 1 s late, sold at 30 s; instant = the moment we knew (faster than real), +10% or 60 s. Real = the real test's sent copies matched to their buy; "won" = came back with more SOL.`,
+    byUsual: rows(REL_GROUPS, (s) => relGroup(ratio.get(s))),
+    bySol: rows(SOL_GROUPS, (s) => solGroup(s.leaderSol)),
+    skipSmall: {
+      kept: cells(sigs.filter((s) => !small(s))),
+      keptTraderNotBad: cells(sigs.filter((s) => !small(s) && before.get(s) !== "bad")),
+      keptTraderGood: cells(sigs.filter((s) => !small(s) && before.get(s) === "good")),
+    },
+    newerHalf: REL_GROUPS.map((g) => ({ group: g, late1: score(sigs.filter((s) => s.knownMs >= mid && relGroup(ratio.get(s)) === g), (s) => scalp(s, 1, 10), solUsd) })),
+    real: { sent: sent.length, matched: matched.filter((m) => m.s).length, byUsual: realRows(REL_GROUPS, (s) => relGroup(ratio.get(s))), bySol: realRows(SOL_GROUPS, (s) => solGroup(s.leaderSol)) },
+  };
 }
