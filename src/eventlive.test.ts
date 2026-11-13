@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
-import { NEG_TRIAL, _eventLiveTest, eventLiveBlock, eventLiveBuy, eventLiveConfig, negRiskBlock, parseEventLive, type EventLiveRow } from "./eventlive.js";
+import { NEG_TRIAL, _eventLiveTest, restShares, eventLiveBlock, eventLiveBuy, eventLiveConfig, negRiskBlock, parseEventLive, type EventLiveRow } from "./eventlive.js";
 import { NEG_PERMS, eventClaimCalls, negRiskCalls } from "./live.js";
 import { stopWhenOrderDone } from "./eventpaper.js";
 
@@ -163,4 +163,19 @@ test("stopNet: no new bet once the settled result is that far down; open bets do
   assert.equal(blk([r(-3.48, 1), ...Array.from({ length: 9 }, (_, i) => r(null, 10 + i))]), null, "-$3.48 settled and 9 open: still trading");
   assert.equal(blk([r(-3, 1), r(-3, 2), r(-3.5, 3), r(0.5, 4)]), null, "-$9.00");
   assert.match(blk([r(-3, 1), r(-3, 2), r(-3.5, 3), r(-0.5, 4)])!, /stopped for good: settled \$-10.00/);
+});
+
+test("resting bids: 5-share minimum, one bid per player, resting money counts in the caps, and the live config", () => {
+  assert.equal(restShares(3, 0.4), 7.5);
+  assert.equal(restShares(3, 0.9), 5, "5-share minimum");
+  const NOW4 = Date.parse("2026-11-14T00:00:00Z");
+  const cfg = parseEventLive(JSON.stringify({ mode: "live", events: { tennisrest: { rules: ["r"], size: 3, maxSize: 5, maxAsk: 0.97, minDepth: 0, dayLosses: 99, maxOpen: 999, openUsd: 10, stopNet: 15, maxLoss: 60 }, tennis: { rules: ["t"], size: 3, maxOpen: 10, maxLoss: 45, minDepth: 0 } } }), { funder: "0x1" });
+  const rest = (idx: number, mk = "m", cost = 3): EventLiveRow => ({ t: 0, group: "tennisrest", rule: "r", marketId: mk, conditionId: null, title: "", outcome: "", idx, ask: 0.5, size: cost, cost, shares: 0, fee: 0, ok: true, status: "resting", error: null });
+  const blk = (rows: EventLiveRow[], idx: number, mk = "m") => eventLiveBlock(cfg, "tennisrest", "r", mk, 0.5, Infinity, true, rows, NOW4, 3, undefined, idx);
+  assert.equal(blk([rest(0)], 1), null, "the other player of the same match");
+  assert.match(blk([rest(0)], 0)!, /already bet/);
+  assert.match(blk([rest(0, "a"), rest(1, "a"), rest(0, "b")], 0, "c")!, /stake cap/, "$9 resting + $3 > $10");
+  assert.match(eventLiveBlock(cfg, "tennis", "t", "m", 0.93, 100, true, [rest(0)], NOW4)!, /another real test/);
+  const live = parseEventLive(readFileSync(join(process.cwd(), "deploy", "live-rules.json"), "utf8"), { mode: "live", funder: "0xabc" }).groups.tennisrest;
+  if (live) assert.ok(live.stopNet > 0 && live.stopNet <= 15 && live.maxSize <= 5 && live.openUsd > 0 && live.openUsd <= 40);
 });

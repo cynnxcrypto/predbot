@@ -30,7 +30,7 @@
  *              lost the group stops until enrique or a review gives it more. Separate from the crypto "lossCap".
  *
  * Also in force: the global "mode" (repo and the server's local kill switch) and the wallet floor "minBalance".
- * Orders are fill-and-kill buys limited to the ask the paper rule saw; nothing rests on the book.
+ * Orders are fill-and-kill buys limited to the ask the paper rule saw, except the resting bids of eventRestBid (14 Nov 2026).
  * data/eventlive.json is written only by this process; wins are claimed by the BTC 5m trader (src/live.ts redeemEvents).
  */
 import { readFileSync } from "node:fs";
@@ -69,7 +69,12 @@ export type EventLiveRow = {
   negRisk?: boolean;
   /** The outcome token bought; kept so the claim can be checked on chain. Never in the status file. */
   token?: string;
+  /** Resting bid (status "resting" while on the book): order id and the time it is cancelled. Never in the status file. */
+  orderId?: string;
+  until?: number;
 };
+/** A row that holds a slot and money: filled, outcome unknown, or a bid still resting on the book. */
+const held = (r: EventLiveRow) => r.shares > 0 || r.status === "unknown" || r.status === "resting";
 export type EventLiveGroup = { rules: string[]; size: number; maxAsk: number; minDepth: number; dayLosses: number; maxOpen: number; maxLoss: number; negRisk: boolean; maxSize: number; maxDays: number; perWallet: number; stopNet: number; openUsd: number; walletUsd: number };
 export type EventLiveConfig = { mode: string; minBalance: number; lossCap?: LossCap; groups: Record<string, EventLiveGroup> };
 
@@ -113,7 +118,7 @@ export function eventLiveConfig(): EventLiveConfig {
 }
 
 /** Why a real order must not go out, or null when every guard passes. Pure: the caller supplies the rows and the clock. */
-export function eventLiveBlock(cfg: EventLiveConfig, group: string, rule: string, marketId: string, ask: number, depth: number, fillable: boolean, rows: EventLiveRow[], now: number, stake?: number, resolveAt?: number): string | null {
+export function eventLiveBlock(cfg: EventLiveConfig, group: string, rule: string, marketId: string, ask: number, depth: number, fillable: boolean, rows: EventLiveRow[], now: number, stake?: number, resolveAt?: number, side?: number): string | null {
   const g = cfg.groups[group];
   if (!g || !g.rules.includes(rule)) return "rule not live";
   if (cfg.mode !== "live") return `mode ${cfg.mode}`;
@@ -126,13 +131,14 @@ export function eventLiveBlock(cfg: EventLiveConfig, group: string, rule: string
     if (days > g.maxDays) return `resolves in ${Math.round(days)} days (limit ${g.maxDays})`;
   }
   if (depth < g.minDepth - 1e-9) return `only $${depth.toFixed(0)} within 2c of the ask (needs $${g.minDepth})`;
-  const mine = rows.filter((r) => r.group === group && (r.shares > 0 || !r.ok));
-  if (mine.some((r) => r.marketId === marketId)) return "already bet on this match";
+  const mine = rows.filter((r) => r.group === group && (r.shares > 0 || !r.ok || r.status === "resting"));
+  // A resting-bid rule bids on both players of a match: then one bet per player (side), not per match.
+  if (mine.some((r) => r.marketId === marketId && (side == null || r.idx === side))) return "already bet on this match";
   // One real bet per market across ALL groups (12 Nov 2026: a copied tennis wallet and the tennis rule could otherwise
   // both bet the same match, even on opposite sides).
-  if (rows.some((r) => r.marketId === marketId && r.group !== group && (r.shares > 0 || r.status === "unknown"))) return "another real test already bet on this market";
+  if (rows.some((r) => r.marketId === marketId && r.group !== group && held(r))) return "another real test already bet on this market";
   // A row whose order outcome is unknown (ok false, no shares, status "unknown") is held as open so a fault cannot loop.
-  const open = mine.filter((r) => r.pnl == null && (r.shares > 0 || r.status === "unknown"));
+  const open = mine.filter((r) => r.pnl == null && held(r));
   if (open.length >= g.maxOpen) return `${open.length} real bets open (max ${g.maxOpen})`;
   const openUsd = open.reduce((s, r) => s + r.cost, 0);
   if (g.openUsd > 0 && openUsd + bet > g.openUsd + 1e-9) return `$${openUsd.toFixed(2)} in open bets + $${bet.toFixed(2)} would pass the $${g.openUsd} stake cap`;
@@ -275,6 +281,131 @@ export async function eventLiveBuy(group: string, p: { rule: string; marketId: s
   }
 }
 
+/**
+ * Resting bids (14 Nov 2026 01:26 KST, enrique: more real bets "on anything that might be good and looks good on past
+ * data and paper"; the only paper rule over the bar is prematch-rest-clv-tennis). A post-only GTC buy at `price` for
+ * `stake` dollars (at least the exchange's 5-share minimum), cancelled at `until`. Same guards as eventLiveBuy; the
+ * row is written before the order is sent and holds its money in the group's caps while it rests.
+ */
+export const REST_MIN_SHARES = 5;
+export function restShares(stake: number, price: number): number {
+  return Math.max(REST_MIN_SHARES, Math.floor((stake / price) * 100) / 100);
+}
+export async function eventRestBid(group: string, p: { rule: string; marketId: string; title: string; outcome: string; idx: number; token: string; price: number; conditionId: string | null; until: number; resolveAt?: number }): Promise<string | null> {
+  const cfg = eventLiveConfig();
+  if (!cfg.groups[group]?.rules.includes(p.rule)) return null;
+  if (stopping) return "restart pending: no new real order";
+  if (busy) return "another real order is in flight";
+  busy = true;
+  try {
+    const g = cfg.groups[group];
+    const shares = restShares(g.size, p.price);
+    const stake = Math.round(shares * p.price * 100) / 100;
+    if (stake > g.maxSize + 1e-9) return `5-share minimum costs $${stake.toFixed(2)} (over $${g.maxSize})`;
+    const rows = eventLiveRows();
+    const why = eventLiveBlock(cfg, group, p.rule, p.marketId, p.price, Infinity, true, rows, Date.now(), stake, p.resolveAt, p.idx);
+    if (why) return why;
+    if (!p.conditionId || !/^0x[0-9a-fA-F]{64}$/.test(p.conditionId)) return "market type the bot cannot claim";
+    if (Date.now() > p.until - 5 * 60_000) return "too close to the start";
+    const funder = String(loadJson<{ funder?: string }>("live.json", {}).funder ?? "").trim();
+    const c = await getClient(funder);
+    const bal = Number((await timed(c.getBalanceAllowance({ asset_type: AssetType.COLLATERAL }), "reading the balance")).balance) / 1e6;
+    if (!Number.isFinite(bal)) return "balance unknown";
+    if (bal - stake < cfg.minBalance) return `wallet $${bal.toFixed(2)} would fall under the $${cfg.minBalance} floor`;
+    const [tickSize, negRisk] = await timed(Promise.all([c.getTickSize(p.token), c.getNegRisk(p.token)]), "reading the market");
+    const neg = Boolean(negRisk);
+    if (neg) {
+      const no = negRiskBlock(g, loadJson<NegRiskReady>(NEG_READY_FILE, {}), rows, loadJson<NegClaims>("eventlive-claims.json", {}));
+      if (no) return no;
+    }
+    const order = await timed(c.createOrder({ tokenID: p.token, price: p.price, side: Side.BUY, size: shares }, { tickSize, negRisk: neg }), "signing the order");
+    const row: EventLiveRow = { t: Date.now(), group, rule: p.rule, marketId: p.marketId, conditionId: p.conditionId, title: p.title, outcome: p.outcome, idx: p.idx, ask: p.price, size: stake, cost: stake, shares: 0, fee: 0, ok: false, status: "unknown", error: null, token: p.token, until: p.until, ...(neg ? { negRisk: true } : {}) };
+    if (stopping) return "restart pending: order not sent";
+    rows.push(row);
+    saveJson(EVENT_LIVE_FILE, rows);
+    try {
+      const res = await timed(c.postOrder(order, OrderType.GTC, true), "sending the order", 30_000);
+      if (res?.success && res.orderID) {
+        row.ok = true;
+        row.status = "resting";
+        row.orderId = res.orderID;
+      } else {
+        // A clean refusal (post-only would have taken, too small, ...): nothing rests, the row is finished.
+        row.error = String(res?.errorMsg || "order rejected").slice(0, 200);
+        row.status = "not placed";
+        row.cost = 0;
+        row.pnl = 0;
+        row.won = null;
+        row.settledAt = Date.now();
+      }
+    } catch (e) {
+      // No clean answer: the order may exist without its id. Cancel every order of ours on this token.
+      row.error = e instanceof Error ? e.message : String(e);
+      await c.cancelMarketOrders({ asset_id: p.token }).catch(() => undefined);
+    }
+    saveJson(EVENT_LIVE_FILE, rows);
+    return row.status === "resting" ? `REAL bid resting: ${shares} at ${Math.round(p.price * 1000) / 10}c ($${stake.toFixed(2)})` : `REAL bid not placed (${row.error ?? row.status})`;
+  } catch (e) {
+    return `REAL bid not sent (${e instanceof Error ? e.message : String(e)})`;
+  } finally {
+    busy = false;
+  }
+}
+/**
+ * Read every resting bid from the exchange: book fills, cancel those past their time, and finish a row once its
+ * order is done (no fill = finished at $0). Also cancels, by token, any row whose placement had no clean answer.
+ * Returns log lines.
+ */
+export async function eventRestSync(now = Date.now()): Promise<string[]> {
+  const rows = eventLiveRows();
+  const live = rows.filter((r) => r.pnl == null && r.until != null && (r.status === "resting" || (r.status === "unknown" && !(r.shares > 0))));
+  if (!live.length || busy) return [];
+  busy = true;
+  const out: string[] = [];
+  try {
+    const funder = String(loadJson<{ funder?: string }>("live.json", {}).funder ?? "").trim();
+    const c = await getClient(funder);
+    for (const r of live) {
+      try {
+        if (r.status === "unknown") {
+          // Placement with no clean answer: make sure nothing of ours rests on that token, then finish the row.
+          if (r.token) await timed(c.cancelMarketOrders({ asset_id: r.token }), "cancelling");
+          r.status = "no fill";
+          r.cost = 0;
+          r.pnl = 0;
+          r.won = null;
+          r.settledAt = now;
+          out.push(`${r.rule} ${r.title} ${r.outcome}: unknown placement cancelled`);
+          continue;
+        }
+        const late = now >= (r.until ?? 0);
+        if (late) await timed(c.cancelOrder({ orderID: r.orderId! }), "cancelling");
+        const got = await timed(c.getOrder(r.orderId!), "reading the order");
+        const matched = Number(got?.size_matched) || 0;
+        const price = Number(got?.price) || r.ask;
+        if (matched > r.shares + 1e-9) out.push(`${r.rule} ${r.title} ${r.outcome}: REAL bid filled ${matched.toFixed(2)} at ${Math.round(price * 1000) / 10}c`);
+        r.shares = matched;
+        const status = String(got?.status ?? "").toUpperCase();
+        const done = late || /MATCHED|CANCEL/.test(status) || matched >= Number(got?.original_size ?? Infinity) - 1e-6;
+        if (!done) continue;
+        r.status = matched > 0 ? "matched" : "no fill";
+        r.cost = Math.round(matched * price * 1e6) / 1e6;
+        if (!(matched > 0)) {
+          r.pnl = 0;
+          r.won = null;
+          r.settledAt = now;
+        }
+      } catch (e) {
+        out.push(`${r.rule} ${r.title}: resting bid read failed (${(e as Error).message.slice(0, 80)})`);
+      }
+    }
+    saveJson(EVENT_LIVE_FILE, rows);
+  } finally {
+    busy = false;
+  }
+  return out;
+}
+
 /** Settle real rows from a closed market's payout per share (1, 0 or 0.5). Returns how many rows changed. */
 export function eventLiveSettle(marketId: string, pays: number[]): number {
   const rows = eventLiveRows();
@@ -312,6 +443,7 @@ export function eventLiveSummary(group: string) {
     net: Math.round(settled.reduce((s, r) => s + (r.pnl ?? 0), 0) * 100) / 100,
     todayNet: Math.round(settled.filter((r) => kstDay(r.settledAt ?? r.t) === today).reduce((s, r) => s + (r.pnl ?? 0), 0) * 100) / 100,
     open: filled.filter((r) => r.pnl == null).length,
+    resting: rows.filter((r) => r.pnl == null && r.status === "resting").length,
     unknown: rows.filter((r) => r.status === "unknown" && r.pnl == null && !(r.shares > 0)).length,
     recent: rows.slice(-20).reverse().map((r) => ({ t: r.t, rule: r.rule, title: r.title, outcome: r.outcome, ask: r.ask, cost: r.cost, shares: r.shares, status: r.shares > 0 ? "filled" : r.status, error: r.error, won: r.won ?? null, pnl: r.pnl ?? null })),
   };

@@ -16,7 +16,7 @@
  * Every rule is $5 at the real ask (walking the book), taker fee rate x p x (1-p) per share, held to settlement.
  */
 import { loadJson, saveJson } from "./store.js";
-import { NEG_READY_FILE, eventLiveBusy, eventLiveBuy, eventLiveConfig, eventLiveRows, eventLiveSettle, eventLiveSummary, eventLiveStop, type NegRiskReady } from "./eventlive.js";
+import { NEG_READY_FILE, eventLiveBusy, eventLiveBuy, eventRestBid, eventRestSync, eventLiveConfig, eventLiveRows, eventLiveSettle, eventLiveSummary, eventLiveStop, type NegRiskReady } from "./eventlive.js";
 import { JEV_CONTEXT, headlines, jevKey, jevStake, type JevStake } from "./jev.js";
 
 const GAMMA = "https://gamma-api.polymarket.com";
@@ -853,6 +853,15 @@ export function closeVwap(rows: TapeRow[], token: string, other: string, from: n
  */
 async function restTick() {
   const now = Date.now();
+  // 0. real resting bids (group "tennisrest", 14 Nov 2026): fills, and cancels at 20 min before the start
+  try {
+    for (const line of await eventRestSync(now)) {
+      log(line);
+      realNotes.push({ t: now, title: line, why: "" });
+    }
+  } catch (e) {
+    log(`real resting bids: ${(e as Error).message}`);
+  }
   // 1. new bids (at most 15 markets a tick)
   const cands: { rule: string; m: { id: string; title: string; start: number; tokens: string[]; outcomes: string[] } }[] = [
     ...Object.values(state.tennis).map((m) => ({ rule: "prematch-rest-clv-tennis", m })),
@@ -870,11 +879,22 @@ async function restTick() {
     const cond = (await getJson<GMarket>(`${GAMMA}/markets/${m.id}`).catch(() => null))?.conditionId;
     const books = await Promise.all(m.tokens.map((k) => book(k).catch(() => null)));
     if (!cond) continue;
-    books.forEach((bk, i) => {
-      if (!bk || bk.bestBid == null || bk.bestAsk == null || bk.bestBid < 0.03 || bk.bestBid > 0.97 || bk.bestAsk - bk.bestBid > 0.1) return;
+    for (let i = 0; i < books.length; i++) {
+      const bk = books[i];
+      if (!bk || bk.bestBid == null || bk.bestAsk == null || bk.bestBid < 0.03 || bk.bestBid > 0.97 || bk.bestAsk - bk.bestBid > 0.1) continue;
       const ahead = bk.bids.filter((b) => Math.abs(b.price - bk.bestBid!) < 1e-9).reduce((x, b) => x + b.size, 0);
-      state.rest.push({ rule, marketId: m.id, cond, title: m.title, outcome: m.outcomes[i] ?? String(i), idx: i, token: m.tokens[i], other: m.tokens[1 - i], bid: bk.bestBid, ahead, got: 0, shares: 3 / bk.bestBid, t: now, until: m.start - 20 * 60_000, seen: Math.floor(now / 1000), start: m.start });
-    });
+      const outcome = m.outcomes[i] ?? String(i);
+      const until = m.start - 20 * 60_000;
+      state.rest.push({ rule, marketId: m.id, cond, title: m.title, outcome, idx: i, token: m.tokens[i], other: m.tokens[1 - i], bid: bk.bestBid, ahead, got: 0, shares: 3 / bk.bestBid, t: now, until, seen: Math.floor(now / 1000), start: m.start });
+      // the same bid with real money when the rule is in a live group (14 Nov 2026: tennis, group "tennisrest")
+      if (eventLiveConfig().groups.tennisrest?.rules.includes(rule)) {
+        const real = await eventRestBid("tennisrest", { rule, marketId: m.id, title: m.title, outcome, idx: i, token: m.tokens[i], price: bk.bestBid, conditionId: cond, until, resolveAt: m.start });
+        if (real) {
+          log(`${rule} ${m.title} ${outcome}: ${real}`);
+          realNotes.push({ t: now, title: `${m.title} ${outcome}`, why: real });
+        }
+      }
+    }
   }
   // 2. fills, one tape read per market
   const tapes = new Map<string, TapeRow[] | null>();
@@ -1857,7 +1877,7 @@ function summarize() {
       notes: g === "esports" ? Object.values(state.matches).reduce<Record<string, number>>((o, m) => ((o[m.evaluated ? m.note ?? (m.tEnd != null ? "evaluated" : "done") : m.tEnd != null ? "map 1 over, waiting" : m.start <= Date.now() ? "live" : "upcoming"] = (o[m.evaluated ? m.note ?? (m.tEnd != null ? "evaluated" : "done") : m.tEnd != null ? "map 1 over, waiting" : m.start <= Date.now() ? "live" : "upcoming"] ?? 0) + 1), o), {}) : undefined,
       skips: g === "football" || g === "weather" || g === "tennis" || g === "cricket" || g === "usports" ? state.signals.filter((x) => rules.includes(x.rule) && x.extra.skip).slice(-15).reverse().map((x) => ({ rule: x.rule, t: x.t, title: x.title, why: x.extra.skip, ask: x.extra.ask })) : undefined,
       upcoming: g === "football" ? Object.values(state.fixtures).filter((f) => !f.done).length : g === "weather" ? Object.keys(state.wx).length : g === "tennis" ? Object.values(state.tennis).filter((t) => !t.done).length : g === "usports" ? Object.values(state.usports).filter((m) => !m.done).length : g === "cricket" ? Object.values(state.cricket).filter((c) => !c.done10).length : undefined,
-      real: g === "tennis" ? { ...eventLiveSummary("tennis"), notes: realNotes.slice(-10).reverse() } : g === "copy" ? { ...eventLiveSummary("copy"), notes: copyNotes.slice(-10).reverse(), grouped: groupedStatus(), sizes: Object.fromEntries(Object.entries(copySizes).map(([k, z]) => [k, { n: z.n, avg: Math.round((z.sum / z.n) * 100) / 100, max: z.max }])) } : undefined,
+      real: g === "tennis" ? { ...eventLiveSummary("tennis"), rest: eventLiveSummary("tennisrest"), notes: realNotes.slice(-10).reverse() } : g === "copy" ? { ...eventLiveSummary("copy"), notes: copyNotes.slice(-10).reverse(), grouped: groupedStatus(), sizes: Object.fromEntries(Object.entries(copySizes).map(([k, z]) => [k, { n: z.n, avg: Math.round((z.sum / z.n) * 100) / 100, max: z.max }])) } : undefined,
       watch: watchOf(g),
       watchAt: g === "politics" ? polWatchAt : undefined,
       sigs: state.signals
