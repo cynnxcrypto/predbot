@@ -396,6 +396,39 @@ async function withResolveTimes(rec: unknown): Promise<unknown> {
   return rec;
 }
 
+// Wallet needed for the paper results (13 Nov 2026, enrique: "some reference of wallet size (counting that we claim
+// back) needed to get those numbers"). Replays the paper bets in time order: each bet takes cost + fee out of the pot
+// when placed and puts the payout back when the paper bot sees it settle (settledAt; a real claim can come a bit later).
+// The deepest the pot goes below zero is the wallet that was needed. Open bets stay out until they settle.
+type CapT = { rule: string; t: number; settledAt?: number; cost: number; fee?: number; pnl?: number | null; fillable?: boolean; jev?: { mult?: number | null } };
+let capMemo: { at: number; trades: CapT[] } | null = null;
+function paperCapital(rules: string[]) {
+  if (!capMemo || Date.now() - capMemo.at > 60_000) capMemo = { at: Date.now(), trades: loadJson<{ trades?: CapT[] }>("eventpaper-state.json", {}).trades ?? [] };
+  const set = new Set(rules);
+  const ts = capMemo.trades.filter((t) => set.has(t.rule));
+  const line = (pick: (t: CapT) => number | null) => {
+    const ev: [number, number][] = [];
+    for (const t of ts) {
+      const m = pick(t);
+      if (m == null) continue;
+      const out = (t.cost + (t.fee ?? 0)) * m;
+      ev.push([t.t, -out]);
+      if (t.pnl != null) ev.push([t.settledAt ?? t.t, out + t.pnl * m]);
+    }
+    ev.sort((a, b) => a[0] - b[0] || b[1] - a[1]);
+    let cash = 0, peak = 0;
+    const days: Record<string, number> = {};
+    for (const [at, d] of ev) {
+      cash += d;
+      const k = kstDay(at);
+      days[k] = Math.max(days[k] ?? 0, -cash);
+      peak = Math.max(peak, -cash);
+    }
+    return { peak: Math.round(peak * 100) / 100, days: Object.fromEntries(Object.entries(days).map(([k, v]) => [k, Math.round(v * 100) / 100])) };
+  };
+  return { all: line(() => 1), fill: line((t) => (t.fillable ? 1 : null)), jev: line((t) => t.jev?.mult ?? 1), open: ts.filter((t) => t.pnl == null).length };
+}
+
 /** /api/events?sec=<id>: everything one category tab shows. */
 export async function eventsStatus(sec: string): Promise<unknown> {
   const cat = CATS[sec];
@@ -408,6 +441,7 @@ export async function eventsStatus(sec: string): Promise<unknown> {
     sec,
     at: Date.now(),
     paper: cat.group ? (sum[cat.group] ?? null) : null,
+    cap: cat.group && sum[cat.group] ? paperCapital(((sum[cat.group] as { rules?: { rule: string }[] }).rules ?? []).map((r) => r.rule)) : null,
     real: cat.group ? realInfo(cat.group) : null,
     realRec: cat.group ? await withResolveTimes(realRecord(cat.group)) : null,
     paperAt: sum.at ?? null,
@@ -425,6 +459,8 @@ export async function eventsStatus(sec: string): Promise<unknown> {
 
 // ---------- page parts ----------
 export const EV_CSS = String.raw`
+.ev .cap{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 22px;margin:2px 0 12px}.ev .cap .ch{flex-basis:100%;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--mut)}.ev .cap>div:not(.ch):not(.note){display:flex;align-items:baseline;gap:7px}.ev .cap .k{font-size:12px;color:var(--mut)}.ev .cap .k i{display:inline-block;width:10px;height:3px;border-radius:2px;margin-right:5px;vertical-align:3px}.ev .cap b{font-size:24px;font-weight:600}.ev .cap .note{flex-basis:100%;font-size:11px}.ev .wn{font-size:10px;color:var(--mut);font-weight:400}
+@media(max-width:500px){.ev .cap b{font-size:19px}.ev .cap{gap:4px 14px}}
 .ev .hero{gap:22px 34px}.ev .hero .clock{font-size:52px}.ev .nxt{min-width:0;max-width:100%}.ev .nxt .t{color:var(--mut);font-size:12px;max-width:min(520px,80vw);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .ev .chips{display:flex;flex-wrap:wrap;gap:6px;flex-basis:100%}.ev .chip{font-size:11px;padding:3px 9px;border-radius:999px;border:1px solid var(--line);color:var(--mut);white-space:nowrap}.ev .chip b{color:var(--fg);font-weight:600}.ev .chip.ok{border-color:rgba(61,220,132,.45)}.ev .chip.bad{border-color:rgba(255,107,107,.55);color:var(--down)}
 .ev .chip i{display:inline-block;width:6px;height:6px;border-radius:50%;margin-right:6px;vertical-align:1px;background:var(--mut)}.ev .chip.ok i{background:var(--up);box-shadow:0 0 6px var(--up)}.ev .chip.bad i{background:var(--down)}
@@ -468,7 +504,7 @@ export function evSectionHtml(id: string, _label: string): string {
 <div class="panel" style="margin-bottom:14px"><div class="ph"><div class="k">paper lab <span class="tag paper">paper · simulated, no money</span></div><div class="mut" id="ev-${id}-rsub" style="text-align:right"></div></div><div class="fold" id="ev-${id}-rules"></div></div>
 <div class="grid">
   <div class="panel"><div class="ph"><div class="k">${has ? `paper trade log ${P}` : "markets watched"}</div><div class="mut" id="ev-${id}-lsub"></div></div><div class="fold" id="ev-${id}-log"></div></div>
-  ${has ? `<div class="panel"><div class="ph"><div class="k">paper, day by day ${P}</div><div class="lg" id="ev-${id}-lg"></div></div><div class="netc" id="ev-${id}-chart"></div><div class="fold" id="ev-${id}-days"></div></div>` : ""}
+  ${has ? `<div class="panel"><div class="ph"><div class="k">paper, day by day ${P}</div><div class="lg" id="ev-${id}-lg"></div></div><div class="cap" id="ev-${id}-cap"></div><div class="netc" id="ev-${id}-chart"></div><div class="fold" id="ev-${id}-days"></div></div>` : ""}
 </div>
 ${has ? `<div class="panel" style="margin-bottom:14px"><div class="ph"><div class="k">why no paper bet fired</div><div class="mut" id="ev-${id}-wsub"></div></div><div class="fold" id="ev-${id}-why"></div></div>
 <div class="panel" style="margin-bottom:14px"><div class="ph"><div class="k">markets watched</div><div class="mut" id="ev-${id}-wtsub"></div></div><div class="fold" id="ev-${id}-watch"></div></div>` : ""}
@@ -516,7 +552,7 @@ var evName=function(D,r){var cm=/^copy-(take|rest)-(.+)$/.exec(r)||(/^wx-copy-(t
 var evShadow=function(D,r){return (D.shadow||[]).indexOf(r)>=0};
 function evPoll(force){if(SEC==="crypto"||SEC==="solana"||EVBUSY)return;var sec=SEC;if(!force&&EVD[sec]&&Date.now()-EVD[sec].got<20000)return;EVBUSY=true;fetch("/api/events?sec="+encodeURIComponent(sec)).then(function(r){return r.json()}).then(function(D){D.got=Date.now();EVD[sec]=D;try{evRender(sec,D)}catch(e){console.error(e)}}).catch(function(){}).then(function(){EVBUSY=false})}
 function evTick(){var xs=document.querySelectorAll("[data-cd]");for(var i=0;i<xs.length;i++){var ms=Number(xs[i].getAttribute("data-cd"));xs[i].textContent=evLeft(ms);var s=(ms-Date.now())/1000;xs[i].className=(xs[i].classList.contains("clock")?"clock":"cd")+(s<=0&&s>-10800?" live":s<1800?" soon":"")}}
-function evChart(days){if(!days||!days.length)return '<div class="empty">The line starts with the first settled paper bet.</div>';var a=0,f=0,j=0;var pts=[{d:"start",a:0,f:0,j:0}].concat(days.map(function(x){a+=x.net;f+=x.fnet;j+=x.jnet;return {d:x.day,a:a,f:f,j:j}}));var W=560,H=190,L=44,R=8,T=10,B=22;var vs=[0];pts.forEach(function(p){vs.push(p.a,p.f,p.j)});var lo=Math.min.apply(null,vs),hi=Math.max.apply(null,vs);if(hi-lo<1){hi+=0.5;lo-=0.5}var X=function(i){return L+(W-L-R)*(pts.length<2?0:i/(pts.length-1))},Y=function(v){return T+(H-T-B)*(1-(v-lo)/(hi-lo))};var line=function(k,col,dash){return '<polyline fill="none" stroke="'+col+'" stroke-width="2"'+(dash?' stroke-dasharray="4 3"':'')+' points="'+pts.map(function(p,i){return X(i).toFixed(1)+","+Y(p[k]).toFixed(1)}).join(" ")+'"/>'};var g='<line class="gl" x1="'+L+'" x2="'+(W-R)+'" y1="'+Y(0)+'" y2="'+Y(0)+'"/><text class="gt" x="'+(L-6)+'" y="'+(Y(0)+3)+'" text-anchor="end">$0</text><text class="gt" x="'+(L-6)+'" y="'+(Y(hi)+8)+'" text-anchor="end">'+evS(hi)+'</text><text class="gt" x="'+(L-6)+'" y="'+Y(lo)+'" text-anchor="end">'+evS(lo)+'</text>';var lab=function(i){return '<text class="gt" x="'+X(i)+'" y="'+(H-6)+'" text-anchor="'+(i===0?"start":i===pts.length-1?"end":"middle")+'">'+pts[i].d.slice(5)+'</text>'};var fin=pts[pts.length-1];var col=fin.a<0?"#ff6b6b":"#3ddc84";return '<svg viewBox="0 0 '+W+' '+H+'" preserveAspectRatio="none">'+g+line("f","#7b8294",true)+line("j","#f7931a",true)+line("a",col)+lab(0)+(pts.length>2?lab(pts.length-1):lab(1))+'</svg>'}
+function evChart(days){if(!days||!days.length)return '<div class="empty">The line starts with the first settled paper bet.</div>';var a=0,f=0,j=0;var pts=[{d:"start",a:0,f:0,j:0}].concat(days.map(function(x){a+=x.net;f+=x.fnet;j+=x.jnet;return {d:x.day,a:a,f:f,j:j}}));var W=560,H=190,L=62,R=8,T=10,B=22;var vs=[0];pts.forEach(function(p){vs.push(p.a,p.f,p.j)});var lo=Math.min.apply(null,vs),hi=Math.max.apply(null,vs);if(hi-lo<1){hi+=0.5;lo-=0.5}var X=function(i){return L+(W-L-R)*(pts.length<2?0:i/(pts.length-1))},Y=function(v){return T+(H-T-B)*(1-(v-lo)/(hi-lo))};var line=function(k,col,dash){return '<polyline fill="none" stroke="'+col+'" stroke-width="2"'+(dash?' stroke-dasharray="4 3"':'')+' points="'+pts.map(function(p,i){return X(i).toFixed(1)+","+Y(p[k]).toFixed(1)}).join(" ")+'"/>'};var g='<line class="gl" x1="'+L+'" x2="'+(W-R)+'" y1="'+Y(0)+'" y2="'+Y(0)+'"/><text class="gt" x="'+(L-6)+'" y="'+(Y(0)+3)+'" text-anchor="end">$0</text>'+(Y(0)-Y(hi)>12?'<text class="gt" x="'+(L-6)+'" y="'+(Y(hi)+8)+'" text-anchor="end">'+evS(hi)+'</text>':"")+(lo<-0.005&&Y(lo)-Y(0)>12?'<text class="gt" x="'+(L-6)+'" y="'+Y(lo)+'" text-anchor="end">'+evS(lo)+'</text>':"");var lab=function(i){return '<text class="gt" x="'+X(i)+'" y="'+(H-6)+'" text-anchor="'+(i===0?"start":i===pts.length-1?"end":"middle")+'">'+pts[i].d.slice(5)+'</text>'};var fin=pts[pts.length-1];var col=fin.a<0?"#ff6b6b":"#3ddc84";return '<svg viewBox="0 0 '+W+' '+H+'" preserveAspectRatio="none">'+g+line("f","#7b8294",true)+line("j","#f7931a",true)+line("a",col)+lab(0)+(pts.length>2?lab(pts.length-1):lab(1))+'</svg>'}
 function evRender(sec,D){var P=D.paper,id="ev-"+sec,q=function(k){return el(id+"-"+k)};if(!q("stats"))return;
 var RS={live:0,open:0,stake:0};try{RS=evReal(sec,D)||RS}catch(e){console.error(e)}var RL=P&&P.real&&(P.real.rules||[]).length?P.real.rules:[];var pp="paper ";
 var W=[];
@@ -544,7 +580,10 @@ if(open.length){rows.push('<tr class="dsep"><td colspan="5">open · '+open.lengt
 q("lsub").textContent=L.length?L.length+" latest":"";q("log").innerHTML=evTbl(["kst","market","bet|","Jev stake|","result|r"],rows,"No paper bets yet. "+(nx?"Next market "+evLeft(nx.t)+" away.":""))}
 else{var U=D.upcoming?D.upcoming.rows.filter(function(w){return w.t>now-10800000}):[];q("lsub").textContent=U.length+" in the next 36 h · prices from Polymarket";q("log").innerHTML=evTbl(["starts","market","prices|nm",""],watchRows(U.map(function(w){var x={};for(var k in w)x[k]=w[k];x.status=w.t<=now?"live":"";return x}),40),D.upcoming&&D.upcoming.err?"Polymarket list failed: "+evE(D.upcoming.err):"Nothing listed in the next 36 h.")}
 if(P){// chart + days
-var days=P.days||[];q("lg").innerHTML='<span><i style="background:#3ddc84"></i>all</span><span><i style="background:#7b8294"></i>fillable</span><span><i style="background:#f7931a"></i>Jev-sized</span>';q("chart").innerHTML=evChart(days);q("days").innerHTML=days.length?evTbl(["day","bets|r","won|r","net|r","fillable|r nm","Jev-sized|r"],days.slice().reverse().slice(0,14).map(function(d){return '<tr><td>'+d.day+'</td><td class="r">'+d.n+'</td><td class="r">'+Math.round(100*d.won/d.n)+'%</td><td class="r '+cls(d.net)+'"><b>'+evS(d.net)+'</b></td><td class="r nm '+cls(d.fnet)+'">'+evS(d.fnet)+'</td><td class="r '+cls(d.jnet)+'">'+evS(d.jnet)+'</td></tr>'}),""):"";
+var days=P.days||[];q("lg").innerHTML='<span><i style="background:#3ddc84"></i>all</span><span><i style="background:#7b8294"></i>fillable</span><span><i style="background:#f7931a"></i>Jev-sized</span>';q("chart").innerHTML=evChart(days);var K=D.cap,KD=function(l,d){var v=K&&K[l]&&K[l].days[d];return v!=null?'<div class="wn">on $'+Math.round(v)+'</div>':""};
+if(K&&K.all&&K.all.peak>0){var tn={all:0,fill:0,jev:0};days.forEach(function(d){tn.all+=d.net;tn.fill+=d.fnet;tn.jev+=d.jnet});var ct=function(l,lab,col){var p=K[l].peak,r=p>0?Math.round(100*tn[l]/p):null;return '<div><span class="k"><i style="background:'+col+'"></i>'+lab+'</span><b>$'+Math.round(p)+'</b>'+(r!=null?'<span class="'+cls(tn[l])+'">'+(r>=0?"+":"")+r+'%</span>':"")+'</div>'};
+q("cap").innerHTML='<div class="ch">wallet needed · return on it</div>'+ct("all","all","#3ddc84")+ct("fill","fillable","#7b8294")+ct("jev","Jev","#f7931a")+'<div class="note">Most money out at once, with every win claimed back into the pot when it settles'+(K.open?" ("+K.open+" bets still open count as money out)":"")+'. Under each day: the most it needed that day.</div>'}else q("cap").innerHTML="";
+q("days").innerHTML=days.length?evTbl(["day","bets|r","won|r","net|r","fillable|r nm","Jev-sized|r"],days.slice().reverse().slice(0,14).map(function(d){return '<tr><td>'+d.day+'</td><td class="r">'+d.n+'</td><td class="r">'+Math.round(100*d.won/d.n)+'%</td><td class="r '+cls(d.net)+'"><b>'+evS(d.net)+'</b>'+KD("all",d.day)+'</td><td class="r nm '+cls(d.fnet)+'">'+evS(d.fnet)+KD("fill",d.day)+'</td><td class="r '+cls(d.jnet)+'">'+evS(d.jnet)+KD("jev",d.day)+'</td></tr>'}),""):"";
 // why no trade
 var S=P.sigs||[];var tally={};S.forEach(function(x){if(x.traded)return;var k=x.why.replace(/[0-9.$]+c?/g,"#");tally[k]=(tally[k]||0)+1});if(P.notes)Object.keys(P.notes).forEach(function(k){if(k!=="upcoming"&&k!=="live"&&k!=="evaluated")tally["match: "+k]=(tally["match: "+k]||0)+P.notes[k]});(P.watch||[]).forEach(function(w){if(w.status&&/^(no rule fired|skipped|below|above|under|liquidity|waiting)/.test(w.status)){var k=w.status.replace(/[0-9.$—]+c?/g,"#").replace(/home #, away #/,"ask outside the band");tally[k]=(tally[k]||0)+1}});var tk=Object.keys(tally).sort(function(a,b){return tally[b]-tally[a]});
 q("wsub").textContent=S.length?S.length+" latest signal"+(S.length>1?"s":""):"";q("why").innerHTML=(tk.length?'<div class="why">'+tk.slice(0,10).map(function(k){return '<span class="chip"><b>'+tally[k]+'</b> '+evE(k)+'</span>'}).join("")+'</div>':'')+evTbl(["kst","rule|nm","market","ask|r nm","outcome"],S.slice(0,15).map(function(x){return '<tr><td>'+evT(x.t)+'</td><td class="mut nm" style="font-size:11px">'+evE(evName(D,x.rule))+'</td><td class="mk">'+evE(x.title)+'</td><td class="r nm">'+evC(x.ask)+'</td><td class="'+(x.traded?"ok":"mut")+'" style="white-space:normal;font-size:12px">'+evE(x.why)+'</td></tr>'}),"No signal yet: no market has reached a paper rule's entry point.");
