@@ -159,6 +159,24 @@ function paperTurn(since: number, late: number): Promise<boolean> {
   return mine;
 }
 
+/** Jupiter's token lists (read-only, three calls every 6 h for the slow study). Errors carry only fixed text. */
+async function jupList(path: string): Promise<unknown> {
+  const k = jupiter();
+  const base = k ? "https://api.jup.ag" : "https://lite-api.jup.ag";
+  let res: Response;
+  try {
+    res = await net(`${base}${path}`, { headers: k ? { "x-api-key": k } : {}, signal: AbortSignal.timeout(8000) });
+  } catch {
+    throw new Error("jupiter tokens: no answer");
+  }
+  if (!res.ok) throw new Error(`jupiter tokens: http ${res.status}`);
+  try {
+    return await res.json();
+  } catch {
+    throw new Error("jupiter tokens: not json");
+  }
+}
+
 /**
  * Jupiter quote: raw output amount for a raw input amount, fees and price impact included.
  * null = the price service answered and has no price (no route: the token cannot be traded that way now).
@@ -833,7 +851,7 @@ export function startSolanaCopy(fetcher: Fetch = fetch) {
   startHistory({ rpcUrl: () => (helius() ? rpcUrl() : null), fetch: () => net, wallets: () => listed() });
   // slow wallets (read-only screen, then a paper copy of the ones that pass); SOLANA_SLOW=off disables. A slow copy
   // waits seconds to minutes anyway, so its quotes may wait their turn up to two minutes.
-  startSlow({ rpcUrl: () => (helius() ? rpcUrl() : null), fetch: () => net, listed: () => listed(), busy: (k) => busyWallets(k), quote: (a, b, amount) => quote(a, b, amount, false, 120_000) });
+  startSlow({ rpcUrl: () => (helius() ? rpcUrl() : null), fetch: () => net, listed: () => listed(), busy: (k) => busyWallets(k), quote: (a, b, amount) => quote(a, b, amount, false, 120_000), jup: (path) => jupList(path) });
   // the tracer (read-only): the wallets behind the fomo traders in seeds.ts; SOLANA_LINKS=off disables
   startLinks({ rpcUrl: () => (helius() ? rpcUrl() : null), fetch: () => net });
   // the early-stream measurement (read-only, one short run with a credit budget); SOLANA_PRECONF=off disables
