@@ -5,7 +5,10 @@ import { pairfastSummary } from "./pairfast.js";
 import { pairfastliveSummary } from "./pairfastlive.js";
 import { walletHistorySummary } from "./wallethistory.js";
 import { solanaSummary } from "./solana/run.js";
-import { solanaCopySummary } from "./solana/copyrun.js";
+import { shared as solShared, solanaCopySummary } from "./solana/copyrun.js";
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+import { DATA } from "./config.js";
 import { solanaCopyLiveSummary } from "./solana/copylive.js";
 import { withdrawSummary } from "./withdraw.js";
 import { createServer } from "node:http";
@@ -21,6 +24,21 @@ import { addLiveRule, budgets, liveConfig, MIN_SIZE, removeLiveRule, setLiveMaxL
  * A one-page status view on 127.0.0.1 so you can see the recorder is alive without reading logs.
  * Resolves once the port is bound; rejects (with code EADDRINUSE) when another copy holds it.
  */
+/** The Solana wallet's SOL balance, read at most once a minute; null when it cannot be read. */
+let solBalMemo = { at: 0, v: null as number | null };
+async function solBalance(address: string): Promise<number | null> {
+  if (!address) return null;
+  if (Date.now() - solBalMemo.at < 60_000) return solBalMemo.v;
+  try {
+    const r = await fetch(solShared.rpcUrl(), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "getBalance", params: [address] }), signal: AbortSignal.timeout(4000) });
+    const j = (await r.json()) as { result?: { value?: number } };
+    solBalMemo = { at: Date.now(), v: typeof j.result?.value === "number" ? j.result.value / 1e9 : null };
+  } catch {
+    solBalMemo = { at: Date.now() - 45_000, v: solBalMemo.v };
+  }
+  return solBalMemo.v;
+}
+
 export function serveStatus(recorder: Recorder, build: string, others: Recorder[] = []) {
   // data/dashboard.json { "password": "..." } (the AWS server, 31 Oct 2026): the page is reached through a Cloudflare tunnel,
   // so every request needs that password (browser login, any user name). Without the file the page stays open as on the Mac.
@@ -305,6 +323,26 @@ export function serveStatus(recorder: Recorder, build: string, others: Recorder[
         });
       return;
     }
+    // 13 Nov 2026, enrique: "I need the two wallets balance and link on the top of the dashboard always visible".
+    // Addresses come from the server's own data files at run time and are served only here, behind the password;
+    // never in the repo, never in /api/status (the public status file is built from that).
+    if (req.url === "/api/wallets") {
+      const mine = recorder.status() as { live?: { balance?: number | null; toClaim?: number; chain?: Record<string, number> | null } | null };
+      const poly = String(loadJson<{ funder?: string }>("live.json", {}).funder ?? "").trim();
+      const cash = mine.live?.balance != null ? (mine.live.chain?.pUSD ?? mine.live.balance) + (mine.live.chain?.["USDC.e"] ?? 0) + (mine.live.chain?.USDC ?? 0) : null;
+      let sol = "";
+      try {
+        const f = join(DATA, "solana-wallet-address.txt");
+        sol = existsSync(f) ? readFileSync(f, "utf8").trim() : "";
+      } catch {
+        sol = "";
+      }
+      solBalance(sol).then((solBal) => {
+        res.writeHead(200, { "content-type": "application/json", "cache-control": "no-store" });
+        res.end(JSON.stringify({ poly: /^0x[0-9a-fA-F]{40}$/.test(poly) ? { address: poly, balance: cash, toClaim: mine.live?.toClaim ?? null } : null, sol: /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(sol) ? { address: sol, balance: solBal } : null }));
+      });
+      return;
+    }
     if (req.url === "/api/status") {
       res.writeHead(200, { "content-type": "application/json" });
       const mine = recorder.status() as { live?: { balance?: number | null; toClaim?: number; chain?: Record<string, number> | null } | null };
@@ -534,10 +572,12 @@ tr.dim{transition:opacity .4s}
 .vb{margin:12px 0}.vb .hl{font-size:11px;margin-bottom:4px}.vb .hl b{color:var(--fg);font-size:13px}.vt{display:flex;height:10px;border-radius:5px;overflow:hidden;background:rgba(255,255,255,.07)}.vt i{display:block;height:100%;transform-origin:left;animation:growx .9s cubic-bezier(.2,.8,.2,1)}@keyframes growx{from{transform:scaleX(0)}}
 #sec-solana table td{white-space:normal}#sec-solana td.nw{white-space:nowrap}#sec-solana tr.m td{padding-bottom:2px}#sec-solana tr.d td{padding-top:0;border-top:none;color:var(--mut);font-size:11px;line-height:1.35}@media(max-width:700px){#sec-solana .nm{display:none}#sec-solana td,#sec-solana th{padding-right:8px}#sec-solana .ph{flex-wrap:wrap;gap:4px}}
 @media(max-width:700px){#log,tbody[id$="-rlog"]{display:block}#log tr,tbody[id$="-rlog"] tr{display:grid;grid-template-columns:auto minmax(0,1fr) auto;column-gap:10px;align-items:center;border-top:1px solid var(--line);padding:6px 0}#log tr.grp,tbody[id$="-rlog"] tr.grp{display:block;border-top:none;padding:0}#log tr.dsep,tbody[id$="-rlog"] tr.dsep{display:block;border-top:none;padding:0}#log tr.p2,tbody[id$="-rlog"] tr.p2{display:block;border-top:none;padding:0 0 6px;margin-top:-4px}#log td,tbody[id$="-rlog"] td{border-top:none;padding:1px 0;min-width:0;max-width:none;width:auto}#log tr.grp td,tbody[id$="-rlog"] tr.grp td{display:block;padding:12px 0 6px}#log tr.dsep td,tbody[id$="-rlog"] tr.dsep td{display:block}#log tr.p2 td,tbody[id$="-rlog"] tr.p2 td{display:block}#log td.empty,tbody[id$="-rlog"] td.empty{grid-column:1/-1}#log td:nth-child(1),tbody[id$="-rlog"] td:nth-child(1){grid-row:1;grid-column:1}#log td:nth-child(2),tbody[id$="-rlog"] td:nth-child(2){grid-row:1;grid-column:2;overflow:hidden;text-overflow:ellipsis}#log td:nth-child(6),tbody[id$="-rlog"] td:nth-child(6){grid-row:1;grid-column:3;white-space:normal;max-width:108px;line-height:1.25;justify-self:end;text-align:right}#log td:nth-child(3),tbody[id$="-rlog"] td:nth-child(3){grid-row:2;grid-column:1/-1;justify-self:start;max-width:calc(100% - 152px);overflow:hidden;text-overflow:ellipsis;font-size:12px;text-align:left}#log td:nth-child(4),tbody[id$="-rlog"] td:nth-child(4){grid-row:2;grid-column:1/-1;justify-self:end;margin-right:50px;font-size:12px;color:var(--mut);text-align:right}#log td:nth-child(5),tbody[id$="-rlog"] td:nth-child(5){grid-row:2;grid-column:1/-1;justify-self:end;font-size:12px;color:var(--mut);text-align:right}}
-.pm{display:none}@media(max-width:700px){#sec-solana .dt i.pm{display:block}}.dt{display:inline-flex;flex-direction:column;line-height:1.15;vertical-align:middle}.dt i{font-style:normal;font-size:10px;color:var(--mut)}
+.pm{display:none}@media(max-width:700px){#sec-solana .dt i.pm{display:block}}.wbar{position:sticky;top:0;z-index:20;display:flex;flex-wrap:wrap;gap:6px 18px;align-items:center;background:var(--bg);border-bottom:1px solid var(--line);padding:6px 0;margin:-4px 0 10px;font-size:12px}.wbar:empty{display:none}.wbar a{color:var(--fg);text-decoration:none}.wbar .w{display:inline-flex;gap:8px;align-items:baseline;white-space:nowrap}.wbar .w b{font-size:14px}.wbar .w a.l{color:var(--acc);font-size:11px}@media(max-width:700px){.wbar{gap:4px 12px}.wbar .w{flex-wrap:wrap;white-space:normal;gap:2px 8px}.wbar .w .mut{display:none}}
+.dt{display:inline-flex;flex-direction:column;line-height:1.15;vertical-align:middle}.dt i{font-style:normal;font-size:10px;color:var(--mut)}
 .secs.grp{margin-bottom:10px;border-bottom:none}.secs.grp .gb{font:inherit;font-size:13px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;padding:9px 18px;border-radius:999px;border:1px solid var(--line);background:none;color:var(--mut);cursor:pointer;margin-right:8px;white-space:nowrap}.secs.grp .gb:hover{color:var(--fg)}.secs.grp .gb.on{color:#0f1117;background:var(--fg);border-color:var(--fg)}.secs.grp .gb .n{margin-left:10px;font-size:11px;font-weight:400;letter-spacing:0;text-transform:none}.secs.grp .gb.on .n,.secs.grp .gb.on .n *{color:#0f1117}
 ${EV_CSS}</style></head><body><main>
 <div class="top"><h1>Pred bot</h1><span class="pill" id="mode">off</span><span class="pill" id="listed">—</span><span class="sub" id="sub">loading</span></div>
+<div class="wbar" id="wbar"></div>
 ${SEC_NAV}
 <section class="sec" id="sec-crypto">
 <div class="tabs" id="tabs"><button class="tb" data-t="overview">overview</button><button class="tb" data-t="5m">5 min<span class="n" id="n5m"></span></button><button class="tb" data-t="15m">15 min<span class="n" id="n15m"></span></button><button class="tb" data-t="1h">1 hour<span class="n" id="n1h"></span></button><button class="tb" data-t="4h">4 hours<span class="n" id="n4h"></span></button><button class="tb" data-t="24h">24 hours<span class="n" id="n24h"></span></button></div>
@@ -892,5 +932,6 @@ document.addEventListener("click",async function(e){var b=e.target&&e.target.clo
 if(!confirm("REAL MONEY\\n\\nBuy "+side+" on "+h.label+" for $"+amt+"\\nask now "+cents(a)+", pays up to "+cents(Math.min(0.99,a+0.05))+" · window closes in "+Math.floor(h.left/60)+":"+String(h.left%60).padStart(2,"0")+"\\n\\nTracked as the 'manual' strategy."))return;
 BETBUSY=true;drawBets();d.classList.add("busy");try{var r=await fetch("/api/manual",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({series:k==="btc5m"?"":k,side:side,amount:amt})});var j=await r.json();d.classList.remove("busy");if(!r.ok){d.classList.add("fail");setTimeout(function(){d.classList.remove("fail")},1500);alert("Not placed: "+(j.error||"failed"))}else{var t=j.trade||{};d.classList.add("done");setTimeout(function(){d.classList.remove("done")},1500);if(t.dry)alert("Dry mode: order signed, not sent.")}}catch(err){d.classList.remove("busy");alert("Not placed: "+err)}BETBUSY=false;poll()});
 ${EV_JS}
-showTab(TAB);showSec(SEC);poll();setInterval(poll,1000);evPoll(true);
+showTab(TAB);showSec(SEC);poll();var wpoll=function(){fetch("/api/wallets").then(function(r){return r.json()}).then(function(W){var sh=function(a){return a.slice(0,4)+"…"+a.slice(-4)};var h="";if(W.poly)h+='<span class="w"><span class="k" style="margin:0">Polymarket</span><b>'+(W.poly.balance==null?"—":money(W.poly.balance))+'</b>'+(W.poly.toClaim?'<span class="mut">+'+money(W.poly.toClaim)+' to claim</span>':'')+'<a class="l" href="https://polymarket.com/profile/'+W.poly.address+'" target="_blank" rel="noopener">'+sh(W.poly.address)+' ↗</a><a class="l" href="https://polygonscan.com/address/'+W.poly.address+'" target="_blank" rel="noopener">scan ↗</a></span>';if(W.sol)h+='<span class="w"><span class="k" style="margin:0">Solana</span><b>'+(W.sol.balance==null?"—":Number(W.sol.balance).toFixed(4)+" SOL")+'</b><a class="l" href="https://solscan.io/account/'+W.sol.address+'" target="_blank" rel="noopener">'+sh(W.sol.address)+' ↗</a></span>';var b=el("wbar");if(b&&b.__h!==h){b.__h=h;b.innerHTML=h}}).catch(function(){})};wpoll();setInterval(wpoll,20000);
+setInterval(poll,1000);evPoll(true);
 </script></body></html>`;

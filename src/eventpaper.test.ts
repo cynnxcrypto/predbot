@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { copyBetUsd, copyResolveAt, copyStake, copyUsualBet, parseBook, slugDate, solveQ, tennisTour, walk, winMarketFor, zonedUtc } from "./eventpaper.js";
+import { copyBetUsd, copyLooksBait, copyResolveAt, copyStake, copyUsualBet, parseBook, slugDate, solveQ, tennisTour, walk, winMarketFor, zonedUtc } from "./eventpaper.js";
 
 test("eventpaper helpers", () => {
   const q = solveQ(0.648);
@@ -129,4 +129,10 @@ test("copy resolve date: the match start for game markets, else the end date", (
   assert.equal(copyResolveAt({ gameStartTime: "2026-11-13 10:00:00+00", endDate: "2026-11-20T10:00:00Z" }), Date.parse("2026-11-13T10:00:00Z"));
   assert.equal(copyResolveAt({ endDate: "2026-12-31T12:00:00Z" }), Date.parse("2026-12-31T12:00:00Z"));
   assert.ok(Number.isNaN(copyResolveAt({})));
+});
+
+test("bait check: a bet under a tenth of the wallet's usual bet is not copied with real money", () => {
+  assert.equal(copyLooksBait(2, 25), true);
+  assert.equal(copyLooksBait(2.5, 25), false);
+  assert.equal(copyLooksBait(1, null), false, "usual bet unknown: copied");
 });
