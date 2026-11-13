@@ -49,7 +49,9 @@ test("deploy/live-rules.json: the tennis test stays inside enrique's limits", ()
   const g = cfg.groups.tennis;
   if (!g) return;
   // 11 Nov 2026, enrique: "extend tennis budget risk to 30 so there can be 10 different bets online"
-  assert.ok(g.size <= 5 && g.size * g.maxOpen <= 30 && g.maxLoss <= 30);
+  assert.ok(g.size <= 5 && g.size * g.maxOpen <= 30);
+  // 13 Nov 2026, enrique: "okay if tennis goes -10 then stop it"
+  assert.ok(g.stopNet > 0 && g.stopNet <= 10 && g.maxLoss <= g.stopNet + g.size * g.maxOpen + 5);
   assert.ok(g.rules.every((r) => r.startsWith("tennis-")));
 });
 
@@ -144,4 +146,14 @@ test("deploy/live-rules.json: wallet copies stay inside enrique's 13 Nov limits"
   const g = cfg.groups.copy;
   if (!g) return;
   assert.ok(g.size >= 3 && g.maxSize <= 10 && g.maxDays > 0 && g.maxDays <= 14);
+});
+
+test("stopNet: no new bet once the settled result is that far down; open bets do not count", () => {
+  const NOW3 = Date.parse("2026-11-13T08:00:00Z");
+  const cfg = parseEventLive(JSON.stringify({ mode: "live", events: { tennis: { rules: ["t"], size: 3, maxOpen: 10, maxLoss: 45, stopNet: 10, dayLosses: 99, minDepth: 0 } } }), { funder: "0x1" });
+  const r = (pnl: number | null, i: number): EventLiveRow => ({ t: 0, group: "tennis", rule: "t", marketId: `x${i}`, conditionId: null, title: "", outcome: "", idx: 0, ask: 0.93, size: 3, cost: 3, shares: 3.2, fee: 0, ok: true, status: "matched", error: null, pnl, won: pnl == null ? null : pnl > 0, settledAt: pnl == null ? null : 0 });
+  const blk = (rows: EventLiveRow[]) => eventLiveBlock(cfg, "tennis", "t", "new", 0.93, 100, true, rows, NOW3);
+  assert.equal(blk([r(-3.48, 1), ...Array.from({ length: 9 }, (_, i) => r(null, 10 + i))]), null, "-$3.48 settled and 9 open: still trading");
+  assert.equal(blk([r(-3, 1), r(-3, 2), r(-3.5, 3), r(0.5, 4)]), null, "-$9.00");
+  assert.match(blk([r(-3, 1), r(-3, 2), r(-3.5, 3), r(-0.5, 4)])!, /stopped for good: settled \$-10.00/);
 });

@@ -13,6 +13,8 @@
  *   maxSize    largest bet when the caller sizes it (13 Nov 2026 copy sizing; never above MAX_STAKE = $10)
  *   maxDays    no bet on a market that resolves more than this many days ahead (0 = no limit; 13 Nov 2026, enrique:
  *              "make sure we dont enter anything that takes more than 2 weeks to resolve")
+ *   stopNet    stop for good once the settled net result is this many dollars down or worse (0 = off; open bets
+ *              still settle; 13 Nov 2026, enrique: "okay if tennis goes -10 then stop it")
  *   perWallet  copies only: real bets open at once per copied wallet (0 = no own limit)
  *   maxAsk     no order when the favourite asks more than this
  *   minDepth   dollars that must rest within 2c of the ask (the paper "fillable" test)
@@ -64,7 +66,7 @@ export type EventLiveRow = {
   /** The outcome token bought; kept so the claim can be checked on chain. Never in the status file. */
   token?: string;
 };
-export type EventLiveGroup = { rules: string[]; size: number; maxAsk: number; minDepth: number; dayLosses: number; maxOpen: number; maxLoss: number; negRisk: boolean; maxSize: number; maxDays: number; perWallet: number };
+export type EventLiveGroup = { rules: string[]; size: number; maxAsk: number; minDepth: number; dayLosses: number; maxOpen: number; maxLoss: number; negRisk: boolean; maxSize: number; maxDays: number; perWallet: number; stopNet: number };
 export type EventLiveConfig = { mode: string; minBalance: number; lossCap?: LossCap; groups: Record<string, EventLiveGroup> };
 
 /** No single real event bet is ever larger than this (13 Nov 2026, enrique: "Min $3 max $10"). */
@@ -89,7 +91,7 @@ export function parseEventLive(repoText: string, local: { mode?: string; funder?
     const size = Math.min(MAX_STAKE, num(v.size, 0));
     if (!rules.length || !(size >= 1)) continue;
     const maxSize = Math.min(MAX_STAKE, Math.max(size, num(v.maxSize, size)));
-    groups[g] = { rules, size, maxAsk: Math.min(0.99, num(v.maxAsk, 0.96)), minDepth: Math.max(0, num(v.minDepth, 25)), dayLosses: Math.max(1, Math.floor(num(v.dayLosses, 2))), maxOpen: Math.max(1, Math.floor(num(v.maxOpen, 4))), maxLoss: Math.max(0, num(v.maxLoss, 12)), negRisk: v.negRisk === true, maxSize, maxDays: Math.max(0, num(v.maxDays, 0)), perWallet: Math.max(0, Math.floor(num(v.perWallet, 0))) };
+    groups[g] = { rules, size, maxAsk: Math.min(0.99, num(v.maxAsk, 0.96)), minDepth: Math.max(0, num(v.minDepth, 25)), dayLosses: Math.max(1, Math.floor(num(v.dayLosses, 2))), maxOpen: Math.max(1, Math.floor(num(v.maxOpen, 4))), maxLoss: Math.max(0, num(v.maxLoss, 12)), negRisk: v.negRisk === true, maxSize, maxDays: Math.max(0, num(v.maxDays, 0)), perWallet: Math.max(0, Math.floor(num(v.perWallet, 0))), stopNet: Math.max(0, num(v.stopNet, 0)) };
   }
   const since = typeof repo.lossCap?.since === "number" ? repo.lossCap.since : Date.parse(String(repo.lossCap?.since ?? ""));
   const maxLoss = Number(repo.lossCap?.maxLoss);
@@ -132,6 +134,7 @@ export function eventLiveBlock(cfg: EventLiveConfig, group: string, rule: string
   const net = settled.reduce((s, r) => s + (r.pnl ?? 0), 0);
   // The group's own budget (10 Nov 2026, enrique: "tennis should have its own little budget"): money lost so far plus
   // every open stake plus this bet must fit inside maxLoss. Wins do not raise the budget.
+  if (g.stopNet > 0 && net <= -g.stopNet + 1e-9) return `stopped for good: settled $${net.toFixed(2)} (stop at -$${g.stopNet})`;
   const lost = Math.max(0, -net);
   const staked = open.reduce((s, r) => s + r.cost, 0);
   if (lost + staked + bet > g.maxLoss + 1e-9) return lost >= g.maxLoss - 1e-9 ? `budget used up: $${lost.toFixed(2)} lost of $${g.maxLoss}` : `budget: $${lost.toFixed(2)} lost + $${staked.toFixed(2)} open + $${bet.toFixed(2)} would pass $${g.maxLoss}`;
