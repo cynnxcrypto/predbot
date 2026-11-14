@@ -1745,6 +1745,44 @@ async function cricketTick() {
   }
 }
 
+// ---------- open real bets marked at the market price (14 Nov 2026, enrique: "expectations of open trades") ----------
+type OpenMark = { at: number; n: number; stake: number; value: number; winning: number; losing: number; unknown: number; byDay: Record<string, { n: number; stake: number; value: number }>; byGroup: Record<string, { n: number; stake: number; value: number }> };
+let openMark: OpenMark | null = null;
+async function markOpenTick() {
+  const rows = eventLiveRows().filter((r) => r.shares > 0 && r.pnl == null);
+  const m: OpenMark = { at: Date.now(), n: 0, stake: 0, value: 0, winning: 0, losing: 0, unknown: 0, byDay: {}, byGroup: {} };
+  const cache = new Map<string, GMarket | null>();
+  for (const r of rows) {
+    if (!cache.has(r.marketId)) cache.set(r.marketId, await getJson<GMarket>(`${GAMMA}/markets/${r.marketId}`).catch(() => null));
+    const g = cache.get(r.marketId);
+    const px = g ? jl<string[]>(g.outcomePrices, []).map(Number)[r.idx] : NaN;
+    const ends = g ? copyResolveAt(g) : NaN;
+    const day = Number.isFinite(ends) ? kstDay(ends) : "unknown";
+    const value = Number.isFinite(px) ? r.shares * px : r.cost;
+    m.n += 1;
+    m.stake += r.cost;
+    m.value += value;
+    if (!Number.isFinite(px)) m.unknown += 1;
+    else if (value >= r.cost) m.winning += 1;
+    else m.losing += 1;
+    const d = (m.byDay[day] ??= { n: 0, stake: 0, value: 0 });
+    d.n += 1;
+    d.stake += r.cost;
+    d.value += value;
+    const gg = (m.byGroup[r.group] ??= { n: 0, stake: 0, value: 0 });
+    gg.n += 1;
+    gg.stake += r.cost;
+    gg.value += value;
+  }
+  const r2 = (x: number) => Math.round(x * 100) / 100;
+  m.stake = r2(m.stake);
+  m.value = r2(m.value);
+  for (const o of [...Object.values(m.byDay), ...Object.values(m.byGroup)]) {
+    o.stake = r2(o.stake);
+    o.value = r2(o.value);
+  }
+  openMark = m;
+}
 // ---------- settlement and summary ----------
 async function settleTick() {
   const open = state.trades.filter((t) => t.pnl == null);
@@ -1835,7 +1873,7 @@ const GROUPS: Record<string, string[]> = {
   copy: COPY_WALLETS.flatMap((w) => [`copy-rest-${w.name}`, `copy-take-${w.name}`, `copy-any-${w.name}`]),
 };
 function summarize() {
-  const out: Record<string, unknown> = { at: Date.now(), health, wxCopy: { ...wxCopyStats, resting: state.rest.filter((x) => x.rule === "wx-copy-rest").length }, copyWallets: Object.fromEntries(Object.entries(copyStats).map(([k, v]) => {
+  const out: Record<string, unknown> = { at: Date.now(), health, openMark, wxCopy: { ...wxCopyStats, resting: state.rest.filter((x) => x.rule === "wx-copy-rest").length }, copyWallets: Object.fromEntries(Object.entries(copyStats).map(([k, v]) => {
     const l = [...(copyLags[k] ?? [])].sort((a, b) => a - b);
     return [k, { ...v, lagSecMedian: l.length ? l[Math.floor(l.length / 2)] : null, lagSecMax: l.length ? l[l.length - 1] : null }];
   })) };
@@ -1999,6 +2037,7 @@ async function main() {
     if (now - last.settle > 10 * 60_000) {
       last.settle = now;
       await guard("settle", settleTick);
+      await guard("open marks", markOpenTick);
       await guard("wallet promotions", async () => {
         const st = autoState();
         const lines = copyPromote(st, state.trades, Date.now());
