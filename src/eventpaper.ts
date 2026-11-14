@@ -16,7 +16,7 @@
  * Every rule is $5 at the real ask (walking the book), taker fee rate x p x (1-p) per share, held to settlement.
  */
 import { loadJson, saveJson } from "./store.js";
-import { autoFollowed, autoState, autoSummary, copyPromote, copyScan } from "./copyscan.js";
+import { autoFollowed, autoState, autoSummary, copyPromote, copyScan, scanDue } from "./copyscan.js";
 import { NEG_READY_FILE, eventLiveAdapt, eventLiveBusy, eventLiveBuy, eventRestBid, eventRestSync, eventLiveConfig, eventLiveRows, eventLiveSettle, eventLiveSummary, eventLiveStop, type NegRiskReady } from "./eventlive.js";
 import { JEV_CONTEXT, headlines, jevKey, jevStake, type JevStake } from "./jev.js";
 
@@ -1193,11 +1193,20 @@ function copyRulesFor(w: { name: string }) {
   RULE_TEXT[`copy-any-${w.name}`] = ["copy", `Paper only: every first buy of ${w.name} at the ask, no price limit.`];
   GROUPS.copy.push(`copy-rest-${w.name}`, `copy-take-${w.name}`, `copy-any-${w.name}`);
 }
+const AUTO_PAPER_PER_TICK = 10;
+let autoTurn = 0;
+let scanning = false;
 async function copyTick() {
   const now = Date.now();
-  const auto = autoFollowed().map((w) => ({ name: w.name, address: w.address }));
-  for (const w of auto) copyRulesFor(w);
-  for (const wl of [...COPY_WALLETS, ...auto]) {
+  // Wallets from the daily rescan: the real ones are read every tick like the fixed list; the paper ones take turns,
+  // AUTO_PAPER_PER_TICK a tick (60 paper wallets = each read every 90 s), so the data API load stays near 2 calls/s.
+  const followed = autoFollowed();
+  for (const w of followed) copyRulesFor(w);
+  const autoReal = followed.filter((w) => w.stage === "real");
+  const autoPaper = followed.filter((w) => w.stage !== "real");
+  const turn = autoPaper.length ? Array.from({ length: Math.min(AUTO_PAPER_PER_TICK, autoPaper.length) }, (_, i) => autoPaper[(autoTurn + i) % autoPaper.length]) : [];
+  autoTurn += AUTO_PAPER_PER_TICK;
+  for (const wl of [...COPY_WALLETS, ...autoReal, ...turn]) {
     const st = (copyStats[wl.name] ??= { buysSeen: 0, repeats: 0, noMarket: 0, restPlaced: 0, taken: 0, takeSkipped: 0, lastError: "", lastAt: 0 });
     const seenKey = `copy:seen:${wl.name}`;
     if (!state.done[seenKey]) state.done[seenKey] = Math.floor(now / 1000); // no backfill: only buys made from now on
@@ -2050,11 +2059,13 @@ async function main() {
       });
     }
     // daily wallet rescan (14 Nov 2026, enrique: "yeah"), first one about 10 min after a start
-    if (now - autoState().lastScan > 24 * 3600_000 && now - startedAt > 10 * 60_000) {
-      await guard("wallet rescan", async () => {
+    // Not awaited: the wide scan takes up to about half an hour and must not hold up the other loggers.
+    if (!scanning && scanDue(now) && now - startedAt > 10 * 60_000) {
+      scanning = true;
+      void guard("wallet rescan", async () => {
         const own = String(loadJson<{ funder?: string }>("live.json", {}).funder ?? "");
         for (const t of await copyScan([...COPY_WALLETS, { name: "weather wallet", address: WX_COPY_WALLET }], own, (u) => getJson(u, 20_000))) log(t);
-      });
+      }).finally(() => (scanning = false));
     }
     {
       await guard("jev", jevTick);
