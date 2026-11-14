@@ -58,7 +58,7 @@ async function solUsd(): Promise<number | null> {
 /**
  * Samples taken while Polymarket's prices could not be read counted the open bets at what was paid, which showed as
  * a sudden drop and a jump back (15 Nov 2026, about 40 minutes at $156). Such a dip is a gap, not a result: a run that
- * falls 12% or more below the last good sample and is back within 3% of it inside three hours is dropped.
+ * falls 12% or more below the last good sample and wins back 70% or more of that fall inside three hours is dropped.
  */
 export function despike(h: [number, number][]): [number, number][] {
   const out: [number, number][] = [];
@@ -66,7 +66,7 @@ export function despike(h: [number, number][]): [number, number][] {
     const good = out[out.length - 1];
     if (good && h[i][1] < good[1] * 0.88) {
       let back = false;
-      for (let j = i + 1; j < h.length && h[j][0] - h[i][0] <= 3 * 3_600_000; j++) if (h[j][1] >= good[1] * 0.97) { back = true; break; }
+      for (let j = i + 1; j < h.length && h[j][0] - h[i][0] <= 3 * 3_600_000; j++) if (h[j][1] >= h[i][1] + 0.7 * (good[1] - h[i][1])) { back = true; break; }
       if (back) continue;
     }
     out.push(h[i]);
@@ -107,5 +107,5 @@ export async function worthView(cash: number | null, claim: number, solBal: numb
   }
   const step = Math.max(1, Math.ceil(hist.length / 300));
   const first = hist.length ? hist[0][0] : Infinity;
-  return { ...memo.v, age: Date.now() - memo.at, hist: [...back.filter((p) => p[0] < first), ...hist.filter((_, i) => i % step === 0 || i === hist!.length - 1)] };
+  return { ...memo.v, age: Date.now() - memo.at, hist: [...back.filter((p) => p[0] < first), ...despike(hist).filter((_, i, a) => i % step === 0 || i === a.length - 1)] };
 }
