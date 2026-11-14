@@ -678,8 +678,28 @@ export function followed(): { name: string; address: string }[] {
 }
 let followSet = new Set<string>();
 const refreshFollow = () => (followSet = new Set(followed().map((x) => x.address)));
-/** Addresses the copy runner's stream should carry for this study: followed wallets and any with a paper copy open. */
-export const slowWatch = (): string[] => [...new Set([...followSet, ...state.open.map((p) => p.wallet)])];
+/**
+ * The real day-holder copy (slowlive.ts) is told of every swap of its own wallets that the stream carries, whether or
+ * not they still pass the screen. Nothing in the paper study depends on it.
+ */
+export interface SlowSwap {
+  wallet: string;
+  mint: string;
+  buy: boolean;
+  sol: number;
+  slot: number;
+  seenMs: number;
+}
+let realWatch = (): string[] => [];
+let realHook: ((s: SlowSwap) => void) | null = null;
+export function onSlowSwap(watch: () => string[], hook: (s: SlowSwap) => void) {
+  realWatch = watch;
+  realHook = hook;
+}
+let realSummary: (() => unknown) | null = null;
+export const setSlowRealSummary = (f: () => unknown) => void (realSummary = f);
+/** Addresses the copy runner's stream should carry for this study: followed wallets, any with a paper copy open, and the real copy's. */
+export const slowWatch = (): string[] => [...new Set([...followSet, ...state.open.map((p) => p.wallet), ...realWatch()])];
 
 async function loop() {
   while (!stopped) {
@@ -801,6 +821,16 @@ export function slowTx(tx: { slot: number; meta: Meta | null; transaction: { mes
   if (stopped || !cfg) return;
   const payer = payerOf(tx);
   if (!payer) return;
+  if (realHook && realWatch().includes(payer)) {
+    const s = sswapOf(tx.meta, payer, tx.slot, Math.floor(nowMs / 1000));
+    if (s) {
+      try {
+        realHook({ wallet: payer, mint: s.mint, buy: s.buy, sol: s.sol, slot: tx.slot, seenMs: nowMs });
+      } catch {
+        /* the real copy keeps its own errors */
+      }
+    }
+  }
   const mine = state.open.filter((p) => p.wallet === payer);
   if (!followSet.has(payer) && !mine.length) return;
   const s = sswapOf(tx.meta, payer, tx.slot, Math.floor(nowMs / 1000));
@@ -933,6 +963,8 @@ export function slowSummary() {
       }),
       holdMinMedian: r(median(done.filter((p) => p.soldMs).map((p) => (p.soldMs! - p.seenMs) / 60_000)), 0),
     },
+    /** the real day-holder copy (slowlive.ts), when it runs */
+    real: realSummary ? realSummary() : null,
     calls: health.calls,
     errors: health.errors,
     creditsToday: state.credits,

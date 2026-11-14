@@ -1621,6 +1621,8 @@ export function startSolanaCopyLive() {
     walletError = m.startsWith("solana-wallet.json") ? m.slice(0, 120) : "the wallet file could not be created or read";
   }
   onStreamBuy((b) => void trade(b));
+  // the real day-holder copy (enrique, 14 Nov 2026): its own switch in the repo file, its own loss cap; off by default
+  void import("./slowlive.js").then((m) => m.startSlowLive()).catch(() => undefined);
   if (walletReady && state.open) void recover();
   else if (walletReady && state.opens.length) void recoverMany();
   else if (walletReady) setTimeout(() => void tidy(), 20_000).unref();
@@ -1633,6 +1635,12 @@ export function startSolanaCopyLive() {
   }, 600_000).unref();
   return null;
 }
+
+/**
+ * The chain and price calls of this test, for the real day-holder copy (slowlive.ts), which uses the same wallet and
+ * the same guards on what is signed. Nothing here changes how this test trades.
+ */
+export const kit = { quote, swapTx, send, landed, held, sigOf, balance, booked, sellAll, closeEmpty };
 
 /** Test hooks. */
 export const _test = {
