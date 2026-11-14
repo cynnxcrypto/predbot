@@ -25,7 +25,7 @@ import { posRet, type Pos } from "./slow.js";
 
 export type Bucket = "high" | "mid" | "low" | "meme";
 export const BUCKETS: readonly Bucket[] = ["high", "mid", "low", "meme"];
-export const BUCKET_TEXT: Record<Bucket, string> = { high: "High caps ($1B+)", mid: "Mid caps ($100M-1B)", low: "Low caps ($10M-100M)", meme: "Memes and micro caps (under $10M)" };
+export const BUCKET_TEXT: Record<Bucket, string> = { high: "High caps ($1B+, with SOL and wrapped BTC, ETH and other majors)", mid: "Mid caps ($100M-1B)", low: "Low caps ($10M-100M)", meme: "Memes and micro caps (under $10M)" };
 export const bucketOf = (mcap: number): Bucket => (mcap >= 1e9 ? "high" : mcap >= 1e8 ? "mid" : mcap >= 1e7 ? "low" : "meme");
 /** how much wilder a bucket moves than the big coins: every rule's thresholds are multiplied by this */
 export const SCALE: Record<Bucket, number> = { high: 1, mid: 1.5, low: 2.5, meme: 5 };
@@ -59,13 +59,20 @@ export interface Coin {
   vol: number;
 }
 const STABLE = /USD|EUR|^DAI$|^PYUSD$/i;
+/**
+ * Coins that live on other chains, or are simply big everywhere: Jupiter's market value counts only the supply that
+ * sits on Solana (wrapped ETH came out as a low cap), so these are high caps by name. Only a VERIFIED coin with real
+ * liquidity gets the name's credit: anyone can mint a token called BTC.
+ */
+export const MAJORS: ReadonlySet<string> = new Set(["SOL", "BTC", "WBTC", "CBBTC", "ZBTC", "XBTC", "TBTC", "ETH", "WETH", "CBETH", "HYPE", "ZEC", "BNB", "WBNB", "XRP", "DOGE", "TRX", "ADA", "LINK", "AVAX", "SUI", "LTC", "XMR", "TON"]);
+const MAJOR_MIN_LIQ_USD = 500_000;
 /** Jupiter token rows -> tradable coins with a bucket. Stables, staked SOL, thin or new coins are left out. */
 export function bucketCoins(rows: unknown, nowMs: number): Coin[] {
   if (!Array.isArray(rows)) return [];
   const out: Coin[] = [];
   for (const x of rows as Record<string, unknown>[]) {
     const mint = typeof x?.id === "string" ? x.id : null;
-    if (!mint || mint === SOL || mint === USDC || !/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(mint)) continue;
+    if (!mint || mint === USDC || !/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(mint)) continue;
     const symbol = String(x.symbol ?? "").replace(/[^A-Za-z0-9]/g, "").slice(0, 12) || mint.slice(0, 4);
     const tags = Array.isArray(x.tags) ? x.tags.map(String) : [];
     if (tags.includes("lst") || STABLE.test(symbol) || (symbol.length > 3 && symbol.toUpperCase().endsWith("SOL"))) continue;
@@ -74,7 +81,9 @@ export function bucketCoins(rows: unknown, nowMs: number): Coin[] {
     const st = x.stats24h as { buyVolume?: unknown; sellVolume?: unknown } | undefined;
     const vol = Number(st?.buyVolume) + Number(st?.sellVolume);
     if (!(mcap > 0) || !(liq > 0) || !(vol > 0)) continue;
-    const bucket = bucketOf(mcap);
+    const verified = x.isVerified === true || tags.includes("verified");
+    const major = mint === SOL || (verified && liq >= MAJOR_MIN_LIQ_USD && MAJORS.has(symbol.toUpperCase()));
+    const bucket = major ? "high" : bucketOf(mcap);
     const created = Date.parse(String((x.firstPool as { createdAt?: unknown } | undefined)?.createdAt ?? ""));
     const age = Number.isFinite(created) ? nowMs - created : null;
     if (bucket === "meme" ? liq < MEME_MIN_LIQ_USD || (age !== null && age < MEME_MIN_AGE_MS) : liq < MIN_LIQ_USD || (age !== null && age < MIN_AGE_MS)) continue;
@@ -351,6 +360,8 @@ interface HlTrade {
   why: "closed" | "max hold";
 }
 interface State {
+  /** version of the coin sorting: an older file's coin list is read again at once */
+  v?: number;
   universe: Coin[];
   universeAt: number;
   slot: number;
@@ -374,7 +385,9 @@ interface State {
   jupCalls: number;
   errors: Record<string, string>;
 }
+const SORT_V = 2;
 const fresh = (): State => ({
+  v: SORT_V,
   universe: [], universeAt: 0, slot: 0, series: {}, open: [], trades: [], cool: {}, missed: 0, perpHour: 0, perpOpen: [], perpTrades: [], perpLast: {},
   hlTraders: [], hlAt: 0, hlSeen: {}, hlNext: 0, hlOpen: [], hlTrades: [], mcap: {}, jupDay: 0, jupCalls: 0, errors: {},
 });
@@ -386,6 +399,8 @@ function load() {
   loaded = true;
   try {
     state = { ...fresh(), ...(JSON.parse(readFileSync(FILE(), "utf8")) as State) };
+    if (state.v !== SORT_V) state.universeAt = 0;
+    state.v = SORT_V;
   } catch {
     state = fresh();
   }
