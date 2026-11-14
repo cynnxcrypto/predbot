@@ -17,7 +17,7 @@
  */
 import { loadJson, saveJson } from "./store.js";
 import { autoFollowed, autoState, autoSummary, copyPromote, copyScan, scanDue } from "./copyscan.js";
-import { NEG_READY_FILE, eventLiveAdapt, eventLiveBusy, eventLiveBuy, eventRestBid, eventRestSync, eventLiveConfig, eventLiveRows, eventLiveSettle, eventLiveSummary, eventLiveStop, type NegRiskReady } from "./eventlive.js";
+import { NEG_READY_FILE, spentOf, eventLiveAdapt, eventLiveBusy, eventLiveBuy, eventRestBid, eventRestSync, eventLiveConfig, eventLiveRows, eventLiveSettle, eventLiveSummary, eventLiveStop, type NegRiskReady } from "./eventlive.js";
 import { JEV_CONTEXT, headlines, jevKey, jevStake, type JevStake } from "./jev.js";
 
 const GAMMA = "https://gamma-api.polymarket.com";
@@ -1763,7 +1763,8 @@ async function markOpenTick() {
   const rows = eventLiveRows().filter((r) => r.shares > 0 && r.pnl == null);
   const m: OpenMark = { at: Date.now(), n: 0, stake: 0, value: 0, winning: 0, losing: 0, unknown: 0, byDay: {}, byGroup: {} };
   const cache = new Map<string, GMarket | null>();
-  for (const r of rows) {
+  for (const r0 of rows) {
+    const r = { ...r0, cost: spentOf(r0) };
     if (!cache.has(r.marketId)) cache.set(r.marketId, await getJson<GMarket>(`${GAMMA}/markets/${r.marketId}`).catch(() => null));
     const g = cache.get(r.marketId);
     const px = g ? jl<string[]>(g.outcomePrices, []).map(Number)[r.idx] : NaN;

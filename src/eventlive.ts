@@ -79,6 +79,9 @@ export type EventLiveRow = {
   until?: number;
 };
 /** A row that holds a slot and money: filled, outcome unknown, or a bid still resting on the book. */
+/** Dollars really paid for a row. A resting bid keeps its whole stake in `cost` (the stake cap reserves it, as
+ *  Polymarket does) until it is finished; only the filled shares are paid for. */
+export const spentOf = (r: { status: string | null; shares: number; ask: number; cost: number }) => (r.status === "resting" ? Math.round(r.shares * r.ask * 1e6) / 1e6 : r.cost);
 const held = (r: EventLiveRow) => r.shares > 0 || r.status === "unknown" || r.status === "resting";
 export type EventLiveGroup = { rules: string[]; size: number; maxAsk: number; minDepth: number; dayLosses: number; maxOpen: number; maxLoss: number; negRisk: boolean; maxSize: number; maxDays: number; perWallet: number; stopNet: number; openUsd: number; walletUsd: number; adaptN: number; adaptStop: number; adaptBoost: number };
 export type EventLiveConfig = { mode: string; minBalance: number; lossCap?: LossCap; groups: Record<string, EventLiveGroup> };
@@ -451,6 +454,7 @@ export function eventLiveSettle(marketId: string, pays: number[]): number {
     // An order whose reply was lost has no known fill: it settles at $0 here and stays visible as status "unknown".
     r.pay = pay;
     r.won = r.shares > 0 ? (pay === 1 ? true : pay === 0 ? false : null) : null;
+    if (r.status === "resting") r.cost = spentOf(r); // settled while still resting: only the filled part was paid
     r.pnl = r.shares > 0 ? r.shares * pay - r.cost - r.fee : 0;
     r.settledAt = Date.now();
     n++;
@@ -479,6 +483,6 @@ export function eventLiveSummary(group: string) {
     open: filled.filter((r) => r.pnl == null).length,
     resting: rows.filter((r) => r.pnl == null && r.status === "resting").length,
     unknown: rows.filter((r) => r.status === "unknown" && r.pnl == null && !(r.shares > 0)).length,
-    recent: rows.slice(-20).reverse().map((r) => ({ t: r.t, rule: r.rule, title: r.title, outcome: r.outcome, ask: r.ask, cost: r.cost, shares: r.shares, status: r.shares > 0 ? "filled" : r.status, error: r.error, won: r.won ?? null, pnl: r.pnl ?? null })),
+    recent: rows.slice(-20).reverse().map((r) => ({ t: r.t, rule: r.rule, title: r.title, outcome: r.outcome, ask: r.ask, cost: spentOf(r), shares: r.shares, status: r.shares > 0 ? "filled" : r.status, error: r.error, won: r.won ?? null, pnl: r.pnl ?? null })),
   };
 }
