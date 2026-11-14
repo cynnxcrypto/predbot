@@ -41,6 +41,10 @@ test("buckets: coins are sorted by market value; stables, staked SOL, thin and n
   assert.equal(isStock({ symbol: "Fartcoin", name: "Fartcoin" }), false);
   assert.equal(isStock({ symbol: "JUP", name: "Jupiter" }), false);
   assert.deepEqual(bucketCoins([row(30, 5e6, { symbol: "NVDA", name: "NVIDIA xStock" })], NOW), []);
+  // the leftovers of the first live lists: an unlabelled stock, a pool share, a stablecoin, a wrapped major
+  assert.equal(isStock({ symbol: "NIO", name: "NIO" }), true);
+  const left = bucketCoins([row(40, 5e8, { symbol: "JLP", name: "Jupiter Perps LP" }), row(41, 5e8, { symbol: "CASH", name: "CASH" }), row(42, 5e8, { symbol: "XYZ", name: "Some Stable Dollar" }), row(43, 5e8, { symbol: "SOL-USDC" }), row(44, 5e6, { symbol: "wNEAR", name: "Wrapped NEAR", isVerified: true }), row(45, 5e8, { symbol: "WIF", name: "dogwifhat", tags: ["verified"] })], NOW);
+  assert.deepEqual(left.map((c) => [c.symbol, c.bucket, c.name]), [["wNEAR", "high", "Wrapped NEAR"], ["WIF", "mid", "dogwifhat"]]);
   const many = Array.from({ length: 150 }, (_, i) => ({ ...coins[1], mint: MINT(100 + i), vol: i }));
   const picked = pickUniverse([...many, ...many, coins[0]]);
   assert.equal(picked.filter((c) => c.bucket === "mid").length, B.PER_BUCKET);
