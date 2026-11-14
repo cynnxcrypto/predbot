@@ -769,6 +769,7 @@ export function bucketsSummary() {
     spotRecent: state.trades.slice(-15).reverse().map((t) => ({ rule: t.rule, coin: t.symbol, boughtAt: t.at, soldAt: t.exitAt, why: t.why, pct: r((t.netUsd / STAKE_USD) * 100) })),
     spotOpen: state.open.map((o) => ({ rule: o.rule, coin: o.symbol, boughtAt: o.at })),
     perps: {
+      real: perpRealSummary(),
       last: state.perpLast,
       rules: PERP_COINS.flatMap((coin) =>
         PERP_RULES.map((x) => {
@@ -811,6 +812,26 @@ export function paperOpens(): { rule: string; bucket: Bucket; mint: string; symb
   if (!loaded) load();
   return state.open.map((o) => ({ rule: o.rule, bucket: o.bucket, mint: o.mint, symbol: o.symbol, at: o.at }));
 }
+/** The rule name of the paper copies of perp traders that a real short could follow: shorts on SOL, BTC, ETH. */
+export const COPY_SHORTS = "copy-shorts";
+const isCopyShort = (t: { coin: string; dir: number }) => t.dir < 0 && (PERP_COINS as readonly string[]).includes(t.coin);
+export const perpRuleIds = () => [...PERP_COINS.flatMap((c) => PERP_RULES.map((x) => `${c}-${x.key}`)), COPY_SHORTS];
+/** The perp paper positions that are open now (rules and copied traders' shorts), each with a name of its own. */
+export function perpPaperOpens(): { id: string; rule: string; coin: string; dir: number; at: number }[] {
+  if (!loaded) load();
+  return [
+    ...state.perpOpen.map((o) => ({ id: `${o.rule}:${o.at}`, rule: o.rule, coin: o.coin, dir: o.dir, at: o.at })),
+    ...state.hlOpen.filter(isCopyShort).map((o) => ({ id: `${COPY_SHORTS}:${o.coin}:${o.at}:${o.trader.slice(2, 10)}`, rule: COPY_SHORTS, coin: o.coin, dir: o.dir, at: o.at })),
+  ];
+}
+/** One perp rule's closed paper trades since `sinceMs`, in the shape of the bar (net in units of one position). */
+export function perpPaperRecord(rule: string, sinceMs = 0) {
+  if (!loaded) load();
+  const xs = rule === COPY_SHORTS ? state.hlTrades.filter((t) => isCopyShort(t) && t.at > sinceMs) : state.perpTrades.filter((t) => t.rule === rule && t.at > sinceMs);
+  return { trades: xs.length, won: xs.filter((t) => t.net > 0).length, netUsd: xs.reduce((a, t) => a + t.net, 0) * PERP_USD };
+}
+let perpRealSummary: () => unknown = () => null;
+export const setPerpsRealSummary = (f: () => unknown) => void (perpRealSummary = f);
 let realSummary: () => unknown = () => null;
 export const setBucketsRealSummary = (f: () => unknown) => void (realSummary = f);
 

@@ -127,9 +127,9 @@ test("buckets real: a proven rule's paper buy is bought, and sold when paper sel
 
 test("buckets real: guards before a buy", async () => {
   const cases: [string, (c: ReturnType<typeof world>["c"], st: ReturnType<typeof setup>) => void, number][] = [
-    ["held by the day-holder copy", (c) => (c.other = [COIN]), T0 + 5000],
+    ["held by another strategy", (c) => (c.other = [COIN]), T0 + 5000],
     ["too little SOL", (c) => (c.sol = 0.011), T0 + 5000],
-    ["wallet over the agreed size", (c) => (c.sol = 0.7), T0 + 5000],
+    ["wallet over the agreed size", (c) => (c.sol = 0.4), T0 + 5000],
     ["paper buy too old", () => undefined, T0 + L.BUY_WINDOW_MS + 1000],
     ["SOL itself", (_c, st) => (st.open = [paperOpen(T0, SOL)]), T0 + 5000],
   ];

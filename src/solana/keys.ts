@@ -47,32 +47,48 @@ function fromSeed(seed: Buffer, pubkey: Buffer): Wallet {
   return { address: base58(pubkey), pubkey, sign: (m) => edSign(null, m, key) };
 }
 
-let cached: Wallet | null = null;
+const cache = new Map<string, Wallet>();
 
-/** The wallet, created on first call if this machine has none yet. Same file format as solana-keygen (64 numbers). */
-export function wallet(): Wallet {
-  if (cached) return cached;
-  if (!existsSync(FILE())) {
+/** A wallet file: read, or created on first call if this machine has none yet. Same format as solana-keygen (64 numbers). */
+function walletAt(file: string, addrFile: string, label: string): Wallet {
+  const hit = cache.get(file);
+  if (hit) return hit;
+  if (!existsSync(file)) {
     const { privateKey, publicKey } = generateKeyPairSync("ed25519");
     const seed = privateKey.export({ format: "der", type: "pkcs8" }).subarray(-32);
     const pub = publicKey.export({ format: "der", type: "spki" }).subarray(-32);
     mkdirSync(DATA, { recursive: true });
-    writeFileSync(FILE(), JSON.stringify([...seed, ...pub]), { mode: 0o600, flag: "wx" }); // wx: never overwrite a wallet
-    chmodSync(FILE(), 0o600);
+    writeFileSync(file, JSON.stringify([...seed, ...pub]), { mode: 0o600, flag: "wx" }); // wx: never overwrite a wallet
+    chmodSync(file, 0o600);
   }
-  const raw = JSON.parse(readFileSync(FILE(), "utf8")) as number[];
-  if (!Array.isArray(raw) || raw.length !== 64) throw new Error("solana-wallet.json is not a 64-byte key");
+  const raw = JSON.parse(readFileSync(file, "utf8")) as number[];
+  if (!Array.isArray(raw) || raw.length !== 64) throw new Error(`${label} is not a 64-byte key`);
   const w = fromSeed(Buffer.from(raw.slice(0, 32)), Buffer.from(raw.slice(32)));
   // a key whose two halves do not belong together must never be used
   const probe = Buffer.from("predbot wallet self-check");
   const pubObj = createPublicKey({ key: Buffer.concat([Buffer.from("302a300506032b6570032100", "hex"), w.pubkey]), format: "der", type: "spki" });
-  if (!verify(null, probe, pubObj, w.sign(probe))) throw new Error("solana-wallet.json: secret and public halves do not match");
-  if (!existsSync(ADDR()) || readFileSync(ADDR(), "utf8").trim() !== w.address) writeFileSync(ADDR(), w.address + "\n", { mode: 0o600 });
-  return (cached = w);
+  if (!verify(null, probe, pubObj, w.sign(probe))) throw new Error(`${label}: secret and public halves do not match`);
+  if (!existsSync(addrFile) || readFileSync(addrFile, "utf8").trim() !== w.address) writeFileSync(addrFile, w.address + "\n", { mode: 0o600 });
+  cache.set(file, w);
+  return w;
+}
+
+/** The first wallet (the copy tests and the day-holder copy), created on first call if this machine has none yet. */
+export function wallet(): Wallet {
+  return walletAt(FILE(), ADDR(), "solana-wallet.json");
+}
+
+/**
+ * A wallet of its own for one strategy (enrique, 15 Nov 2026: "so we separate budgets of different things"):
+ * data/solana-wallet-<name>.json, made on this machine on first use, its address beside it in
+ * data/solana-wallet-<name>-address.txt. Never the first wallet: what one strategy does cannot touch another's money.
+ */
+export function namedWallet(name: "buckets" | "perps"): Wallet {
+  return walletAt(join(DATA, `solana-wallet-${name}.json`), join(DATA, `solana-wallet-${name}-address.txt`), `solana-wallet-${name}.json`);
 }
 
 /** Test hook: forget the cached wallet (tests point DATA_DIR at a scratch folder). */
-export const _forget = () => (cached = null);
+export const _forget = () => cache.clear();
 
 /**
  * Sign a transaction that an API built for us (base64, one signature slot) and return it as base64.
