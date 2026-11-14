@@ -21,6 +21,7 @@ import { linkedWallets, linksSummary, seedWallets, startLinks, stopLinks } from 
 import { preconfSeen, preconfSummary, startPreconf, stopPreconf } from "./preconf.js";
 import { startCandles } from "./candles.js";
 import { dipSummary, startDip, stopDip } from "./dip.js";
+import { bucketsSummary, startBuckets, stopBuckets } from "./buckets.js";
 import { mktSummary, startMktDip, stopMktDip } from "./mktdip.js";
 import { validAddress, WALLETS, type Tracked } from "./wallets.js";
 
@@ -342,6 +343,7 @@ export function buildCopySummary() {
     fomo: fomoStudy(signals.filter((x) => x.fomo), solUsd),
     waveQuoted: waveQuotedStudy(waves),
     dip: dipSummary(),
+    buckets: bucketsSummary(),
     marketDip: mktSummary(),
     ...(() => {
       // With the Helius key, score only buys read on the Helius feed and known within 30 s. Buys from the keyless
@@ -864,6 +866,8 @@ export function startSolanaCopy(fetcher: Fetch = fetch) {
   startDip({ fetch: () => net, quote: (a, b, amount) => quote(a, b, amount) });
   // the whole-market dip rules on paper (read-only: 8 hourly candle requests, a few quotes a trade); SOLANA_MKTDIP=off disables
   startMktDip({ fetch: () => net, quote: (a, b, amount) => quote(a, b, amount) });
+  // five buckets on paper (read-only: Jupiter lists and prices, hourly candles, Hyperliquid's public trader data, quotes a trade); SOLANA_BUCKETS=off disables
+  startBuckets({ fetch: () => net, quote: (a, b, amount) => quote(a, b, amount, false, 120_000), jup: (path) => jupList(path) });
   // price history for the slow-trade research (read-only, public market data, runs once); SOLANA_CANDLES=off disables
   setTimeout(() => void startCandles(), 120_000).unref();
   void refreshSolUsd();
@@ -895,6 +899,7 @@ export function stopSolanaCopy() {
   stopLinks();
   stopPreconf();
   stopDip();
+  stopBuckets();
   stopMktDip();
 }
 
