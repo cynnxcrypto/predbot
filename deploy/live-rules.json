@@ -57,7 +57,7 @@
       "maxLoss": 1000
     },
     "tennisrest": {
-      "note": "14 Nov 2026 01:26 KST, enrique: more real bets 'on anything that might be good and looks good on past data and paper'. The one paper rule over the bar, prematch-rest-clv-tennis (171 settled, 88 won, +$107.39 on $3 bids at 13 Nov 2026; about 4 days of paper, no order-book history to test it further), now with real money: from 6 h before a tennis match a post-only bid at the best bid on BOTH players, about $3 (at least the exchange's 5-share minimum, so up to $4.85), cancelled 20 min before the start. Its own stop: no new bid once the settled real result is -$15 (stopNet 15), for good until his word. Stake cap $40 in bids resting or filled and open (openUsd); no count limit. Code src/eventlive.ts eventRestBid / eventRestSync.",
+      "note": "14 Nov 2026 01:26 KST, enrique: more real bets 'on anything that might be good and looks good on past data and paper'. The one paper rule over the bar, prematch-rest-clv-tennis (171 settled, 88 won, +$107.39 on $3 bids at 13 Nov 2026; about 4 days of paper, no order-book history to test it further), now with real money: from 6 h before a tennis match a post-only bid at the best bid on BOTH players, about $3 (at least the exchange's 5-share minimum, so up to $4.85), cancelled 20 min before the start. Its own stop: no new bid once the settled real result is -$15 (stopNet 15), for good until his word. Stake cap $40 in bids resting or filled and open (openUsd); no count limit. Code src/eventlive.ts eventRestBid / eventRestSync. 14 Nov 2026 23:25 KST, enrique: the idle wallet cash (~$45) 'for whatever u think might do better based on closed trades and what open trades look like': openUsd 40 -> 75 (it was full: 2 open + 9 resting), maxLoss 60 -> 90 only so 75 open fit next to the unchanged -$15 stop. Why this one: the only rule with evidence (paper 192 settled, 97 won, +$108.82; real 5 settled, 3 won, +$1.37); wallet copies are -$31.48 on 29 real and already have their $120.",
       "rules": ["prematch-rest-clv-tennis"],
       "size": 3,
       "maxSize": 5,
@@ -65,9 +65,9 @@
       "minDepth": 0,
       "dayLosses": 99,
       "maxOpen": 999,
-      "openUsd": 40,
+      "openUsd": 75,
       "stopNet": 15,
-      "maxLoss": 60
+      "maxLoss": 90
     },
     "tennis": {
       "note": "10 Nov 2026 17:28 KST, enrique: start tennis. Real copy of the paper tennis favourite rules (mid 90-95c, 10 min before the start, ask within 2c of mid). $3 a bet, Jev sizing off, only when $25+ rests within 2c of the ask. Guards: 2 losses in a KST day stop it until the next day, 4 bets open at most, its own budget of $10 (enrique 17:56 KST: 10usd for tennis is totally fine, outside of what i said for crypto; lost + open stakes), separate from the crypto $70 cap (enrique 17:45 KST: tennis should have its own little budget). 11 Nov 2026 19:46 KST, enrique: extend tennis budget risk to 30 so there can be 10 different bets online instead of just 3: budget $10 -> $30, bets open at most 4 -> 10; $3 a bet and the 2-losses-a-day stop unchanged. 13 Nov 2026 14:06 KST, enrique: 'it makes literal no sense to just do trades until we lose twice and stop until next day, u have to either decide to stop for good or continue': the 2-losses-a-day pause is gone (dayLosses 99 = not a stop); the $30 budget is the only stop and ends it for good. 13 Nov 2026 17:10 KST, enrique: 'okay if tennis goes -10 then stop it': stopNet 10 = no new tennis bet once the settled real result is -$10 or worse, for good until his word; open bets settle. maxLoss 30 -> 45 only so that 10 open bets still fit next to that stop (it is no longer the stop). Code src/eventlive.ts.",
