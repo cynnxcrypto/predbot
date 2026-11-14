@@ -91,6 +91,14 @@ const sig = (o: Partial<Signal> = {}): Signal => ({
   crowd: null, ...o,
 });
 
+/** A rule by id: among the reachable ones, the instant-price ones, or (no copy at all) the not-measured ids. */
+const ruleOf = (sum: ReturnType<typeof summarize>, id: string) => {
+  const hit = [...sum.rules, ...sum.rulesInstant].find((x) => x.id === id);
+  if (hit) return hit;
+  assert.ok(sum.notMeasured.includes(id), `no rule ${id}`);
+  return { id, text: "", n: 0, won: 0, netSol: 0, netUsd: 0, medianRetPct: 0, avgRetPct: null as number | null };
+};
+
 test("returns: costs taken off, missing quotes handled honestly", () => {
   const s = sig();
   assert.ok(Math.abs(ret(s, 0, 5)! - ((0.27 - 2 * TX_SOL) / STAKE_SOL - 1)) < 1e-12);
@@ -154,7 +162,7 @@ test("late entries: followed from their own purchase, and compared only on buys 
   assert.equal(scalp(old, 5, 10), undefined);
   assert.equal(rising(old, 5, 10), undefined);
   const sum = summarize([ran, old], 80);
-  const rule = (id: string) => sum.rules.find((x) => x.id === id)!;
+  const rule = (id: string) => ruleOf(sum, id);
   assert.equal(rule("copy-d5-tp10-t60").n, 1);
   assert.equal(rule("copy-d20-x30").n, 1);
   assert.equal(rule("copy-d5-rising-tp10-t60").n, 1);
@@ -162,12 +170,74 @@ test("late entries: followed from their own purchase, and compared only on buys 
   assert.ok(rule("copy-d0-tp10-cut10-t60").text.includes("sell at 10 s if it is not up"));
   const st = sum.lateStudy;
   assert.equal(st.n, 1);
-  assert.deepEqual(st.entries.map((x) => x.sec), [0, 5, 10, 20]);
-  assert.deepEqual(st.entries.map((x) => x.priceVsFastestPct), [0, 8, 5, -10]);
-  assert.deepEqual(st.entries.map((x) => x.won), [1, 0, 0, 1]);
-  assert.deepEqual(st.entries.map((x) => x.avgRetPct), [12, -6, -3, 11]);
-  assert.deepEqual(st.entries[3].holdOnly, { n: 1, won: 1, avgRetPct: 2 });
-  assert.equal(lateStudy([old]).n, 0);
+  // the instant quote first (no order gets it), then 1 s later (where a real order lands), then the late times
+  assert.deepEqual(st.entries.map((x) => x.sec), [0, 1, 5, 10, 20]);
+  assert.deepEqual(st.entries.map((x) => x.reachable), [false, true, true, true, true]);
+  assert.deepEqual(st.entries.map((x) => x.priceVsFastestPct), [0, 0, 8, 5, -10]);
+  assert.deepEqual(st.entries.map((x) => x.won), [1, 0, 0, 0, 1]);
+  assert.deepEqual(st.entries.map((x) => x.avgRetPct), [12, 0, -6, -3, 11]);
+  assert.deepEqual(st.entries[4].holdOnly, { n: 1, won: 1, avgRetPct: 2 });
+  // no late entry priced at all (as today): the study is at once against 1 s later, on every buy priced at both
+  const two = lateStudy([old, old]);
+  assert.deepEqual([two.n, two.entries.map((x) => x.sec)], [2, [0, 1]]);
+  // a late time priced for under half of the buys is left out instead of shrinking the rows to its few buys
+  assert.deepEqual(lateStudy([ran, old, old]).entries.map((x) => x.sec), [0, 1]);
+});
+
+test("realistic figures: every rule and wallet number is priced where a real order lands, the instant quote sits apart", () => {
+  const out = (pct: number) => STAKE_SOL * (1 + pct / 100) + 2 * TX_SOL;
+  const e = (price: number) => ({ t: 0, slot: 1010, tokens: "1", price });
+  const flat = (pct: number) => ({ x2: out(pct), x5: out(pct), x10: out(pct), x20: out(pct), x30: out(pct), x60: out(pct), x120: out(pct) });
+  // The hopium case: at the instant quote we are 2% above the wallet and the copy is up 12% throughout; a second
+  // later the price is 10% higher and the same copy is 6% down throughout. Three such buys by one wallet.
+  const one = (i: number) => sig({
+    sig: `h${i}`, knownMs: 1_800_000_001_500 + i * 4 * 3_600_000,
+    entries: { d0: e(1.02e-6), d1: e(1.122e-6), d3: null },
+    exits: { d0: { x0: out(-2), ...flat(12) }, d1: flat(-6), d3: {} },
+    path: { x1: out(12), x3: out(12), x15: out(12), x45: out(12), x90: out(12), x180: out(12), x300: out(3), x600: null },
+    crowd: { same: 1, s10: 4, s25: 5, s150: 9, ahead: { d0: 1, d1: 6 } },
+  });
+  const sum = summarize([0, 1, 2].map(one), 80);
+  const inst = (id: string) => sum.rulesInstant.find((x) => x.id === id)!;
+  const real = (id: string) => sum.rules.find((x) => x.id === id)!;
+  // the instant rule wins every copy and is not in the list the page ranks; its twin a second later loses them all
+  assert.deepEqual([inst("copy-d0-gap3under-tp10-t60").n, inst("copy-d0-gap3under-tp10-t60").won, inst("copy-d0-gap3under-tp10-t60").avgRetPct], [3, 3, 12]);
+  assert.equal(sum.rules.find((x) => x.id.startsWith("copy-d0-")), undefined);
+  assert.deepEqual([real("copy-d1-gap3under-tp10-t60").n, real("copy-d1-gap3under-tp10-t60").won, real("copy-d1-gap3under-tp10-t60").avgRetPct], [3, 0, -6]);
+  // the twin is decided on the instant quote (2% above the wallet: under the 3% bar) and only filled later;
+  // a bar read on the later price (12% above) would not have bought
+  assert.ok(real("copy-d1-gap3under-tp10-t60").text.includes("1 s after we know") && !real("copy-d1-gap3under-tp10-t60").text.includes("the moment we know"));
+  for (const id of ["copy-d1-tp10-t60", "copy-d1-tp10-t30", "copy-d1-tp20-t60", "copy-d1-tp10-sl5-t60", "copy-d1-tp10-cut5-t60", "copy-d1-trader-new-tp10-t30", "copy-d1-calm-tp10-t30"]) {
+    assert.deepEqual([real(id).n, real(id).won], [3, 0], id);
+  }
+  // nothing a real order could get is in profit, whatever the instant quote says
+  assert.deepEqual([sum.inProfit, sum.qualified], [0, []]);
+  assert.ok(sum.rulesInstant.filter((x) => (x.netSol ?? 0) > 0).length >= 20);
+  // 5 min a second late: the instant copy's sale (up 3% by then) re-priced for the fewer tokens the later buy got
+  // (1.02 / 1.122 of them), so down 6%; at 10 min there was no price and nothing after it: a total loss, as at once
+  const sold = (out(3) * (1.02 / 1.122) - 2 * TX_SOL) / STAKE_SOL - 1;
+  assert.ok(sold < -0.06 && pathRet(one(0), 300)! > 0.029);
+  assert.ok(Math.abs(pathRet(one(0), 300, 1)! - sold) < 1e-12);
+  assert.ok(Math.abs(pathRet(one(0), 60, 1)! - -0.06) < 1e-12, "its own check where it has one");
+  assert.equal(pathRet(one(0), 600, 1), -1);
+  assert.equal(pathRet(sig(), 300, 1), undefined, "no path: nothing invented");
+  assert.equal(real("copy-d1-x300").n, 3);
+  assert.ok(Math.abs(real("copy-d1-x300").avgRetPct! - Math.round(sold * 10000) / 100) < 0.011);
+  assert.equal(scalpCut(one(0), 10, 5, 1), ret(one(0), 1, 5), "down at the 5 s look a second late: sold there");
+  // the wallet row: what a buy a second later pays and meets, and the AVERAGE of its results; instant apart
+  const w = sum.wallets[0];
+  assert.deepEqual([w.priced, w.entryGapPct, w.aheadOfUs, w.ret5, w.ret30, w.ret120], [3, 12.2, 6, -6, -6, -6]);
+  assert.deepEqual(w.instant, { entryGapPct: 2, aheadOfUs: 1, ret5: 12, ret30: 12, ret120: 12 });
+  assert.deepEqual([w.copy.won, w.copyLate.won, w.copyLate.avgRetPct], [3, 0, -6]);
+  // an average, not the middle value: two small wins and one big loss a second late read as a loss
+  const mixed = [0, 1, 2].map((i) => ({ ...one(i), exits: { ...one(i).exits, d1: flat(i < 2 ? 3 : -60) } }));
+  assert.equal(summarize(mixed, 80).wallets[0].ret30, -18);
+  // the trade log and the "buy at once or wait" table say the same
+  assert.deepEqual([sum.recent[0].ahead, sum.recent[0].entryGapPct], [6, 12.2]);
+  assert.deepEqual(sum.lateStudy.entries.map((x) => [x.sec, x.reachable, x.avgRetPct]), [[0, false, 12], [1, true, -6]]);
+  // the fomo traders' panel has the same copy a second late beside the instant one
+  const fm = fomoStudy([0, 1, 2].map(one), 80).all.rules;
+  assert.deepEqual([fm["copy-d0-tp10-t60"].avgRetPct, fm["copy-d1-tp10-t60"].avgRetPct, fm["copy-d1-x60"].won], [12, -6, 0]);
 });
 
 test("same-block what-if: the measured exit re-priced at the wallet's price plus slip", () => {
@@ -195,17 +265,26 @@ test("crowd: who lands before us", () => {
 });
 
 test("summary: speed first, rules counted, wallets ranked by follow-through", () => {
-  const a = sig({ crowd: { same: 2, s10: 6, s25: 7, s150: 8, ahead: { d0: 5 } } });
-  const b = sig({ wallet: WALLETS[1].address, name: "gr3g", crowd: { same: 0, s10: 0, s25: 0, s150: 1, ahead: { d0: 0 } } });
+  const a = sig({ crowd: { same: 2, s10: 6, s25: 7, s150: 8, ahead: { d0: 5, d1: 9 } } });
+  const b = sig({ wallet: WALLETS[1].address, name: "gr3g", crowd: { same: 0, s10: 0, s25: 0, s150: 1, ahead: { d0: 0, d1: 0 } } });
   const sum = summarize([a, b], 80);
   assert.equal(sum.speed.buysSeen, 2);
   assert.equal(sum.speed.lagSecMedian, 1.5);
-  assert.equal(sum.speed.aheadMedian, 2.5);
+  // the line and the price are those of a buy 1 s after we know (where a real order lands); the instant ones sit apart
+  assert.equal(sum.speed.aheadMedian, 4.5);
   assert.equal(sum.speed.firstInLinePct, 50);
   assert.equal(sum.speed.noWavePct, 50);
-  assert.equal(sum.speed.entryGapPctMedian, 10);
+  assert.equal(sum.speed.entryGapPctMedian, 20);
+  assert.deepEqual(sum.speed.instant, { aheadMedian: 2.5, firstInLinePct: 50, entryGapPctMedian: 10 });
   assert.ok(sum.speed.breakEvenPctMedian! > 4);
-  assert.equal(sum.rulesTried, 90);
+  // 135 rules in all: 55 at the instant quote, kept apart; of the 80 a real order could get, those with a copy are listed
+  assert.equal(sum.rulesInstant.length, 55);
+  assert.equal(sum.rules.length + sum.notMeasured.length, 80);
+  assert.equal(sum.rulesTried, sum.rules.length);
+  const ids = [...sum.rules.map((x) => x.id), ...sum.rulesInstant.map((x) => x.id), ...sum.notMeasured];
+  assert.equal(new Set(ids).size, 135);
+  assert.ok(sum.rulesInstant.every((x) => x.id.startsWith("copy-d0-")));
+  assert.ok(sum.rules.every((x) => x.n > 0 && !x.id.startsWith("copy-d0-")) && sum.notMeasured.every((id) => !id.startsWith("copy-d0-")));
   assert.equal(sum.wallets[0].name, "Chairman");
   assert.deepEqual(sum.qualified, []);
 });
@@ -213,7 +292,7 @@ test("summary: speed first, rules counted, wallets ranked by follow-through", ()
 test("9% buys under other exits: a look at 20 s, stops, and stricter gaps", () => {
   // our price is 10% above the wallet's; the copy is up 8% at 5 s, flat at 10 s, down 20% at 20 s and 40% at 60 s
   const s = sig();
-  const rule = (list: Signal[], id: string) => summarize(list, 80).rules.find((r) => r.id === id)!;
+  const rule = (list: Signal[], id: string) => ruleOf(summarize(list, 80), id);
   const at60 = rule([s], "copy-d0-gap9-tp10-t60");
   assert.deepEqual({ n: at60.n, won: at60.won }, { n: 1, won: 0 });
   assert.ok(at60.avgRetPct! < -39);
@@ -389,7 +468,7 @@ test("traders: a verdict from the earlier copies only, and rules that never see 
   // two traders: one loses five times, one wins five times; the rules split their fifth buys by the earlier four
   const good = [0, 1, 2, 3, 4].map((i) => win(i, "o"));
   const sum = summarize([...bad, ...good], 80);
-  const rule = (id: string) => sum.rules.find((x) => x.id === id)!;
+  const rule = (id: string) => ruleOf(sum, id);
   assert.deepEqual([rule("copy-d0-tp10-t30").n, rule("copy-d0-trader-new-tp10-t30").n, rule("copy-d0-trader-bad-tp10-t30").n, rule("copy-d0-trader-good-tp10-t30").n, rule("copy-d0-trader-mixed-tp10-t30").n], [10, 8, 1, 1, 0]);
   assert.deepEqual([rule("copy-d0-trader-bad-tp10-t30").won, rule("copy-d0-trader-good-tp10-t30").won], [0, 1]);
   assert.deepEqual([rule("copy-d0-trader-notbad-tp10-t30").n, rule("copy-d0-trader-notbad-tp10-t30").won], [9, 5]);
@@ -403,13 +482,15 @@ test("traders: a verdict from the earlier copies only, and rules that never see 
   // the bar read a second later: the sample buy is 10% above the wallet at once and 20% above a second later; it was
   // never priced three seconds later. Bought a second later and up 19% at the first look: one copy, won
   assert.deepEqual([gapAt(bad[0], 0), gapAt(bad[0], 1), gapAt(bad[0], 3)].map((v) => (v === null ? null : Math.round(v * 100))), [10, 20, null]);
-  const late = summarize([sig({ sig: "late", wallet: "late", exits: { d0: {}, d1: { x2: 0.3, x5: 0.3, x10: 0.3, x20: 0.3, x30: 0.3, x60: 0.3, x120: 0.3 }, d3: {} } })], 80).rules;
-  assert.deepEqual(["copy-d1-gap15-tp10-t30", "copy-d3-gap15-tp10-t30"].map((id) => [late.find((x) => x.id === id)!.n, late.find((x) => x.id === id)!.won]), [[1, 1], [0, 0]]);
+  const late = summarize([sig({ sig: "late", wallet: "late", exits: { d0: {}, d1: { x2: 0.3, x5: 0.3, x10: 0.3, x20: 0.3, x30: 0.3, x60: 0.3, x120: 0.3 }, d3: {} } })], 80);
+  assert.deepEqual(["copy-d1-gapthen15-tp10-t30", "copy-d3-gapthen15-tp10-t30"].map((id) => [ruleOf(late, id).n, ruleOf(late, id).won]), [[1, 1], [0, 0]]);
+  // not the same rule as the 15% bar read at once and filled a second later: at once that buy is only 10% above
+  assert.equal(ruleOf(late, "copy-d1-gap15-tp10-t30").n, 0);
   // with the 15% bar: the sample buys are 10% above the wallet, so none passes; at 16% above they split the same way
   assert.equal(rule("copy-d0-gap15-trader-notbad-tp10-t30").n, 0);
   const far = (x: Signal): Signal => ({ ...x, entries: { ...x.entries, d0: { ...x.entries.d0!, price: 1.16e-6 } } });
   const sum2 = summarize([...bad, ...good].map(far), 80);
-  const rule2 = (id: string) => sum2.rules.find((x) => x.id === id)!;
+  const rule2 = (id: string) => ruleOf(sum2, id);
   assert.deepEqual([rule2("copy-d0-gap15-trader-notbad-tp10-t30").n, rule2("copy-d0-gap15-trader-bad-tp10-t30").n, rule2("copy-d0-gap15-trader-good-tp10-t30").n], [9, 1, 1]);
   // the status: each trader's record and verdict today, and how many of each kind
   const w = (name: string) => sum.wallets.find((x) => x.name === name)!;
