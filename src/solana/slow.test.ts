@@ -6,7 +6,7 @@ import { mock, test } from "node:test";
 
 process.env.DATA_DIR = mkdtempSync(join(tmpdir(), "solslow-"));
 
-const { tripsOf, screen, lateRet, ownRet, priceAfter, posRet, paperRules, slowTx, slowSummary, reportOf, followed, slowWatch, jupCoins, coinOld, creditsDay, _test, STAKE_SOL, TX_SOL, DELAY_COST, MIN_TRIPS } = await import("./slow.js");
+const { tripsOf, screen, lateRet, ownRet, priceAfter, posRet, paperRules, slowTx, slowSummary, reportOf, followed, slowWatch, jupCoins, coinOld, creditsDay, copyableOf, provenWallets, _test, STAKE_SOL, TX_SOL, DELAY_COST, MIN_TRIPS } = await import("./slow.js");
 
 const W = "Wa11et1111111111111111111111111111111111111";
 const M = "M1nt11111111111111111111111111111111111111";
@@ -238,9 +238,11 @@ test("screen from the chain: the wallet's own swaps read, others' left out; late
   assert.ok(late.in30s.avgPct !== null);
   assert.ok(calls.some((c) => c.address === "m0" && (c.filters.slot as { gte: number }).gte === 1000 + 75));
   assert.equal(_test.state().credits, 10 + 24 * 3 * 10);
-  assert.deepEqual(followed().map((x) => x.name), ["Slowpoke"]);
+  // every late copy here buys at the others' price and sells 2% under it: none of 24 wins, so it passes but is not followed
+  assert.deepEqual([late.in30s.won, reportOf(W)!.copyable], [0, false]);
+  assert.deepEqual(followed(), []);
   const sum = slowSummary();
-  assert.equal(sum.passing, 1);
+  assert.deepEqual([sum.passing, sum.notCopyable], [1, 1]);
   assert.equal(sum.pass[0].name, "Slowpoke");
   assert.ok(!JSON.stringify(sum).includes("api-key"));
   _test.reset();
@@ -495,5 +497,71 @@ test("the wide scan: a wallet far from the bar keeps its numbers, not its swaps;
   assert.equal(st.wallets[NEAR].redo, undefined);
   // the daily budget: 500,000 credits until the plan resets on 24 Nov 2026, 150,000 after
   assert.deepEqual([creditsDay(Date.UTC(2026, 10, 23, 23)), creditsDay(Date.UTC(2026, 10, 24, 1))], [500_000, 150_000]);
+  _test.reset();
+});
+
+test("not copyable: a passing wallet whose late copies lose is not followed; a misread late price is left out; by wallet at the real copy's entry", () => {
+  _test.reset();
+  // a late price more than 5x off the wallet's own price on that side is a misread trade, not a move
+  const t = { ...trip(1, 0.5), e30: 0.0011, e300: 0.0012, x30: 0.0014 };
+  assert.ok(lateRet(t, 30) !== null && lateRet(t, 300) !== null);
+  assert.equal(lateRet({ ...t, x30: 0.0015 * 6 }, 30), null);
+  assert.equal(lateRet({ ...t, e30: 0.001 / 6 }, 30), null);
+  assert.equal(lateRet({ ...t, e300: 0.001 * 6 }, 300), null);
+  // 15+ late copies checked (5 min late, else 30 s late) and fewer than 1 in 5 won: not copyable
+  assert.equal(copyableOf({ in30s: { n: 14, won: 0 }, in5min: { n: 3, won: 0 } }), null);
+  assert.equal(copyableOf({ in30s: { n: 30, won: 20 }, in5min: { n: 27, won: 3 } }), false);
+  assert.equal(copyableOf({ in30s: { n: 30, won: 20 }, in5min: { n: 25, won: 5 } }), true);
+  assert.equal(copyableOf({ in30s: { n: 20, won: 2 }, in5min: { n: 4, won: 4 } }), false);
+
+  const st = _test.state();
+  const now = Math.floor(Date.now() / 1000);
+  // 24 two-hour trips each; `own` = what the wallet sold for, `late` = what a copier 30 s / 5 min late paid and got
+  const put = (name: string, address: string, own: (i: number) => number, late: ((i: number) => { e: number; x: number }) | null) => {
+    const swaps: [number, number, string, 0 | 1, number, number][] = [];
+    const lates: Record<string, { e30: number; e300: number; x30: number }> = {};
+    for (let i = 0; i < 24; i++) {
+      const t0 = now - 13 * 86_400 + i * 40_000;
+      swaps.push([t0, 1000 + i * 100, `m${i}`, 1, 1, 1000], [t0 + 7200, 1050 + i * 100, `m${i}`, 0, own(i), 1000]);
+      const l = late?.(i);
+      if (l) lates[`m${i}|${1000 + i * 100}`] = { e30: l.e, e300: l.e, x30: l.x };
+    }
+    st.candidates.push({ name, address, source: "coin" });
+    st.wallets[address] = { name, doneAt: Date.now(), newest: now, txPerDay: 20, buysPerDay: 3, spanDays: 13, swaps, late: lates };
+  };
+  // wins 23 of 24 itself, but the price has already jumped when a copier gets in: 1 late copy of 24 wins
+  put("trap", "Trap111111", (i) => (i === 5 ? 0.9 : 1.4), (i) => (i === 7 ? { e: 0.001, x: 0.0014 } : { e: 0.0014, x: 0.00135 }));
+  // wins every other trade and a late copier gets the same prices: 12 of 24
+  put("good", "Good111111", (i) => (i % 2 ? 1.4 : 0.9), (i) => ({ e: 0.001, x: i % 2 ? 0.0014 : 0.0009 }));
+  // passes, not checked yet
+  put("fresh", "Fresh11111", (i) => (i % 2 ? 1.4 : 0.9), null);
+  const rep = (a: string) => reportOf(a)!;
+  assert.deepEqual([rep("Trap111111").pass, rep("Good111111").pass, rep("Fresh11111").pass], [true, true, true], rep("Trap111111").why.join());
+  assert.deepEqual([rep("Trap111111").late.in5min.n, rep("Trap111111").late.in5min.won], [24, 1]);
+  assert.deepEqual([rep("Trap111111").copyable, rep("Good111111").copyable, rep("Fresh11111").copyable], [false, true, null]);
+  // followed: the copyable one first, the unchecked one last, the trap not at all
+  assert.deepEqual(followed().map((x) => x.name), ["good", "fresh"]);
+
+  // closed paper copies by wallet: in5s is the entry a real copy makes; proven = 20+ of those, half or more won, ahead
+  const copy = (wallet: string, name: string, i: number, back: number) => ({ wallet, name, mint: `c${i}`, seenMs: i, leaderSol: 1, entries: { e5: "10", e30: null, e300: null, e1800: null }, exits: { "e5-x5": back }, closed: "sold" as const });
+  for (let i = 0; i < 20; i++) st.recent.push(copy("Good111111", "good", i, i < 12 ? 0.3 : 0.24));
+  for (let i = 0; i < 19; i++) st.recent.push(copy("Fresh11111", "fresh", i, 0.3));
+  _test.follow(followed().map((x) => x.address)); // as the loop does after every read
+  const sum = slowSummary();
+  assert.deepEqual([sum.passing, sum.notCopyable, sum.copyUnknown], [3, 1, 1]);
+  assert.deepEqual(sum.pass.map((x) => [x.name, x.copyable]), [["trap", false], ["good", true], ["fresh", null]]);
+  assert.deepEqual(sum.followed, ["good", "fresh"]);
+  const by = Object.fromEntries(sum.paper.byWallet.map((w) => [w.name, w]));
+  assert.deepEqual([by.good.in5s.n, by.good.in5s.won, by.good.in5s.avgRetPct, by.good.in5min.n, by.good.proven], [20, 12, 9.6, 0, true]);
+  // 19 copies, all won: one short of the 20
+  assert.deepEqual([by.fresh.in5s.n, by.fresh.in5s.won, by.fresh.proven], [19, 19, false]);
+  assert.deepEqual(sum.paper.proven, [{ name: "good", n: 20, won: 12, netSol: 0.48 }]);
+  assert.deepEqual(provenWallets().map((x) => x.address), ["Good111111"]);
+  // only the newest 40 count: 40 losing copies after the good 20 and it is out; a wallet no longer followed is out too
+  for (let i = 20; i < 60; i++) st.recent.push(copy("Good111111", "good", i, 0.24));
+  st.recent.push(copy("Fresh11111", "fresh", 19, 0.3));
+  assert.deepEqual(provenWallets().map((x) => x.name), ["fresh"]);
+  _test.follow(["Good111111"]);
+  assert.deepEqual(provenWallets(), []);
   _test.reset();
 });

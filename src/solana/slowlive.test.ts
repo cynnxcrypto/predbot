@@ -9,7 +9,7 @@ process.env.DATA_DIR = mkdtempSync(join(tmpdir(), "slowlive-"));
 // made-up keys: every network call here is faked
 process.env.HELIUS_API_KEY = "test-helius";
 process.env.JUPITER_API_KEY = "test-jupiter";
-const { parseSlowLive, slowLiveSummary, onSwap, sweep, recover, startSlowLive, HARD_MAX_LOSS_SOL, HARD_STAKE_SOL, HARD_MAX_OPEN, WALLETS, _test } = await import("./slowlive.js");
+const { parseSlowLive, slowLiveSummary, onSwap, sweep, recover, startSlowLive, wallets, rested, HARD_MAX_LOSS_SOL, HARD_STAKE_SOL, HARD_MAX_OPEN, WALLETS, _test } = await import("./slowlive.js");
 const { _test: run } = await import("./copyrun.js");
 const { buildSigned, wallet } = await import("./keys.js");
 const { base58 } = await import("./whirlpool.js");
@@ -27,7 +27,7 @@ const L1 = WALLETS[0].address;
 const L2 = WALLETS[1].address;
 const sigOfTx = (b64: string) => base58(Buffer.from(b64, "base64").subarray(1, 65));
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
-const CFG: Cfg = { on: true, stakeSol: 0.01, maxLossSol: 0.1, maxOpen: 6, entrySec: 1, exitSec: 1, maxHoldH: 72, slippageBps: 1500, maxFeeLamports: 20_000 };
+const CFG: Cfg = { on: true, stakeSol: 0.01, maxLossSol: 0.1, maxOpen: 6, entrySec: 1, exitSec: 1, maxHoldH: 72, slippageBps: 1500, maxFeeLamports: 20_000, follow: "fixed" };
 
 /** A made-up chain and Jupiter that keep real books (as in copylive.test.ts): `worth(mint)` = what a sale brings back, SOL. */
 function chain(worth: (mint: string) => number, lamports = 0.08e9) {
@@ -119,6 +119,68 @@ test("real day-holder copy: off unless switched on, hard limits hold", () => {
   const d = parseSlowLive(JSON.stringify({ solanaSlow: { on: true, maxLossSol: 0.08 } }));
   assert.deepEqual([d.stakeSol, d.maxOpen, d.entrySec, d.exitSec, d.maxHoldH, d.maxFeeLamports], [0.01, HARD_MAX_OPEN, 5, 5, 72, 20_000]);
   assert.equal(HARD_MAX_LOSS_SOL, 0.6, "the whole wallet: no more than it may hold");
+  // which wallets: the paper-proven ones unless the file says "fixed"
+  assert.deepEqual([d.follow, parseSlowLive(JSON.stringify({ solanaSlow: { on: true, maxLossSol: 0.08, wallets: "fixed" } })).follow, parseSlowLive(JSON.stringify({ solanaSlow: { on: true, maxLossSol: 0.08, wallets: 7 } })).follow], ["proven", "fixed", "proven"]);
+});
+
+test("real day-holder copy: copies the wallets proven on paper, adapts as the list changes, rests a wallet whose real copies are behind", async () => {
+  fresh({ ...CFG, follow: "proven" });
+  const c = chain(() => 0.012);
+  slow._test.reset();
+  const P1 = "Prov1111111111111111111111111111111111111111";
+  const P2 = "Prov2222222222222222222222222222222222222222";
+  const st = slow._test.state();
+  // paper: closed copies entered 5 s late; 0.3 back on 0.25 is a win, 0.24 a loss
+  const paper = (wallet: string, name: string, i: number, back: number) => ({ wallet, name, mint: `c${i}`, seenMs: i, leaderSol: 1, entries: { e5: "10", e30: null, e300: null, e1800: null }, exits: { "e5-x5": back }, closed: "sold" as const });
+  for (let i = 0; i < 20; i++) st.recent.push(paper(P1, "coin buyer Prov", i, i < 12 ? 0.3 : 0.24));
+  for (let i = 0; i < 19; i++) st.recent.push(paper(P2, "coin buyer Pro2", i, 0.3));
+  for (let i = 0; i < 30; i++) st.recent.push(paper(L1, WALLETS[0].name, i, 0.24));
+  slow._test.follow([P1, P2, L1]);
+  // P1: 20 copies, 12 won, ahead. P2: one copy short. The first wallet of the old three: behind on paper.
+  assert.deepEqual(wallets().map((w) => w.address), [P1]);
+  onSwap(swap(L1, B, true));
+  onSwap(swap(P2, B, true));
+  assert.equal(_test.state().opens.length, 0, "not proven: not copied");
+  onSwap(swap(P1, A, true));
+  assert.equal(_test.state().opens.length, 1);
+  await wait(1500);
+  assert.equal(_test.state().opens[0].stage, "held");
+  // the list adapts: P1's newest paper copies turn (out), P2 gets its 20th (in)
+  for (let i = 20; i < 60; i++) st.recent.push(paper(P1, "coin buyer Prov", i, 0.24));
+  st.recent.push(paper(P2, "coin buyer Pro2", 19, 0.3));
+  assert.deepEqual(wallets().map((w) => w.address), [P1], "the list is kept for a minute");
+  _test.relist();
+  assert.deepEqual(wallets().map((w) => w.address), [P2]);
+  // P1 is off the list: a new buy of it is not copied, but its sale of the coin we hold is still heard and followed
+  onSwap(swap(P1, B, true));
+  assert.equal(_test.state().opens.length, 1);
+  startSlowLive();
+  slow._test.setCfg({ rpcUrl: () => null, fetch: () => fetch, listed: () => [], busy: () => [], quote: async () => null });
+  assert.ok(slow.slowWatch().includes(P1) && slow.slowWatch().includes(P2), "the stream carries the copied wallets and the wallet of a copy that is out");
+  onSwap(swap(P1, A, false));
+  await wait(3000);
+  assert.equal(_test.state().opens.length, 0);
+  assert.equal(c.held.has(A), false);
+  assert.deepEqual([_test.state().rows[0].name, _test.state().rows[0].exit], ["coin buyer Prov", "sold"]);
+  // rested: its newest 15 real copies of the last 7 days lost SOL with under half won; older ones do not count
+  const row = (name: string, t: number, netSol: number) => ({ t, name, mint: "x", leaderSol: 1, buy: "landed" as const, exit: "sold" as const, heldMin: 60, netSol, sigs: [] });
+  const now = Date.now();
+  for (let i = 0; i < 15; i++) _test.state().rows.push(row("coin buyer Pro2", now - i * 60_000, i < 7 ? 0.001 : -0.002));
+  assert.equal(rested("coin buyer Pro2"), true);
+  _test.relist();
+  assert.deepEqual(wallets(), []);
+  onSwap(swap(P2, B, true));
+  assert.equal(_test.state().opens.length, 0, "rested: not copied");
+  const s = slowLiveSummary();
+  assert.deepEqual([s.follow, s.wallets, s.rested], ["proven", [], ["coin buyer Pro2"]]);
+  assert.ok(!JSON.stringify(s).includes(P1) && !JSON.stringify(s).includes(P2), "names only in the public summary");
+  // half won, or its bad copies over a week old: not rested
+  _test.state().rows[_test.state().rows.length - 1].netSol = 0.001;
+  assert.equal(rested("coin buyer Pro2"), false);
+  assert.equal(rested("coin buyer Pro2", now + 8 * 86_400_000), false);
+  slow._test.reset();
+  slow._test.setCfg(null);
+  _test.reset();
 });
 
 test("real day-holder copy: buys after the entry delay, sells after the wallet's first sale, counts from the chain", async () => {
