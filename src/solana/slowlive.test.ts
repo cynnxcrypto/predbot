@@ -227,14 +227,6 @@ test("real day-holder copy: a sale before our entry means no copy; same coin, ca
   onSwap(swap(L1, A, true));
   onSwap(swap(L2, A, true));
   assert.equal(_test.state().missedSame, 1);
-  // a coin the real bucket trades hold (same wallet; a sale sells all of a coin) is not copied
-  const { writeFileSync, rmSync } = await import("node:fs");
-  const bucketFile = join(process.env.DATA_DIR!, "solana-bucketslive.json");
-  writeFileSync(bucketFile, JSON.stringify({ opens: [{ mint: B, stage: "held" }] }));
-  onSwap(swap(L1, B, true));
-  assert.equal(_test.state().opens.some((p) => p.mint === B), false);
-  assert.equal(_test.state().missedSame, 2);
-  rmSync(bucketFile);
   // the cap must hold with every open copy lost in full: 0.026 SOL leaves room for two at 0.013 each
   fresh({ ...CFG, maxLossSol: 0.026 });
   c = chain(() => 0.01);

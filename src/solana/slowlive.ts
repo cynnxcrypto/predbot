@@ -275,17 +275,6 @@ export function onSwap(s: SlowSwap) {
   }
   save();
 }
-/**
- * Coins the real bucket trades (bucketslive.ts) hold or are buying: the same wallet, and a sale sells all of a coin,
- * so one of those is never copied here (and that side never buys a coin held here).
- */
-export function bucketHeld(): string[] {
-  try {
-    return ((JSON.parse(readFileSync(join(DATA, "solana-bucketslive.json"), "utf8")) as { opens?: { mint?: string }[] }).opens ?? []).map((p) => String(p.mint));
-  } catch {
-    return []; // no file: that side has never traded
-  }
-}
 function onBuy(s: SlowSwap) {
   const c = cfg();
   if (!c.on || state.halted || !walletReady || s.sol < MIN_LEADER_SOL) return;
@@ -296,7 +285,6 @@ function onBuy(s: SlowSwap) {
     if (same.wallet !== s.wallet) state.missedSame++;
     return; // the wallet adding to a coin it holds is not copied
   }
-  if (bucketHeld().includes(s.mint)) return void state.missedSame++;
   if (state.opens.length >= c.maxOpen) return void state.missedOpen++;
   // the cap must hold with every copy that is out, and this one, lost in full
   if (loss() + (state.opens.length + 1) * (c.stakeSol + COPY_ROOM_SOL) > c.maxLossSol + 1e-9) return void state.missedCap++;
@@ -343,8 +331,6 @@ async function buy(p: Pos) {
     }
     state.note = "";
     if (p.soldSeenMs) return drop(() => state.skippedSold++);
-    // the bucket side may have bought the coin while this copy waited for its entry
-    if (bucketHeld().includes(p.mint)) return drop(() => state.missedSame++);
     const q = await kit.quote(SOL, p.mint, String(Math.round(c.stakeSol * LAMPORTS)), c.slippageBps);
     if (!q.outAmount || q.outAmount === "0") return drop(() => state.notSent++);
     const tx = signTransaction(await kit.swapTx(q, w.address, c.maxFeeLamports), w);
