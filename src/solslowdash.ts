@@ -42,8 +42,9 @@ async function symbolOf(mint: string): Promise<string | null> {
   let sym: string | null = null;
   try {
     const r = await fetch(shared.rpcUrl(), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "getAsset", params: { id: mint } }), signal: AbortSignal.timeout(4000) });
-    const j = (await r.json()) as { result?: { content?: { metadata?: { symbol?: string } }; token_info?: { symbol?: string } } };
-    const raw = String(j.result?.token_info?.symbol ?? j.result?.content?.metadata?.symbol ?? "").replace(/[^\x20-\x7e]/g, "").trim().slice(0, 12);
+    const j = (await r.json()) as { result?: { content?: { metadata?: { symbol?: string; name?: string } }; token_info?: { symbol?: string } } };
+    const clean = (v: unknown) => [...String(v ?? "").replace(/[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2066-\u2069]/g, "").trim()].slice(0, 12).join("");
+    const raw = clean(j.result?.token_info?.symbol) || clean(j.result?.content?.metadata?.symbol) || clean(j.result?.content?.metadata?.name);
     sym = raw || null;
   } catch {
     sym = null;
