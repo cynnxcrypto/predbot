@@ -1,5 +1,12 @@
 /**
- * REAL MONEY (small, capped): copy three day-holding wallets. enrique, 14 Nov 2026 14:40 KST: "since we have very
+ * REAL MONEY (small, capped): copy day-holding wallets. WHICH WALLETS (enrique, 15 Nov 2026 07:54 KST, on the card
+ * "Switch the real Solana copy to the wallets that win on paper?": "Follow paper-proven wallets", and "yea
+ * continuosly adapt"): the wallets the paper copy proves at this very entry (slow.ts provenWallets: followed now, and
+ * of its newest 40 closed 5 s paper copies 20+ priced, half or more won, ahead), worked out again every minute, less
+ * any wallet whose own newest REAL copies are behind (rested, below). Same stake, same loss cap, same guards. Copies
+ * that are out are sold by the rule whatever happens to their wallet's place on the list.
+ *
+ * It began with three fixed wallets. enrique, 14 Nov 2026 14:40 KST: "since we have very
  * little in the sol wallet anyways, just real trade those 3 wallets, lets see". That followed the first paper read
  * of the slow-wallet screen's passers (slow.ts): 62 paper copies, 44% won, +0.77 SOL; these three wallets made 56 of
  * them. The paper copy of all the passers keeps running beside this.
@@ -37,7 +44,7 @@ import { swapOf, type Meta } from "./discover.js";
 import { makeReader, type Item } from "./history.js";
 import { signTransaction, wallet, type Wallet } from "./keys.js";
 import { SOL } from "./pools.js";
-import { onSlowSwap, setSlowRealSummary, type SlowSwap } from "./slow.js";
+import { onSlowSwap, provenWallets, setSlowRealSummary, type SlowSwap } from "./slow.js";
 
 export const HARD_STAKE_SOL = 0.05;
 /**
@@ -59,7 +66,14 @@ export const RENT_SOL = 0.00204;
 export const SELL_RESERVE_SOL = 0.001;
 /** The paper rule copies a wallet's buy of this many SOL or more (slow.ts, slowTx). */
 export const MIN_LEADER_SOL = 0.1;
-/** The three wallets that made most of the paper copies (slow.ts screen, 14 Nov 2026). Public on-chain addresses. */
+/** At most this many wallets are copied at once: the best on paper first. */
+export const MAX_WALLETS = 25;
+/** A wallet is rested from real copies while its newest REST_LAST real copies of the last REST_DAYS days lost SOL with under half won. */
+export const REST_LAST = 15;
+export const REST_DAYS = 7;
+/** The list of wallets is worked out again this often. */
+export const LIST_MS = 60_000;
+/** The first three (14 Nov 2026), copied only when the file says "wallets": "fixed". Public on-chain addresses. */
 export const WALLETS: readonly { name: string; address: string }[] = [
   { name: "coin buyer AqpV", address: "AqpVFSGtTSaDVQVh9jAZ69zD4dzc8SzmHRoUv5GnLzXD" },
   { name: "coin buyer HQVe", address: "HQVe5wwC4WFwRSYR4Pm3No1Frenjz95FpaWKiZvJAKdH" },
@@ -84,8 +98,10 @@ export interface SlowLiveConfig {
   slippageBps: number;
   /** the most any one transaction bids in priority fee, lamports: speed does not matter here, so it is kept low */
   maxFeeLamports: number;
+  /** "proven" = the wallets the paper copy proves (the default); "fixed" = the first three */
+  follow: "proven" | "fixed";
 }
-const OFF: SlowLiveConfig = { on: false, stakeSol: 0, maxLossSol: 0, maxOpen: 1, entrySec: 5, exitSec: 5, maxHoldH: 72, slippageBps: 1500, maxFeeLamports: 20_000 };
+const OFF: SlowLiveConfig = { on: false, stakeSol: 0, maxLossSol: 0, maxOpen: 1, entrySec: 5, exitSec: 5, maxHoldH: 72, slippageBps: 1500, maxFeeLamports: 20_000, follow: "proven" };
 const num = (v: unknown, d: number) => (typeof v === "number" && Number.isFinite(v) ? v : d);
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 
@@ -106,6 +122,7 @@ export function parseSlowLive(text: string): SlowLiveConfig {
       maxHoldH: clamp(num(p.maxHoldH, 72), 1, 168),
       slippageBps: clamp(Math.floor(num(p.slippageBps, 1500)), 100, 3000),
       maxFeeLamports: clamp(Math.floor(num(p.maxFeeLamports, 20_000)), 5_000, 200_000),
+      follow: p.wallets === "fixed" ? "fixed" : "proven",
     };
   } catch {
     return OFF;
@@ -213,11 +230,36 @@ function save() {
   renameSync(STATE() + ".tmp", STATE());
 }
 const loss = () => Math.max(0, -state.netSol);
-const wallets = () => WALLETS;
-const nameOf = (a: string) => wallets().find((w) => w.address === a)?.name ?? a.slice(0, 4);
+/** Real copies of one wallet (by its screen name) that count for resting it: landed, in the last REST_DAYS days, newest REST_LAST. */
+const lastReal = (name: string, now = Date.now()) => state.rows.filter((x) => x.name === name && x.buy === "landed" && now - x.t < REST_DAYS * 86_400_000).slice(-REST_LAST);
+/** Rested: its newest REST_LAST real copies lost SOL and under half of them won. It comes back as they age out, if paper still proves it. */
+export function rested(name: string, now = Date.now()) {
+  const rs = lastReal(name, now);
+  return rs.length >= REST_LAST && rs.reduce((a, x) => a + x.netSol, 0) < 0 && rs.filter((x) => x.netSol > 0).length * 2 < rs.length;
+}
+let list: { at: number; v: { name: string; address: string }[] } | null = null;
+/** The wallets whose buys are copied now (worked out at most every LIST_MS). */
+export function wallets(now = Date.now()): { name: string; address: string }[] {
+  // asked for every transaction of the stream: the file is read only when the list is worked out again
+  if (list && now - list.at < LIST_MS && now >= list.at) return list.v;
+  const follow = cfg().follow;
+  if (!loaded) load();
+  let base: readonly { name: string; address: string }[] = [];
+  try {
+    base = follow === "fixed" ? WALLETS : provenWallets();
+  } catch {
+    base = []; // nothing proven that we can read: nothing new is bought
+  }
+  const v = base.filter((w) => !rested(w.name, now)).slice(0, MAX_WALLETS).map((w) => ({ name: w.name, address: w.address }));
+  list = { at: now, v };
+  return v;
+}
+/** Every address whose swaps we must hear of: the copied wallets, and the wallet of every copy that is out (its sale). */
+const watched = () => [...new Set([...wallets().map((w) => w.address), ...state.opens.map((p) => p.wallet)])];
+const nameOf = (a: string) => wallets().find((w) => w.address === a)?.name ?? WALLETS.find((w) => w.address === a)?.name ?? `coin buyer ${a.slice(0, 4)}`;
 
 // ---- the leader's swaps ---------------------------------------------------------------------------------------------
-/** Called by the slow study for every swap of our three wallets that the stream carries. Never throws. */
+/** Called by the slow study for every swap of a watched wallet that the stream carries. Never throws. */
 export function onSwap(s: SlowSwap) {
   if (!loaded) load();
   if (s.buy) return void onBuy(s);
@@ -236,6 +278,8 @@ export function onSwap(s: SlowSwap) {
 function onBuy(s: SlowSwap) {
   const c = cfg();
   if (!c.on || state.halted || !walletReady || s.sol < MIN_LEADER_SOL) return;
+  // a wallet heard only because a copy of it is still out: off the list, so its new buys are not copied
+  if (!wallets().some((w) => w.address === s.wallet)) return;
   const same = state.opens.find((p) => p.mint === s.mint);
   if (same) {
     if (same.wallet !== s.wallet) state.missedSame++;
@@ -527,7 +571,7 @@ export function startSlowLive() {
   } catch {
     walletReady = false; // the first real test reports why, in its own fixed words
   }
-  onSlowSwap(() => (cfg().on || state.opens.length ? wallets().map((w) => w.address) : []), onSwap);
+  onSlowSwap(() => (cfg().on || state.opens.length ? watched() : []), onSwap);
   setSlowRealSummary(slowLiveSummary);
   if (walletReady && state.opens.length) setTimeout(() => void recover(), 15_000).unref();
   setInterval(() => sweep(), 5 * 60_000).unref();
@@ -539,8 +583,9 @@ export function slowLiveSummary() {
   const done = state.rows.filter((x) => x.buy === "landed");
   const won = done.filter((x) => x.netSol > 0).length;
   const held = done.map((x) => x.heldMin).filter((x): x is number => x !== null).sort((a, b) => a - b);
+  const now = wallets();
   return {
-    note: `REAL. Copies ${WALLETS.length} day-holding wallets (enrique, 14 Nov 2026): buys ${c.stakeSol || "?"} SOL ${c.entrySec} s after one of them buys a coin for ${MIN_LEADER_SOL}+ SOL, sells all ${c.exitSec} s after it first sells that coin, or after ${c.maxHoldH} h. Uses the whole wallet (enrique, 14 Nov 23:21 KST): as many copies at once as its SOL covers (stake, rent and a sale reserve each); loss cap ${c.maxLossSol || "?"} SOL counted from our own transactions read back from the chain, every fee included, and nothing is bought with more than ${MAX_WALLET_SOL} SOL in the wallet.`,
+    note: `REAL. Copies ${c.follow === "fixed" ? "the first 3 day-holding wallets (enrique, 14 Nov 2026)" : `the day-holding wallets proven on paper (enrique, 15 Nov 2026: "Follow paper-proven wallets", "continuosly adapt"): followed on paper, and of its newest 40 closed 5 s paper copies 20+ priced, half or more won, ahead; the list is worked out again every minute, best on paper first, ${MAX_WALLETS} at most; a wallet whose newest ${REST_LAST} real copies (last ${REST_DAYS} days) lost with under half won is rested`}: buys ${c.stakeSol || "?"} SOL ${c.entrySec} s after one of them buys a coin for ${MIN_LEADER_SOL}+ SOL, sells all ${c.exitSec} s after it first sells that coin, or after ${c.maxHoldH} h. Uses the whole wallet (enrique, 14 Nov 23:21 KST): as many copies at once as its SOL covers (stake, rent and a sale reserve each); loss cap ${c.maxLossSol || "?"} SOL counted from our own transactions read back from the chain, every fee included, and nothing is bought with more than ${MAX_WALLET_SOL} SOL in the wallet.`,
     on: c.on && !state.halted && walletReady,
     switch: c.on ? "on" : "off",
     halted: state.halted,
@@ -562,9 +607,13 @@ export function slowLiveSummary() {
     skippedSold: state.skippedSold,
     notSent: state.notSent,
     unreadTx: state.unreadTx,
-    byWallet: WALLETS.map((w) => {
-      const rs = done.filter((x) => x.name === w.name);
-      return { name: w.name, copies: rs.length, won: rs.filter((x) => x.netSol > 0).length, netSol: r6(rs.reduce((a, x) => a + x.netSol, 0)) };
+    follow: c.follow,
+    /** copied now, and rested (proven on paper, but its own newest real copies are behind) */
+    wallets: now.map((w) => w.name),
+    rested: [...new Set(done.map((x) => x.name))].filter((n) => rested(n)),
+    byWallet: [...new Set([...now.map((w) => w.name), ...done.map((x) => x.name)])].map((name) => {
+      const rs = done.filter((x) => x.name === name);
+      return { name, copied: now.some((w) => w.name === name), copies: rs.length, won: rs.filter((x) => x.netSol > 0).length, netSol: r6(rs.reduce((a, x) => a + x.netSol, 0)) };
     }),
     recent: state.rows.slice(-20).map((x) => ({ name: x.name, buy: x.buy, exit: x.exit, heldMin: x.heldMin, netSol: r6(x.netSol) })),
     lastError: state.lastError,
@@ -577,10 +626,12 @@ export const _test = {
   reset: () => {
     state = fresh();
     loaded = true;
+    list = null;
     for (const t of timers) clearTimeout(t);
     timers.clear();
   },
   ready: (v = true) => (walletReady = v),
+  relist: () => (list = null),
   setLaterLook: (ms: number) => (laterLookMs = ms),
   state: () => state,
   buy,
