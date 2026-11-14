@@ -12,7 +12,7 @@ import { appendFileSync, mkdirSync, readFileSync, renameSync, writeFileSync } fr
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { DATA } from "../config.js";
-import { crowd, type RealCopy, EXITS, followerPrice, fomoStudy, LATE_CHECK_MS, LATE_ENTRY_MS, parseBuy, parseDollarBuy, PATH, REPEAT_MIN, SIZE_EXITS, SIZES, STAKE_SOL, paceAt, summarize, TX_SOL, unlate, unrefuse, verdictAt, WAVE_ENDS, WAVE_ENTRIES, WAVE_MIN_BUYERS, WAVE_STAKE_SOL, waveQuotedStudy, type Entry, type Pace, type ParsedTx, type Signal, type Verdict, type WaveLot, type WaveTrade } from "./copy.js";
+import { crowd, type RealCopy, EXITS, followerPrice, fomoStudy, LATE_CHECK_MS, LATE_ENTRY_MS, parseBuy, parseDollarBuy, PATH, REAL_D, REPEAT_MIN, SIZE_EXITS, SIZES, STAKE_SOL, paceAt, summarize, TX_SOL, unlate, unrefuse, verdictAt, WAVE_ENDS, WAVE_ENTRIES, WAVE_MIN_BUYERS, WAVE_STAKE_SOL, waveQuotedStudy, type Entry, type Pace, type ParsedTx, type Signal, type Verdict, type WaveLot, type WaveTrade } from "./copy.js";
 import { SOL, USDC } from "./pools.js";
 import { busyWallets, discoverSummary, foundWallets, startDiscover, stopDiscover } from "./discover.js";
 import { slowSummary, slowTx, slowWatch, startSlow, stopSlow } from "./slow.js";
@@ -326,7 +326,7 @@ function tracked(): Tracked[] {
 export function buildCopySummary() {
   return {
     mode: "paper",
-    note: `Paper only, nothing is sent. Each copy is ${STAKE_SOL} SOL at real Jupiter quotes, minus ${TX_SOL} SOL per transaction. A quote is the best case for a fill, so paper profit is an upper bound. Bar for real: 100+ copies on one rule, half or more won, net positive.`,
+    note: `Paper only, nothing is sent. Each copy is ${STAKE_SOL} SOL at real Jupiter quotes, minus ${TX_SOL} SOL per transaction, bought ${REAL_D} s or more after we know of the wallet's buy: that is where a real order lands. The quote of the instant we know is a price no order gets; rules priced there are kept apart in rulesInstant and count for nothing. A quote is still the best case for a fill, so paper profit is an upper bound. Bar for real: 100+ copies on one rule, half or more won, net positive.`,
     updatedAt: Date.now(),
     solUsd,
     health: { ...health, active: health.active },

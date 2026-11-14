@@ -24,6 +24,15 @@ export const TX_SOL = 0.001;
 export const MIN_BUY_SOL = 0.1;
 export const MIN_BUY_USD = 20;
 export const DELAYS = [0, 1, 3] as const;
+/**
+ * The entry a real order can get (enrique, 14 Nov 2026 23:30 KST, on the paper panels: "can we see realistic paper
+ * numbers? that looks like hopium"). d0 is a price quote taken the instant we see the wallet's buy, and no order
+ * fills there: the real test's buys landed a block later and paid a median 4.5% over that quote. The quote taken
+ * 1 s after we know is about where they landed (the real copies bought under 9% above the wallet lost 3.6% each,
+ * 134 of them; the same paper copy bought 1 s late loses about 4%, bought at once it "makes" 4%). So every figure
+ * the page ranks or shows is priced REAL_D s after we know or later, and instant ones are kept apart, marked.
+ */
+export const REAL_D = 1;
 export const EXITS = [2, 5, 10, 20, 30, 60, 120] as const;
 /**
  * The exit study (enrique, 11 Nov 2026 17:38 KST: is it right to get out on the first pump of copy traders, and if
@@ -317,10 +326,10 @@ export const cutId = (tp: number, c: number) => `copy-d0-tp${tp}-cut${c}-t${TIME
 export const cutText = (tp: number, c: number) =>
   `When a tracked wallet buys, buy ${STAKE_SOL} SOL of the same token the moment we know, sell as soon as it is up ${tp}% after costs, sell at ${c} s if it is not up after costs by then, and sell anyway after ${TIME_STOP} s.`;
 /** The scalp with one timed look: at `c` seconds a copy that is not up is sold. A missing check at `c` means no cut. */
-export function scalpCut(s: Signal, tp: number, c: number): number | undefined {
+export function scalpCut(s: Signal, tp: number, c: number, d = 0): number | undefined {
   for (const x of EXITS) {
     if (x > TIME_STOP) break;
-    const v = ret(s, 0, x);
+    const v = ret(s, d, x);
     if (v === undefined) continue;
     if (v >= tp / 100 || (x === c && v <= 0) || x === TIME_STOP || v === -1) return v;
   }
@@ -477,22 +486,41 @@ export function outAt(s: Signal, x: number): number | null | undefined {
  * GRID. A missing quote is a total loss only when no later check got a quote either (the token could not be sold
  * any more); a time that was never checked cannot be scored.
  */
-export function pathRet(s: Signal, x: number): number | undefined {
-  if (!s.entries.d0) return undefined;
-  const out = outAt(s, x);
+export function pathRet(s: Signal, x: number, d = 0): number | undefined {
+  if (!s.entries[`d${d}`]) return undefined;
+  const out = outAtD(s, d, x);
   if (out === undefined) return undefined;
-  if (out === null) return GRID.filter((g) => g > x).map((g) => outAt(s, g)).every((v) => v == null) ? -1 : undefined;
+  if (out === null) return GRID.filter((g) => g > x).map((g) => outAtD(s, d, g)).every((v) => v == null) ? -1 : undefined;
   return (out - 2 * TX_SOL) / STAKE_SOL - 1;
+}
+
+/**
+ * The same for a copy bought `d` s after we know. Its own checks where it has them (the EXITS times, counted from
+ * its own purchase); the PATH times are followed for the fastest copy only, so there the fastest copy's sale is
+ * re-priced for the fewer tokens the later buy got. That part is an estimate (a second out of step, and a smaller
+ * sale moves the price a little less).
+ */
+export function outAtD(s: Signal, d: number, x: number): number | null | undefined {
+  if (d === 0) return outAt(s, x);
+  const first = s.entries.d0;
+  const e = s.entries[`d${d}`];
+  if (!e) return undefined;
+  const k = `x${x}`;
+  const ex = s.exits[`d${d}`];
+  if (ex && k in ex) return ex[k];
+  if (!first || !(e.price > 0) || !s.path || !(k in s.path)) return undefined;
+  const out = s.path[k];
+  return out == null ? null : out * (first.price / e.price);
 }
 
 export const trailId = (t: number) => `copy-d0-trail${t}-t${HOLD_MAX}`;
 export const trailText = (t: number) =>
   `When a tracked wallet buys, buy ${STAKE_SOL} SOL of the same token the moment we know, sell at the first check where it is ${t} points below its best level since we bought (so also at -${t}%), and sell anyway after ${HOLD_MAX / 60} min.`;
 /** Trailing exit over the GRID checks. Cannot be scored when it neither triggered nor was followed to the end. */
-export function trail(s: Signal, t: number): number | undefined {
+export function trail(s: Signal, t: number, d = 0): number | undefined {
   let peak = 0;
   for (const x of GRID) {
-    const v = pathRet(s, x);
+    const v = pathRet(s, x, d);
     if (v === undefined) continue;
     if (v > peak) peak = v;
     if (v === -1 || v <= peak - t / 100 || x === HOLD_MAX) return v;
@@ -791,6 +819,10 @@ export function fomoStudy(sigs: Signal[], solUsd: number | null) {
     ...[10, 30, 60, 120].map((x): [string, (s: Signal) => number | undefined] => [ruleId(0, x), (s) => ret(s, 0, x)]),
     ...[300, 600].map((x): [string, (s: Signal) => number | undefined] => [ruleId(0, x), (s) => pathRet(s, x)]),
     [scalpId(5, 10), (s) => scalp(s, 5, 10)],
+    // the same, bought where a real order lands: the figures to read
+    [scalpId(REAL_D, 10), (s) => scalp(s, REAL_D, 10)],
+    ...[10, 30, 60, 120].map((x): [string, (s: Signal) => number | undefined] => [ruleId(REAL_D, x), (s) => ret(s, REAL_D, x)]),
+    ...[300, 600].map((x): [string, (s: Signal) => number | undefined] => [ruleId(REAL_D, x), (s) => pathRet(s, x, REAL_D)]),
   ];
   const row = (ss: Signal[]) => ({
     buys: ss.length,
@@ -804,7 +836,7 @@ export function fomoStudy(sigs: Signal[], solUsd: number | null) {
   const by = new Map<string, Signal[]>();
   for (const s of sigs) by.set(s.name, [...(by.get(s.name) ?? []), s]);
   return {
-    note: `Paper only, never copied by the real test. Buys of the fomo traders' own public wallets (paid in dollars, signed by fomo), copied with ${STAKE_SOL} SOL the moment we know and sold at +10% or 60 s (${scalpId(0, 10)}), after a fixed 10 s to 10 min (${ruleId(0, 10)} ... ${ruleId(0, 600)}), or bought 5 s late (${scalpId(5, 10)}). Scored apart from the listed wallets. entryGapPct is rough: the trader paid in dollars, turned into SOL at the price of the moment.`,
+    note: `Paper only, never copied by the real test. Buys of the fomo traders' own public wallets (paid in dollars, signed by fomo), copied with ${STAKE_SOL} SOL the moment we know and sold at +10% or 60 s (${scalpId(0, 10)}), after a fixed 10 s to 10 min (${ruleId(0, 10)} ... ${ruleId(0, 600)}), or bought 5 s late (${scalpId(5, 10)}). The copy-d0 rules use the instant quote, which no order gets; the copy-d${REAL_D} rules are the same copies bought ${REAL_D} s after we know, where a real order lands (10 min and 5 min for those are estimated from the instant copy's sale). Scored apart from the listed wallets. entryGapPct is rough: the trader paid in dollars, turned into SOL at the price of the moment.`,
     n: sigs.length,
     all: row(sigs),
     traders: [...by].map(([name, ss]) => ({ name, ...row(ss) })).sort((a, b) => b.buys - a.buys),
@@ -817,14 +849,18 @@ export function fomoStudy(sigs: Signal[], solUsd: number | null) {
 }
 
 /**
- * Early or late: the same buys entered at 0, 5, 10 and 20 s. Only buys priced at every one of those times count,
- * so the rows compare like with like (the rule list cannot: late entries exist only since they were added).
+ * Early or late: the same buys entered at once, REAL_D s later and, where they were priced, 5, 10 and 20 s later.
+ * Only buys priced at every one of those times count, so the rows compare like with like (the rule list cannot:
+ * late entries exist only where they were asked for). A late time priced for fewer than half of the buys is left
+ * out, or it would shrink every row to its own few buys: the 5 to 20 s entries are no longer priced at all.
+ * The first row is the instant quote, which no order gets (reachable: false).
  */
 export function lateStudy(sigs: Signal[]) {
-  const ds = [0, ...LATE];
+  const have = (d: number) => sigs.filter((s) => s.entries[`d${d}`]).length;
+  const ds = [0, REAL_D, ...LATE.filter((d) => have(d) > 0 && have(d) * 2 >= have(0))];
   const ss = sigs.filter((s) => ds.every((d) => s.entries[`d${d}`]));
   return {
-    note: `Paper. Only buys priced at every entry time (${ds.join(", ")} s after we know), so the rows compare like with like. Each entry is sold as soon as it is up 10% after costs, else ${TIME_STOP} s after its own purchase (holdOnly = no target, just the ${TIME_STOP} s). priceVsFastestPct = how much more (+) or less (-) that entry paid than the fastest one (median). risingPct = share of buys where it paid more.`,
+    note: `Paper. Only buys priced at every entry time (${ds.join(", ")} s after we know), so the rows compare like with like. 0 s is the instant quote: no order gets it, a real one lands about ${REAL_D} s later. Each entry is sold as soon as it is up 10% after costs, else ${TIME_STOP} s after its own purchase (holdOnly = no target, just the ${TIME_STOP} s). priceVsFastestPct = how much more (+) or less (-) that entry paid than the instant quote (median). risingPct = share of buys where it paid more.`,
     n: ss.length,
     entries: ds.map((d) => {
       const rs = nums(ss.map((s) => scalp(s, d, 10)));
@@ -832,7 +868,7 @@ export function lateStudy(sigs: Signal[]) {
       const gap = ss.map((s) => s.entries[`d${d}`]!.price / s.entries.d0!.price - 1);
       const avg = (xs: number[]) => (xs.length ? r((xs.reduce((a, b) => a + b, 0) / xs.length) * 100) : null);
       return {
-        sec: d, n: rs.length, won: rs.filter((v) => v > 0).length, medianRetPct: rs.length ? r((med(rs) ?? 0) * 100) : null, avgRetPct: avg(rs),
+        sec: d, reachable: d >= REAL_D, n: rs.length, won: rs.filter((v) => v > 0).length, medianRetPct: rs.length ? r((med(rs) ?? 0) * 100) : null, avgRetPct: avg(rs),
         holdOnly: { n: hold.length, won: hold.filter((v) => v > 0).length, avgRetPct: avg(hold) },
         priceVsFastestPct: gap.length ? r((med(gap) ?? 0) * 100) : null,
         risingPct: gap.length ? r((gap.filter((g) => g > 0).length / gap.length) * 100, 0) : null,
@@ -940,15 +976,24 @@ export function summarize(sigs: Signal[], solUsd: number | null, realRows: RealC
     lagSecMedian: r((med(lagMs) ?? NaN) / 1000, 1),
     lagSecP90: r((q90(lagMs) ?? NaN) / 1000, 1),
     lagSlotsMedian: med(nums(sigs.map((s) => s.lagSlots))),
-    /** transactions on the token that land before our fastest paper buy would (median, and share of buys where it is zero) */
-    aheadMedian: med(nums(sigs.map((s) => s.crowd?.ahead.d0))),
+    /** transactions on the token that land before a buy made REAL_D s after we know (where a real order lands) would (median, and share of buys where it is zero) */
+    aheadMedian: med(nums(sigs.map((s) => s.crowd?.ahead[`d${REAL_D}`]))),
     firstInLinePct: (() => {
-      const a = nums(sigs.map((s) => s.crowd?.ahead.d0));
+      const a = nums(sigs.map((s) => s.crowd?.ahead[`d${REAL_D}`]));
       return a.length ? r((a.filter((v) => v === 0).length / a.length) * 100, 0) : null;
     })(),
     sameSlotMedian: med(nums(sigs.map((s) => s.crowd?.same))),
-    /** how much more than the wallet we pay at our fastest paper entry (median, %) */
-    entryGapPctMedian: r((med(nums(sigs.map((s) => (s.entries.d0 ? s.entries.d0.price / s.leaderPrice - 1 : null)))) ?? NaN) * 100),
+    /** how much more than the wallet a buy made REAL_D s after we know pays (median, %) */
+    entryGapPctMedian: r((med(nums(sigs.map((s) => gapAt(s, REAL_D)))) ?? NaN) * 100),
+    /** the same three at the instant quote, which no order gets: what being first would be worth */
+    instant: {
+      aheadMedian: med(nums(sigs.map((s) => s.crowd?.ahead.d0))),
+      firstInLinePct: (() => {
+        const a = nums(sigs.map((s) => s.crowd?.ahead.d0));
+        return a.length ? r((a.filter((v) => v === 0).length / a.length) * 100, 0) : null;
+      })(),
+      entryGapPctMedian: r((med(nums(sigs.map(gapOf))) ?? NaN) * 100),
+    },
     /** the price move needed just to cover an instant in-and-out (median, %): fees and price impact both ways plus two transaction fees */
     breakEvenPctMedian: r((med(nums(sigs.map(roundTrip))) ?? NaN) * 100),
     /** share of buys where no follower transaction came within about 4 s (the wave never came) */
@@ -959,11 +1004,89 @@ export function summarize(sigs: Signal[], solUsd: number | null, realRows: RealC
   };
   const before = verdictsBefore(sigs);
   const pace = pacesBefore(sigs);
-  const rules = [
-    ...DELAYS.flatMap((d) => EXITS.map((x) => ({ id: ruleId(d, x), text: ruleText(d, x), ...score(sigs, (s) => ret(s, d, x), solUsd) }))),
-    ...DELAYS.flatMap((d) => TARGETS.map((tp) => ({ id: scalpId(d, tp), text: scalpText(d, tp), ...score(sigs, (s) => scalp(s, d, tp), solUsd) }))),
-    ...STOPS.map(([tp, sl]) => ({ id: stopId(tp, sl), text: stopText(tp, sl), ...score(sigs, (s) => scalpStop(s, tp, sl), solUsd) })),
-    ...CUTS.map((c) => ({ id: cutId(10, c), text: cutText(10, c), ...score(sigs, (s) => scalpCut(s, 10, c), solUsd) })),
+  type Rule = { id: string; text: string } & ReturnType<typeof score>;
+  /**
+   * The rules that buy "the moment we know". Each is decided on what is known at that instant (the gap is that
+   * moment's quote, the trader's record and pace are the earlier buys) and filled `e` s later: e = 0 is the instant
+   * quote, a price no order gets; e = REAL_D is where a real order lands. The notes inside tell how each rule came
+   * about; the paper figures they quote were read on instant prices.
+   */
+  const decided = (e: number): Rule[] => {
+    const fill = (s: Signal) => scalp(s, e, 10, TRADER_EXIT_SEC);
+    const list: Rule[] = [
+      ...STOPS.map(([tp, sl]) => ({ id: stopId(tp, sl), text: stopText(tp, sl), ...score(sigs, (s) => scalpStop(s, tp, sl, e), solUsd) })),
+      ...CUTS.map((c) => ({ id: cutId(10, c), text: cutText(10, c), ...score(sigs, (s) => scalpCut(s, 10, c, e), solUsd) })),
+      // Round 353 (19:10 KST 11 Nov 2026, MAIN). Real test under "+10% or 60 s": 8 of 15 copies reached the target, and the
+      // ones that did had gone on to +16% to +48% at best; the 7 that ran out of time lost more each than a target win
+      // gains. So does a higher target pay for the copies it misses? Same copy, target 15% and 20%.
+      ...[15, 20].map((tp) => ({ id: scalpId(0, tp), text: scalpText(0, tp), ...score(sigs, (s) => scalp(s, e, tp), solUsd) })),
+      // Round 354 (20:20 KST 11 Nov 2026, MAIN). Real test, 30 landed copies with a queue count: where we paid 9%+ over
+      // the wallet's price (others had already bought in between) 10 of 11 won, +0.101 SOL; where we paid less than 9%
+      // over, 6 of 19 won, -0.092 SOL. The price gap is known from the quote BEFORE the order leaves, unlike the wave
+      // count. 30 copies is small, so on paper first: the same copy, taken only when the quote is 9%+ over the wallet's
+      // price, and its mirror (under 3% over: we are nearly alone).
+      { id: "copy-d0-gap9-tp10-t60", text: `When a tracked wallet buys and our price is already 9% or more above what the wallet paid, buy ${STAKE_SOL} SOL the moment we know, sell as soon as it is up 10% after costs, and sell anyway after ${TIME_STOP} s.`, ...score(sigs, (s) => (s.entries.d0 && s.leaderPrice > 0 && s.entries.d0.price / s.leaderPrice - 1 >= 0.09 ? scalp(s, e, 10) : undefined), solUsd) },
+      { id: "copy-d0-gap3under-tp10-t60", text: `When a tracked wallet buys and our price is less than 3% above what the wallet paid, buy ${STAKE_SOL} SOL the moment we know, sell as soon as it is up 10% after costs, and sell anyway after ${TIME_STOP} s.`, ...score(sigs, (s) => (s.entries.d0 && s.leaderPrice > 0 && s.entries.d0.price / s.leaderPrice - 1 < 0.03 ? scalp(s, e, 10) : undefined), solUsd) },
+      // Round 355 (21:20 KST 11 Nov 2026, MAIN). 192 paper buys: the 9%+ band (49 buys) made +1.08 SOL, under 3% (115)
+      // lost 0.41, and the 28 in between were flat, so all of the paper profit sits in 1 buy of 4. Two questions about
+      // that band: do its coins run far enough for a 20% target, and is a gap of 20%+ already too late?
+      { id: "copy-d0-gap9-tp20-t60", text: `When a tracked wallet buys and our price is already 9% or more above what the wallet paid, buy ${STAKE_SOL} SOL the moment we know, sell as soon as it is up 20% after costs, and sell anyway after ${TIME_STOP} s.`, ...score(sigs, (s) => (s.entries.d0 && s.leaderPrice > 0 && s.entries.d0.price / s.leaderPrice - 1 >= 0.09 ? scalp(s, e, 20) : undefined), solUsd) },
+      { id: "copy-d0-gap20-tp10-t60", text: `When a tracked wallet buys and our price is already 20% or more above what the wallet paid, buy ${STAKE_SOL} SOL the moment we know, sell as soon as it is up 10% after costs, and sell anyway after ${TIME_STOP} s.`, ...score(sigs, (s) => (s.entries.d0 && s.leaderPrice > 0 && s.entries.d0.price / s.leaderPrice - 1 >= 0.2 ? scalp(s, e, 10) : undefined), solUsd) },
+      // Round 356 (22:20 KST 11 Nov 2026, MAIN). First 17 real copies under the 9% entry rule: 12 won, +0.042 SOL.
+      // All 11 target sales came within 25 s of the buy (6 of them within 6 s); the 6 that ran to 60 s made -0.073 SOL
+      // together and only one of them had come near the target. So a copy that has not paid by ~30 s mostly will not:
+      // the same paper copy with the time stop at 30 s and at 20 s (the checks are at fixed times, so this is coarse).
+      ...[30, 20].map((t) => ({ id: `copy-d0-gap9-tp10-t${t}`, text: `When a tracked wallet buys and our price is already 9% or more above what the wallet paid, buy ${STAKE_SOL} SOL the moment we know, sell as soon as it is up 10% after costs, and sell anyway after ${t} s.`, ...score(sigs, (s) => (s.entries.d0 && s.leaderPrice > 0 && s.entries.d0.price / s.leaderPrice - 1 >= 0.09 ? scalp(s, e, 10, t) : undefined), solUsd) })),
+      // 11 Nov 2026 22:30 KST (enrique: "are u actively analyzing if we can get better returns by tweaking our
+      // strategies?"). Real test under the 9% rule, 20 copies: the 12 that reached +10% all did so within 25 s
+      // (+0.122 SOL together); of the 8 that ran the full 60 s, 7 lost (-0.103 SOL together), ending 17% to 42% down.
+      // The shorter clocks above do not help on paper (70 buys: +3.62% a trade at 30 s against +3.64% at 60 s, +3.03%
+      // at 20 s): the slow ones are already down by then. So, for the 9% buys only: a look at 20 s that sells what is
+      // not up, a stop at 10% and at 20%, and a stricter gap (12%, 15%). Five more rules on some 70 buys: one of them
+      // will look best by chance, so a change of the real test needs the real copies to say the same.
+      { id: "copy-d0-gap9-tp10-cut20-t60", text: `${GAP9} the moment we know, sell as soon as it is up 10% after costs, sell at 20 s if it is not up after costs by then, and sell anyway after ${TIME_STOP} s.`, ...score(sigs, (s) => ((gapOf(s) ?? -1) >= 0.09 ? scalpCut(s, 10, 20, e) : undefined), solUsd) },
+      ...GAP9_STOPS.map((sl) => ({ id: `copy-d0-gap9-tp10-sl${sl}-t60`, text: `${GAP9} the moment we know, sell as soon as it is up 10% after costs or down ${sl}%, and sell anyway after ${TIME_STOP} s.`, ...score(sigs, (s) => ((gapOf(s) ?? -1) >= 0.09 ? scalpStop(s, 10, sl, e) : undefined), solUsd) })),
+      ...GAPS_MORE.map((g) => ({ id: `copy-d0-gap${g}-tp10-t60`, text: `When a tracked wallet buys and our price is already ${g}% or more above what the wallet paid, buy ${STAKE_SOL} SOL the moment we know, sell as soon as it is up 10% after costs, and sell anyway after ${TIME_STOP} s.`, ...score(sigs, (s) => ((gapOf(s) ?? -1) >= g / 100 ? scalp(s, e, 10) : undefined), solUsd) })),
+      // 11 Nov 2026 22:55 KST. The real copies under the 9% rule, by entry gap (29 of the 30 in view): the 8 bought
+      // 9-15% above the wallet lost 0.037 SOL together, the 21 bought 15%+ above made +0.054 SOL. Paper says the same
+      // (85 buys: the 31 in the 9-15% band lose about 5% a trade, the 54 above 15% make about 6%). So, as the next
+      // candidate for the real test: the 15% bar with the real test's own 30 s clock, the 9-15% band on its own (so
+      // that nobody has to subtract), and a 30% bar (the 12 real copies above 30% made nothing together). Three more
+      // rules on the same buys, picked after looking: they describe what happened, they do not prove it will repeat.
+      { id: "copy-d0-gap15-tp10-t30", text: `When a tracked wallet buys and our price is already 15% or more above what the wallet paid, buy ${STAKE_SOL} SOL the moment we know, sell as soon as it is up 10% after costs, and sell anyway after 30 s.`, ...score(sigs, (s) => ((gapOf(s) ?? -1) >= 0.15 ? scalp(s, e, 10, 30) : undefined), solUsd) },
+      { id: "copy-d0-gap9to15-tp10-t60", text: `When a tracked wallet buys and our price is 9% to 15% above what the wallet paid, buy ${STAKE_SOL} SOL the moment we know, sell as soon as it is up 10% after costs, and sell anyway after ${TIME_STOP} s.`, ...score(sigs, (s) => ((gapOf(s) ?? -1) >= 0.09 && gapOf(s)! < 0.15 ? scalp(s, e, 10) : undefined), solUsd) },
+      { id: "copy-d0-gap30-tp10-t60", text: `When a tracked wallet buys and our price is already 30% or more above what the wallet paid, buy ${STAKE_SOL} SOL the moment we know, sell as soon as it is up 10% after costs, and sell anyway after ${TIME_STOP} s.`, ...score(sigs, (s) => ((gapOf(s) ?? -1) >= 0.3 ? scalp(s, e, 10) : undefined), solUsd) },
+      // 11 Nov 2026 23:55 KST. The real test went below zero (134 copies, -0.046 SOL): the 9-15% band has now lost on
+      // 21 real copies (-0.072 SOL) and 38 paper buys, the 15%+ copies are flat (31 copies, +0.008 SOL), and a stop
+      // beat no stop on paper at both readings of the 9% band (85 and 102 buys). The candidate for the real test is
+      // therefore the 15% bar with a stop, and paper had no rule for that: the 15% bar with the 10% and the 20% stop,
+      // and with the 20 s clock. Picked after looking, on the same buys: they describe, they do not prove.
+      ...GAP9_STOPS.map((sl) => ({ id: `copy-d0-gap15-tp10-sl${sl}-t60`, text: `When a tracked wallet buys and our price is already 15% or more above what the wallet paid, buy ${STAKE_SOL} SOL the moment we know, sell as soon as it is up 10% after costs or down ${sl}%, and sell anyway after ${TIME_STOP} s.`, ...score(sigs, (s) => ((gapOf(s) ?? -1) >= 0.15 ? scalpStop(s, 10, sl, e) : undefined), solUsd) })),
+      { id: "copy-d0-gap15-tp10-t20", text: `When a tracked wallet buys and our price is already 15% or more above what the wallet paid, buy ${STAKE_SOL} SOL the moment we know, sell as soon as it is up 10% after costs, and sell anyway after 20 s.`, ...score(sigs, (s) => ((gapOf(s) ?? -1) >= 0.15 ? scalp(s, e, 10, 20) : undefined), solUsd) },
+      // Traders (see verdictOf): every buy copied at once and sold at +10% or 30 s, split by what its trader's earlier
+      // copies did. The four groups add up to the first rule. "not bad" and the 15% bar with it are what the real test
+      // would run. Judged before the buy, never with its own result.
+      { id: `copy-d0-tp10-t${TRADER_EXIT_SEC}`, text: `When a tracked wallet buys, buy ${STAKE_SOL} SOL of the same token the moment we know, sell as soon as it is up 10% after costs, and sell anyway after ${TRADER_EXIT_SEC} s.`, ...score(sigs, fill, solUsd) },
+      ...VERDICTS.map((v) => ({ id: `copy-d0-trader-${v}-tp10-t${TRADER_EXIT_SEC}`, text: `The same, but only buys of traders whose earlier copies were ${v === "new" ? `too few to judge (under ${TRADER_MIN})` : v}.`, ...score(sigs, (s) => (before.get(s) === v ? fill(s) : undefined), solUsd) })),
+      { id: `copy-d0-trader-notbad-tp10-t${TRADER_EXIT_SEC}`, text: `The same, but leaving out the buys of traders whose earlier copies were bad (${TRADER_MIN}+ copies, lost on average, fewer than half won).`, ...score(sigs, (s) => (before.get(s) !== "bad" ? fill(s) : undefined), solUsd) },
+      ...(["notbad", "bad", "good"] as const).map((v) => ({ id: `copy-d0-gap15-trader-${v}-tp10-t${TRADER_EXIT_SEC}`, text: `When a tracked wallet buys and our price is already 15% or more above what the wallet paid, and the trader's earlier copies were ${v === "notbad" ? "not bad" : v}, buy ${STAKE_SOL} SOL the moment we know, sell as soon as it is up 10% after costs, and sell anyway after ${TRADER_EXIT_SEC} s.`, ...score(sigs, (s) => ((gapOf(s) ?? -1) >= 0.15 && (v === "notbad" ? before.get(s) !== "bad" : before.get(s) === v) ? fill(s) : undefined), solUsd) })),
+      // Pace (see paceAt): the same copy, split by how often the trader had bought in the hours before
+      ...PACES.map((v) => ({ id: `copy-d0-${v}-tp10-t${TRADER_EXIT_SEC}`, text: `When a tracked wallet buys and that trader had bought ${v === "busy" ? `${PACE_BUSY} or more` : `fewer than ${PACE_BUSY}`} times in the ${PACE_HOURS} hours before, buy ${STAKE_SOL} SOL of the same token the moment we know, sell as soon as it is up 10% after costs, and sell anyway after ${TRADER_EXIT_SEC} s.`, ...score(sigs, (s) => (pace.get(s) === v ? fill(s) : undefined), solUsd) })),
+      ...PACES.map((v) => ({ id: `copy-d0-gap15-${v}-tp10-t${TRADER_EXIT_SEC}`, text: `The same, but only when our price is already 15% or more above what the wallet paid.`, ...score(sigs, (s) => ((gapOf(s) ?? -1) >= 0.15 && pace.get(s) === v ? fill(s) : undefined), solUsd) })),
+      ...[300, 600].map((x) => ({ id: ruleId(0, x), text: ruleText(0, x), ...score(sigs, (s) => pathRet(s, x, e), solUsd) })),
+      ...TRAILS.map((t) => ({ id: trailId(t), text: trailText(t), ...score(sigs, (s) => trail(s, t, e), solUsd) })),
+    ];
+    return e === 0 ? list : list.map((x) => ({ ...x, id: x.id.replace("copy-d0-", `copy-d${e}-`), text: x.text.replace(/the moment we know/g, `${e} s after we know`) }));
+  };
+  const plain = (d: number): Rule[] => [
+    ...EXITS.map((x) => ({ id: ruleId(d, x), text: ruleText(d, x), ...score(sigs, (s) => ret(s, d, x), solUsd) })),
+    ...TARGETS.map((tp) => ({ id: scalpId(d, tp), text: scalpText(d, tp), ...score(sigs, (s) => scalp(s, d, tp), solUsd) })),
+  ];
+  /** Instant prices: what being first in line would be worth. No order gets them, so they are never ranked with the rest. */
+  const rulesInstant: Rule[] = [...plain(0), ...decided(0)];
+  const reach: Rule[] = [
+    ...DELAYS.filter((d) => d >= REAL_D).flatMap(plain),
+    ...decided(REAL_D),
     ...LATE.flatMap((d) => [
       { id: scalpId(d, 10), text: scalpText(d, 10), ...score(sigs, (s) => scalp(s, d, 10), solUsd) },
       ...LATE_HOLDS.map((x) => ({ id: ruleId(d, x), text: ruleText(d, x), ...score(sigs, (s) => ret(s, d, x), solUsd) })),
@@ -976,72 +1099,20 @@ export function summarize(sigs: Signal[], solUsd: number | null, realRows: RealC
     // only followers already in the wallet's own block). Same exit: +10% or 60 s.
     { id: "copy-d3-wave10-tp10-t60", text: `When a tracked wallet buys and 10 or more other wallets follow within about 4 s, buy ${STAKE_SOL} SOL of the same token 3 s after we know, sell as soon as it is up 10% after costs, and sell anyway after ${TIME_STOP} s.`, ...score(sigs, (s) => (s.crowd && s.crowd.s10 >= 10 ? scalp(s, 3, 10) : undefined), solUsd) },
     { id: "copy-d1-same2-tp10-t60", text: `When a tracked wallet buys and 2 or more other wallets bought in the same block, buy ${STAKE_SOL} SOL of the same token 1 s after we know, sell as soon as it is up 10% after costs, and sell anyway after ${TIME_STOP} s.`, ...score(sigs, (s) => (s.crowd && s.crowd.same >= 2 ? scalp(s, 1, 10) : undefined), solUsd) },
-    // Round 353 (19:10 KST 11 Nov 2026, MAIN). Real test under "+10% or 60 s": 8 of 15 copies reached the target, and the
-    // ones that did had gone on to +16% to +48% at best; the 7 that ran out of time lost more each than a target win
-    // gains. So does a higher target pay for the copies it misses? Same copy, target 15% and 20%.
-    ...[15, 20].map((tp) => ({ id: scalpId(0, tp), text: scalpText(0, tp), ...score(sigs, (s) => scalp(s, 0, tp), solUsd) })),
-    // Round 354 (20:20 KST 11 Nov 2026, MAIN). Real test, 30 landed copies with a queue count: where we paid 9%+ over
-    // the wallet's price (others had already bought in between) 10 of 11 won, +0.101 SOL; where we paid less than 9%
-    // over, 6 of 19 won, -0.092 SOL. The price gap is known from the quote BEFORE the order leaves, unlike the wave
-    // count. 30 copies is small, so on paper first: the same copy, taken only when the quote is 9%+ over the wallet's
-    // price, and its mirror (under 3% over: we are nearly alone).
-    { id: "copy-d0-gap9-tp10-t60", text: `When a tracked wallet buys and our price is already 9% or more above what the wallet paid, buy ${STAKE_SOL} SOL the moment we know, sell as soon as it is up 10% after costs, and sell anyway after ${TIME_STOP} s.`, ...score(sigs, (s) => (s.entries.d0 && s.leaderPrice > 0 && s.entries.d0.price / s.leaderPrice - 1 >= 0.09 ? scalp(s, 0, 10) : undefined), solUsd) },
-    { id: "copy-d0-gap3under-tp10-t60", text: `When a tracked wallet buys and our price is less than 3% above what the wallet paid, buy ${STAKE_SOL} SOL the moment we know, sell as soon as it is up 10% after costs, and sell anyway after ${TIME_STOP} s.`, ...score(sigs, (s) => (s.entries.d0 && s.leaderPrice > 0 && s.entries.d0.price / s.leaderPrice - 1 < 0.03 ? scalp(s, 0, 10) : undefined), solUsd) },
-    // Round 355 (21:20 KST 11 Nov 2026, MAIN). 192 paper buys: the 9%+ band (49 buys) made +1.08 SOL, under 3% (115)
-    // lost 0.41, and the 28 in between were flat, so all of the paper profit sits in 1 buy of 4. Two questions about
-    // that band: do its coins run far enough for a 20% target, and is a gap of 20%+ already too late?
-    { id: "copy-d0-gap9-tp20-t60", text: `When a tracked wallet buys and our price is already 9% or more above what the wallet paid, buy ${STAKE_SOL} SOL the moment we know, sell as soon as it is up 20% after costs, and sell anyway after ${TIME_STOP} s.`, ...score(sigs, (s) => (s.entries.d0 && s.leaderPrice > 0 && s.entries.d0.price / s.leaderPrice - 1 >= 0.09 ? scalp(s, 0, 20) : undefined), solUsd) },
-    { id: "copy-d0-gap20-tp10-t60", text: `When a tracked wallet buys and our price is already 20% or more above what the wallet paid, buy ${STAKE_SOL} SOL the moment we know, sell as soon as it is up 10% after costs, and sell anyway after ${TIME_STOP} s.`, ...score(sigs, (s) => (s.entries.d0 && s.leaderPrice > 0 && s.entries.d0.price / s.leaderPrice - 1 >= 0.2 ? scalp(s, 0, 10) : undefined), solUsd) },
-    // Round 356 (22:20 KST 11 Nov 2026, MAIN). First 17 real copies under the 9% entry rule: 12 won, +0.042 SOL.
-    // All 11 target sales came within 25 s of the buy (6 of them within 6 s); the 6 that ran to 60 s made -0.073 SOL
-    // together and only one of them had come near the target. So a copy that has not paid by ~30 s mostly will not:
-    // the same paper copy with the time stop at 30 s and at 20 s (the checks are at fixed times, so this is coarse).
-    ...[30, 20].map((t) => ({ id: `copy-d0-gap9-tp10-t${t}`, text: `When a tracked wallet buys and our price is already 9% or more above what the wallet paid, buy ${STAKE_SOL} SOL the moment we know, sell as soon as it is up 10% after costs, and sell anyway after ${t} s.`, ...score(sigs, (s) => (s.entries.d0 && s.leaderPrice > 0 && s.entries.d0.price / s.leaderPrice - 1 >= 0.09 ? scalp(s, 0, 10, t) : undefined), solUsd) })),
-    // 11 Nov 2026 22:30 KST (enrique: "are u actively analyzing if we can get better returns by tweaking our
-    // strategies?"). Real test under the 9% rule, 20 copies: the 12 that reached +10% all did so within 25 s
-    // (+0.122 SOL together); of the 8 that ran the full 60 s, 7 lost (-0.103 SOL together), ending 17% to 42% down.
-    // The shorter clocks above do not help on paper (70 buys: +3.62% a trade at 30 s against +3.64% at 60 s, +3.03%
-    // at 20 s): the slow ones are already down by then. So, for the 9% buys only: a look at 20 s that sells what is
-    // not up, a stop at 10% and at 20%, and a stricter gap (12%, 15%). Five more rules on some 70 buys: one of them
-    // will look best by chance, so a change of the real test needs the real copies to say the same.
-    { id: "copy-d0-gap9-tp10-cut20-t60", text: `${GAP9} the moment we know, sell as soon as it is up 10% after costs, sell at 20 s if it is not up after costs by then, and sell anyway after ${TIME_STOP} s.`, ...score(sigs, (s) => ((gapOf(s) ?? -1) >= 0.09 ? scalpCut(s, 10, 20) : undefined), solUsd) },
-    ...GAP9_STOPS.map((sl) => ({ id: `copy-d0-gap9-tp10-sl${sl}-t60`, text: `${GAP9} the moment we know, sell as soon as it is up 10% after costs or down ${sl}%, and sell anyway after ${TIME_STOP} s.`, ...score(sigs, (s) => ((gapOf(s) ?? -1) >= 0.09 ? scalpStop(s, 10, sl) : undefined), solUsd) })),
-    ...GAPS_MORE.map((g) => ({ id: `copy-d0-gap${g}-tp10-t60`, text: `When a tracked wallet buys and our price is already ${g}% or more above what the wallet paid, buy ${STAKE_SOL} SOL the moment we know, sell as soon as it is up 10% after costs, and sell anyway after ${TIME_STOP} s.`, ...score(sigs, (s) => ((gapOf(s) ?? -1) >= g / 100 ? scalp(s, 0, 10) : undefined), solUsd) })),
-    // 11 Nov 2026 22:55 KST. The real copies under the 9% rule, by entry gap (29 of the 30 in view): the 8 bought
-    // 9-15% above the wallet lost 0.037 SOL together, the 21 bought 15%+ above made +0.054 SOL. Paper says the same
-    // (85 buys: the 31 in the 9-15% band lose about 5% a trade, the 54 above 15% make about 6%). So, as the next
-    // candidate for the real test: the 15% bar with the real test's own 30 s clock, the 9-15% band on its own (so
-    // that nobody has to subtract), and a 30% bar (the 12 real copies above 30% made nothing together). Three more
-    // rules on the same buys, picked after looking: they describe what happened, they do not prove it will repeat.
-    { id: "copy-d0-gap15-tp10-t30", text: `When a tracked wallet buys and our price is already 15% or more above what the wallet paid, buy ${STAKE_SOL} SOL the moment we know, sell as soon as it is up 10% after costs, and sell anyway after 30 s.`, ...score(sigs, (s) => ((gapOf(s) ?? -1) >= 0.15 ? scalp(s, 0, 10, 30) : undefined), solUsd) },
-    { id: "copy-d0-gap9to15-tp10-t60", text: `When a tracked wallet buys and our price is 9% to 15% above what the wallet paid, buy ${STAKE_SOL} SOL the moment we know, sell as soon as it is up 10% after costs, and sell anyway after ${TIME_STOP} s.`, ...score(sigs, (s) => ((gapOf(s) ?? -1) >= 0.09 && gapOf(s)! < 0.15 ? scalp(s, 0, 10) : undefined), solUsd) },
-    { id: "copy-d0-gap30-tp10-t60", text: `When a tracked wallet buys and our price is already 30% or more above what the wallet paid, buy ${STAKE_SOL} SOL the moment we know, sell as soon as it is up 10% after costs, and sell anyway after ${TIME_STOP} s.`, ...score(sigs, (s) => ((gapOf(s) ?? -1) >= 0.3 ? scalp(s, 0, 10) : undefined), solUsd) },
-    // 11 Nov 2026 23:55 KST. The real test went below zero (134 copies, -0.046 SOL): the 9-15% band has now lost on
-    // 21 real copies (-0.072 SOL) and 38 paper buys, the 15%+ copies are flat (31 copies, +0.008 SOL), and a stop
-    // beat no stop on paper at both readings of the 9% band (85 and 102 buys). The candidate for the real test is
-    // therefore the 15% bar with a stop, and paper had no rule for that: the 15% bar with the 10% and the 20% stop,
-    // and with the 20 s clock. Picked after looking, on the same buys: they describe, they do not prove.
-    ...GAP9_STOPS.map((sl) => ({ id: `copy-d0-gap15-tp10-sl${sl}-t60`, text: `When a tracked wallet buys and our price is already 15% or more above what the wallet paid, buy ${STAKE_SOL} SOL the moment we know, sell as soon as it is up 10% after costs or down ${sl}%, and sell anyway after ${TIME_STOP} s.`, ...score(sigs, (s) => ((gapOf(s) ?? -1) >= 0.15 ? scalpStop(s, 10, sl) : undefined), solUsd) })),
-    { id: "copy-d0-gap15-tp10-t20", text: `When a tracked wallet buys and our price is already 15% or more above what the wallet paid, buy ${STAKE_SOL} SOL the moment we know, sell as soon as it is up 10% after costs, and sell anyway after 20 s.`, ...score(sigs, (s) => ((gapOf(s) ?? -1) >= 0.15 ? scalp(s, 0, 10, 20) : undefined), solUsd) },
-    // Traders (see verdictOf): every buy copied at once and sold at +10% or 30 s, split by what its trader's earlier
-    // copies did. The four groups add up to the first rule. "not bad" and the 15% bar with it are what the real test
-    // would run. Judged before the buy, never with its own result.
-    { id: `copy-d0-tp10-t${TRADER_EXIT_SEC}`, text: `When a tracked wallet buys, buy ${STAKE_SOL} SOL of the same token the moment we know, sell as soon as it is up 10% after costs, and sell anyway after ${TRADER_EXIT_SEC} s.`, ...score(sigs, traderRet, solUsd) },
-    ...VERDICTS.map((v) => ({ id: `copy-d0-trader-${v}-tp10-t${TRADER_EXIT_SEC}`, text: `The same, but only buys of traders whose earlier copies were ${v === "new" ? `too few to judge (under ${TRADER_MIN})` : v}.`, ...score(sigs, (s) => (before.get(s) === v ? traderRet(s) : undefined), solUsd) })),
-    { id: `copy-d0-trader-notbad-tp10-t${TRADER_EXIT_SEC}`, text: `The same, but leaving out the buys of traders whose earlier copies were bad (${TRADER_MIN}+ copies, lost on average, fewer than half won).`, ...score(sigs, (s) => (before.get(s) !== "bad" ? traderRet(s) : undefined), solUsd) },
-    ...(["notbad", "bad", "good"] as const).map((v) => ({ id: `copy-d0-gap15-trader-${v}-tp10-t${TRADER_EXIT_SEC}`, text: `When a tracked wallet buys and our price is already 15% or more above what the wallet paid, and the trader's earlier copies were ${v === "notbad" ? "not bad" : v}, buy ${STAKE_SOL} SOL the moment we know, sell as soon as it is up 10% after costs, and sell anyway after ${TRADER_EXIT_SEC} s.`, ...score(sigs, (s) => ((gapOf(s) ?? -1) >= 0.15 && (v === "notbad" ? before.get(s) !== "bad" : before.get(s) === v) ? traderRet(s) : undefined), solUsd) })),
     // 12 Nov 2026 00:41 KST: of 130 real copies, the 54 that landed in the very next block lost 0.111 SOL, the 38
     // that landed three or more blocks later made 0.047. So: is the 15% bar still good a second or three later?
     // Here the bar is read from the price at that later moment, and the copy is bought then.
-    ...[1, 3].map((d) => ({ id: `copy-d${d}-gap15-tp10-t${TRADER_EXIT_SEC}`, text: `When a tracked wallet buys, wait ${d} s; if our price is then 15% or more above what the wallet paid, buy ${STAKE_SOL} SOL, sell as soon as it is up 10% after costs, and sell anyway after ${TRADER_EXIT_SEC} s.`, ...score(sigs, (s) => ((gapAt(s, d) ?? -1) >= 0.15 ? scalp(s, d, 10, TRADER_EXIT_SEC) : undefined), solUsd) })),
-    // Pace (see paceAt): the same copy, split by how often the trader had bought in the hours before
-    ...PACES.map((v) => ({ id: `copy-d0-${v}-tp10-t${TRADER_EXIT_SEC}`, text: `When a tracked wallet buys and that trader had bought ${v === "busy" ? `${PACE_BUSY} or more` : `fewer than ${PACE_BUSY}`} times in the ${PACE_HOURS} hours before, buy ${STAKE_SOL} SOL of the same token the moment we know, sell as soon as it is up 10% after costs, and sell anyway after ${TRADER_EXIT_SEC} s.`, ...score(sigs, (s) => (pace.get(s) === v ? traderRet(s) : undefined), solUsd) })),
-    ...PACES.map((v) => ({ id: `copy-d0-gap15-${v}-tp10-t${TRADER_EXIT_SEC}`, text: `The same, but only when our price is already 15% or more above what the wallet paid.`, ...score(sigs, (s) => ((gapOf(s) ?? -1) >= 0.15 && pace.get(s) === v ? traderRet(s) : undefined), solUsd) })),
-    ...[300, 600].map((x) => ({ id: ruleId(0, x), text: ruleText(0, x), ...score(sigs, (s) => pathRet(s, x), solUsd) })),
-    ...TRAILS.map((t) => ({ id: trailId(t), text: trailText(t), ...score(sigs, (s) => trail(s, t), solUsd) })),
+    ...[1, 3].map((d) => ({ id: `copy-d${d}-gapthen15-tp10-t${TRADER_EXIT_SEC}`, text: `When a tracked wallet buys, wait ${d} s; if our price is then 15% or more above what the wallet paid, buy ${STAKE_SOL} SOL, sell as soon as it is up 10% after costs, and sell anyway after ${TRADER_EXIT_SEC} s.`, ...score(sigs, (s) => ((gapAt(s, d) ?? -1) >= 0.15 ? scalp(s, d, 10, TRADER_EXIT_SEC) : undefined), solUsd) })),
   ];
+  // A rule without a single copy (the 3 to 20 s entries are no longer priced) would sort above every losing rule.
+  const notMeasured = reach.filter((x) => !x.n).map((x) => x.id);
+  const rules = reach.filter((x) => x.n);
   const by = new Map<string, Signal[]>();
   for (const s of sigs) by.set(s.wallet, [...(by.get(s.wallet) ?? []), s]);
+  const avgPct = (xs: (number | undefined)[]) => {
+    const v = nums(xs);
+    return v.length ? r((v.reduce((a, b) => a + b, 0) / v.length) * 100) : null;
+  };
   const wallets = [...by].map(([address, ss]) => ({
     name: ss[0].name,
     address,
@@ -1049,15 +1120,28 @@ export function summarize(sigs: Signal[], solUsd: number | null, realRows: RealC
     /** follower transactions in the ~4 s and ~60 s after the wallet's buy (median) */
     follow4s: med(nums(ss.map((s) => s.crowd?.s10))),
     follow60s: med(nums(ss.map((s) => s.crowd?.s150))),
-    entryGapPct: r((med(nums(ss.map((s) => (s.entries.d0 ? s.entries.d0.price / s.leaderPrice - 1 : null)))) ?? NaN) * 100),
-    aheadOfUs: med(nums(ss.map((s) => s.crowd?.ahead.d0))),
-    /** median return of the fastest paper copy sold after 5 s / 30 s / 2 min, % */
-    ret5: r((med(nums(ss.map((s) => ret(s, 0, 5)))) ?? NaN) * 100),
-    ret30: r((med(nums(ss.map((s) => ret(s, 0, 30)))) ?? NaN) * 100),
-    ret120: r((med(nums(ss.map((s) => ret(s, 0, 120)))) ?? NaN) * 100),
+    /** how many of its buys were priced REAL_D s after we knew: what the figures below rest on */
+    priced: ss.filter((s) => s.entries[`d${REAL_D}`]).length,
+    /** a buy made REAL_D s after we know (where a real order lands): what it pays over the wallet's price (median, %) and how many transactions land before it (median) */
+    entryGapPct: r((med(nums(ss.map((s) => gapAt(s, REAL_D)))) ?? NaN) * 100),
+    aheadOfUs: med(nums(ss.map((s) => s.crowd?.ahead[`d${REAL_D}`]))),
+    /** AVERAGE return of that copy sold 5 s / 30 s / 2 min after its purchase, after costs, % (the median hid the size of the losses) */
+    ret5: avgPct(ss.map((s) => ret(s, REAL_D, 5))),
+    ret30: avgPct(ss.map((s) => ret(s, REAL_D, 30))),
+    ret120: avgPct(ss.map((s) => ret(s, REAL_D, 120))),
+    /** the same at the instant quote, which no order gets */
+    instant: {
+      entryGapPct: r((med(nums(ss.map(gapOf))) ?? NaN) * 100),
+      aheadOfUs: med(nums(ss.map((s) => s.crowd?.ahead.d0))),
+      ret5: avgPct(ss.map((s) => ret(s, 0, 5))),
+      ret30: avgPct(ss.map((s) => ret(s, 0, 30))),
+      ret120: avgPct(ss.map((s) => ret(s, 0, 120))),
+    },
     ref: Object.fromEntries(REF_RULES.map((id) => [id, score(ss, (s) => ret(s, 1, id.endsWith("x10") ? 10 : 30), solUsd)])),
-    /** the trader's record with us: every buy copied at once and sold at +10% or 30 s; and the verdict it gives now */
+    /** the trader's record with us: every buy copied at once (the instant quote: for telling traders apart, not a result) and sold at +10% or 30 s; and the verdict it gives now */
     copy: score(ss, traderRet, solUsd),
+    /** the same copies bought REAL_D s after we know: what following this trader would have paid */
+    copyLate: score(ss, (s) => scalp(s, REAL_D, 10, TRADER_EXIT_SEC), solUsd),
     verdict: verdictOf(nums(ss.map(traderRet))),
   }));
   wallets.sort((a, b) => (b.follow4s ?? -1) - (a.follow4s ?? -1) || b.buys - a.buys);
@@ -1072,7 +1156,7 @@ export function summarize(sigs: Signal[], solUsd: number | null, realRows: RealC
   };
   const recent = sigs.slice(-15).reverse().map((s) => ({
     t: s.knownMs, name: s.name, mint: s.mint, leaderSol: r(s.leaderSol), lagSec: s.leaderTime ? r((s.knownMs - s.leaderTime * 1000) / 1000, 1) : null, lagSlots: s.lagSlots,
-    ahead: s.crowd?.ahead.d0 ?? null, follow4s: s.crowd?.s10 ?? null, entryGapPct: s.entries.d0 ? r((s.entries.d0.price / s.leaderPrice - 1) * 100) : null,
+    ahead: s.crowd?.ahead[`d${REAL_D}`] ?? null, follow4s: s.crowd?.s10 ?? null, entryGapPct: r((gapAt(s, REAL_D) ?? NaN) * 100),
     breakEvenPct: r((roundTrip(s) ?? NaN) * 100), ret10Pct: r((ret(s, 1, 10) ?? NaN) * 100), ret30Pct: r((ret(s, 1, 30) ?? NaN) * 100),
   }));
   const sameBlock = {
@@ -1082,10 +1166,11 @@ export function summarize(sigs: Signal[], solUsd: number | null, realRows: RealC
     nearGapPctMedian: r((med(nums(sigs.map((s) => (s.near ? s.near.price / s.leaderPrice - 1 : null)))) ?? NaN) * 100),
     rules: EXITS.map((x) => ({ id: sameId(x), ...score(sigs, (s) => sameBlockRet(s, x), solUsd) })),
   };
-  // d0 rules price the copy at the instant of the wallet's buy; real fills land a block later and pay about 4.5% more,
-  // so only d1-or-later entries can pass the bar (14 Nov 2026, after enrique's "what is this" on the panel).
-  const qualified = rules.filter((x) => !/^copy-d0-/.test(x.id) && x.n >= 100 && x.won / x.n >= 0.5 && (x.netSol ?? 0) > 0).map((x) => x.id);
-  return { speed, rulesTried: rules.length, inProfit: rules.filter((x) => (x.netSol ?? 0) > 0).length, qualified, rules, exitStudy: exitStudy(sigs), sizeStudy: sizeStudy(sigs), lateStudy: lateStudy(sigs), walk: walkStudy(sigs, pace), hours: hourStudy(sigs), repeats: repeatStudy(sigs), secondWave: secondWaveStudy(sigs), buySize: buySizeStudy(sigs, before, realRows, solUsd), sameBlock, traders, wallets, recent };
+  // `rules` holds only entries a real order can get (see REAL_D), so the bar, the count in profit and the number
+  // tried are read on those alone; the instant-price rules sit apart in rulesInstant.
+  const qualified = rules.filter((x) => x.n >= 100 && x.won / x.n >= 0.5 && (x.netSol ?? 0) > 0).map((x) => x.id);
+  const rulesNote = `rules = every paper rule bought ${REAL_D} s or more after we know, where a real order lands (the real test's buys landed a block behind the quote and paid a median 4.5% over it); avgRetPct is the average per copy, after costs. rulesInstant = the same rules at the instant quote: no order gets that price, they show what being first would be worth and are never ranked, counted or put up for real money. notMeasured = rules without a single copy (their entry times are no longer priced). In a copy-d${REAL_D} rule with a gap, trader or pace condition, the condition is read the moment we know (the gap is that moment's quote) and only the buy is ${REAL_D} s later; copy-d1-gapthen15 reads the gap ${REAL_D} s later too. 5 and 10 min holds and trailing exits bought ${REAL_D} s late are estimated from the instant copy's sale.`;
+  return { speed, rulesNote, rulesTried: rules.length, inProfit: rules.filter((x) => (x.netSol ?? 0) > 0).length, qualified, rules, rulesInstant, notMeasured, exitStudy: exitStudy(sigs), sizeStudy: sizeStudy(sigs), lateStudy: lateStudy(sigs), walk: walkStudy(sigs, pace), hours: hourStudy(sigs), repeats: repeatStudy(sigs), secondWave: secondWaveStudy(sigs), buySize: buySizeStudy(sigs, before, realRows, solUsd), sameBlock, traders, wallets, recent };
 }
 
 /**
