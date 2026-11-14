@@ -43,6 +43,7 @@ import { Wallet } from "@ethersproject/wallet";
 import { AssetType, Chain, ClobClient, OrderType, Side } from "@polymarket/clob-client-v2";
 import { ROOT, kstDay } from "./config.js";
 import type { LossCap } from "./live.js";
+import { autoRealRules } from "./copyscan.js";
 import { loadJson, saveJson } from "./store.js";
 
 const HOST = "https://clob.polymarket.com";
@@ -118,7 +119,11 @@ export function eventLiveConfig(): EventLiveConfig {
   } catch {
     return { mode: "off", minBalance: 0, groups: {} };
   }
-  return parseEventLive(text, loadJson<{ mode?: string; funder?: string }>("live.json", {}));
+  const cfg = parseEventLive(text, loadJson<{ mode?: string; funder?: string }>("live.json", {}));
+  // wallets the daily rescan promoted to real (src/copyscan.ts, 14 Nov 2026) join the copy group's rules
+  const copy = cfg.groups.copy;
+  if (copy) for (const r of autoRealRules()) if (!copy.rules.includes(r)) copy.rules.push(r);
+  return cfg;
 }
 
 /** Why a real order must not go out, or null when every guard passes. Pure: the caller supplies the rows and the clock. */

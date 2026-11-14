@@ -16,6 +16,7 @@
  * Every rule is $5 at the real ask (walking the book), taker fee rate x p x (1-p) per share, held to settlement.
  */
 import { loadJson, saveJson } from "./store.js";
+import { autoFollowed, autoState, autoSummary, copyPromote, copyScan } from "./copyscan.js";
 import { NEG_READY_FILE, eventLiveAdapt, eventLiveBusy, eventLiveBuy, eventRestBid, eventRestSync, eventLiveConfig, eventLiveRows, eventLiveSettle, eventLiveSummary, eventLiveStop, type NegRiskReady } from "./eventlive.js";
 import { JEV_CONTEXT, headlines, jevKey, jevStake, type JevStake } from "./jev.js";
 
@@ -177,6 +178,7 @@ if (!state.done["fix:esports-sawlive"]) {
   state.done["fix:esports-sawlive"] = Date.now();
 }
 const save = () => saveJson(STATE_FILE, state);
+const startedAt = Date.now();
 const feeOf = (rate: number, shares: number, p: number) => rate * shares * p * (1 - p);
 const log = (s: string) => console.log(`eventpaper: ${s}`);
 
@@ -1183,9 +1185,19 @@ function groupedStatus() {
   return { on: Boolean(eventLiveConfig().groups.copy?.negRisk), ready: Boolean(r.ready), missing: r.missing?.length ?? null, grantTries: r.tries ?? 0, error: r.error ? String(r.error).replace(/0x[0-9a-fA-F]{8,}/g, "0x…").slice(0, 100) : null, bets: rows.length, open: rows.filter((x) => x.pnl == null).length, claimsDone: neg.filter((d) => d.tx).length, claimErrors: neg.filter((d) => !d.tx).length };
 }
 const copyMarkets = new Map<string, (GMarket & { conditionId?: string; negRisk?: boolean }) | null>();
+/** Rule texts and status group entries for a wallet the daily rescan added (src/copyscan.ts). */
+function copyRulesFor(w: { name: string }) {
+  if (RULE_TEXT[`copy-take-${w.name}`]) return;
+  RULE_TEXT[`copy-rest-${w.name}`] = ["copy", `Added by the daily wallet rescan (14 Nov 2026): paper copy of the public Polymarket wallet ${w.name}, a resting bid at the price it paid.`];
+  RULE_TEXT[`copy-take-${w.name}`] = ["copy", `Added by the daily wallet rescan: takes the ask for $3 within 5c of the price ${w.name} paid. Copied with REAL money once this has 20+ settled paper copies, half won and net above 0 (then the events.copy limits apply).`];
+  RULE_TEXT[`copy-any-${w.name}`] = ["copy", `Paper only: every first buy of ${w.name} at the ask, no price limit.`];
+  GROUPS.copy.push(`copy-rest-${w.name}`, `copy-take-${w.name}`, `copy-any-${w.name}`);
+}
 async function copyTick() {
   const now = Date.now();
-  for (const wl of COPY_WALLETS) {
+  const auto = autoFollowed().map((w) => ({ name: w.name, address: w.address }));
+  for (const w of auto) copyRulesFor(w);
+  for (const wl of [...COPY_WALLETS, ...auto]) {
     const st = (copyStats[wl.name] ??= { buysSeen: 0, repeats: 0, noMarket: 0, restPlaced: 0, taken: 0, takeSkipped: 0, lastError: "", lastAt: 0 });
     const seenKey = `copy:seen:${wl.name}`;
     if (!state.done[seenKey]) state.done[seenKey] = Math.floor(now / 1000); // no backfill: only buys made from now on
@@ -1877,7 +1889,7 @@ function summarize() {
       notes: g === "esports" ? Object.values(state.matches).reduce<Record<string, number>>((o, m) => ((o[m.evaluated ? m.note ?? (m.tEnd != null ? "evaluated" : "done") : m.tEnd != null ? "map 1 over, waiting" : m.start <= Date.now() ? "live" : "upcoming"] = (o[m.evaluated ? m.note ?? (m.tEnd != null ? "evaluated" : "done") : m.tEnd != null ? "map 1 over, waiting" : m.start <= Date.now() ? "live" : "upcoming"] ?? 0) + 1), o), {}) : undefined,
       skips: g === "football" || g === "weather" || g === "tennis" || g === "cricket" || g === "usports" ? state.signals.filter((x) => rules.includes(x.rule) && x.extra.skip).slice(-15).reverse().map((x) => ({ rule: x.rule, t: x.t, title: x.title, why: x.extra.skip, ask: x.extra.ask })) : undefined,
       upcoming: g === "football" ? Object.values(state.fixtures).filter((f) => !f.done).length : g === "weather" ? Object.keys(state.wx).length : g === "tennis" ? Object.values(state.tennis).filter((t) => !t.done).length : g === "usports" ? Object.values(state.usports).filter((m) => !m.done).length : g === "cricket" ? Object.values(state.cricket).filter((c) => !c.done10).length : undefined,
-      real: g === "tennis" ? { ...eventLiveSummary("tennis"), rest: eventLiveSummary("tennisrest"), notes: realNotes.slice(-10).reverse() } : g === "copy" ? { ...eventLiveSummary("copy"), notes: copyNotes.slice(-10).reverse(), grouped: groupedStatus(), adapt: eventLiveAdapt("copy"), sizes: Object.fromEntries(Object.entries(copySizes).map(([k, z]) => [k, { n: z.n, avg: Math.round((z.sum / z.n) * 100) / 100, max: z.max }])) } : undefined,
+      real: g === "tennis" ? { ...eventLiveSummary("tennis"), rest: eventLiveSummary("tennisrest"), notes: realNotes.slice(-10).reverse() } : g === "copy" ? { ...eventLiveSummary("copy"), notes: copyNotes.slice(-10).reverse(), grouped: groupedStatus(), adapt: eventLiveAdapt("copy"), auto: autoSummary(state.trades), sizes: Object.fromEntries(Object.entries(copySizes).map(([k, z]) => [k, { n: z.n, avg: Math.round((z.sum / z.n) * 100) / 100, max: z.max }])) } : undefined,
       watch: watchOf(g),
       watchAt: g === "politics" ? polWatchAt : undefined,
       sigs: state.signals
@@ -1987,6 +1999,23 @@ async function main() {
     if (now - last.settle > 10 * 60_000) {
       last.settle = now;
       await guard("settle", settleTick);
+      await guard("wallet promotions", async () => {
+        const st = autoState();
+        const lines = copyPromote(st, state.trades, Date.now());
+        if (lines.length) {
+          for (const t of lines) st.log.push({ t: Date.now(), text: t });
+          st.log = st.log.slice(-30);
+          saveJson("copy-auto.json", st);
+          for (const t of lines) log(t);
+        }
+      });
+    }
+    // daily wallet rescan (14 Nov 2026, enrique: "yeah"), first one about 10 min after a start
+    if (now - autoState().lastScan > 24 * 3600_000 && now - startedAt > 10 * 60_000) {
+      await guard("wallet rescan", async () => {
+        const own = String(loadJson<{ funder?: string }>("live.json", {}).funder ?? "");
+        for (const t of await copyScan([...COPY_WALLETS, { name: "weather wallet", address: WX_COPY_WALLET }], own, (u) => getJson(u, 20_000))) log(t);
+      });
     }
     {
       await guard("jev", jevTick);

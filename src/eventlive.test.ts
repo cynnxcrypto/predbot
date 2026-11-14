@@ -197,3 +197,33 @@ test("per-wallet automatic rule: learning to 10 settled, back to paper at -$10, 
   assert.equal(ruleAdapt(g, down5, "b").state, "flat");
   assert.equal(ruleAdapt(parseEventLive(JSON.stringify({ mode: "live", events: { tennis: { rules: ["t"], size: 3 } } }), { funder: "0x1" }).groups.tennis, ten, "a").state, "off");
 });
+
+test("daily wallet rescan: the screen, weekly profit, promotion to real and drop", async () => {
+  const { copyScreen, weeklyPnl, copyPromote } = await import("./copyscan.js");
+  const NOW6 = Date.parse("2026-11-14T00:00:00Z");
+  const day = 86400_000;
+  const pts = Array.from({ length: 31 }, (_, i) => ({ timestamp: (NOW6 - (30 - i) * day) / 1000, economic_pnl: 100 * i, unrealized_pnl: 0 }));
+  assert.deepEqual(weeklyPnl(pts, NOW6), [700, 700, 700, 700]);
+  const buy = (i: number, usd = 20, title = "Highest temperature in Seoul") => ({ type: "TRADE", side: "BUY", timestamp: (NOW6 - i * 3600_000) / 1000, usdc_size: usd, title });
+  const acts = Array.from({ length: 20 }, (_, i) => buy(i));
+  assert.equal(copyScreen([700, 700, 700, 700], acts, NOW6), null);
+  assert.match(copyScreen([700, -1, 700, 700], acts, NOW6)!, /losing week/);
+  assert.match(copyScreen([100, 100, 100, 2000], acts, NOW6)!, /over half/);
+  assert.match(copyScreen([700, 700, 700, 700], acts.slice(0, 5), NOW6)!, /5 buys/);
+  assert.match(copyScreen([700, 700, 700, 700], Array.from({ length: 20 }, (_, i) => buy(i, 500)), NOW6)!, /median buy/);
+  assert.match(copyScreen([700, 700, 700, 700], Array.from({ length: 20 }, (_, i) => buy(i, 20, "Bitcoin Up or Down")), NOW6)!, /crypto/);
+  const st = { lastScan: 0, scans: 0, lastError: null, screened: 0, passed: 0, log: [], wallets: [
+    { name: "good", address: "0x1", addedAt: NOW6 - 3 * day, stage: "paper" as const, why: "" },
+    { name: "bad", address: "0x2", addedAt: NOW6 - 15 * day, stage: "paper" as const, why: "" },
+    { name: "young", address: "0x3", addedAt: NOW6 - 3 * day, stage: "paper" as const, why: "" },
+  ] };
+  const tr = (rule: string, pnl: number) => ({ rule, pnl, won: pnl > 0, fillable: true });
+  const trades = [
+    ...Array.from({ length: 20 }, (_, i) => tr("copy-take-good", i < 11 ? 1 : -1)),
+    ...Array.from({ length: 10 }, () => tr("copy-take-bad", -1)),
+    ...Array.from({ length: 10 }, () => tr("copy-take-young", -1)),
+  ];
+  const lines = copyPromote(st, trades, NOW6);
+  assert.equal(lines.length, 2);
+  assert.deepEqual(st.wallets.map((w) => w.stage), ["real", "dropped", "paper"]);
+});
