@@ -117,7 +117,8 @@ test("real day-holder copy: off unless switched on, hard limits hold", () => {
   const c = parseSlowLive(JSON.stringify({ solanaSlow: { on: true, maxLossSol: 9, stakeSol: 9, maxOpen: 99, entrySec: 0, exitSec: 999, slippageBps: 1e6, maxFeeLamports: 1e12 } }));
   assert.deepEqual([c.on, c.maxLossSol, c.stakeSol, c.maxOpen, c.entrySec, c.exitSec, c.slippageBps, c.maxFeeLamports], [true, HARD_MAX_LOSS_SOL, HARD_STAKE_SOL, HARD_MAX_OPEN, 1, 60, 3000, 200_000]);
   const d = parseSlowLive(JSON.stringify({ solanaSlow: { on: true, maxLossSol: 0.08 } }));
-  assert.deepEqual([d.stakeSol, d.maxOpen, d.entrySec, d.exitSec, d.maxHoldH, d.maxFeeLamports], [0.01, 6, 5, 5, 72, 20_000]);
+  assert.deepEqual([d.stakeSol, d.maxOpen, d.entrySec, d.exitSec, d.maxHoldH, d.maxFeeLamports], [0.01, HARD_MAX_OPEN, 5, 5, 72, 20_000]);
+  assert.equal(HARD_MAX_LOSS_SOL, 0.6, "the whole wallet: no more than it may hold");
 });
 
 test("real day-holder copy: buys after the entry delay, sells after the wallet's first sale, counts from the chain", async () => {

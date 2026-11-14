@@ -14,7 +14,8 @@
  *  - OFF unless deploy/live-rules.json has "solanaSlow": { "on": true, "maxLossSol": ... } (MAIN owns that file).
  *    SOLANA_LIVE=off disables it together with the first real test. Anything malformed means off.
  *  - Stake at most HARD_STAKE_SOL a copy; at most HARD_MAX_OPEN coins at once. Loss at most maxLossSol (never above
- *    HARD_MAX_LOSS_SOL), counted from what our own transactions did to the wallet's SOL, read back from the chain,
+ *    HARD_MAX_LOSS_SOL, the most the wallet may hold), counted from what our own transactions did to the wallet's SOL,
+ *    read back from the chain,
  *    every fee and rent included. A new copy starts only if the cap still holds with every open copy and the new one
  *    lost in full (COPY_ROOM_SOL each for fees and rent). At the cap it stops buying for good; open copies are still
  *    sold by the rule.
@@ -39,9 +40,15 @@ import { SOL } from "./pools.js";
 import { onSlowSwap, setSlowRealSummary, type SlowSwap } from "./slow.js";
 
 export const HARD_STAKE_SOL = 0.05;
-/** enrique: the SOL left in the wallet is the cap ("very little"); this bounds it whatever the file says. */
-export const HARD_MAX_LOSS_SOL = 0.1;
-export const HARD_MAX_OPEN = 10;
+/**
+ * enrique, 14 Nov 2026 23:21 KST: "the solana wallet for trading can use the whole wallet, there's almost no money
+ * there so no worries". The whole wallet is at stake: the cap is the most the wallet may hold for this test to buy
+ * (MAX_WALLET_SOL), and what really limits it is the balance check before every buy. More than that put into the
+ * wallet means nothing is bought, so money added later is never at stake without his word.
+ */
+export const HARD_MAX_LOSS_SOL = 0.6;
+/** Open copies are limited by the wallet's SOL (stake, rent and a sale reserve each); this only bounds the count. */
+export const HARD_MAX_OPEN = 50;
 /** The wallet held up to 0.5 SOL for the first test; clearly more than that put in means nothing is bought. */
 export const MAX_WALLET_SOL = 0.6;
 /** What each copy may cost beyond its stake if it all goes wrong: fees of a buy and several sale tries, an unclosed account's rent. */
@@ -92,7 +99,8 @@ export function parseSlowLive(text: string): SlowLiveConfig {
     if (!(maxLossSol > 0) || !(stakeSol >= 0.005)) return OFF;
     return {
       on: true, stakeSol, maxLossSol,
-      maxOpen: clamp(Math.floor(num(p.maxOpen, 6)), 1, HARD_MAX_OPEN),
+      // no count unless the file sets one: the balance check before each buy is the limit
+      maxOpen: clamp(Math.floor(num(p.maxOpen, HARD_MAX_OPEN)), 1, HARD_MAX_OPEN),
       entrySec: clamp(num(p.entrySec, 5), 1, 600),
       exitSec: clamp(num(p.exitSec, 5), 1, 60),
       maxHoldH: clamp(num(p.maxHoldH, 72), 1, 168),
@@ -532,7 +540,7 @@ export function slowLiveSummary() {
   const won = done.filter((x) => x.netSol > 0).length;
   const held = done.map((x) => x.heldMin).filter((x): x is number => x !== null).sort((a, b) => a - b);
   return {
-    note: `REAL. Copies ${WALLETS.length} day-holding wallets (enrique, 14 Nov 2026): buys ${c.stakeSol || "?"} SOL ${c.entrySec} s after one of them buys a coin for ${MIN_LEADER_SOL}+ SOL, sells all ${c.exitSec} s after it first sells that coin, or after ${c.maxHoldH} h. Loss cap ${c.maxLossSol || "?"} SOL counted from our own transactions read back from the chain, every fee included; at the cap it stops buying for good.`,
+    note: `REAL. Copies ${WALLETS.length} day-holding wallets (enrique, 14 Nov 2026): buys ${c.stakeSol || "?"} SOL ${c.entrySec} s after one of them buys a coin for ${MIN_LEADER_SOL}+ SOL, sells all ${c.exitSec} s after it first sells that coin, or after ${c.maxHoldH} h. Uses the whole wallet (enrique, 14 Nov 23:21 KST): as many copies at once as its SOL covers (stake, rent and a sale reserve each); loss cap ${c.maxLossSol || "?"} SOL counted from our own transactions read back from the chain, every fee included, and nothing is bought with more than ${MAX_WALLET_SOL} SOL in the wallet.`,
     on: c.on && !state.halted && walletReady,
     switch: c.on ? "on" : "off",
     halted: state.halted,
