@@ -6,7 +6,7 @@ import { mock, test } from "node:test";
 
 process.env.DATA_DIR = mkdtempSync(join(tmpdir(), "solslow-"));
 
-const { tripsOf, screen, lateRet, ownRet, priceAfter, posRet, paperRules, slowTx, slowSummary, reportOf, followed, slowWatch, jupCoins, coinOld, _test, STAKE_SOL, TX_SOL, DELAY_COST, MIN_TRIPS } = await import("./slow.js");
+const { tripsOf, screen, lateRet, ownRet, priceAfter, posRet, paperRules, slowTx, slowSummary, reportOf, followed, slowWatch, jupCoins, coinOld, creditsDay, _test, STAKE_SOL, TX_SOL, DELAY_COST, MIN_TRIPS } = await import("./slow.js");
 
 const W = "Wa11et1111111111111111111111111111111111111";
 const M = "M1nt11111111111111111111111111111111111111";
@@ -170,6 +170,34 @@ test("paper copy: buys late after a followed wallet buys, sells after its first 
   }
 });
 
+test("after a restart: one read a wallet for all its open copies; a sale counts only after that copy's buy was seen", async () => {
+  _test.reset();
+  const t0 = 1_800_000_000;
+  const calls: { address: string; gt: number }[] = [];
+  const fake = (async (_url: string, init: { body: string }) => {
+    const { params } = JSON.parse(init.body) as { params: [string, { filters: { blockTime: { gt: number } } }] };
+    calls.push({ address: params[0], gt: params[1].filters.blockTime.gt });
+    // it sold coin A an hour after our first copy (before we saw its second buy of A), and coin B two hours after
+    const data = params[0] === W ? [txOf(W, "A", false, 1, 1000, 50, t0 + 3600), txOf(W, "B", false, 1, 1000, 60, t0 + 7200)] : [];
+    return new Response(JSON.stringify({ result: { data, paginationToken: null } }), { status: 200 });
+  }) as unknown as typeof fetch;
+  _test.setCfg({ rpcUrl: () => "https://rpc.test/?api-key=k", fetch: () => fake, listed: () => [], busy: () => [], quote: async () => null });
+  const pos = (wallet: string, mint: string, seenS: number) => ({ wallet, name: "x", mint, seenMs: seenS * 1000, leaderSol: 1, entries: { e5: "missed" as const, e30: "missed" as const, e300: "missed" as const, e1800: "missed" as const }, exits: {} });
+  const st = _test.state();
+  st.open.push(pos(W, "B", t0), pos(W, "C", t0 + 60), pos(W, "A", t0 + 5000), pos("Other11111", "A", t0));
+  try {
+    await _test.catchUp();
+    // two wallets, two reads (not four), each from its oldest open copy
+    assert.deepEqual(calls, [{ address: W, gt: t0 }, { address: "Other11111", gt: t0 }]);
+    assert.equal(st.credits, 20);
+    const sold = (mint: string, w = W) => !!st.open.find((p) => p.wallet === w && p.mint === mint)?.soldMs;
+    // B was sold after we saw its buy; A's sale came before our copy of A; C and the other wallet's A were not sold
+    assert.deepEqual([sold("B"), sold("A"), sold("C"), sold("A", "Other11111")], [true, false, false, false]);
+  } finally {
+    _test.reset();
+  }
+});
+
 test("a price that never came is left out; a coin that cannot be sold is a total loss", () => {
   const p = { wallet: W, name: "x", mint: M, seenMs: 0, leaderSol: 1, entries: { e5: "10", e30: null, e300: "cancel" as const }, exits: { "e5-x5": null }, closed: "sold" as const };
   assert.equal(posRet(p, 5, 5), -1);
@@ -267,26 +295,31 @@ test("day holders: buyers of 0.2+ SOL sampled from coins that trade for days, ne
   }) as unknown as typeof fetch;
   _test.setCfg({ rpcUrl: () => "https://rpc.test/?api-key=k", fetch: () => fake, listed: () => [], busy: () => [], quote: async () => null, jup });
   assert.equal(await _test.coinStep(), true);
-  assert.equal(jupCalls.length, 3);
+  // twelve lists (three kinds, four periods) and the verified coins
+  assert.equal(jupCalls.length, 13);
+  assert.ok(jupCalls.includes("/tokens/v2/toptrending/5m?limit=100") && jupCalls.includes("/tokens/v2/tag?query=verified"));
   assert.deepEqual(Object.keys(_test.state().coins).sort(), [A, B, "Young111"].sort());
-  // A: all four points; B (5.5 days old): not the point 6 days back; the young coin: not sampled
-  assert.equal(calls.filter((c) => c.address === A).length, 4);
-  assert.equal(calls.filter((c) => c.address === B).length, 3);
+  // A (10 days old): the eight points up to 8 days back, never its first day; B (5.5 days old): the five up to
+  // 4 days back; the young coin: not sampled. A page that is not full is the only one read at its point.
+  assert.equal(calls.filter((c) => c.address === A).length, 8);
+  assert.equal(calls.filter((c) => c.address === B).length, 5);
   assert.ok(!calls.some((c) => c.address === "Young111"));
-  assert.ok(calls.some((c) => c.address === A && Math.abs(c.gte - Math.floor((now - 6 * DAY) / 1000)) < 5));
-  assert.equal(_test.state().credits, 70);
+  assert.ok(calls.some((c) => c.address === A && Math.abs(c.gte - Math.floor((now - 8 * DAY) / 1000)) < 5));
+  assert.ok(!calls.some((c) => c.address === A && c.gte < Math.floor((now - 9 * DAY) / 1000)));
+  assert.equal(_test.state().credits, 130);
   const cands = _test.state().candidates;
   assert.deepEqual(cands.map((c) => c.address), ["Both11111", "Big111111"]);
   assert.ok(cands.every((c) => c.source === "coin" && c.name.startsWith("coin buyer ")));
   assert.deepEqual(Object.keys(_test.state().pool), []);
   // nothing due again for a week, and the lists are asked again only after 6 hours
   assert.equal(await _test.coinStep(), true);
-  assert.equal(jupCalls.length, 3);
-  assert.equal(_test.state().credits, 70);
+  assert.equal(jupCalls.length, 13);
+  assert.equal(_test.state().credits, 130);
   const sum = slowSummary();
   assert.equal(sum.coins.sampledThisWeek, 2);
   assert.equal(sum.coins.oldEnough, 2);
-  assert.equal(sum.coins.lists, "2 of 3 answered");
+  assert.equal(sum.coins.dueNow, 0);
+  assert.equal(sum.coins.lists, "8 of 13 answered");
   assert.equal(sum.coins.lastError, "jupiter tokens: http 429");
   assert.equal(sum.bySource.coin.candidates, 2);
   _test.reset();
@@ -337,5 +370,130 @@ test("cheaper reads: a full first page inside 3 hours is a bot after one page; a
   assert.equal(sum.near.length, 0);
   assert.equal(sum.bySource.coin.fast, 1);
   assert.equal(sum.bySource.list.bots, 1);
+  _test.reset();
+});
+
+test("the wide scan: verified coins by volume, more pages a point, launch pages left out, best buyers first", async () => {
+  _test.reset();
+  const now = Date.now();
+  const sec = (ms: number) => Math.floor(ms / 1000);
+  const BUSY = "Busy11111111111111111111111111111111111111";
+  const QUIET = "Quiet1111111111111111111111111111111111111";
+  const NODATE = "NoDate111111111111111111111111111111111111";
+  const old = { createdAt: new Date(now - 20 * DAY).toISOString() };
+  // the volume is read from the list; a coin without it has none
+  assert.deepEqual(jupCoins([{ id: "V1", symbol: "V", stats24h: { buyVolume: 40_000, sellVolume: 30_000.4 } }, { id: "V2", symbol: "W" }]).map((x) => x.vol), [70_000.4, null]);
+  const jup = async (path: string) => {
+    if (path.includes("tag?query=verified")) return [{ id: BUSY, symbol: "BUSY", firstPool: old, stats24h: { buyVolume: 400_000, sellVolume: 300_000 } }, { id: QUIET, symbol: "QUIET", firstPool: old, stats24h: { buyVolume: 10_000, sellVolume: 5_000 } }, { id: "NoVol111", symbol: "NOVOL", firstPool: old }];
+    if (path.includes("toptraded/24h")) return [{ id: NODATE, symbol: "NODATE" }];
+    return [];
+  };
+  const pages: { address: string; token: string | null }[] = [];
+  const fake = (async (_url: string, init: { body: string }) => {
+    const { params } = JSON.parse(init.body) as { params: [string, { paginationToken?: string; filters: { blockTime: { gte: number } } }] };
+    const token = params[1].paginationToken ?? null;
+    pages.push({ address: params[0], token });
+    const from = params[1].filters.blockTime.gte;
+    if (params[0] === NODATE) {
+      // the point half a day back has trades right after it; every older point comes back with trades a day later (its launch)
+      const t = from > sec(now - DAY) ? from + 60 : from + 86_400;
+      return new Response(JSON.stringify({ result: { data: [txOf(t === from + 60 ? "Later1111" : "Sniper111", NODATE, true, 1, 1000, 5, t)], paginationToken: null } }), { status: 200 });
+    }
+    // a busy coin: full pages as long as we ask, a different buyer on each
+    const n = Number(token ?? 0);
+    const data = Array.from({ length: 100 }, (_, i) => txOf(i === 0 ? `Page${n}Buyer` : "Dust11111", BUSY, true, i === 0 ? 1 : 0.01, 10, 5 + i, from + i));
+    return new Response(JSON.stringify({ result: { data, paginationToken: String(n + 1) } }), { status: 200 });
+  }) as unknown as typeof fetch;
+  _test.setCfg({ rpcUrl: () => "https://rpc.test/?api-key=k", fetch: () => fake, listed: () => [], busy: () => [], quote: async () => null, jup });
+  // the first day of a coin known only from a list: it must be on a list on two days before it is sampled
+  _test.state().coins[NODATE] = { symbol: "NODATE", from: "jupiter", days: ["2026-11-01"], createdMs: null };
+  assert.equal(await _test.coinStep(), true);
+  const coins = _test.state().coins;
+  // verified: only the coin that traded $50,000+ in a day; no volume given means not taken
+  assert.deepEqual(Object.keys(coins).sort(), [BUSY, NODATE].sort());
+  assert.equal(coins[BUSY].vol, 700_000);
+  // three pages at each of the ten points of the busy coin, following the page token
+  const busy = pages.filter((p) => p.address === BUSY);
+  assert.equal(busy.length, 30);
+  assert.deepEqual(busy.slice(0, 3).map((p) => p.token), [null, "1", "2"]);
+  // the coin without a first day: one page a point, and the pages that only show its launch add nobody
+  assert.equal(pages.filter((p) => p.address === NODATE).length, 10);
+  const cands = _test.state().candidates.map((c) => c.address);
+  assert.ok(cands.includes("Later1111") && !cands.includes("Sniper111"));
+  assert.deepEqual(cands.filter((a) => a.startsWith("Page")).sort(), ["Page0Buyer", "Page1Buyer", "Page2Buyer"]);
+  // promotion: a share a pass, buyers of more coins first, then more SOL
+  _test.state().pool = { One1: ["aaaaaa", 50], Two1: ["aaaaaa,bbbbbb", 1], Three: ["aaaaaa,bbbbbb,cccccc", 0.5], One2: ["aaaaaa", 9] };
+  const before = _test.state().candidates.length;
+  _test.promote(3);
+  assert.deepEqual(_test.state().candidates.slice(before).map((c) => c.address), ["Three", "Two1", "One1"]);
+  assert.deepEqual(Object.keys(_test.state().pool), ["One2"]);
+  _test.reset();
+});
+
+test("the wide scan: a wallet far from the bar keeps its numbers, not its swaps; who is read first; a month of history", async () => {
+  _test.reset();
+  const now = Math.floor(Date.now() / 1000);
+  const LOSER = "Loser11111";
+  const NEAR = "Near111111";
+  // 12 trips held two hours each over 25 days: the loser sells every one lower, the near one higher (too few trips to pass)
+  const trips = (w: string, back: number) =>
+    Array.from({ length: 12 }, (_, i) => {
+      const t0 = now - 25 * 86_400 + i * 170_000;
+      return [txOf(w, `c${i}`, true, 1, 1000, 1000 + i * 100, t0), txOf(w, `c${i}`, false, back, 1000, 1050 + i * 100, t0 + 7200)];
+    }).flat();
+  const data: Record<string, ReturnType<typeof txOf>[]> = { [LOSER]: trips(LOSER, 0.8), [NEAR]: trips(NEAR, 1.3) };
+  const calls: { address: string; gt: number }[] = [];
+  const fake = (async (_url: string, init: { body: string }) => {
+    const { params } = JSON.parse(init.body) as { params: [string, { filters: { blockTime: { gt: number } } }] };
+    calls.push({ address: params[0], gt: params[1].filters.blockTime.gt });
+    return new Response(JSON.stringify({ result: { data: (data[params[0]] ?? []).slice().reverse(), paginationToken: null } }), { status: 200 });
+  }) as unknown as typeof fetch;
+  _test.setCfg({ rpcUrl: () => "https://rpc.test/?api-key=k", fetch: () => fake, listed: () => [], busy: () => [], quote: async () => null });
+  const st = _test.state();
+  st.candidates.push({ name: "loser", address: LOSER, source: "coin" }, { name: "near", address: NEAR, source: "coin" }, { name: "new", address: "New1111111", source: "coin" });
+  assert.equal(await _test.readWallet({ name: "loser", address: LOSER }), true);
+  assert.equal(await _test.readWallet({ name: "near", address: NEAR }), true);
+  // a month back, not two weeks: the trips 25 days old are read
+  assert.ok(calls.every((c) => Math.abs(c.gt - (now - 30 * 86_400)) < 5));
+  // the loser: 12 trips, all lost: numbers kept, swaps dropped, still reported with its reasons
+  assert.deepEqual(st.wallets[LOSER].swaps, []);
+  assert.deepEqual([st.wallets[LOSER].out?.trips, st.wallets[LOSER].out?.wonPct, st.wallets[LOSER].out?.holdMin], [12, 0, 120]);
+  const lr = reportOf(LOSER)!;
+  assert.deepEqual([lr.pass, lr.trips, lr.holdMinMedian, lr.fast], [false, 12, 120, false]);
+  assert.ok(lr.why.includes("lost") && lr.why.includes("12 trips"));
+  // the near one: 12 winning two-hour trips, short of the 20: its swaps stay for the daily read
+  assert.equal(st.wallets[NEAR].out, undefined);
+  assert.equal(st.wallets[NEAR].swaps.length, 24);
+  assert.deepEqual([reportOf(NEAR)!.pass, reportOf(NEAR)!.why], [false, ["12 trips"]]);
+  const sum = slowSummary();
+  assert.deepEqual([sum.windowDays, sum.candidates, sum.read, sum.unread, sum.kept, sum.farOff], [30, 3, 2, 1, 1, 1]);
+  assert.deepEqual(sum.near.map((x) => x.name), ["near", "loser"]);
+  // just read: only the unread wallet is due. A day later the near one is due again and comes first; the far-off
+  // one only after two weeks, and last
+  assert.deepEqual(_test.dueWallets().map((c) => c.name), ["new"]);
+  st.wallets[NEAR].doneAt -= 25 * 3_600_000;
+  st.wallets[LOSER].doneAt -= 25 * 3_600_000;
+  assert.deepEqual(_test.dueWallets().map((c) => c.name), ["near", "new"]);
+  st.wallets[LOSER].doneAt -= 14 * 86_400_000;
+  assert.deepEqual(_test.dueWallets().map((c) => c.name), ["near", "new", "loser"]);
+  assert.deepEqual(_test.dueWallets(2).map((c) => c.name), ["near", "new"]);
+  // a far-off wallet is read whole again (it kept nothing to add to)
+  calls.length = 0;
+  assert.equal(await _test.readWallet({ name: "loser", address: LOSER }), true);
+  assert.ok(Math.abs(calls[0].gt - (now - 30 * 86_400)) < 5);
+  // state written under the two-week window: every person is marked for one whole read, bots are not; once
+  st.wallets[NEAR].doneAt = Date.now();
+  st.wallets.Bot1 = { name: "bot", doneAt: Date.now(), newest: now, txPerDay: 900, buysPerDay: 0, spanDays: 1, bot: true, swaps: [], late: {} };
+  st.window = 14;
+  _test.toWindow();
+  assert.deepEqual([st.window, st.wallets[NEAR].redo, st.wallets[LOSER].redo, st.wallets.Bot1.redo], [30, true, true, undefined]);
+  assert.equal(reportOf(NEAR)!.trips, 12, "its old swaps stand until it is read again");
+  assert.ok(_test.dueWallets().some((c) => c.name === "near"));
+  calls.length = 0;
+  assert.equal(await _test.readWallet({ name: "near", address: NEAR }), true);
+  assert.ok(Math.abs(calls[0].gt - (now - 30 * 86_400)) < 5, "whole, not from its newest transaction");
+  assert.equal(st.wallets[NEAR].redo, undefined);
+  // the daily budget: 500,000 credits until the plan resets on 24 Nov 2026, 150,000 after
+  assert.deepEqual([creditsDay(Date.UTC(2026, 10, 23, 23)), creditsDay(Date.UTC(2026, 10, 24, 1))], [500_000, 150_000]);
   _test.reset();
 });

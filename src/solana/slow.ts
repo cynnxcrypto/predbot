@@ -37,13 +37,31 @@ import { swapOf, type Meta } from "./discover.js";
 import { makeReader, refused, scrub, type Item } from "./history.js";
 import type { Tracked } from "./wallets.js";
 
-export const DAYS_BACK = 14;
-const WALLET_PAGES = 12; // x100 transactions, newest first
-const CREDITS_DAY = Math.max(1000, Number(process.env.SOLANA_SLOW_CREDITS_DAY) || 60_000);
+/**
+ * enrique, 14 Nov 2026 23:52 KST, with the Helius and Jupiter usage pages (Helius 695k of 10M credits with 10 days
+ * left, Jupiter 1.5M of 25M): "yeah go scan way way more then". So: a month of each wallet instead of two weeks,
+ * twelve of Jupiter's lists and its verified coins instead of three lists, ten sample points of three pages a coin
+ * instead of four of one, 1,500 coins a week instead of 150, 30,000 coin buyers instead of 1,500, 150 wallets on
+ * paper instead of 25, and a daily budget of 500,000 credits until the plan resets (24 Nov), 150,000 after.
+ * The rest of the bot uses about 140,000 credits a day (4.2M a month), and the REAL copy sells through the same
+ * key, so the budget leaves 1.5M+ a month unused on purpose. The pass bar itself is unchanged.
+ * To keep the state file small at that size, a wallet that is neither passing nor near (see `kept`) keeps no swaps
+ * and is read again whole only every two weeks, like a flipper.
+ */
+export const DAYS_BACK = 30;
+const WALLET_PAGES = 30; // x100 transactions, newest first
+const BOOST_UNTIL = Date.UTC(2026, 10, 24);
+export const creditsDay = (nowMs = Date.now()) => Math.max(1000, Number(process.env.SOLANA_SLOW_CREDITS_DAY) || (nowMs < BOOST_UNTIL ? 500_000 : 150_000));
 const REFRESH_MS = 24 * 3_600_000;
 export const MAX_CANDIDATES = 400;
-const KEEP_SWAPS = 2000;
-const BOT_REFRESH_MS = 7 * 86_400_000;
+const KEEP_SWAPS = 5000;
+const BOT_REFRESH_MS = 30 * 86_400_000;
+/** flippers and wallets far from the bar: read again whole this often */
+const OUT_REFRESH_MS = 14 * 86_400_000;
+/** one pass of the loop: this many coins sampled, their best buyers promoted, this many wallets read; then again */
+const COINS_PER_PASS = 25;
+const PROMOTE_PER_PASS = 400;
+const WALLETS_PER_PASS = 300;
 // the screen
 export const MIN_TRIPS = 20;
 export const MIN_HOLD_MIN = 30;
@@ -58,12 +76,16 @@ const SLOTS_PER_SEC = 2.5;
 const SPREAD = 0.02; // the other side's price marked to ours when no same-side trade is there
 export const DELAY_COST = 0.01; // fees and price impact of a small copy, both ways
 // the paper copy
-export const FOLLOW_MAX = 25;
+export const FOLLOW_MAX = 150;
 export const STAKE_SOL = 0.25;
 export const TX_SOL = 0.001;
 export const ENTRY_DELAYS = [5, 30, 300, 1800] as const;
 export const EXIT_DELAYS = [5, 30] as const;
 export const MAX_HOLD_H = 72;
+/** closed paper copies kept for the status (every one is also a line in slow-copies.jsonl) */
+const KEEP_COPIES = 6000;
+/** after a restart: pages of a wallet's transactions read to see what it sold while we were down */
+const CATCH_PAGES = 8;
 // cheaper reads
 export const BOT_PAGE_H = 3; // 100 transactions in under 3 hours: 800+ a day
 export const FAST_PAGES = 2;
@@ -71,14 +93,20 @@ export const FAST_TRIPS = 10;
 export const FAST_HOLD_MIN = 10;
 // day-holder candidates
 export const COIN_MIN_AGE_D = 3;
-export const SAMPLE_DAYS = [0.5, 2, 4, 6] as const;
+export const SAMPLE_DAYS = [0.25, 1, 2, 3, 4, 5, 6, 8, 10, 13] as const;
+/** pages of 100 transactions read at each sample point */
+export const SAMPLE_PAGES = 3;
+/** a coin without a known first day: a sample whose first transaction comes this long after the point is its launch, or a dead stretch */
+const SAMPLE_GAP_S = 3 * 3600;
 export const MIN_BUYER_SOL = 0.2;
-export const MAX_COINS = 150; // sampled a week
-export const MAX_COIN_BUYERS = 1500;
+export const MAX_COINS = 1500; // sampled a week
+export const MAX_COIN_BUYERS = 30_000;
 const COIN_REFRESH_MS = 6 * 3_600_000;
 const COIN_RESAMPLE_MS = 7 * 86_400_000;
-const MAX_POOL = 6000;
-const JUP_LISTS = ["toptraded/24h", "toporganicscore/24h", "toptrending/24h"] as const;
+const MAX_POOL = 40_000;
+export const JUP_LISTS: readonly string[] = ["toptraded", "toporganicscore", "toptrending"].flatMap((c) => ["24h", "6h", "1h", "5m"].map((i) => `${c}/${i}`));
+/** Jupiter's verified coins: thousands, most of them quiet, so only those that traded this much in a day ($, both sides) */
+export const VERIFIED_MIN_VOL_USD = 50_000;
 const LAMPORTS = 1e9;
 const SOL_MINT = "So11111111111111111111111111111111111111112";
 const STABLES = new Set(["EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB"]);
@@ -302,6 +330,8 @@ interface Coin {
   createdMs: number | null;
   sampledAt?: number;
   buyers?: number;
+  /** traded in a day, $, both sides, when the list says so: busier coins are sampled first */
+  vol?: number;
 }
 interface WState {
   name: string;
@@ -314,6 +344,10 @@ interface WState {
   bot?: boolean;
   /** a flipper by its newest transactions (not read further): trips, median hold, realised SOL, % won; read again weekly */
   fast?: { trips: number; holdMin: number; sol: number; wonPct: number };
+  /** read in full and far from the bar (see `kept`): its numbers only, no swaps; read again whole every two weeks */
+  out?: { trips: number; tripsPerDay: number | null; sol: number | null; wonPct: number | null; holdMin: number | null; why: string[] };
+  /** read under a shorter window: read whole at its next turn */
+  redo?: boolean;
   swaps: Packed[];
   /** delay-check prices by `${mint}|${slot0}` */
   late: Record<string, { e30: number | null; e300: number | null; x30: number | null }>;
@@ -321,6 +355,8 @@ interface WState {
 interface State {
   day: string;
   credits: number;
+  /** DAYS_BACK the wallets were read under */
+  window?: number;
   candidates: Cand[];
   wallets: Record<string, WState>;
   coins: Record<string, Coin>;
@@ -329,7 +365,7 @@ interface State {
   open: Pos[];
   recent: Pos[];
 }
-/** The screen (large, saved at most once a minute) and the paper copies (small, saved at every change) apart. */
+/** The screen (large, saved at most every 5 minutes) and the paper copies (saved at most every 15 s) apart. */
 const FILE = () => join(DATA, "solana", "slow-wallets.json");
 const PAPER = () => join(DATA, "solana", "slow-paper.json");
 const ROWS = () => join(DATA, "solana", "slow-copies.jsonl");
@@ -337,7 +373,7 @@ const empty = (): State => ({ day: "", credits: 0, candidates: [], wallets: {}, 
 let state: State = empty();
 let savedAt = 0;
 const health = { state: "off", calls: 0, errors: 0, lastError: "", working: "", entries: 0, exits: 0, quoteMisses: 0, sellsSeen: 0, buysSeen: 0 };
-const coinHealth = { lists: "not asked", listsAt: 0, lastError: "" };
+const coinHealth = { lists: "not asked", listsAt: 0, lastError: "", due: 0, sampled: 0 };
 let stopped = true;
 type Quote = (inMint: string, outMint: string, amount: string) => Promise<bigint | null | undefined>;
 let cfg: { rpcUrl: () => string | null; fetch: () => typeof fetch; listed: () => Tracked[]; busy: (k: number) => string[]; quote: Quote; jup?: (path: string) => Promise<unknown> } | null = null;
@@ -356,17 +392,31 @@ const write = (f: string, x: unknown) => {
   writeFileSync(f + ".tmp", JSON.stringify(x));
   renameSync(f + ".tmp", f);
 };
-/** The paper copies, now. */
-function save() {
+/** The paper copies: at most every 15 s (150 wallets change it many times a second), at once when `now`. */
+const PAPER_EVERY_MS = 15_000;
+let paperAt = 0;
+let paperWait = false;
+function save(now = false) {
+  if (!now && Date.now() - paperAt < PAPER_EVERY_MS) {
+    if (!paperWait) {
+      paperWait = true;
+      later(PAPER_EVERY_MS - (Date.now() - paperAt), () => {
+        paperWait = false;
+        save(true);
+      });
+    }
+    return;
+  }
+  paperAt = Date.now();
   try {
     write(PAPER(), { open: state.open, recent: state.recent });
   } catch {
     /* next time */
   }
 }
-/** The screen, at most once a minute unless `now`. */
+/** The screen, at most every 5 minutes unless `now` (it is megabytes, and written in one go). */
 function saveScreen(now = false) {
-  if (!now && Date.now() - savedAt < 60_000) return;
+  if (!now && Date.now() - savedAt < 300_000) return;
   savedAt = Date.now();
   try {
     const { open: _o, recent: _r, ...screen } = state;
@@ -385,7 +435,7 @@ function today() {
 const page = makeReader({
   url: () => cfg?.rpcUrl(),
   fetch: () => cfg!.fetch(),
-  canSpend: () => (today(), state.credits < CREDITS_DAY),
+  canSpend: () => (today(), state.credits < creditsDay()),
   spent: (c) => (state.credits += c),
   called: () => health.calls++,
 });
@@ -418,9 +468,9 @@ function refreshCandidates() {
 
 // ---- day-holder candidates: buyers of coins that keep trading for days ---------------------------------------------
 /** Coins from one of Jupiter's token lists: no SOL, no stablecoins, no staked SOL. createdMs = its first pool, if given. */
-export function jupCoins(rows: unknown): { mint: string; symbol: string; createdMs: number | null }[] {
+export function jupCoins(rows: unknown): { mint: string; symbol: string; createdMs: number | null; vol: number | null }[] {
   if (!Array.isArray(rows)) return [];
-  const out: { mint: string; symbol: string; createdMs: number | null }[] = [];
+  const out: { mint: string; symbol: string; createdMs: number | null; vol: number | null }[] = [];
   for (const x of rows as Record<string, unknown>[]) {
     const mint = typeof x?.id === "string" ? x.id : typeof x?.address === "string" ? x.address : null;
     if (!mint || mint === SOL_MINT || STABLES.has(mint)) continue;
@@ -428,7 +478,9 @@ export function jupCoins(rows: unknown): { mint: string; symbol: string; created
     const tags = Array.isArray(x.tags) ? x.tags.map(String) : [];
     if (tags.includes("lst") || /USD/i.test(symbol) || (symbol.length > 3 && symbol.toUpperCase().endsWith("SOL"))) continue;
     const created = Date.parse(String((x.firstPool as { createdAt?: unknown } | undefined)?.createdAt ?? ""));
-    out.push({ mint, symbol, createdMs: Number.isFinite(created) ? created : null });
+    const st = x.stats24h as { buyVolume?: unknown; sellVolume?: unknown } | undefined;
+    const vol = Number(st?.buyVolume) + Number(st?.sellVolume);
+    out.push({ mint, symbol, createdMs: Number.isFinite(created) ? created : null, vol: Number.isFinite(vol) ? vol : null });
   }
   return out;
 }
@@ -453,9 +505,10 @@ async function refreshCoins() {
   if (Date.now() - coinHealth.listsAt < COIN_REFRESH_MS) return;
   coinHealth.listsAt = Date.now();
   const day = new Date().toISOString().slice(0, 10);
-  const add = (mint: string, symbol: string, createdMs: number | null, from: Coin["from"]) => {
+  const add = (mint: string, symbol: string, createdMs: number | null, from: Coin["from"], vol: number | null = null) => {
     const c = (state.coins[mint] ??= { symbol, from, days: [], createdMs });
     if (createdMs !== null) c.createdMs = createdMs;
+    if (vol !== null) c.vol = Math.round(vol);
     if (from === "jupiter") c.from = "jupiter";
     if (!c.days.includes(day)) c.days = [...c.days, day].slice(-7);
   };
@@ -463,20 +516,27 @@ async function refreshCoins() {
     let ok = 0;
     for (const l of JUP_LISTS) {
       try {
-        for (const x of jupCoins(await cfg.jup(`/tokens/v2/${l}?limit=100`))) add(x.mint, x.symbol, x.createdMs, "jupiter");
+        for (const x of jupCoins(await cfg.jup(`/tokens/v2/${l}?limit=100`))) add(x.mint, x.symbol, x.createdMs, "jupiter", x.vol);
         ok++;
       } catch (e) {
         coinHealth.lastError = scrub(String((e as Error)?.message ?? e));
       }
     }
-    coinHealth.lists = `${ok} of ${JUP_LISTS.length} answered`;
+    // the verified coins: only the busy ones, and only where the list says how busy (else none of them)
+    try {
+      for (const x of jupCoins(await cfg.jup("/tokens/v2/tag?query=verified"))) if ((x.vol ?? 0) >= VERIFIED_MIN_VOL_USD) add(x.mint, x.symbol, x.createdMs, "jupiter", x.vol);
+      ok++;
+    } catch (e) {
+      coinHealth.lastError = scrub(String((e as Error)?.message ?? e));
+    }
+    coinHealth.lists = `${ok} of ${JUP_LISTS.length + 1} answered`;
   } else coinHealth.lists = "no list reader";
   for (const m of ourCoins()) add(m, m.slice(0, 4), null, "ours");
   // forget coins off every list for 14 days whose sample is over a week old
   const cut = new Date(Date.now() - 14 * 86_400_000).toISOString().slice(0, 10);
   for (const [m, c] of Object.entries(state.coins)) if ((c.days.at(-1) ?? "") < cut && !(c.sampledAt && Date.now() - c.sampledAt < COIN_RESAMPLE_MS)) delete state.coins[m];
 }
-/** One coin's buyers of MIN_BUYER_SOL+ at SAMPLE_DAYS points (one page each, never its first day): into the pool. */
+/** One coin's buyers of MIN_BUYER_SOL+ at SAMPLE_DAYS points (SAMPLE_PAGES pages each, never its first day): into the pool. */
 async function sampleCoin(mint: string): Promise<boolean> {
   const c = state.coins[mint];
   const now = Date.now();
@@ -484,13 +544,21 @@ async function sampleCoin(mint: string): Promise<boolean> {
   for (const d of SAMPLE_DAYS) {
     const from = now - d * 86_400_000;
     if (c.createdMs !== null && from < c.createdMs + 86_400_000) continue; // launch-day buyers are snipers
-    const pg = await page(mint, { blockTime: { gte: Math.floor(from / 1000) } }, "asc", null);
-    if (!pg) return false;
-    for (const it of pg.data) {
-      const payer = payerOf(it);
-      const s = payer ? swapOf(it.meta, payer, it.slot) : null;
-      if (!s || s.wallet !== payer || s.mint !== mint || !s.buy || s.sol < MIN_BUYER_SOL) continue;
-      seen.set(payer!, (seen.get(payer!) ?? 0) + s.sol);
+    let token: string | null = null;
+    for (let i = 0; i < SAMPLE_PAGES; i++) {
+      const pg = await page(mint, { blockTime: { gte: Math.floor(from / 1000) } }, "asc", token);
+      if (!pg) return false;
+      // no first day given: if nothing traded for hours after the point, what comes back is its launch (or a dead stretch)
+      const t0 = pg.data[0]?.blockTime;
+      if (i === 0 && c.createdMs === null && t0 && t0 - from / 1000 > SAMPLE_GAP_S) break;
+      for (const it of pg.data) {
+        const payer = payerOf(it);
+        const s = payer ? swapOf(it.meta, payer, it.slot) : null;
+        if (!s || s.wallet !== payer || s.mint !== mint || !s.buy || s.sol < MIN_BUYER_SOL) continue;
+        seen.set(payer!, (seen.get(payer!) ?? 0) + s.sol);
+      }
+      token = pg.paginationToken;
+      if (!token || pg.data.length < 100) break;
     }
   }
   c.sampledAt = now;
@@ -504,8 +572,11 @@ async function sampleCoin(mint: string): Promise<boolean> {
   }
   return true;
 }
-/** The pool's best buyers (more of these coins first, then more SOL) become candidates, up to MAX_COIN_BUYERS. */
-function promote() {
+/**
+ * The pool's best buyers (more of these coins first, then more SOL) become candidates: `max` of them a pass, so that
+ * a buyer of several coins found later still comes before the one-coin buyers, up to MAX_COIN_BUYERS in all.
+ */
+function promote(max = PROMOTE_PER_PASS) {
   const have = new Set(state.candidates.map((c) => c.address));
   for (const w of Object.keys(state.pool)) if (have.has(w)) delete state.pool[w];
   let n = state.candidates.filter((c) => srcOf(c) === "coin").length;
@@ -513,11 +584,13 @@ function promote() {
     .filter(([w]) => !have.has(w))
     .map(([w, [k, sol]]) => ({ w, coins: k.split(",").length, sol }))
     .sort((a, b) => b.coins - a.coins || b.sol - a.sol);
+  let added = 0;
   for (const x of ranked) {
-    if (n >= MAX_COIN_BUYERS) break;
+    if (n >= MAX_COIN_BUYERS || added >= max) break;
     state.candidates.push({ name: `coin buyer ${x.w.slice(0, 4)}`, address: x.w, source: "coin" });
     delete state.pool[x.w];
     n++;
+    added++;
   }
   // the pool keeps its best MAX_POOL for later
   const rest = Object.keys(state.pool);
@@ -526,15 +599,18 @@ function promote() {
     for (const w of rest) if (!keep.has(w)) delete state.pool[w];
   }
 }
-/** The coin lists every 6 h, then due coins sampled (MAX_COINS a week), then buyers promoted. false = credit cap. */
-async function coinStep(): Promise<boolean> {
+/** The coin lists every 6 h, then `max` due coins sampled (MAX_COINS a week in all), then buyers promoted. false = credit cap. */
+async function coinStep(max = COINS_PER_PASS): Promise<boolean> {
   await refreshCoins();
   const now = Date.now();
   const recent = Object.values(state.coins).filter((c) => c.sampledAt && now - c.sampledAt < COIN_RESAMPLE_MS).length;
-  const due = Object.entries(state.coins)
+  const allDue = Object.entries(state.coins)
     .filter(([, c]) => coinOld(c, now) && !(c.sampledAt && now - c.sampledAt < COIN_RESAMPLE_MS))
-    .sort((a, b) => (a[1].from === b[1].from ? b[1].days.length - a[1].days.length : a[1].from === "jupiter" ? -1 : 1))
+    .sort((a, b) => (a[1].from === b[1].from ? b[1].days.length - a[1].days.length || (b[1].vol ?? 0) - (a[1].vol ?? 0) : a[1].from === "jupiter" ? -1 : 1))
     .slice(0, Math.max(0, MAX_COINS - recent));
+  const due = allDue.slice(0, max);
+  coinHealth.due = allDue.length - due.length;
+  coinHealth.sampled = 0;
   let ok = true;
   for (const [m, c] of due) {
     if (stopped) break;
@@ -543,6 +619,7 @@ async function coinStep(): Promise<boolean> {
       ok = false;
       break;
     }
+    coinHealth.sampled++;
     saveScreen();
   }
   promote();
@@ -554,7 +631,7 @@ async function readWallet(c: { name: string; address: string }) {
   const prev = state.wallets[c.address];
   const cut = now - DAYS_BACK * 86_400;
   // a program or a flipper kept nothing: read its whole window again
-  const whole = !prev || !!prev.bot || !!prev.fast;
+  const whole = !prev || !!prev.bot || !!prev.fast || !!prev.out || !!prev.redo;
   const since = whole ? cut : Math.max(prev.newest, cut);
   const items: Item[] = [];
   const own = (list: Item[]) => {
@@ -616,8 +693,16 @@ async function readWallet(c: { name: string; address: string }) {
     swaps: bot || fast ? [] : swaps.map(pack),
     late: prev?.late ?? {},
   };
+  // far from the bar: its numbers stay, its swaps do not (thousands of wallets would not fit the state file)
+  if (!bot && !fast) {
+    const rep = reportOf(c.address)!;
+    if (!kept(rep)) state.wallets[c.address] = { ...state.wallets[c.address], swaps: [], out: { trips: rep.trips, tripsPerDay: rep.tripsPerDay, sol: rep.realisedSol, wonPct: rep.wonPct, holdMin: rep.holdMinMedian, why: rep.why } };
+  }
   return true;
 }
+/** Worth its swaps and a daily read: it passes, or is near (10+ trips, a median hold of MIN_HOLD_MIN+ min, and ahead). */
+export const kept = (x: { pass: boolean; trips: number; holdMinMedian: number | null; realisedSol: number | null }) =>
+  x.pass || (x.trips >= 10 && (x.holdMinMedian ?? 0) >= MIN_HOLD_MIN && (x.realisedSol ?? 0) > 0);
 
 /** Step 2 for one wallet that passed the screen: its newest trips not yet checked. */
 async function checkLate(address: string) {
@@ -633,6 +718,7 @@ async function checkLate(address: string) {
       return priceAfter(swaps, side);
     };
     try {
+      memo.delete(w);
       w.late[k] = {
         e30: await at(t.slot0 + Math.round(30 * SLOTS_PER_SEC), "entry"),
         e300: t.t1 - t.t0 > 300 ? await at(t.slot0 + Math.round(300 * SLOTS_PER_SEC), "entry") : null,
@@ -646,10 +732,22 @@ async function checkLate(address: string) {
   return true;
 }
 
+/** A wallet's report by its stored state; a read replaces that object, a late check drops its entry. */
+const memo = new WeakMap<WState, ReturnType<typeof reportNow>>();
 export function reportOf(address: string) {
   const w = state.wallets[address];
   if (!w) return null;
+  let v = memo.get(w);
+  if (!v) memo.set(w, (v = reportNow(address, w)));
+  return v;
+}
+function reportNow(address: string, w: WState) {
   const o = { txPerDay: w.txPerDay, buysPerDay: w.buysPerDay, spanDays: w.spanDays };
+  if (w.out) {
+    const s = screen([], { ...o, open: 0 });
+    const x = w.out;
+    return { name: w.name, address, ...s, trips: x.trips, tripsPerDay: x.tripsPerDay, realisedSol: x.sol, wonPct: x.wonPct, holdMinMedian: x.holdMin, fast: false, pass: false, why: x.why };
+  }
   if (w.fast) {
     // a flipper read only as far as its newest pages: its own numbers from those, never a pass
     const s = screen([], { ...o, open: 0 });
@@ -713,10 +811,9 @@ async function loop() {
       health.errors++;
       coinHealth.lastError = scrub(String((e as Error)?.message ?? e));
     }
-    for (const c of state.candidates) {
+    if (coinHealth.sampled) did = true;
+    for (const c of dueWallets()) {
       if (stopped) return;
-      const st = state.wallets[c.address];
-      if (st && Date.now() - st.doneAt < (st.bot ? BOT_REFRESH_MS : REFRESH_MS)) continue;
       health.working = c.name;
       try {
         const read = await readWallet(c);
@@ -748,11 +845,25 @@ async function loop() {
       }
     }
     health.working = "";
-    saveScreen(true);
+    saveScreen(!did); // a busy pass writes on the clock; an idle one writes what it has before the long sleep
     if (!did && health.state === "reading") health.state = "up to date";
     closeOld();
     await sleep(did ? 5000 : 10 * 60_000);
   }
+}
+/** Is this wallet due a read: never read, read under a shorter window, or older than its kind's refresh time. */
+const dueNow = (st: WState | undefined, nowMs: number) => !st || !!st.redo || nowMs - st.doneAt >= (st.bot ? BOT_REFRESH_MS : st.fast || st.out ? OUT_REFRESH_MS : REFRESH_MS);
+/** One pass's wallets: those whose swaps we keep (passing or near) first, then the never read, then the stale rest. */
+function dueWallets(max = WALLETS_PER_PASS): Cand[] {
+  const now = Date.now();
+  const rank = (c: Cand) => {
+    const st = state.wallets[c.address];
+    return !st ? 1 : st.bot || st.fast || st.out ? 2 : 0;
+  };
+  return state.candidates
+    .filter((c) => dueNow(state.wallets[c.address], now))
+    .sort((a, b) => rank(a) - rank(b))
+    .slice(0, max);
 }
 
 // ---- paper copy: live ----------------------------------------------------------------------------------------------
@@ -760,7 +871,7 @@ function finish(p: Pos, why: NonNullable<Pos["closed"]>) {
   p.closed = why;
   p.closedMs = Date.now();
   state.open = state.open.filter((x) => x !== p);
-  state.recent = [...state.recent, p].slice(-2000);
+  state.recent = [...state.recent, p].slice(-KEEP_COPIES);
   try {
     mkdirSync(join(DATA, "solana"), { recursive: true });
     appendFileSync(ROWS(), JSON.stringify(p) + "\n");
@@ -863,27 +974,39 @@ async function catchUp() {
       continue;
     }
     schedule(p);
+  }
+  // one read a wallet, from its oldest open copy on, instead of one a copy: with 150 wallets followed there can be
+  // thousands of open copies, and the bot restarts at every deploy
+  const by = new Map<string, Pos[]>();
+  for (const p of state.open) if (!p.soldMs) by.set(p.wallet, [...(by.get(p.wallet) ?? []), p]);
+  for (const [wallet, ps] of by) {
+    if (stopped) return;
     try {
       let token: string | null = null;
-      for (let i = 0; i < 3; i++) {
-        const pg = await page(p.wallet, { blockTime: { gt: Math.floor(p.seenMs / 1000) }, tokenAccounts: "balanceChanged" }, "asc", token);
+      for (let i = 0; i < CATCH_PAGES; i++) {
+        const pg = await page(wallet, { blockTime: { gt: Math.floor(Math.min(...ps.map((p) => p.seenMs)) / 1000) }, tokenAccounts: "balanceChanged" }, "asc", token);
         if (!pg) return;
-        const sold = pg.data.some((it) => {
-          const sw = payerOf(it) === p.wallet ? sswapOf(it.meta, p.wallet, it.slot, it.blockTime ?? 0) : null;
-          return !!sw && sw.mint === p.mint && !sw.buy;
-        });
-        if (sold) {
-          onSell(p, "sold while we were down");
-          break;
+        for (const it of pg.data) {
+          const sw = payerOf(it) === wallet ? sswapOf(it.meta, wallet, it.slot, it.blockTime ?? 0) : null;
+          if (!sw || sw.buy) continue;
+          // a sale counts for a copy only if it came after we saw that copy's buy
+          for (const p of ps) if (p.mint === sw.mint && !p.soldMs && sw.t > Math.floor(p.seenMs / 1000)) onSell(p, "sold while we were down");
         }
         token = pg.paginationToken;
-        if (!token || !pg.data.length) break;
+        if (!token || !pg.data.length || ps.every((p) => p.soldMs)) break;
       }
     } catch (e) {
       health.errors++;
       health.lastError = scrub(String((e as Error).message));
     }
   }
+}
+
+/** Wallets read under a shorter window: every person is read whole once more; until then its old swaps stand. */
+function toWindow() {
+  if (state.window === DAYS_BACK) return;
+  for (const w of Object.values(state.wallets)) if (!w.bot && !w.fast) w.redo = true;
+  state.window = DAYS_BACK;
 }
 
 export function startSlow(c: NonNullable<typeof cfg>) {
@@ -897,6 +1020,7 @@ export function startSlow(c: NonNullable<typeof cfg>) {
       /* first run */
     }
   }
+  toWindow();
   health.state = "starting";
   refreshFollow();
   // copies never sold are closed at MAX_HOLD_H even while the screen is busy reading
@@ -909,7 +1033,8 @@ export function stopSlow() {
   stopped = true;
   for (const t of timers) clearTimeout(t);
   timers.clear();
-  save();
+  paperWait = false;
+  save(true);
   saveScreen(true);
 }
 
@@ -921,11 +1046,16 @@ export function slowSummary() {
   const done = state.recent.filter((p) => p.closed);
   const fol = followed();
   return {
-    note: `Paper and read-only. CANDIDATES: the listed wallets, the busiest pump.fun buyers, and (day holders) wallets that bought ${MIN_BUYER_SOL}+ SOL of coins that keep trading for days (Jupiter's lists, ${COIN_MIN_AGE_D}+ days old, no stables or staked SOL; coins our wallets traded on 3+ days), sampled at ${SAMPLE_DAYS.join(" / ")} days back. A full first page inside ${BOT_PAGE_H} h = bot; ${FAST_TRIPS}+ trips in its newest ${FAST_PAGES * 100} transactions with a median hold under ${FAST_HOLD_MIN} min = fast (flipper); neither is read further. SCREEN: each candidate's own SOL swaps over the last ${DAYS_BACK} days as round trips (first buy until ${CLOSE_SHARE * 100}% sold). Passes = not a bot, ${MIN_TRIPS}+ trips, first sell a median ${MIN_HOLD_MIN}+ min after its first buy, realised SOL positive in BOTH halves of the period, ${MIN_WIN * 100}%+ won, no single trade half or more of the profit. Realised SOL is before network fees. LATE: for its newest ${DELAY_TRIPS} trips, a copier entering 30 s / 5 min after its first buy and selling ${EXIT_SEC} s after its first sale, priced from other people's trades, ${DELAY_COST * 100}% cost taken off: an estimate. smallStartPct = trips whose first buy was under half the wallet's usual. PAPER: followed wallets copied live with ${STAKE_SOL} SOL at Jupiter quotes, ${ENTRY_DELAYS.map(when).join(" / ")} after we see the buy, sold ${EXIT_DELAYS.join(" / ")} s after its first sale (or at ${MAX_HOLD_H} h). Leads to test, not proof.`,
+    note: `Paper and read-only. CANDIDATES: the listed wallets, the busiest pump.fun buyers, and (day holders) wallets that bought ${MIN_BUYER_SOL}+ SOL of coins that keep trading for days (${COIN_MIN_AGE_D}+ days old, no stables or staked SOL: on ${JUP_LISTS.length} of Jupiter's lists, or verified with $${VERIFIED_MIN_VOL_USD}+ traded in a day; and coins our wallets traded on 3+ days), sampled at ${SAMPLE_DAYS.join(" / ")} days back, ${SAMPLE_PAGES} pages each. A full first page inside ${BOT_PAGE_H} h = bot; ${FAST_TRIPS}+ trips in its newest ${FAST_PAGES * 100} transactions with a median hold under ${FAST_HOLD_MIN} min = fast (flipper); neither is read further. A wallet read in full that neither passes nor is near (10+ trips, median hold ${MIN_HOLD_MIN}+ min, ahead) keeps its numbers but not its swaps and is read again every ${OUT_REFRESH_MS / 86_400_000} days; passing and near ones daily. SCREEN: each candidate's own SOL swaps over the last ${DAYS_BACK} days as round trips (first buy until ${CLOSE_SHARE * 100}% sold). Passes = not a bot, ${MIN_TRIPS}+ trips, first sell a median ${MIN_HOLD_MIN}+ min after its first buy, realised SOL positive in BOTH halves of the period, ${MIN_WIN * 100}%+ won, no single trade half or more of the profit. Realised SOL is before network fees. LATE: for its newest ${DELAY_TRIPS} trips, a copier entering 30 s / 5 min after its first buy and selling ${EXIT_SEC} s after its first sale, priced from other people's trades, ${DELAY_COST * 100}% cost taken off: an estimate. smallStartPct = trips whose first buy was under half the wallet's usual. PAPER: followed wallets copied live with ${STAKE_SOL} SOL at Jupiter quotes, ${ENTRY_DELAYS.map(when).join(" / ")} after we see the buy, sold ${EXIT_DELAYS.join(" / ")} s after its first sale (or at ${MAX_HOLD_H} h). Leads to test, not proof.`,
     state: health.state,
     working: health.working,
+    windowDays: DAYS_BACK,
     candidates: state.candidates.length,
     read: reps.length,
+    unread: state.candidates.length - reps.length,
+    /** people whose swaps are kept and read daily (passing or near), and people far from the bar */
+    kept: people.filter((x) => kept(x)).length,
+    farOff: people.filter((x) => !kept(x)).length,
     bots: reps.filter((x) => x.bot).length,
     fast: reps.filter((x) => x.fast && !x.bot).length,
     passing: pass.length,
@@ -940,6 +1070,7 @@ export function slowSummary() {
       kept: Object.keys(state.coins).length,
       oldEnough: Object.values(state.coins).filter((c) => coinOld(c, Date.now())).length,
       sampledThisWeek: Object.values(state.coins).filter((c) => c.sampledAt && Date.now() - c.sampledAt < COIN_RESAMPLE_MS).length,
+      dueNow: coinHealth.due,
       buyersInPool: Object.keys(state.pool).length,
       lastError: coinHealth.lastError,
     },
@@ -968,7 +1099,7 @@ export function slowSummary() {
     calls: health.calls,
     errors: health.errors,
     creditsToday: state.credits,
-    creditsCapPerDay: CREDITS_DAY,
+    creditsCapPerDay: creditsDay(),
     quoteMisses: health.quoteMisses,
     lastError: health.lastError,
   };
@@ -992,6 +1123,9 @@ export const _test = {
   readWallet,
   checkLate,
   coinStep,
+  promote,
+  dueWallets,
+  toWindow,
   catchUp,
   onSell,
 };

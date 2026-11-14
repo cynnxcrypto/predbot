@@ -159,13 +159,17 @@ function paperTurn(since: number, late: number): Promise<boolean> {
   return mine;
 }
 
-/** Jupiter's token lists (read-only, three calls every 6 h for the slow study). Errors carry only fixed text. */
+/**
+ * Jupiter's token lists (read-only, thirteen calls every 6 h for the slow study). Errors carry only fixed text.
+ * 30 s: the clock also runs while the body arrives, and the verified list is megabytes (at 8 s one list in three
+ * came back "not json", cut off half way).
+ */
 async function jupList(path: string): Promise<unknown> {
   const k = jupiter();
   const base = k ? "https://api.jup.ag" : "https://lite-api.jup.ag";
   let res: Response;
   try {
-    res = await net(`${base}${path}`, { headers: k ? { "x-api-key": k } : {}, signal: AbortSignal.timeout(8000) });
+    res = await net(`${base}${path}`, { headers: k ? { "x-api-key": k } : {}, signal: AbortSignal.timeout(30_000) });
   } catch {
     throw new Error("jupiter tokens: no answer");
   }
