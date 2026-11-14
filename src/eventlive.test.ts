@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
-import { NEG_TRIAL, _eventLiveTest, eventLiveBlock, eventLiveBuy, eventLiveConfig, negRiskBlock, parseEventLive, type EventLiveRow } from "./eventlive.js";
+import { NEG_TRIAL, _eventLiveTest, restShares, ruleAdapt, eventLiveBlock, eventLiveBuy, eventLiveConfig, negRiskBlock, parseEventLive, type EventLiveRow } from "./eventlive.js";
 import { NEG_PERMS, eventClaimCalls, negRiskCalls } from "./live.js";
 import { stopWhenOrderDone } from "./eventpaper.js";
 
@@ -49,7 +49,9 @@ test("deploy/live-rules.json: the tennis test stays inside enrique's limits", ()
   const g = cfg.groups.tennis;
   if (!g) return;
   // 11 Nov 2026, enrique: "extend tennis budget risk to 30 so there can be 10 different bets online"
-  assert.ok(g.size <= 5 && g.size * g.maxOpen <= 30 && g.maxLoss <= 30);
+  assert.ok(g.size <= 5 && g.size * g.maxOpen <= 30);
+  // 13 Nov 2026, enrique: "okay if tennis goes -10 then stop it"
+  assert.ok(g.stopNet > 0 && g.stopNet <= 10 && g.maxLoss <= g.stopNet + g.size * g.maxOpen + 5);
   assert.ok(g.rules.every((r) => r.startsWith("tennis-")));
 });
 
@@ -94,14 +96,13 @@ test("grouped (neg-risk) markets: off unless the group says so, wait for the wal
   assert.match(negRiskBlock(g, { ready: false, error: "relayer said no" }, [], {})!, /relayer said no/);
   assert.equal(negRiskBlock(g, { ready: true }, [], {}), null);
   assert.equal(negRiskBlock(g, { ready: true }, [row({})], {}), null);
-  assert.equal(NEG_TRIAL, 2);
-  assert.match(negRiskBlock(g, { ready: true }, [row({}), row({ conditionId: "0xc2", status: "unknown", shares: 0 })], {})!, /2 bets until the first claim/);
+  assert.equal(NEG_TRIAL, 0, "14 Nov 2026, enrique: no trial limit");
+  assert.equal(negRiskBlock(g, { ready: true }, [row({}), row({ conditionId: "0xc2", status: "unknown", shares: 0 })], {}), null);
   // plain bets and lost grouped bets do not count; a won one counts until it is claimed
   const lost = row({ conditionId: "0xc3", pnl: -3, pay: 0 });
   const won = row({ conditionId: "0xc4", pnl: 3, pay: 1 });
   assert.equal(negRiskBlock(g, { ready: true }, [row({}), lost, row({ negRisk: undefined })], {}), null);
-  assert.match(negRiskBlock(g, { ready: true }, [row({}), won], {})!, /first claim/);
-  assert.match(negRiskBlock(g, { ready: true }, [row({}), won], { "0xc4": { tx: null, negRisk: true }, "0xc9": { tx: "0xabc" } })!, /first claim/, "a failed grouped claim or a plain claim proves nothing");
+  assert.equal(negRiskBlock(g, { ready: true }, [row({}), won], {}), null);
   assert.equal(negRiskBlock(g, { ready: true }, [row({}), row({ conditionId: "0xc2" }), row({ conditionId: "0xc5" }), won], { "0xc4": { tx: "0xabc", negRisk: true } }), null, "one confirmed claim lifts the limit");
 });
 
@@ -135,6 +136,13 @@ test("copy limits: stake between size and maxSize, and no bet that resolves more
   assert.match(blk(NaN)!, /resolve date unknown/);
   const open = (cost: number, i: number): EventLiveRow => ({ t: 0, group: "copy", rule: "a", marketId: `o${i}`, conditionId: null, title: "", outcome: "", idx: 0, ask: 0.5, size: cost, cost, shares: 2 * cost, fee: 0, ok: true, status: "matched", error: null });
   assert.match(blk(NOW2 + day, 10, Array.from({ length: 100 }, (_, i) => open(9.95, i)))!, /real bets open \(max 60\)/);
+  const capped = parseEventLive(JSON.stringify({ mode: "live", events: { copy: { rules: ["a", "b"], size: 3, maxSize: 10, maxOpen: 999, maxLoss: 1000, openUsd: 20, walletUsd: 9, minDepth: 0, maxAsk: 0.97 } } }), { funder: "0x1" });
+  const cb = (rule: string, rows: EventLiveRow[], stake = 3) => eventLiveBlock(capped, "copy", rule, "new", 0.5, 10, true, rows, NOW2, stake);
+  const two = [open(3, 1), open(3, 2)];
+  assert.equal(cb("a", two), null, "$6 open on wallet a + $3 = $9");
+  assert.match(cb("a", two, 4)!, /would pass its \$9 stake cap/);
+  assert.equal(cb("b", two, 4), null, "another wallet is not held by a's cap");
+  assert.match(cb("b", [...two, open(3, 3), open(3, 4), open(3, 5)].map((r, i) => ({ ...r, rule: i < 2 ? "a" : "c" })), 6)!, /would pass the \$20 stake cap/);
   const tennis = parseEventLive(JSON.stringify({ mode: "live", events: { tennis: { rules: ["t"], size: 3 } } }), { funder: "0x1" }).groups.tennis;
   assert.deepEqual([tennis.maxSize, tennis.maxDays, tennis.perWallet], [3, 0, 0], "groups without the new keys behave as before");
 });
@@ -144,4 +152,48 @@ test("deploy/live-rules.json: wallet copies stay inside enrique's 13 Nov limits"
   const g = cfg.groups.copy;
   if (!g) return;
   assert.ok(g.size >= 3 && g.maxSize <= 10 && g.maxDays > 0 && g.maxDays <= 14);
+  assert.ok(g.openUsd > 0 && g.openUsd <= 200 && g.walletUsd > 0 && g.walletUsd <= g.openUsd, "a stake cap keeps cash for tennis");
+});
+
+test("stopNet: no new bet once the settled result is that far down; open bets do not count", () => {
+  const NOW3 = Date.parse("2026-11-13T08:00:00Z");
+  const cfg = parseEventLive(JSON.stringify({ mode: "live", events: { tennis: { rules: ["t"], size: 3, maxOpen: 10, maxLoss: 45, stopNet: 10, dayLosses: 99, minDepth: 0 } } }), { funder: "0x1" });
+  const r = (pnl: number | null, i: number): EventLiveRow => ({ t: 0, group: "tennis", rule: "t", marketId: `x${i}`, conditionId: null, title: "", outcome: "", idx: 0, ask: 0.93, size: 3, cost: 3, shares: 3.2, fee: 0, ok: true, status: "matched", error: null, pnl, won: pnl == null ? null : pnl > 0, settledAt: pnl == null ? null : 0 });
+  const blk = (rows: EventLiveRow[]) => eventLiveBlock(cfg, "tennis", "t", "new", 0.93, 100, true, rows, NOW3);
+  assert.equal(blk([r(-3.48, 1), ...Array.from({ length: 9 }, (_, i) => r(null, 10 + i))]), null, "-$3.48 settled and 9 open: still trading");
+  assert.equal(blk([r(-3, 1), r(-3, 2), r(-3.5, 3), r(0.5, 4)]), null, "-$9.00");
+  assert.match(blk([r(-3, 1), r(-3, 2), r(-3.5, 3), r(-0.5, 4)])!, /stopped for good: settled \$-10.00/);
+});
+
+test("resting bids: 5-share minimum, one bid per player, resting money counts in the caps, and the live config", () => {
+  assert.equal(restShares(3, 0.4), 7.5);
+  assert.equal(restShares(3, 0.9), 5, "5-share minimum");
+  const NOW4 = Date.parse("2026-11-14T00:00:00Z");
+  const cfg = parseEventLive(JSON.stringify({ mode: "live", events: { tennisrest: { rules: ["r"], size: 3, maxSize: 5, maxAsk: 0.97, minDepth: 0, dayLosses: 99, maxOpen: 999, openUsd: 10, stopNet: 15, maxLoss: 60 }, tennis: { rules: ["t"], size: 3, maxOpen: 10, maxLoss: 45, minDepth: 0 } } }), { funder: "0x1" });
+  const rest = (idx: number, mk = "m", cost = 3): EventLiveRow => ({ t: 0, group: "tennisrest", rule: "r", marketId: mk, conditionId: null, title: "", outcome: "", idx, ask: 0.5, size: cost, cost, shares: 0, fee: 0, ok: true, status: "resting", error: null });
+  const blk = (rows: EventLiveRow[], idx: number, mk = "m") => eventLiveBlock(cfg, "tennisrest", "r", mk, 0.5, Infinity, true, rows, NOW4, 3, undefined, idx);
+  assert.equal(blk([rest(0)], 1), null, "the other player of the same match");
+  assert.match(blk([rest(0)], 0)!, /already bet/);
+  assert.match(blk([rest(0, "a"), rest(1, "a"), rest(0, "b")], 0, "c")!, /stake cap/, "$9 resting + $3 > $10");
+  assert.match(eventLiveBlock(cfg, "tennis", "t", "m", 0.93, 100, true, [rest(0)], NOW4)!, /another real test/);
+  const live = parseEventLive(readFileSync(join(process.cwd(), "deploy", "live-rules.json"), "utf8"), { mode: "live", funder: "0xabc" }).groups.tennisrest;
+  if (live) assert.ok(live.stopNet > 0 && live.stopNet <= 15 && live.maxSize <= 5 && live.openUsd > 0 && live.openUsd <= 40);
+});
+
+test("per-wallet automatic rule: learning to 10 settled, back to paper at -$10, x1.5 while ahead", () => {
+  const NOW5 = Date.parse("2026-11-14T03:00:00Z");
+  const cfg = parseEventLive(JSON.stringify({ mode: "live", events: { copy: { rules: ["a", "b"], size: 3, maxSize: 10, maxOpen: 999, maxLoss: 1000, adaptN: 10, adaptStop: 10, adaptBoost: 1.5, minDepth: 0, maxAsk: 0.97 } } }), { funder: "0x1" });
+  const g = cfg.groups.copy;
+  const r = (rule: string, pnl: number | null, i: number): EventLiveRow => ({ t: 0, group: "copy", rule, marketId: `m${rule}${i}`, conditionId: null, title: "", outcome: "", idx: 0, ask: 0.5, size: 3, cost: 3, shares: 6, fee: 0, ok: true, status: "matched", error: null, pnl, won: pnl == null ? null : pnl > 0, settledAt: pnl == null ? null : 0 });
+  const nine = Array.from({ length: 9 }, (_, i) => r("a", -2, i));
+  assert.equal(ruleAdapt(g, nine, "a").state, "learning");
+  const ten = [...nine, r("a", -2, 9)];
+  assert.deepEqual(ruleAdapt(g, ten, "a"), { state: "paper", n: 10, net: -20 });
+  assert.match(eventLiveBlock(cfg, "copy", "a", "new", 0.5, 10, true, ten, NOW5, 3)!, /back to paper/);
+  assert.equal(eventLiveBlock(cfg, "copy", "b", "new", 0.5, 10, true, ten, NOW5, 3), null, "other wallets are not touched");
+  const ahead = Array.from({ length: 10 }, (_, i) => r("b", i < 6 ? 1 : -1, i));
+  assert.equal(ruleAdapt(g, ahead, "b").state, "up");
+  const down5 = Array.from({ length: 10 }, (_, i) => r("b", -0.5, i));
+  assert.equal(ruleAdapt(g, down5, "b").state, "flat");
+  assert.equal(ruleAdapt(parseEventLive(JSON.stringify({ mode: "live", events: { tennis: { rules: ["t"], size: 3 } } }), { funder: "0x1" }).groups.tennis, ten, "a").state, "off");
 });

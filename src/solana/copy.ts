@@ -1082,7 +1082,9 @@ export function summarize(sigs: Signal[], solUsd: number | null, realRows: RealC
     nearGapPctMedian: r((med(nums(sigs.map((s) => (s.near ? s.near.price / s.leaderPrice - 1 : null)))) ?? NaN) * 100),
     rules: EXITS.map((x) => ({ id: sameId(x), ...score(sigs, (s) => sameBlockRet(s, x), solUsd) })),
   };
-  const qualified = rules.filter((x) => x.n >= 100 && x.won / x.n >= 0.5 && (x.netSol ?? 0) > 0).map((x) => x.id);
+  // d0 rules price the copy at the instant of the wallet's buy; real fills land a block later and pay about 4.5% more,
+  // so only d1-or-later entries can pass the bar (14 Nov 2026, after enrique's "what is this" on the panel).
+  const qualified = rules.filter((x) => !/^copy-d0-/.test(x.id) && x.n >= 100 && x.won / x.n >= 0.5 && (x.netSol ?? 0) > 0).map((x) => x.id);
   return { speed, rulesTried: rules.length, inProfit: rules.filter((x) => (x.netSol ?? 0) > 0).length, qualified, rules, exitStudy: exitStudy(sigs), sizeStudy: sizeStudy(sigs), lateStudy: lateStudy(sigs), walk: walkStudy(sigs, pace), hours: hourStudy(sigs), repeats: repeatStudy(sigs), secondWave: secondWaveStudy(sigs), buySize: buySizeStudy(sigs, before, realRows, solUsd), sameBlock, traders, wallets, recent };
 }
 
