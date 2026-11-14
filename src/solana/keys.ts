@@ -13,8 +13,12 @@ import { DATA } from "../config.js";
 import { base58 } from "./whirlpool.js";
 
 const PKCS8 = Buffer.from("302e020100300506032b657004220420", "hex");
-const FILE = () => join(DATA, "solana-wallet.json");
-const ADDR = () => join(DATA, "solana-wallet-address.txt");
+// One wallet per strategy (enrique, 15 Nov 2026: "so we separate budgets of different things"): "" is the first
+// wallet (the day-holder copy), "buckets" the spot bucket rules, "perps" kept ready for perps. Each has its own
+// files; the same rules hold for all of them: secret and address stay in data/ on the server.
+export type WalletName = "" | "buckets" | "perps";
+const FILE = (n: WalletName = "") => join(DATA, n ? `solana-wallet-${n}.json` : "solana-wallet.json");
+const ADDR = (n: WalletName = "") => join(DATA, n ? `solana-wallet-${n}-address.txt` : "solana-wallet-address.txt");
 const B58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
 
 export function base58decode(s: string): Buffer {
@@ -47,32 +51,38 @@ function fromSeed(seed: Buffer, pubkey: Buffer): Wallet {
   return { address: base58(pubkey), pubkey, sign: (m) => edSign(null, m, key) };
 }
 
-let cached: Wallet | null = null;
+const cache = new Map<WalletName, Wallet>();
 
 /** The wallet, created on first call if this machine has none yet. Same file format as solana-keygen (64 numbers). */
-export function wallet(): Wallet {
+export const wallet = (): Wallet => walletNamed("");
+/** The wallet of one strategy, created on first call if this machine has none yet. */
+export function walletNamed(n: WalletName): Wallet {
+  const cached = cache.get(n);
   if (cached) return cached;
-  if (!existsSync(FILE())) {
+  const file = FILE(n);
+  const addr = ADDR(n);
+  if (!existsSync(file)) {
     const { privateKey, publicKey } = generateKeyPairSync("ed25519");
     const seed = privateKey.export({ format: "der", type: "pkcs8" }).subarray(-32);
     const pub = publicKey.export({ format: "der", type: "spki" }).subarray(-32);
     mkdirSync(DATA, { recursive: true });
-    writeFileSync(FILE(), JSON.stringify([...seed, ...pub]), { mode: 0o600, flag: "wx" }); // wx: never overwrite a wallet
-    chmodSync(FILE(), 0o600);
+    writeFileSync(file, JSON.stringify([...seed, ...pub]), { mode: 0o600, flag: "wx" }); // wx: never overwrite a wallet
+    chmodSync(file, 0o600);
   }
-  const raw = JSON.parse(readFileSync(FILE(), "utf8")) as number[];
-  if (!Array.isArray(raw) || raw.length !== 64) throw new Error("solana-wallet.json is not a 64-byte key");
+  const raw = JSON.parse(readFileSync(file, "utf8")) as number[];
+  if (!Array.isArray(raw) || raw.length !== 64) throw new Error("the solana wallet file is not a 64-byte key");
   const w = fromSeed(Buffer.from(raw.slice(0, 32)), Buffer.from(raw.slice(32)));
   // a key whose two halves do not belong together must never be used
   const probe = Buffer.from("predbot wallet self-check");
   const pubObj = createPublicKey({ key: Buffer.concat([Buffer.from("302a300506032b6570032100", "hex"), w.pubkey]), format: "der", type: "spki" });
-  if (!verify(null, probe, pubObj, w.sign(probe))) throw new Error("solana-wallet.json: secret and public halves do not match");
-  if (!existsSync(ADDR()) || readFileSync(ADDR(), "utf8").trim() !== w.address) writeFileSync(ADDR(), w.address + "\n", { mode: 0o600 });
-  return (cached = w);
+  if (!verify(null, probe, pubObj, w.sign(probe))) throw new Error("the solana wallet file: secret and public halves do not match");
+  if (!existsSync(addr) || readFileSync(addr, "utf8").trim() !== w.address) writeFileSync(addr, w.address + "\n", { mode: 0o600 });
+  cache.set(n, w);
+  return w;
 }
 
 /** Test hook: forget the cached wallet (tests point DATA_DIR at a scratch folder). */
-export const _forget = () => (cached = null);
+export const _forget = () => cache.clear();
 
 /**
  * Sign a transaction that an API built for us (base64, one signature slot) and return it as base64.

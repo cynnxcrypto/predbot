@@ -17,9 +17,9 @@
  *    HARD_MAX_LOSS_SOL), counted from what our own transactions did to the wallet's SOL, read back from the chain.
  *    A buy is made only if the cap still holds with every open trade and the new one lost in full. At the cap it
  *    stops buying for good; what is out is still sold.
- *  - The wallet is shared with the real day-holder copy: a coin that copy holds is never bought here (a sale sells
- *    all of a coin), SOL itself is never "bought", and before each buy the wallet must cover the stake, a coin
- *    account's rent and a sale reserve for every trade that is out, here and there.
+ *  - Its OWN wallet (enrique, 15 Nov 2026: "so we separate budgets of different things"): keys.ts walletNamed("buckets"),
+ *    not the day-holder copy's. SOL itself is never "bought", and before each buy the wallet must cover the stake, a
+ *    coin account's rent and a sale reserve for every trade that is out.
  *  - A trade is written to the state file before its order is sent and after every transaction, so a restart can
  *    finish and count it.
  *  - The public status gets rule names and numbers only; coins, signatures and our address stay on the server.
@@ -29,7 +29,7 @@ import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { DATA, ROOT } from "../config.js";
 import { meetsBar, paperOpens, paperRecord, setBucketsRealSummary, spotRuleIds, REAL_MIN_TRADES, type Bucket } from "./buckets.js";
-import { signTransaction, wallet, type Wallet } from "./keys.js";
+import { signTransaction, walletNamed, type Wallet } from "./keys.js";
 import { SOL } from "./pools.js";
 
 export const HARD_STAKE_SOL = 0.02;
@@ -47,7 +47,6 @@ export const MAX_HOLD_H = 30;
 /** how far the price may move against a buy between the quote and the fill, by bucket (basis points) */
 export const SLIPPAGE_BPS: Record<Bucket, number> = { high: 100, mid: 200, low: 400, meme: 1200 };
 const STATE = () => join(DATA, "solana-bucketslive.json");
-const SLOW_STATE = () => join(DATA, "solana-slowlive.json");
 const LAMPORTS = 1e9;
 const r6 = (x: number) => Math.round(x * 1e6) / 1e6;
 
@@ -167,13 +166,6 @@ function fileCfg(): BucketsLiveConfig {
     return parseBucketsLive(readFileSync(join(ROOT, "deploy", "live-rules.json"), "utf8"));
   } catch {
     return OFF;
-  }
-}
-function slowHeld(): string[] {
-  try {
-    return ((JSON.parse(readFileSync(SLOW_STATE(), "utf8")) as { opens?: { mint?: string }[] }).opens ?? []).map((p) => String(p.mint));
-  } catch {
-    return [];
   }
 }
 
@@ -371,7 +363,15 @@ let timer: ReturnType<typeof setInterval> | null = null;
 export async function startBucketsLive() {
   if (timer || process.env.SOLANA_LIVE === "off" || process.env.SOLANA_BUCKETS === "off") return;
   const { kit, whyNotSent } = await import("./copylive.js");
-  const d: LiveDeps = { kit, cfg: fileCfg, wallet, otherHeld: slowHeld, sleep: (ms) => new Promise((res) => setTimeout(res, ms)), fixed: (e) => whyNotSent(String((e as Error)?.message ?? e)) };
+  // Its own wallet (enrique, 15 Nov 2026: "so we separate budgets of different things"): data/solana-wallet-buckets.json,
+  // made here on the first start so its address can be read on the server and funded. The perps wallet is made ready too.
+  try {
+    walletNamed("buckets");
+    walletNamed("perps");
+  } catch {
+    return; // no usable wallet: this side stays off
+  }
+  const d: LiveDeps = { kit, cfg: fileCfg, wallet: () => walletNamed("buckets"), otherHeld: () => [], sleep: (ms) => new Promise((res) => setTimeout(res, ms)), fixed: (e) => whyNotSent(String((e as Error)?.message ?? e)) };
   setBucketsRealSummary(bucketsLiveSummary);
   timer = setInterval(() => void bucketsLiveTick(d), 30_000);
   timer.unref();
