@@ -55,21 +55,44 @@ async function solUsd(): Promise<number | null> {
   return solPx.v;
 }
 
+/**
+ * Samples taken while Polymarket's prices could not be read counted the open bets at what was paid, which showed as
+ * a sudden drop and a jump back (15 Nov 2026, about 40 minutes at $156). Such a dip is a gap, not a result: a run that
+ * falls 12% or more below the last good sample and is back within 3% of it inside three hours is dropped.
+ */
+export function despike(h: [number, number][]): [number, number][] {
+  const out: [number, number][] = [];
+  for (let i = 0; i < h.length; i++) {
+    const good = out[out.length - 1];
+    if (good && h[i][1] < good[1] * 0.88) {
+      let back = false;
+      for (let j = i + 1; j < h.length && h[j][0] - h[i][0] <= 3 * 3_600_000; j++) if (h[j][1] >= good[1] * 0.97) { back = true; break; }
+      if (back) continue;
+    }
+    out.push(h[i]);
+  }
+  return out;
+}
+
 export async function worthView(cash: number | null, claim: number, solBal: number | null): Promise<Worth & { age: number; hist: ([number, number] | [number, number, 1])[] }> {
   if (!hist) {
     const f = loadJson<[number, number][] | { hist?: [number, number][]; back?: [number, number, 1][] }>(FILE, []);
     hist = (Array.isArray(f) ? f : (f.hist ?? [])).filter((p) => Array.isArray(p) && Number.isFinite(p[0]) && Number.isFinite(p[1]));
     back = Array.isArray(f) ? [] : (f.back ?? []);
+    hist = despike(hist);
   }
   if (!memo || Date.now() - memo.at > 15_000) {
     const [bets, px, slow] = await Promise.all([openWorth().catch(() => ({ n: 0, stake: 0, value: 0, priced: 0, days: {} })), solUsd(), solSlowView().catch(() => null)]);
     const open = ((slow as { open?: { stage: string; worthSol: number | null }[] } | null)?.open ?? []).filter((c) => c.stage !== "waiting");
     const coinsSol = open.reduce((a, c) => a + (c.worthSol ?? 0), 0);
     const solPart = px != null ? ((solBal ?? 0) + coinsSol) * px : 0;
+    // Unpriced bets fall back to what was paid: with more than a tenth unpriced the total is not a reading, so it is
+    // shown but not added to the chart.
+    const priced = bets.n === 0 || bets.priced >= bets.n * 0.9;
     const total = cash != null ? Math.round((cash + claim + bets.value + solPart) * 100) / 100 : null;
     memo = { at: Date.now(), v: { at: Date.now(), total, cash, claim, bets: bets.value, betsN: bets.n, betsStake: bets.stake, days: bets.days, solBal, coinsSol: Math.round(coinsSol * 1e4) / 1e4, coinsN: open.length, solUsd: px } };
     const last = hist[hist.length - 1];
-    if (total != null && (!last || Date.now() - last[0] >= 120_000)) {
+    if (total != null && priced && (!last || Date.now() - last[0] >= 120_000)) {
       hist.push([Date.now(), total]);
       if (hist.length > 5040) hist = hist.slice(-5040); // a week at one sample every two minutes
       if (!back.length) {

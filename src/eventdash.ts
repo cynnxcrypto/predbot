@@ -380,7 +380,7 @@ const gts = (x: unknown): number => {
   return Number.isFinite(v) ? v : 0;
 };
 async function withResolveTimes(rec: unknown): Promise<unknown> {
-  const log = (rec as { log?: { marketId?: string | null; idx?: number | null; status?: string | null; shares: number; cost: number; pnl: number | null; end?: number | null; game?: boolean }[] } | null)?.log;
+  const log = (rec as { log?: { marketId?: string | null; idx?: number | null; status?: string | null; ask?: number; shares: number; cost: number; pnl: number | null; end?: number | null; game?: boolean }[] } | null)?.log;
   if (!Array.isArray(log)) return rec;
   const open = log.filter((r) => r.marketId && (r.shares > 0 || r.status === "resting") && r.pnl == null);
   const need = [...new Set(open.map((r) => r.marketId!))].filter((id) => !endMemo.has(id) || Date.now() - endMemo.get(id)!.at > 60_000).slice(0, 60);
@@ -408,7 +408,9 @@ async function withResolveTimes(rec: unknown): Promise<unknown> {
     // Price now (13 Nov 2026, enrique: "if we're winning or losing and at what price is our bet now"): Polymarket's
     // displayed price of our outcome (the book mid, or the last trade when the spread is over 10c), refreshed each minute.
     const now = r.idx != null ? c?.px?.[r.idx] : undefined;
-    if (now != null && Number.isFinite(now)) Object.assign(r, { now, upnl: Math.round((r.shares * now - r.cost) * 100) / 100, closed: Boolean(c?.closed) });
+    // A bid still resting holds its whole stake in cost while shares is only what has filled so far: what was paid is the filled part.
+    const paid = r.status === "resting" && r.ask != null ? r.shares * r.ask : r.cost;
+    if (now != null && Number.isFinite(now)) Object.assign(r, { now, upnl: Math.round((r.shares * now - paid) * 100) / 100, closed: Boolean(c?.closed) });
   }
   return rec;
 }
@@ -567,7 +569,7 @@ var ps=[];if(!rules.length)ps.push(evPill("","real orders <b>none</b>","nothing 
 if(R&&R.unknown)ps.push(evPill("bad","<b>"+R.unknown+"</b> order"+(R.unknown>1?"s":"")+" with no reply"));if(Bd)ps.push(evPill("","lost <b>"+money(Bd.lost)+"</b>"+(WW?" · budget: whole wallet":" of "+money(Bd.budget))));var GR=R&&R.grouped;if(GR&&GR.on)ps.push(evPill(GR.ready?"":"bad","grouped markets <b>"+(GR.ready?"ready":"not ready")+"</b>"+(GR.open?" · "+GR.open+" open":"")+(GR.claimsDone?" · "+GR.claimsDone+" claimed":"")+(GR.claimErrors?" · "+GR.claimErrors+" claim errors":""),"weather-type markets, claimed through their own adapter"));q("lstate").innerHTML=ps.join("");
 var dec=function(t){return t.now!=null&&(t.now<=0.01||t.now>=0.99)};var rk=function(t){return t.status==="resting"&&t.pnl==null?0:!(t.shares>0)?4:t.pnl==null?(t.closed||dec(t)?2:1):3};var NF=L.filter(function(t){return rk(t)===4}).length;var rows=L.filter(function(t){return rk(t)<4}).sort(function(a,b){if(rk(a)!==rk(b))return rk(a)-rk(b);if(rk(a)===0)return (a.until||9e15)-(b.until||9e15);if(rk(a)===1)return (a.end||9e15)-(b.end||9e15)||(b.t-a.t);return (b.settledAt||b.t)-(a.settledAt||a.t)});setH(q("rbars"),barsH(rows.filter(function(t){return t.pnl!=null}).slice(0,40).map(function(t){return +t.pnl}).reverse()));var lastG=-1,lastD="";
 var kdt=function(ms){var d=new Date(ms).toLocaleDateString("en-GB",{timeZone:"Asia/Seoul",day:"numeric",month:"short"});return (d===new Date().toLocaleDateString("en-GB",{timeZone:"Asia/Seoul",day:"numeric",month:"short"})?"":d+" ")+evT(ms)};
-var RC=function(t,g){var ok=t.shares>0,bp=ok?Math.round(100*t.cost/t.shares):Math.round(100*t.ask),full=ok?t.shares:(t.ask>0?t.cost/t.ask:0),W=full-t.cost,C=t.cost,win="+$"+W.toFixed(2),lose="-$"+C.toFixed(2),o={paid:bp+"¢",now:"",wl:'<span class="ok">'+win+'</span> / <span class="bad">'+lose+'</span>',due:"",res:"",c:"mut",tip:""};
+var RC=function(t,g){var ok=t.shares>0&&!(t.status==="resting"&&t.pnl==null),bp=ok?Math.round(100*t.cost/t.shares):Math.round(100*t.ask),full=ok?t.shares:(t.ask>0?t.cost/t.ask:0),W=full-t.cost,C=t.cost,win="+$"+W.toFixed(2),lose="-$"+C.toFixed(2),o={paid:bp+"¢",now:"",wl:'<span class="ok">'+win+'</span> / <span class="bad">'+lose+'</span>',due:"",res:"",c:"mut",tip:""};
 if(g===0){o.now='<span class="mut">bid</span>';o.res=t.shares>0?"part filled":"resting";o.due=t.until?kdt(t.until):"";o.tip=(t.shares>0?"filled "+t.shares.toFixed(1)+" of "+full.toFixed(1)+" shares so far":"nothing filled yet")+"; the bid is cancelled at the time shown (KST), 20 min before the start";return o}
 if(g===3){o.wl="";o.due=t.settledAt?kdt(t.settledAt):"";o.res=signed(t.pnl);o.c=cls(t.pnl);return o}
 var np=t.now!=null?Math.round(t.now*100):null;o.now=np==null?'<span class="mut">—</span>':'<span class="'+(np>bp?"ok":np<bp?"bad":"mut")+'">'+np+"¢"+'<i class="ar">'+(np>bp?" ▲":np<bp?" ▼":"")+'</i></span>';
@@ -636,7 +638,7 @@ setInterval(evTick,1000);setInterval(function(){evPoll(false)},5000);
  * total and by the Korean day it should settle, split into bets ahead and bets behind. Dashboard overview only. */
 export async function openWorth(): Promise<{ n: number; stake: number; value: number; priced: number; days: Record<string, { n: number; stake: number; value: number; win: number; lose: number }> }> {
   const all = loadJson<RealRow[]>("eventlive.json", []);
-  const log = (Array.isArray(all) ? all : []).filter((r) => r.marketId && r.shares > 0 && r.pnl == null).map((r) => ({ marketId: r.marketId, idx: r.idx ?? null, status: r.status, shares: r.shares, cost: r.cost, pnl: null as number | null }));
+  const log = (Array.isArray(all) ? all : []).filter((r) => r.marketId && r.shares > 0 && r.pnl == null).map((r) => ({ marketId: r.marketId, idx: r.idx ?? null, status: r.status, ask: r.ask, shares: r.shares, cost: r.status === "resting" ? r.shares * r.ask : r.cost, pnl: null as number | null }));
   await withResolveTimes({ log });
   const r2 = (x: number) => Math.round(x * 100) / 100;
   let stake = 0;
