@@ -80,8 +80,9 @@ export const LATE_OFF = 5;
 /** a wallet with this many late copies checked is not copyable when fewer than 1 in NO_COPY_ONE_IN of them won */
 export const NO_COPY_MIN = 15;
 export const NO_COPY_ONE_IN = 5;
-/** proven on paper: this many closed copies entered 5 s late, half or more won, ahead */
+/** proven on paper: of a followed wallet's newest PROVEN_LAST closed copies entered 5 s late, PROVEN_MIN+ priced, half or more won, ahead */
 export const PROVEN_MIN = 20;
+export const PROVEN_LAST = 40;
 // the paper copy
 export const FOLLOW_MAX = 150;
 export const STAKE_SOL = 0.25;
@@ -802,6 +803,29 @@ export function followed(): { name: string; address: string }[] {
     .slice(0, FOLLOW_MAX)
     .map((x) => ({ name: x.name, address: x.address }));
 }
+/**
+ * Wallets proven on paper at the entry the real copy makes (5 s in, 5 s out): followed now (so it still passes the
+ * screen and its late copies do not say uncopyable), and of its newest PROVEN_LAST closed paper copies PROVEN_MIN+
+ * were priced, half or more won and they are ahead in SOL. Most SOL first. Only the newest copies count, so a wallet
+ * that turns falls out by itself. The real copy (slowlive.ts) takes its wallets from here.
+ */
+export function provenWallets(): { name: string; address: string; n: number; won: number; netSol: number }[] {
+  const by = new Map<string, Pos[]>();
+  for (const p of state.recent) {
+    if (!p.closed || !followSet.has(p.wallet)) continue;
+    const l = by.get(p.wallet);
+    if (l) l.push(p);
+    else by.set(p.wallet, [p]);
+  }
+  const out: { name: string; address: string; n: number; won: number; netSol: number }[] = [];
+  for (const [address, ps] of by) {
+    const v = ps.slice(-PROVEN_LAST).map((p) => posRet(p, 5, 5)).filter((y): y is number => y !== undefined);
+    const won = v.filter((y) => y > 0).length;
+    const net = v.reduce((a, y) => a + y, 0) * STAKE_SOL;
+    if (v.length >= PROVEN_MIN && won * 2 >= v.length && net > 0) out.push({ name: ps[ps.length - 1].name, address, n: v.length, won, netSol: r(net, 3)! });
+  }
+  return out.sort((a, b) => b.netSol - a.netSol);
+}
 let followSet = new Set<string>();
 const refreshFollow = () => (followSet = new Set(followed().map((x) => x.address)));
 /**
@@ -1073,8 +1097,9 @@ export function slowSummary() {
   const pass = people.filter((x) => x.pass);
   const done = state.recent.filter((p) => p.closed);
   const fol = followed();
+  const proven = provenWallets();
   return {
-    note: `Paper and read-only. CANDIDATES: the listed wallets, the busiest pump.fun buyers, and (day holders) wallets that bought ${MIN_BUYER_SOL}+ SOL of coins that keep trading for days (${COIN_MIN_AGE_D}+ days old, no stables or staked SOL: on ${JUP_LISTS.length} of Jupiter's lists, or verified with $${VERIFIED_MIN_VOL_USD}+ traded in a day; and coins our wallets traded on 3+ days), sampled at ${SAMPLE_DAYS.join(" / ")} days back, ${SAMPLE_PAGES} pages each. A full first page inside ${BOT_PAGE_H} h = bot; ${FAST_TRIPS}+ trips in its newest ${FAST_PAGES * 100} transactions with a median hold under ${FAST_HOLD_MIN} min = fast (flipper); neither is read further. A wallet read in full that neither passes nor is near (10+ trips, median hold ${MIN_HOLD_MIN}+ min, ahead) keeps its numbers but not its swaps and is read again every ${OUT_REFRESH_MS / 86_400_000} days; passing and near ones daily. SCREEN: each candidate's own SOL swaps over the last ${DAYS_BACK} days as round trips (first buy until ${CLOSE_SHARE * 100}% sold). Passes = not a bot, ${MIN_TRIPS}+ trips, first sell a median ${MIN_HOLD_MIN}+ min after its first buy, realised SOL positive in BOTH halves of the period, ${MIN_WIN * 100}%+ won, no single trade half or more of the profit. Realised SOL is before network fees. LATE: for its newest ${DELAY_TRIPS} trips, a copier entering 30 s / 5 min after its first buy and selling ${EXIT_SEC} s after its first sale, priced from other people's trades, ${DELAY_COST * 100}% cost taken off: an estimate (a late price over ${LATE_OFF}x off the wallet's own is left out). NOT COPYABLE: a passing wallet with ${NO_COPY_MIN}+ late copies checked and fewer than 1 in ${NO_COPY_ONE_IN} won; it is not followed. smallStartPct = trips whose first buy was under half the wallet's usual. PAPER: followed wallets copied live with ${STAKE_SOL} SOL at Jupiter quotes, ${ENTRY_DELAYS.map(when).join(" / ")} after we see the buy, sold ${EXIT_DELAYS.join(" / ")} s after its first sale (or at ${MAX_HOLD_H} h); by wallet, in5s is the entry a real copy makes and proven = ${PROVEN_MIN}+ of those closed, half or more won, ahead. Leads to test, not proof.`,
+    note: `Paper and read-only. CANDIDATES: the listed wallets, the busiest pump.fun buyers, and (day holders) wallets that bought ${MIN_BUYER_SOL}+ SOL of coins that keep trading for days (${COIN_MIN_AGE_D}+ days old, no stables or staked SOL: on ${JUP_LISTS.length} of Jupiter's lists, or verified with $${VERIFIED_MIN_VOL_USD}+ traded in a day; and coins our wallets traded on 3+ days), sampled at ${SAMPLE_DAYS.join(" / ")} days back, ${SAMPLE_PAGES} pages each. A full first page inside ${BOT_PAGE_H} h = bot; ${FAST_TRIPS}+ trips in its newest ${FAST_PAGES * 100} transactions with a median hold under ${FAST_HOLD_MIN} min = fast (flipper); neither is read further. A wallet read in full that neither passes nor is near (10+ trips, median hold ${MIN_HOLD_MIN}+ min, ahead) keeps its numbers but not its swaps and is read again every ${OUT_REFRESH_MS / 86_400_000} days; passing and near ones daily. SCREEN: each candidate's own SOL swaps over the last ${DAYS_BACK} days as round trips (first buy until ${CLOSE_SHARE * 100}% sold). Passes = not a bot, ${MIN_TRIPS}+ trips, first sell a median ${MIN_HOLD_MIN}+ min after its first buy, realised SOL positive in BOTH halves of the period, ${MIN_WIN * 100}%+ won, no single trade half or more of the profit. Realised SOL is before network fees. LATE: for its newest ${DELAY_TRIPS} trips, a copier entering 30 s / 5 min after its first buy and selling ${EXIT_SEC} s after its first sale, priced from other people's trades, ${DELAY_COST * 100}% cost taken off: an estimate (a late price over ${LATE_OFF}x off the wallet's own is left out). NOT COPYABLE: a passing wallet with ${NO_COPY_MIN}+ late copies checked and fewer than 1 in ${NO_COPY_ONE_IN} won; it is not followed. smallStartPct = trips whose first buy was under half the wallet's usual. PAPER: followed wallets copied live with ${STAKE_SOL} SOL at Jupiter quotes, ${ENTRY_DELAYS.map(when).join(" / ")} after we see the buy, sold ${EXIT_DELAYS.join(" / ")} s after its first sale (or at ${MAX_HOLD_H} h); by wallet, in5s is the entry a real copy makes; proven = followed now, and of its newest ${PROVEN_LAST} closed 5 s copies ${PROVEN_MIN}+ priced, half or more won, ahead. Leads to test, not proof.`,
     state: health.state,
     working: health.working,
     windowDays: DAYS_BACK,
@@ -1124,10 +1149,11 @@ export function slowSummary() {
           const v = ps.map((p) => posRet(p, d, x)).filter((y): y is number => y !== undefined);
           return { n: v.length, won: v.filter((y) => y > 0).length, avgRetPct: v.length ? r((avg(v) ?? 0) * 100) : null, netSol: r(v.reduce((a, y) => a + y, 0) * STAKE_SOL, 3) };
         };
-        // in5s is the entry the real copy makes; proven = PROVEN_MIN+ of those closed, half or more won, ahead
-        const in5s = at(5, 5);
-        return { name: ps[0].name, copies: ps.length, in5s, in5min: at(300, 30), proven: in5s.n >= PROVEN_MIN && in5s.won * 2 >= in5s.n && (in5s.netSol ?? 0) > 0 };
+        // in5s is the entry the real copy makes; proven: see provenWallets (its newest copies only, and followed now)
+        return { name: ps[0].name, copies: ps.length, in5s: at(5, 5), in5min: at(300, 30), proven: proven.some((x) => x.address === w) };
       }),
+      /** the wallets the real copy may take, by their newest PROVEN_LAST closed 5 s copies */
+      proven: proven.map((x) => ({ name: x.name, n: x.n, won: x.won, netSol: x.netSol })),
       holdMinMedian: r(median(done.filter((p) => p.soldMs).map((p) => (p.soldMs! - p.seenMs) / 60_000)), 0),
     },
     /** the real day-holder copy (slowlive.ts), when it runs */

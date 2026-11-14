@@ -6,7 +6,7 @@ import { mock, test } from "node:test";
 
 process.env.DATA_DIR = mkdtempSync(join(tmpdir(), "solslow-"));
 
-const { tripsOf, screen, lateRet, ownRet, priceAfter, posRet, paperRules, slowTx, slowSummary, reportOf, followed, slowWatch, jupCoins, coinOld, creditsDay, copyableOf, _test, STAKE_SOL, TX_SOL, DELAY_COST, MIN_TRIPS } = await import("./slow.js");
+const { tripsOf, screen, lateRet, ownRet, priceAfter, posRet, paperRules, slowTx, slowSummary, reportOf, followed, slowWatch, jupCoins, coinOld, creditsDay, copyableOf, provenWallets, _test, STAKE_SOL, TX_SOL, DELAY_COST, MIN_TRIPS } = await import("./slow.js");
 
 const W = "Wa11et1111111111111111111111111111111111111";
 const M = "M1nt11111111111111111111111111111111111111";
@@ -546,6 +546,7 @@ test("not copyable: a passing wallet whose late copies lose is not followed; a m
   const copy = (wallet: string, name: string, i: number, back: number) => ({ wallet, name, mint: `c${i}`, seenMs: i, leaderSol: 1, entries: { e5: "10", e30: null, e300: null, e1800: null }, exits: { "e5-x5": back }, closed: "sold" as const });
   for (let i = 0; i < 20; i++) st.recent.push(copy("Good111111", "good", i, i < 12 ? 0.3 : 0.24));
   for (let i = 0; i < 19; i++) st.recent.push(copy("Fresh11111", "fresh", i, 0.3));
+  _test.follow(followed().map((x) => x.address)); // as the loop does after every read
   const sum = slowSummary();
   assert.deepEqual([sum.passing, sum.notCopyable, sum.copyUnknown], [3, 1, 1]);
   assert.deepEqual(sum.pass.map((x) => [x.name, x.copyable]), [["trap", false], ["good", true], ["fresh", null]]);
@@ -554,5 +555,13 @@ test("not copyable: a passing wallet whose late copies lose is not followed; a m
   assert.deepEqual([by.good.in5s.n, by.good.in5s.won, by.good.in5s.avgRetPct, by.good.in5min.n, by.good.proven], [20, 12, 9.6, 0, true]);
   // 19 copies, all won: one short of the 20
   assert.deepEqual([by.fresh.in5s.n, by.fresh.in5s.won, by.fresh.proven], [19, 19, false]);
+  assert.deepEqual(sum.paper.proven, [{ name: "good", n: 20, won: 12, netSol: 0.48 }]);
+  assert.deepEqual(provenWallets().map((x) => x.address), ["Good111111"]);
+  // only the newest 40 count: 40 losing copies after the good 20 and it is out; a wallet no longer followed is out too
+  for (let i = 20; i < 60; i++) st.recent.push(copy("Good111111", "good", i, 0.24));
+  st.recent.push(copy("Fresh11111", "fresh", 19, 0.3));
+  assert.deepEqual(provenWallets().map((x) => x.name), ["fresh"]);
+  _test.follow(["Good111111"]);
+  assert.deepEqual(provenWallets(), []);
   _test.reset();
 });
