@@ -53,18 +53,32 @@ const KEEP_TRADES = 4000;
 export interface Coin {
   mint: string;
   symbol: string;
+  /** Jupiter's name and tags, cleaned: shown in the status so a coin in the wrong bucket can be spotted */
+  name: string;
+  tags: string[];
   bucket: Bucket;
   mcap: number;
   liq: number;
   vol: number;
 }
-const STABLE = /USD|EUR|^DAI$|^PYUSD$/i;
+const STABLE = /USD|EUR|^DAI$|^CASH$|^USX$|^UXD$|^FRAX$|^GHO$|^LUSD$|^HNST$/i;
+const STABLE_NAME = /stable|dollar|\busd\b|\beuro?\b/i;
+/** Pool and vault shares (JLP and the like): they are a basket with its own fees, not a coin. */
+const POOL = /^JLP$|^[A-Z]*LP$|-LP$|^[A-Za-z0-9]+-[A-Za-z0-9]+$/;
+const POOL_NAME = /\blp\b|liquidity|\bpool\b|\bvault\b|\bperps?\b/i;
+/** Tickers of shares that are sold tokenised without any label in the name or tags (NIO was one). */
+const STOCK_TICKERS: ReadonlySet<string> = new Set(["NVDA", "TSLA", "AAPL", "MSFT", "GOOGL", "GOOG", "AMZN", "META", "NFLX", "COIN", "MSTR", "HOOD", "SPY", "QQQ", "TTWO", "NIO", "CRCL", "GME", "AMD", "INTC", "PLTR", "BABA", "ORCL", "AVGO", "TSM", "UBER", "DIS", "JPM", "GLD", "SLV", "TLT", "IWM", "SPCX", "SNDK"]);
 /**
  * Coins that live on other chains, or are simply big everywhere: Jupiter's market value counts only the supply that
  * sits on Solana (wrapped ETH came out as a low cap), so these are high caps by name. Only a VERIFIED coin with real
  * liquidity gets the name's credit: anyone can mint a token called BTC.
  */
-export const MAJORS: ReadonlySet<string> = new Set(["SOL", "BTC", "WBTC", "CBBTC", "ZBTC", "XBTC", "TBTC", "ETH", "WETH", "CBETH", "HYPE", "ZEC", "BNB", "WBNB", "XRP", "DOGE", "TRX", "ADA", "LINK", "AVAX", "SUI", "LTC", "XMR", "TON"]);
+export const MAJORS: ReadonlySet<string> = new Set(["SOL", "BTC", "CBBTC", "ZBTC", "XBTC", "TBTC", "ETH", "CBETH", "HYPE", "ZEC", "BNB", "XRP", "DOGE", "TRX", "ADA", "LINK", "AVAX", "SUI", "LTC", "XMR", "TON", "NEAR", "DOT", "UNI", "AAVE", "SHIB", "PEPE", "BCH", "XLM", "HBAR"]);
+/** BTC, wBTC, WETH, wNEAR: the name with or without the "wrapped" letter. */
+export const isMajor = (symbol: string) => {
+  const s = symbol.toUpperCase();
+  return MAJORS.has(s) || (s.startsWith("W") && MAJORS.has(s.slice(1)));
+};
 const MAJOR_MIN_LIQ_USD = 500_000;
 /**
  * Tokenised shares and funds (NVDA, TTWO, NIO turned up among the memes): they follow a stock exchange, not the
@@ -75,9 +89,10 @@ export function isStock(x: Record<string, unknown>): boolean {
   const tags = Array.isArray(x.tags) ? x.tags.map(String) : [];
   if (tags.some((t) => /stock|rwa|equit|etf|ondo|backed|treasur/i.test(t))) return true;
   if (/xstock|tokeni[sz]ed|\bondo\b|\bstock\b|\bshares?\b|\betf\b|\b(inc|corp|corporation|plc|ltd|holdings)\b\.?/i.test(String(x.name ?? ""))) return true;
-  return /^[A-Z]{1,5}(x|on)$/.test(String(x.symbol ?? ""));
+  const sym = String(x.symbol ?? "");
+  return /^[A-Z]{1,5}(x|on)$/.test(sym) || STOCK_TICKERS.has(sym.toUpperCase());
 }
-/** Jupiter token rows -> tradable coins with a bucket. Stables, staked SOL, tokenised stocks, thin or new coins are left out. */
+/** Jupiter token rows -> tradable coins with a bucket. Stables, staked SOL, pool shares, tokenised stocks, thin or new coins are left out. */
 export function bucketCoins(rows: unknown, nowMs: number): Coin[] {
   if (!Array.isArray(rows)) return [];
   const out: Coin[] = [];
@@ -87,6 +102,8 @@ export function bucketCoins(rows: unknown, nowMs: number): Coin[] {
     const symbol = String(x.symbol ?? "").replace(/[^A-Za-z0-9]/g, "").slice(0, 12) || mint.slice(0, 4);
     const tags = Array.isArray(x.tags) ? x.tags.map(String) : [];
     if (isStock(x)) continue;
+    const rawName = String(x.name ?? "");
+    if (STABLE_NAME.test(rawName) || POOL.test(String(x.symbol ?? "")) || POOL_NAME.test(rawName) || tags.some((t) => /^lp$|stable/i.test(t))) continue;
     if (tags.includes("lst") || STABLE.test(symbol) || (symbol.length > 3 && symbol.toUpperCase().endsWith("SOL"))) continue;
     const mcap = Number(x.mcap);
     const liq = Number(x.liquidity);
@@ -94,13 +111,13 @@ export function bucketCoins(rows: unknown, nowMs: number): Coin[] {
     const vol = Number(st?.buyVolume) + Number(st?.sellVolume);
     if (!(mcap > 0) || !(liq > 0) || !(vol > 0)) continue;
     const verified = x.isVerified === true || tags.includes("verified");
-    const major = mint === SOL || (verified && liq >= MAJOR_MIN_LIQ_USD && MAJORS.has(symbol.toUpperCase()));
+    const major = mint === SOL || (verified && liq >= MAJOR_MIN_LIQ_USD && isMajor(symbol));
     const bucket = major ? "high" : bucketOf(mcap);
     const created = Date.parse(String((x.firstPool as { createdAt?: unknown } | undefined)?.createdAt ?? ""));
     const age = Number.isFinite(created) ? nowMs - created : null;
     if (bucket === "meme" ? liq < MEME_MIN_LIQ_USD || (age !== null && age < MEME_MIN_AGE_MS) : liq < MIN_LIQ_USD || (age !== null && age < MIN_AGE_MS)) continue;
     if (vol < MIN_VOL_USD) continue;
-    out.push({ mint, symbol, bucket, mcap, liq, vol });
+    out.push({ mint, symbol, name: rawName.replace(/[^A-Za-z0-9 .()&-]/g, "").slice(0, 40), tags: tags.map((t) => t.replace(/[^A-Za-z0-9-]/g, "").slice(0, 24)).slice(0, 8), bucket, mcap, liq, vol });
   }
   return out;
 }
@@ -397,7 +414,7 @@ interface State {
   jupCalls: number;
   errors: Record<string, string>;
 }
-const SORT_V = 3;
+const SORT_V = 4;
 const fresh = (): State => ({
   v: SORT_V,
   universe: [], universeAt: 0, slot: 0, series: {}, open: [], trades: [], cool: {}, missed: 0, perpHour: 0, perpOpen: [], perpTrades: [], perpLast: {},
@@ -726,6 +743,7 @@ export function bucketsSummary() {
       text: BUCKET_TEXT[b],
       coins: coins.length,
       examples: coins.slice(0, 6).map((c) => c.symbol),
+      coinList: coins.map((c) => ({ symbol: c.symbol, name: c.name, tags: c.tags, mcapM: r(c.mcap / 1e6, 1) })),
       rules: SPOT_RULES.map((x) => {
         const id = ruleId(b, x.key);
         const done = state.trades.filter((t) => t.rule === id);
@@ -742,6 +760,7 @@ export function bucketsSummary() {
     mode: "paper",
     note: `Paper only, nothing is sent. SPOT: coins from Jupiter's lists in four buckets by market value, up to ${PER_BUCKET} each, priced once a minute and kept as 5-minute closes. A rule buys on a 5-minute close; the buy is a real quote for a $${STAKE_USD} swap taken after the signal and the sale a real quote for the swap back, less $${TX_USD} a transaction. Thresholds are the rule's base move times the bucket's scale (${BUCKETS.map((b) => `${b} x${SCALE[b]}`).join(", ")}). PERPS: SOL, BTC, ETH on hourly candles, filled at the price when the hour's close is read, charged Jupiter Perps' ${PERP_FEE_SIDE * 100}% a side and ${PERP_BORROW_HOUR * 100}% an hour borrow, $${PERP_USD} a position. The history test (84 rules, 15 Nov 2026) found none that survives costs; "history" says what each did there. COPY, spot: the day-holder study's paper copies (bought ${COPY_ENTRY_S} s after we see the buy, sold ${COPY_EXIT_S} s after its first sale) sorted by the coin's bucket today. COPY, perps: up to ${HL_FOLLOW} traders from Hyperliquid's public leaderboard (ahead over week, month and all time, month +${HL_MIN_MONTH_ROI * 100}%+, account $${HL_MIN_ACCOUNT_USD}+, not a market maker), each looked at about every 3 minutes; a position of $${HL_MIN_POS_USD}+ they open is copied at the price we read after seeing it and closed when they close, charged a Solana venue's costs. Bar for real: 100+ trades on one rule or trader set, half or more won, net positive. A quote is the best case for a fill.`,
     updatedAt: Date.now(),
+    real: realSummary(),
     jupiter: { usedToday: state.jupCalls, allowance: JUP_DAY() },
     errors: Object.values(state.errors),
     missedEntries: state.missed,
@@ -775,6 +794,25 @@ export function bucketsSummary() {
     },
   };
 }
+
+// ---- what the real side (bucketslive.ts) reads --------------------------------------------------------------------------
+/** The bar for real: this many paper trades of one rule, half or more won, ahead after costs. */
+export const REAL_MIN_TRADES = 100;
+/** One rule's closed paper trades since `sinceMs`: every one counts, a coin that could not be sold as a full loss. */
+export function paperRecord(rule: string, sinceMs = 0) {
+  if (!loaded) load();
+  const xs = state.trades.filter((t) => t.rule === rule && t.at > sinceMs);
+  return { trades: xs.length, won: xs.filter((t) => t.netUsd > 0).length, netUsd: xs.reduce((a, t) => a + t.netUsd, 0) };
+}
+export const meetsBar = (x: { trades: number; won: number; netUsd: number }) => x.trades >= REAL_MIN_TRADES && x.won * 2 >= x.trades && x.netUsd > 0;
+export const spotRuleIds = () => BUCKETS.flatMap((b) => SPOT_RULES.map((x) => ruleId(b, x.key)));
+/** The paper trades that are open now. */
+export function paperOpens(): { rule: string; bucket: Bucket; mint: string; symbol: string; at: number }[] {
+  if (!loaded) load();
+  return state.open.map((o) => ({ rule: o.rule, bucket: o.bucket, mint: o.mint, symbol: o.symbol, at: o.at }));
+}
+let realSummary: () => unknown = () => null;
+export const setBucketsRealSummary = (f: () => unknown) => void (realSummary = f);
 
 let timer: ReturnType<typeof setInterval> | null = null;
 export function startBuckets(deps: BucketDeps) {

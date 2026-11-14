@@ -1623,6 +1623,8 @@ export function startSolanaCopyLive() {
   onStreamBuy((b) => void trade(b));
   // the real day-holder copy (enrique, 14 Nov 2026): its own switch in the repo file, its own loss cap; off by default
   void import("./slowlive.js").then((m) => m.startSlowLive()).catch(() => undefined);
+  // the real side of the paper buckets: off unless deploy/live-rules.json switches "solanaBuckets" on, and then only rules that meet the bar on paper
+  void import("./bucketslive.js").then((m) => m.startBucketsLive()).catch(() => undefined);
   if (walletReady && state.open) void recover();
   else if (walletReady && state.opens.length) void recoverMany();
   else if (walletReady) setTimeout(() => void tidy(), 20_000).unref();
