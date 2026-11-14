@@ -27,18 +27,29 @@ import { addLiveRule, budgets, liveConfig, MIN_SIZE, removeLiveRule, setLiveMaxL
  * Resolves once the port is bound; rejects (with code EADDRINUSE) when another copy holds it.
  */
 /** The Solana wallet's SOL balance, read at most once a minute; null when it cannot be read. */
-let solBalMemo = { at: 0, v: null as number | null };
+const solBalMemo = new Map<string, { at: number; v: number | null }>();
 async function solBalance(address: string): Promise<number | null> {
   if (!address) return null;
-  if (Date.now() - solBalMemo.at < 60_000) return solBalMemo.v;
+  const m = solBalMemo.get(address) ?? { at: 0, v: null };
+  if (Date.now() - m.at < 60_000) return m.v;
   try {
     const r = await fetch(solShared.rpcUrl(), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "getBalance", params: [address] }), signal: AbortSignal.timeout(4000) });
     const j = (await r.json()) as { result?: { value?: number } };
-    solBalMemo = { at: Date.now(), v: typeof j.result?.value === "number" ? j.result.value / 1e9 : null };
+    solBalMemo.set(address, { at: Date.now(), v: typeof j.result?.value === "number" ? j.result.value / 1e9 : null });
   } catch {
-    solBalMemo = { at: Date.now() - 45_000, v: solBalMemo.v };
+    solBalMemo.set(address, { at: Date.now() - 45_000, v: m.v });
   }
-  return solBalMemo.v;
+  return solBalMemo.get(address)?.v ?? null;
+}
+/** A strategy wallet's public address from its file on this machine ("" = the first wallet). Only for the password-protected page, never the public status. */
+function solAddress(name: "" | "buckets" | "perps"): string {
+  try {
+    const f = join(DATA, name ? `solana-wallet-${name}-address.txt` : "solana-wallet-address.txt");
+    const a = existsSync(f) ? readFileSync(f, "utf8").trim() : "";
+    return /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(a) ? a : "";
+  } catch {
+    return "";
+  }
 }
 
 export function serveStatus(recorder: Recorder, build: string, others: Recorder[] = []) {
@@ -378,9 +389,11 @@ export function serveStatus(recorder: Recorder, build: string, others: Recorder[
       } catch {
         sol = "";
       }
-      solBalance(sol).then((solBal) => {
+      const bk = solAddress("buckets");
+      const pp = solAddress("perps");
+      Promise.all([solBalance(sol), solBalance(bk), solBalance(pp)]).then(([solBal, bkBal, ppBal]) => {
         res.writeHead(200, { "content-type": "application/json", "cache-control": "no-store" });
-        res.end(JSON.stringify({ poly: /^0x[0-9a-fA-F]{40}$/.test(poly) ? { address: poly, balance: cash, toClaim: mine.live?.toClaim ?? null } : null, sol: /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(sol) ? { address: sol, balance: solBal } : null }));
+        res.end(JSON.stringify({ solBuckets: bk ? { address: bk, balance: bkBal } : null, solPerps: pp ? { address: pp, balance: ppBal } : null, poly: /^0x[0-9a-fA-F]{40}$/.test(poly) ? { address: poly, balance: cash, toClaim: mine.live?.toClaim ?? null } : null, sol: /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(sol) ? { address: sol, balance: solBal } : null }));
       });
       return;
     }
@@ -1110,6 +1123,6 @@ document.addEventListener("click",async function(e){var b=e.target&&e.target.clo
 if(!confirm("REAL MONEY\\n\\nBuy "+side+" on "+h.label+" for $"+amt+"\\nask now "+cents(a)+", pays up to "+cents(Math.min(0.99,a+0.05))+" · window closes in "+Math.floor(h.left/60)+":"+String(h.left%60).padStart(2,"0")+"\\n\\nTracked as the 'manual' strategy."))return;
 BETBUSY=true;drawBets();d.classList.add("busy");try{var r=await fetch("/api/manual",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({series:k==="btc5m"?"":k,side:side,amount:amt})});var j=await r.json();d.classList.remove("busy");if(!r.ok){d.classList.add("fail");setTimeout(function(){d.classList.remove("fail")},1500);alert("Not placed: "+(j.error||"failed"))}else{var t=j.trade||{};d.classList.add("done");setTimeout(function(){d.classList.remove("done")},1500);if(t.dry)alert("Dry mode: order signed, not sent.")}}catch(err){d.classList.remove("busy");alert("Not placed: "+err)}BETBUSY=false;poll()});
 ${EV_JS}
-showTab(TAB);showSec(SEC);poll();var wpoll=function(){fetch("/api/wallets").then(function(r){return r.json()}).then(function(W){window.WLAST=W;window.WREN()}).catch(function(){})};window.WREN=function(){var W=window.WLAST;if(!W)return;(function(){var sh=function(a){return a.slice(0,4)+"…"+a.slice(-4)};var h="";var G=window.HW||null;var pt=G&&G.cash!=null?(+G.cash||0)+(+G.claim||0)+(+G.bets||0):null;var stt=G&&G.solUsd&&G.solBal!=null?((+G.solBal||0)+(+G.coinsSol||0))*G.solUsd:null;if(W.poly)h+='<span class="w"><span class="k" style="margin:0">Polymarket</span>'+(pt!=null?'<b title="estimate: cash + open bets at the price now + wins to claim">≈ '+money(pt)+'</b><span class="mut">cash '+money(+G.cash||0)+(G.betsN?" · "+G.betsN+" bets "+money(+G.bets||0):"")+(G.claim?" · to claim "+money(G.claim):"")+'</span>':'<b>'+(W.poly.balance==null?"—":money(W.poly.balance))+'</b>'+(W.poly.toClaim?'<span class="mut">+'+money(W.poly.toClaim)+' to claim</span>':''))+'<a class="l" href="https://polymarket.com/profile/'+W.poly.address+'" target="_blank" rel="noopener">'+sh(W.poly.address)+' ↗</a><a class="l" href="https://polygonscan.com/address/'+W.poly.address+'" target="_blank" rel="noopener">scan ↗</a></span>';if(W.sol)h+='<span class="w"><span class="k" style="margin:0">Solana</span>'+(stt!=null?'<b title="estimate: cash + every coin held at the price now">≈ '+money(stt)+'</b><span class="mut">cash '+money((+G.solBal||0)*G.solUsd)+(G.coinsN?" · "+G.coinsN+" coins "+money((+G.coinsSol||0)*G.solUsd):"")+'</span>':'<b>'+(W.sol.balance==null?"—":Number(W.sol.balance).toFixed(4)+" SOL")+'</b>')+'<a class="l" href="https://solscan.io/account/'+W.sol.address+'" target="_blank" rel="noopener">'+sh(W.sol.address)+' ↗</a></span>';var b=el("wbar");if(b&&(b.__h!==h||b.__su!==(window.HW&&window.HW.solUsd))){b.__h=h;b.__su=window.HW&&window.HW.solUsd;b.innerHTML=h;solPass()}})()};wpoll();setInterval(wpoll,20000);var spoll=function(){fetch("/api/solslow").then(function(r){return r.json()}).then(function(V){if(V&&V.open)window.SSV=V}).catch(function(){})};spoll();setInterval(spoll,30000);
+showTab(TAB);showSec(SEC);poll();var wpoll=function(){fetch("/api/wallets").then(function(r){return r.json()}).then(function(W){window.WLAST=W;window.WREN()}).catch(function(){})};window.WREN=function(){var W=window.WLAST;if(!W)return;(function(){var sh=function(a){return a.slice(0,4)+"…"+a.slice(-4)};var h="";var G=window.HW||null;var pt=G&&G.cash!=null?(+G.cash||0)+(+G.claim||0)+(+G.bets||0):null;var stt=G&&G.solUsd&&G.solBal!=null?((+G.solBal||0)+(+G.coinsSol||0))*G.solUsd:null;if(W.poly)h+='<span class="w"><span class="k" style="margin:0">Polymarket</span>'+(pt!=null?'<b title="estimate: cash + open bets at the price now + wins to claim">≈ '+money(pt)+'</b><span class="mut">cash '+money(+G.cash||0)+(G.betsN?" · "+G.betsN+" bets "+money(+G.bets||0):"")+(G.claim?" · to claim "+money(G.claim):"")+'</span>':'<b>'+(W.poly.balance==null?"—":money(W.poly.balance))+'</b>'+(W.poly.toClaim?'<span class="mut">+'+money(W.poly.toClaim)+' to claim</span>':''))+'<a class="l" href="https://polymarket.com/profile/'+W.poly.address+'" target="_blank" rel="noopener">'+sh(W.poly.address)+' ↗</a><a class="l" href="https://polygonscan.com/address/'+W.poly.address+'" target="_blank" rel="noopener">scan ↗</a></span>';if(W.sol)h+='<span class="w"><span class="k" style="margin:0">Solana</span>'+(stt!=null?'<b title="estimate: cash + every coin held at the price now">≈ '+money(stt)+'</b><span class="mut">cash '+money((+G.solBal||0)*G.solUsd)+(G.coinsN?" · "+G.coinsN+" coins "+money((+G.coinsSol||0)*G.solUsd):"")+'</span>':'<b>'+(W.sol.balance==null?"—":Number(W.sol.balance).toFixed(4)+" SOL")+'</b>')+'<a class="l" href="https://solscan.io/account/'+W.sol.address+'" target="_blank" rel="noopener">'+sh(W.sol.address)+' ↗</a></span>';[["solBuckets","Solana spot rules"],["solPerps","Solana perps"]].forEach(function(x){var w=W[x[0]];if(w)h+='<span class="w"><span class="k" style="margin:0">'+x[1]+'</span><b>'+(w.balance==null?"—":Number(w.balance).toFixed(4)+" SOL")+'</b><a class="l" href="https://solscan.io/account/'+w.address+'" target="_blank" rel="noopener" title="'+w.address+'">'+sh(w.address)+' ↗</a></span>'});var b=el("wbar");if(b&&(b.__h!==h||b.__su!==(window.HW&&window.HW.solUsd))){b.__h=h;b.__su=window.HW&&window.HW.solUsd;b.innerHTML=h;solPass()}})()};wpoll();setInterval(wpoll,20000);var spoll=function(){fetch("/api/solslow").then(function(r){return r.json()}).then(function(V){if(V&&V.open)window.SSV=V}).catch(function(){})};spoll();setInterval(spoll,30000);
 setInterval(poll,1000);evPoll(true);
 </script></body></html>`;
