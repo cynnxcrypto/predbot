@@ -23,11 +23,14 @@ test("buckets: coins are sorted by market value; stables, staked SOL, thin and n
       row(5, 5e8, { symbol: "USDT" }), row(6, 5e8, { tags: ["lst"] }), row(7, 5e8, { symbol: "jitoSOL" }),
       row(8, 5e8, { liquidity: 10_000 }), row(9, 5e8, { stats24h: { buyVolume: 10, sellVolume: 10 } }),
       row(10, 5e8, { firstPool: { createdAt: "2026-11-14T00:00:00Z" } }), row(11, 5e6, { firstPool: { createdAt: "2026-11-14T00:00:00Z" } }),
-      row(12, NaN), { id: SOL, symbol: "SOL", mcap: 5e10, liquidity: 1e9, stats24h: { buyVolume: 1e9, sellVolume: 1e9 } }, { id: "not a mint", mcap: 1e9 },
+      row(12, NaN), { id: "not a mint", mcap: 1e9 },
     ],
     NOW,
   );
   assert.deepEqual(coins.map((c) => [c.symbol, c.bucket]), [["C1", "high"], ["C2", "mid"], ["C3", "low"], ["C4", "meme"], ["C11", "meme"]], "a one-day-old meme counts, a one-day-old mid cap does not");
+  // wrapped and bridged majors are high caps whatever their Solana supply says, but only when verified and liquid
+  const wrapped = bucketCoins([row(20, 5e7, { symbol: "ETH", isVerified: true }), row(21, 5e7, { symbol: "cbBTC", tags: ["verified"] }), row(22, 5e7, { symbol: "BTC" }), row(23, 5e7, { symbol: "ZEC", isVerified: true, liquidity: 60_000 }), { id: SOL, symbol: "SOL", mcap: 5e10, liquidity: 1e9, stats24h: { buyVolume: 1e9, sellVolume: 1e9 } }], NOW);
+  assert.deepEqual(wrapped.map((c) => c.bucket), ["high", "high", "low", "low", "high"], "an unverified BTC and a thin ZEC get no credit; SOL itself is a high cap");
   const many = Array.from({ length: 150 }, (_, i) => ({ ...coins[1], mint: MINT(100 + i), vol: i }));
   const picked = pickUniverse([...many, ...many, coins[0]]);
   assert.equal(picked.filter((c) => c.bucket === "mid").length, B.PER_BUCKET);
