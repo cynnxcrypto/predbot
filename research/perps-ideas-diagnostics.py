@@ -89,3 +89,50 @@ for step, levels in [(0.02, 30), (0.01, 30)]:
     for lab, a, b in [("2024", 473352, 482136), ("2025", 482136, 490896), ("2026", 490896, 499000), ("last 12 months", 498455 - 8766, 499000)]:
         tr, real, tot, nh, hold = grid_keep(M5["SOLUSDT"], step, levels, 0.001, a, b)
         print(f"   step {step*100:g}% x {levels}, {lab}: {tr} sells, banked {100*real:+.1f}%, with the bag {100*tot:+.1f}% of the money set aside ({nh} of {levels} levels still held), SOL itself {100*hold:+.0f}%")
+
+# 6. the grid from many start dates (every month from Jan 2024, 6 months each): buy grid below (spot), sell grid
+#    above (perp short, 0.05% a side), and both together. Money set aside = levels x 1 on each side.
+def grid_side(c, step, levels, fee, i0, i1, side):
+    o, h, l, cl = c["o"], c["h"], c["l"], c["c"]
+    if side > 0: lv = [o[i0] * (1 - step) ** k for k in range(1, levels + 1)]
+    else: lv = [o[i0] * (1 + step) ** k for k in range(1, levels + 1)]
+    held = [False] * levels; real = 0.0; trips = 0
+    for i in range(i0, i1):
+        for k in range(levels):
+            if side > 0:
+                if not held[k] and l[i] <= lv[k] * 0.9995: held[k] = True; real -= fee
+                elif held[k] and h[i] >= lv[k] / (1 - step) * 1.0005: held[k] = False; real += step / (1 - step) - fee; trips += 1
+            else:
+                if not held[k] and h[i] >= lv[k] * 1.0005: held[k] = True; real -= fee
+                elif held[k] and l[i] <= lv[k] / (1 + step) * 0.9995: held[k] = False; real += step / (1 + step) - fee; trips += 1
+    bag = sum(side * (cl[i1 - 1] / lv[k] - 1) for k in range(levels) if held[k])
+    return trips, (real + bag) / levels
+print("\nGrid 2% x 30 on SOL, 6 months from each month start: sells / result with the bag, % of money set aside")
+c = M5["SOLUSDT"]; th = c["th"]; rows = []
+for m in range(0, 29):
+    y, mo = 2024 + m // 12, m % 12 + 1
+    a = datetime.datetime(y, mo, 1, tzinfo=datetime.timezone.utc).timestamp() / 3600
+    i0, i1 = int(np.searchsorted(th, a)), int(np.searchsorted(th, a + 4383))
+    if i1 >= len(th) - 1: break
+    tl, pl = grid_side(c, 0.02, 30, 0.001, i0, i1, 1); ts, ps = grid_side(c, 0.02, 30, 0.0005, i0, i1, -1)
+    sol = c["c"][i1 - 1] / c["o"][i0] - 1; rows.append((pl, ps, (pl + ps) / 2, sol))
+    print(f"   {y}-{mo:02d}: SOL {100*sol:+4.0f}% | buy grid {tl:3d} sells {100*pl:+6.1f}% | short grid {ts:3d} buys {100*ps:+6.1f}% | both {100*(pl+ps)/2:+6.1f}%")
+r = np.array(rows)
+for k, lab in enumerate(("buy grid", "short grid", "both")):
+    print(f"   {lab}: {int((r[:,k]>0).sum())} of {len(r)} windows ahead, average {100*r[:,k].mean():+.1f}%, worst {100*r[:,k].min():+.1f}%, best {100*r[:,k].max():+.1f}%")
+
+# 7. the same grid on hourly candles from 2021 (includes the 2021 rise and the 2022 collapse), by start year
+print("\nGrid 2% x 30 on hourly candles, 6 months from each month start since 2021, by start year (both = half the money each side)")
+by = {}
+for s in ("SOLUSDT", "BTCUSDT", "ETHUSDT"):
+    c = H1[s]; th = c["th"]
+    for m in range(0, 66):
+        y, mo = 2021 + m // 12, m % 12 + 1
+        a = datetime.datetime(y, mo, 1, tzinfo=datetime.timezone.utc).timestamp() / 3600
+        i0, i1 = int(np.searchsorted(th, a)), int(np.searchsorted(th, a + 4383))
+        if i1 >= len(th) - 1: break
+        tl, pl = grid_side(c, 0.02, 30, 0.001, i0, i1, 1); ts, ps = grid_side(c, 0.02, 30, 0.0005, i0, i1, -1)
+        by.setdefault((s[:3], y), []).append((pl, ps, (pl + ps) / 2, tl + ts))
+for (s, y), v in sorted(by.items()):
+    r = np.array(v)
+    print(f"   {s} {y}: buy grid {100*r[:,0].mean():+6.1f}% (worst {100*r[:,0].min():+6.1f}%) | short grid {100*r[:,1].mean():+6.1f}% (worst {100*r[:,1].min():+7.1f}%) | both {100*r[:,2].mean():+6.1f}% (worst {100*r[:,2].min():+6.1f}%, {int((r[:,2]>0).sum())}/{len(r)} ahead) | {r[:,3].mean():.0f} closed trades")
