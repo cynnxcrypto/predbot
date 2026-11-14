@@ -1755,7 +1755,9 @@ async function cricketTick() {
 }
 
 // ---------- open real bets marked at the market price (14 Nov 2026, enrique: "expectations of open trades") ----------
-type OpenMark = { at: number; n: number; stake: number; value: number; winning: number; losing: number; unknown: number; byDay: Record<string, { n: number; stake: number; value: number }>; byGroup: Record<string, { n: number; stake: number; value: number }> };
+/** An open real bet whose match or end time has passed (15 Nov 2026, enrique: "predictions that shouldve resolved but didnt"). */
+type Overdue = { group: string; title: string; outcome: string; stake: number; hours: number; price: number | null; state: string };
+type OpenMark = { at: number; overdue?: Overdue[]; unclaimed?: { title: string; outcome: string; payout: number; hours: number; error: string | null }[]; n: number; stake: number; value: number; winning: number; losing: number; unknown: number; byDay: Record<string, { n: number; stake: number; value: number }>; byGroup: Record<string, { n: number; stake: number; value: number }> };
 let openMark: OpenMark | null = null;
 async function markOpenTick() {
   const rows = eventLiveRows().filter((r) => r.shares > 0 && r.pnl == null);
@@ -1768,6 +1770,13 @@ async function markOpenTick() {
     const ends = g ? copyResolveAt(g) : NaN;
     const day = Number.isFinite(ends) ? kstDay(ends) : "unknown";
     const value = Number.isFinite(px) ? r.shares * px : r.cost;
+    // game markets: 4 h after the start; others: 2 h after the end date
+    const due = g && Number.isFinite(tsOf(g.gameStartTime)) ? tsOf(g.gameStartTime) + 4 * 3600_000 : ends + 2 * 3600_000;
+    if (Number.isFinite(due) && m.at > due) {
+      const u = String((g as { umaResolutionStatus?: string } | null)?.umaResolutionStatus ?? "");
+      const state = !g ? "market not readable" : g.closed ? "closed on Polymarket, our settle has not run yet" : u ? `waiting on the resolution (${u})` : g.acceptingOrders === false ? "trading stopped, waiting on the resolution" : "still trading, result not proposed yet";
+      (m.overdue ??= []).push({ group: r.group, title: r.title.slice(0, 80), outcome: r.outcome.slice(0, 30), stake: Math.round(r.cost * 100) / 100, hours: Math.round((m.at - (due - (Number.isFinite(tsOf(g?.gameStartTime)) ? 4 : 2) * 3600_000)) / 360_000) / 10, price: Number.isFinite(px) ? px : null, state });
+    }
     m.n += 1;
     m.stake += r.cost;
     m.value += value;
@@ -1790,6 +1799,15 @@ async function markOpenTick() {
     o.stake = r2(o.stake);
     o.value = r2(o.value);
   }
+  m.overdue?.sort((a, b) => b.hours - a.hours);
+  // won but not claimed 4 h after it settled
+  const claims = loadJson<Record<string, { tx?: string | null; error?: string | null }>>("eventlive-claims.json", {});
+  m.unclaimed = eventLiveRows()
+    .filter((r) => r.shares > 0 && (r.pay ?? 0) > 0 && r.settledAt != null && m.at - r.settledAt > 4 * 3600_000 && !claims[r.conditionId ?? ""]?.tx)
+    .map((r) => ({ title: r.title.slice(0, 80), outcome: r.outcome.slice(0, 30), payout: Math.round(r.shares * (r.pay ?? 0) * 100) / 100, hours: Math.round((m.at - (r.settledAt ?? 0)) / 360_000) / 10, error: claims[r.conditionId ?? ""]?.error ? String(claims[r.conditionId ?? ""]?.error).replace(/0x[0-9a-fA-F]{8,}/g, "0x…").slice(0, 100) : null }));
+  // paper trades still open 3 days after they were made (most paper markets settle within a day)
+  (m as OpenMark & { paperOld?: number; paperOpen?: number }).paperOpen = state.trades.filter((t) => t.pnl == null).length;
+  (m as OpenMark & { paperOld?: number }).paperOld = state.trades.filter((t) => t.pnl == null && m.at - t.t > 3 * 86400_000).length;
   openMark = m;
 }
 // ---------- settlement and summary ----------
