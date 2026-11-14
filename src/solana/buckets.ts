@@ -66,7 +66,18 @@ const STABLE = /USD|EUR|^DAI$|^PYUSD$/i;
  */
 export const MAJORS: ReadonlySet<string> = new Set(["SOL", "BTC", "WBTC", "CBBTC", "ZBTC", "XBTC", "TBTC", "ETH", "WETH", "CBETH", "HYPE", "ZEC", "BNB", "WBNB", "XRP", "DOGE", "TRX", "ADA", "LINK", "AVAX", "SUI", "LTC", "XMR", "TON"]);
 const MAJOR_MIN_LIQ_USD = 500_000;
-/** Jupiter token rows -> tradable coins with a bucket. Stables, staked SOL, thin or new coins are left out. */
+/**
+ * Tokenised shares and funds (NVDA, TTWO, NIO turned up among the memes): they follow a stock exchange, not the
+ * crypto market, and trade thinly outside its hours. Left out. Told by the issuer's tags, by the name, or by the
+ * issuer's suffix on a ticker (NVDAx, NVDAon).
+ */
+export function isStock(x: Record<string, unknown>): boolean {
+  const tags = Array.isArray(x.tags) ? x.tags.map(String) : [];
+  if (tags.some((t) => /stock|rwa|equit|etf|ondo|backed|treasur/i.test(t))) return true;
+  if (/xstock|tokeni[sz]ed|\bondo\b|\bstock\b|\bshares?\b|\betf\b|\b(inc|corp|corporation|plc|ltd|holdings)\b\.?/i.test(String(x.name ?? ""))) return true;
+  return /^[A-Z]{1,5}(x|on)$/.test(String(x.symbol ?? ""));
+}
+/** Jupiter token rows -> tradable coins with a bucket. Stables, staked SOL, tokenised stocks, thin or new coins are left out. */
 export function bucketCoins(rows: unknown, nowMs: number): Coin[] {
   if (!Array.isArray(rows)) return [];
   const out: Coin[] = [];
@@ -75,6 +86,7 @@ export function bucketCoins(rows: unknown, nowMs: number): Coin[] {
     if (!mint || mint === USDC || !/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(mint)) continue;
     const symbol = String(x.symbol ?? "").replace(/[^A-Za-z0-9]/g, "").slice(0, 12) || mint.slice(0, 4);
     const tags = Array.isArray(x.tags) ? x.tags.map(String) : [];
+    if (isStock(x)) continue;
     if (tags.includes("lst") || STABLE.test(symbol) || (symbol.length > 3 && symbol.toUpperCase().endsWith("SOL"))) continue;
     const mcap = Number(x.mcap);
     const liq = Number(x.liquidity);
@@ -385,7 +397,7 @@ interface State {
   jupCalls: number;
   errors: Record<string, string>;
 }
-const SORT_V = 2;
+const SORT_V = 3;
 const fresh = (): State => ({
   v: SORT_V,
   universe: [], universeAt: 0, slot: 0, series: {}, open: [], trades: [], cool: {}, missed: 0, perpHour: 0, perpOpen: [], perpTrades: [], perpLast: {},

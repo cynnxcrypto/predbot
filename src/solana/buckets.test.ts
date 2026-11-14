@@ -9,7 +9,7 @@ process.env.DATA_DIR = dir;
 
 const B = await import("./buckets.js");
 const { SOL, USDC } = await import("./pools.js");
-const { bucketCoins, bucketOf, bucketsSummary, bucketsTick, hlDiff, hlPick, hlPositions, parseKlines, parsePrices, perpNet, pickUniverse, spotExit, spotSignal, PERP_RULES, SPOT_RULES, _bucketsTest } = B;
+const { isStock, bucketCoins, bucketOf, bucketsSummary, bucketsTick, hlDiff, hlPick, hlPositions, parseKlines, parsePrices, perpNet, pickUniverse, spotExit, spotSignal, PERP_RULES, SPOT_RULES, _bucketsTest } = B;
 
 const MINT = (n: number) => "Mint" + String(n).padStart(4, "1").replace(/0/g, "z") + "1".repeat(32);
 const row = (n: number, mcap: number, extra: Record<string, unknown> = {}) => ({ id: MINT(n), symbol: "C" + n, mcap, liquidity: 500_000, stats24h: { buyVolume: 400_000, sellVolume: 300_000 }, firstPool: { createdAt: "2026-01-01T00:00:00Z" }, ...extra });
@@ -31,6 +31,16 @@ test("buckets: coins are sorted by market value; stables, staked SOL, thin and n
   // wrapped and bridged majors are high caps whatever their Solana supply says, but only when verified and liquid
   const wrapped = bucketCoins([row(20, 5e7, { symbol: "ETH", isVerified: true }), row(21, 5e7, { symbol: "cbBTC", tags: ["verified"] }), row(22, 5e7, { symbol: "BTC" }), row(23, 5e7, { symbol: "ZEC", isVerified: true, liquidity: 60_000 }), { id: SOL, symbol: "SOL", mcap: 5e10, liquidity: 1e9, stats24h: { buyVolume: 1e9, sellVolume: 1e9 } }], NOW);
   assert.deepEqual(wrapped.map((c) => c.bucket), ["high", "high", "low", "low", "high"], "an unverified BTC and a thin ZEC get no credit; SOL itself is a high cap");
+  // tokenised stocks are not crypto: out, however they are labelled
+  assert.equal(isStock({ symbol: "NVDA", name: "NVIDIA xStock" }), true);
+  assert.equal(isStock({ symbol: "NVDAx", name: "NVIDIA" }), true);
+  assert.equal(isStock({ symbol: "TTWOon", name: "Take-Two" }), true);
+  assert.equal(isStock({ symbol: "NIO", name: "NIO Inc. (Ondo Tokenized)" }), true);
+  assert.equal(isStock({ symbol: "SPY", name: "SP500", tags: ["verified", "xstocks"] }), true);
+  assert.equal(isStock({ symbol: "BONK", name: "Bonk", tags: ["verified", "community"] }), false);
+  assert.equal(isStock({ symbol: "Fartcoin", name: "Fartcoin" }), false);
+  assert.equal(isStock({ symbol: "JUP", name: "Jupiter" }), false);
+  assert.deepEqual(bucketCoins([row(30, 5e6, { symbol: "NVDA", name: "NVIDIA xStock" })], NOW), []);
   const many = Array.from({ length: 150 }, (_, i) => ({ ...coins[1], mint: MINT(100 + i), vol: i }));
   const picked = pickUniverse([...many, ...many, coins[0]]);
   assert.equal(picked.filter((c) => c.bucket === "mid").length, B.PER_BUCKET);
