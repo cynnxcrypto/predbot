@@ -71,6 +71,17 @@ export const MAX_WALLETS = 25;
 /** A wallet is rested from real copies while its newest REST_LAST real copies of the last REST_DAYS days lost SOL with under half won. */
 export const REST_LAST = 15;
 export const REST_DAYS = 7;
+/**
+ * enrique, 15 Nov 2026 10:52 KST, on the card "Free up the full Solana wallet for the newly proven wallets?": "Sell
+ * copies of dropped wallets" (open copies whose wallet has been off the list for 6 hours are sold at the market;
+ * their result is booked now and the SOL goes to the proven wallets). The wallet was full of copies of wallets
+ * paper no longer backed (14 open) while the proven ones missed 60 buys in three hours. The hours count from when the
+ * sweep first sees the wallet off the list, and only while there is a list at all: an empty list means the paper
+ * study has nothing to say (off, or just started), not that every wallet was dropped.
+ */
+export const DROP_SELL_MS = 6 * 3_600_000;
+/** At most this many dropped copies are sold per sweep (5 min). */
+export const DROP_SELLS_PER_SWEEP = 3;
 /** The list of wallets is worked out again this often. */
 export const LIST_MS = 60_000;
 /** The first three (14 Nov 2026), copied only when the file says "wallets": "fixed". Public on-chain addresses. */
@@ -158,9 +169,11 @@ export interface Pos {
   nextTryMs?: number;
   /** when the leader's own transactions were last read for a sale the stream may have missed, ms */
   checkedMs?: number;
+  /** since when the sweep has seen its wallet off the list of copied wallets, ms (cleared when the wallet is back) */
+  offMs?: number;
   exit?: Exit;
 }
-type Exit = "sold" | "sold, seen late" | "max hold" | "sold while we were down" | "buy did not land" | "buy failed";
+type Exit = "sold" | "sold, seen late" | "max hold" | "wallet dropped" | "sold while we were down" | "buy did not land" | "buy failed";
 export interface SRow {
   t: number;
   name: string;
@@ -392,8 +405,20 @@ async function sellAll(w: Wallet, p: Pos, c: SlowLiveConfig): Promise<boolean> {
   const h = await kit.held(w.address, p.mint).catch(() => null);
   return !!h && h.amount === 0n;
 }
+/** Copies with a sale of ours under way in this run: a restart's recovery, still working through its list, leaves them alone. */
+const sellingNow = new WeakSet<Pos>();
+/** Copies counted in this run: a copy is counted once, whoever asks a second time. */
+const counted = new WeakSet<Pos>();
 async function sell(p: Pos, exit: Exit) {
-  if (!state.opens.includes(p) || p.stage !== "held") return;
+  if (!state.opens.includes(p) || p.stage !== "held" || sellingNow.has(p)) return;
+  sellingNow.add(p);
+  try {
+    await sellOnce(p, exit);
+  } finally {
+    sellingNow.delete(p);
+  }
+}
+async function sellOnce(p: Pos, exit: Exit) {
   p.stage = "selling";
   p.exit = exit;
   save();
@@ -419,6 +444,9 @@ async function sell(p: Pos, exit: Exit) {
 }
 /** Count a finished copy from its own transactions, write its row, drop it. */
 async function finish(w: Wallet, p: Pos, exit: Exit) {
+  // once: on 15 Nov 2026 a copy sold by the stream while the start's recovery was still on its list was counted twice
+  if (counted.has(p) || !state.opens.includes(p)) return;
+  counted.add(p);
   let r = await kit.booked(w, p.sigs);
   for (let i = 0; i < 3 && r.unread.length; i++) {
     await sleep(5000);
@@ -492,7 +520,10 @@ export async function soldSince(leader: string, mint: string, sinceMs: number): 
  * dropped; coin = held again. True when it is held.
  */
 async function settle(w: Wallet, p: Pos): Promise<boolean> {
+  if (sellingNow.has(p) || !state.opens.includes(p)) return false;
   const h = await kit.held(w.address, p.mint);
+  // a sale of ours began, or the copy was counted, while we looked: it is not ours to settle
+  if (sellingNow.has(p) || !state.opens.includes(p)) return false;
   if (h.amount === 0n) {
     await finish(w, p, p.stage === "buying" ? "buy did not land" : (p.exit ?? "sold"));
     return false;
@@ -523,6 +554,8 @@ export async function recover() {
         continue;
       }
       if (p.stage === "buying") await sleep(Math.max(0, p.seenMs + cfg().entrySec * 1000 + 150_000 - Date.now()));
+      // the list was taken at the start: a copy sold and counted since, or being sold right now, is no longer ours here
+      if (!state.opens.includes(p) || sellingNow.has(p)) continue;
       if (!(await settle(w, p))) continue;
       if (p.soldSeenMs || (await soldSince(p.wallet, p.mint, p.seenMs))) void sell(p, p.exit === "max hold" ? "max hold" : "sold while we were down");
     } catch (e) {
@@ -535,11 +568,14 @@ const settling = new Set<Pos>();
 /** How often a held coin's wallet is read for a sale the stream may have missed (it drops now and then). */
 export const CHECK_MS = 3_600_000;
 /**
- * Every 5 minutes: copies past maxHoldH are sold; a sale that failed is tried again (6 rounds at most); and the one
+ * Every 5 minutes: copies past maxHoldH are sold; a copy whose wallet has been off the list for DROP_SELL_MS is sold
+ * (enrique, 15 Nov 2026); a sale that failed is tried again (6 rounds at most); and the one
  * held copy whose wallet was read longest ago, if over CHECK_MS, is read for a sale the stream missed.
  */
 export function sweep(now = Date.now()) {
   const c = cfg();
+  const on = new Set(wallets(now).map((w) => w.address));
+  let drops = 0;
   for (const p of [...state.opens]) {
     // a buy left half-way by an error: once it can no longer land, the wallet says what happened
     if (p.stage === "buying" && now - p.seenMs - c.entrySec * 1000 > 5 * 60_000 && !settling.has(p)) {
@@ -559,7 +595,14 @@ export function sweep(now = Date.now()) {
     if (p.exit) {
       if (p.sellRounds < 6 && now >= (p.nextTryMs ?? 0)) void sell(p, p.exit);
     } else if (now - (p.boughtMs ?? p.seenMs) > c.maxHoldH * 3_600_000) void sell(p, "max hold");
+    else if (on.size) {
+      // its wallet's place on the list: off it for DROP_SELL_MS, the copy is sold (a few a sweep); back on it, the clock is cleared
+      if (on.has(p.wallet)) p.offMs = undefined;
+      else if (!p.offMs) p.offMs = now;
+      else if (now - p.offMs >= DROP_SELL_MS && !p.soldSeenMs && drops++ < DROP_SELLS_PER_SWEEP) void sell(p, "wallet dropped");
+    }
   }
+  save();
   const due = state.opens
     .filter((p) => p.stage === "held" && !p.exit && !p.soldSeenMs && now - (p.checkedMs ?? p.boughtMs ?? p.seenMs) > CHECK_MS)
     .sort((a, b) => (a.checkedMs ?? a.seenMs) - (b.checkedMs ?? b.seenMs))[0];
@@ -599,7 +642,7 @@ export function slowLiveSummary() {
   const held = done.map((x) => x.heldMin).filter((x): x is number => x !== null).sort((a, b) => a - b);
   const now = wallets();
   return {
-    note: `REAL. Copies ${c.follow === "fixed" ? "the first 3 day-holding wallets (enrique, 14 Nov 2026)" : `the day-holding wallets proven on paper (enrique, 15 Nov 2026: "Follow paper-proven wallets", "continuosly adapt"): followed on paper, and of its newest 40 closed 5 s paper copies 20+ priced, half or more won, ahead; the list is worked out again every minute, best on paper first, ${MAX_WALLETS} at most; a wallet whose newest ${REST_LAST} real copies (last ${REST_DAYS} days) lost with under half won is rested`}: buys ${c.stakeSol || "?"} SOL ${c.entrySec} s after one of them buys a coin for ${MIN_LEADER_SOL}+ SOL, sells all ${c.exitSec} s after it first sells that coin, or after ${c.maxHoldH} h. Uses the whole wallet (enrique, 14 Nov 23:21 KST): as many copies at once as its SOL covers (stake, rent and a sale reserve each); loss cap ${c.maxLossSol || "?"} SOL counted from our own transactions read back from the chain, every fee included, and nothing is bought with more than ${MAX_WALLET_SOL} SOL in the wallet.`,
+    note: `REAL. Copies ${c.follow === "fixed" ? "the first 3 day-holding wallets (enrique, 14 Nov 2026)" : `the day-holding wallets proven on paper (enrique, 15 Nov 2026: "Follow paper-proven wallets", "continuosly adapt"): followed on paper, and of its newest 40 closed 5 s paper copies 20+ priced, half or more won, ahead; the list is worked out again every minute, best on paper first, ${MAX_WALLETS} at most; a wallet whose newest ${REST_LAST} real copies (last ${REST_DAYS} days) lost with under half won is rested; an open copy whose wallet has been off the list for ${DROP_SELL_MS / 3_600_000} h is sold (enrique, 15 Nov 2026: "Sell copies of dropped wallets")`}: buys ${c.stakeSol || "?"} SOL ${c.entrySec} s after one of them buys a coin for ${MIN_LEADER_SOL}+ SOL, sells all ${c.exitSec} s after it first sells that coin, or after ${c.maxHoldH} h. Uses the whole wallet (enrique, 14 Nov 23:21 KST): as many copies at once as its SOL covers (stake, rent and a sale reserve each); loss cap ${c.maxLossSol || "?"} SOL counted from our own transactions read back from the chain, every fee included, and nothing is bought with more than ${MAX_WALLET_SOL} SOL in the wallet.`,
     on: c.on && !state.halted && walletReady,
     switch: c.on ? "on" : "off",
     halted: state.halted,
@@ -622,6 +665,9 @@ export function slowLiveSummary() {
     notSent: state.notSent,
     unreadTx: state.unreadTx,
     follow: c.follow,
+    /** open copies whose wallet is off the list (sold DROP_SELL_MS after the sweep first saw that), and copies sold for that reason */
+    openOffList: state.opens.filter((p) => p.offMs).length,
+    soldDropped: done.filter((x) => x.exit === "wallet dropped").length,
     /** copied now, and rested (proven on paper, but its own newest real copies are behind) */
     wallets: now.map((w) => w.name),
     rested: [...new Set(done.map((x) => x.name))].filter((n) => rested(n)),

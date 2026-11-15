@@ -77,12 +77,14 @@ export type EventLiveRow = {
   /** Resting bid (status "resting" while on the book): order id and the time it is cancelled. Never in the status file. */
   orderId?: string;
   until?: number;
+  /** A "delayed" row that was closed as not filled before 15 Nov 2026 and has been checked against our trades since. */
+  rechecked?: boolean;
 };
 /** A row that holds a slot and money: filled, outcome unknown, or a bid still resting on the book. */
 /** Dollars really paid for a row. A resting bid keeps its whole stake in `cost` (the stake cap reserves it, as
  *  Polymarket does) until it is finished; only the filled shares are paid for. */
 export const spentOf = (r: { status: string | null; shares: number; ask: number; cost: number }) => (r.status === "resting" ? Math.round(r.shares * r.ask * 1e6) / 1e6 : r.cost);
-const held = (r: EventLiveRow) => r.shares > 0 || r.status === "unknown" || r.status === "resting";
+const held = (r: EventLiveRow) => r.shares > 0 || r.status === "unknown" || r.status === "resting" || (r.status === "delayed" && r.pnl == null);
 export type EventLiveGroup = { rules: string[]; size: number; maxAsk: number; minDepth: number; dayLosses: number; maxOpen: number; maxLoss: number; negRisk: boolean; maxSize: number; maxDays: number; perWallet: number; stopNet: number; openUsd: number; walletUsd: number; adaptN: number; adaptStop: number; adaptBoost: number };
 export type EventLiveConfig = { mode: string; minBalance: number; lossCap?: LossCap; groups: Record<string, EventLiveGroup> };
 
@@ -292,12 +294,23 @@ export async function eventLiveBuy(group: string, p: { rule: string; marketId: s
       const res = await timed(c.postOrder(order, OrderType.FAK), "sending the order", 30_000);
       row.ok = Boolean(res?.success);
       row.status = res?.status ?? null;
+      const oid = (res as unknown as { orderID?: unknown })?.orderID;
+      if (typeof oid === "string" && oid) row.orderId = oid;
       const detail = (res as unknown as { error?: unknown })?.error;
       row.error = res?.success ? null : String(res?.errorMsg || (detail ? JSON.stringify(detail).slice(0, 200) : "order rejected"));
       row.cost = Number(res?.makingAmount) || 0;
       row.shares = Number(res?.takingAmount) || 0;
       const px = row.shares > 0 ? row.cost / row.shares : 0;
       row.fee = row.shares > 0 ? Math.round(p.feeRate * row.shares * px * (1 - px) * 1e6) / 1e6 : 0;
+      // "delayed" (sports markets hold a taker order for a few seconds before matching it): accepted, NOT finished. It
+      // usually fills right after this reply. Until 15 Nov 2026 such a row was closed as not filled, so the bet it
+      // bought was in nobody's books. It stays open with its stake held; eventDelayedSync reads what it bought.
+      if (row.ok && !(row.shares > 0) && isDelayed(row.status)) {
+        row.status = "delayed";
+        row.cost = stake;
+        saveJson(EVENT_LIVE_FILE, rows);
+        return "REAL order accepted with a delay: fill read on the next look";
+      }
       // A clean reply with no fill is a finished row (nothing bought): it frees the slot but keeps the match marked.
       if (!(row.shares > 0)) {
         row.pnl = 0;
@@ -434,6 +447,72 @@ export async function eventRestSync(now = Date.now()): Promise<string[]> {
         }
       } catch (e) {
         out.push(`${r.rule} ${r.title}: resting bid read failed (${(e as Error).message.slice(0, 80)})`);
+      }
+    }
+    saveJson(EVENT_LIVE_FILE, rows);
+  } finally {
+    busy = false;
+  }
+  return out;
+}
+
+const isDelayed = (s: string | null | undefined) => String(s ?? "").toLowerCase() === "delayed";
+/** How long a delayed order is given to show a fill before its row is closed as not filled. */
+export const DELAY_WAIT_MS = 5 * 60_000;
+/** What our own trades say a delayed order bought: shares and dollars. Pure. */
+export function delayedFill(trades: { taker_order_id?: string; side?: string; size?: string; price?: string; status?: string; trader_side?: string; match_time?: string }[], row: { orderId?: string; t: number }): { shares: number; cost: number } {
+  let shares = 0;
+  let cost = 0;
+  for (const tr of trades) {
+    if (String(tr.side).toUpperCase() !== "BUY" || /FAIL/i.test(String(tr.status))) continue;
+    if (row.orderId ? tr.taker_order_id !== row.orderId : tr.trader_side !== "TAKER" || Math.abs(Number(tr.match_time) * 1000 - row.t) >= 10 * 60_000) continue;
+    const size = Number(tr.size);
+    const price = Number(tr.price);
+    if (!(size > 0) || !(price > 0)) continue;
+    shares += size;
+    cost += size * price;
+  }
+  return { shares: Math.round(shares * 1e6) / 1e6, cost: Math.round(cost * 1e6) / 1e6 };
+}
+/**
+ * Delayed orders: read what they bought from our own trades. Open ones ("delayed", no result yet) become a normal
+ * filled row, or a finished no-fill row after DELAY_WAIT_MS. Rows closed as not filled before 15 Nov 2026 are checked
+ * once (a few a call): one that did fill is opened again with its shares, so it is settled and claimed like any bet.
+ */
+export async function eventDelayedSync(now = Date.now()): Promise<string[]> {
+  const rows = eventLiveRows();
+  const open = rows.filter((r) => r.status === "delayed" && r.pnl == null && r.token);
+  const old = rows.filter((r) => r.status === "delayed" && r.pnl === 0 && !(r.shares > 0) && !r.rechecked && r.token && now - r.t < 14 * 86400_000).slice(0, 4);
+  if ((!open.length && !old.length) || busy) return [];
+  busy = true;
+  const out: string[] = [];
+  try {
+    const funder = String(loadJson<{ funder?: string }>("live.json", {}).funder ?? "").trim();
+    const c = await getClient(funder);
+    for (const r of [...open, ...old]) {
+      try {
+        const trades = await timed(c.getTrades({ asset_id: r.token!, after: String(Math.floor(r.t / 1000) - 60) }), "reading our trades");
+        const f = delayedFill(trades as never, r);
+        const wasClosed = r.pnl === 0;
+        if (f.shares > 0) {
+          r.shares = f.shares;
+          r.cost = f.cost;
+          r.status = "matched";
+          delete r.pnl;
+          delete r.won;
+          delete r.settledAt;
+          r.rechecked = true;
+          out.push(`${r.rule} ${r.title} ${r.outcome}: REAL delayed order bought ${f.shares.toFixed(2)} for $${f.cost.toFixed(2)}${wasClosed ? " (found now: it had been booked as not filled)" : ""}`);
+        } else if (wasClosed) r.rechecked = true;
+        else if (now - r.t > DELAY_WAIT_MS) {
+          r.status = "no fill";
+          r.cost = 0;
+          r.pnl = 0;
+          r.won = null;
+          r.settledAt = now;
+        }
+      } catch (e) {
+        out.push(`${r.rule} ${r.title}: delayed order read failed (${(e as Error).message.slice(0, 80)})`);
       }
     }
     saveJson(EVENT_LIVE_FILE, rows);

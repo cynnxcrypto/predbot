@@ -13,7 +13,60 @@ import { loadJson, readAll, saveJson } from "./store.js";
 const SOL = "So11111111111111111111111111111111111111112";
 const USDC = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
 const FILE = "worth-history.json";
-type Worth = { at: number; total: number | null; cash: number | null; claim: number; bets: number; betsN: number; betsStake: number; days: Record<string, { n: number; stake: number; value: number; win: number; lose: number }>; solBal: number | null; coinsSol: number; coinsN: number; solUsd: number | null };
+type Worth = { at: number; total: number | null; cash: number | null; claim: number; bets: number; betsN: number; betsStake: number; days: Record<string, { n: number; stake: number; value: number; win: number; lose: number }>; solBal: number | null; coinsSol: number; coinsN: number; solUsd: number | null; rulesUsd: number | null; perpsUsd: number | null };
+/** Money put in or taken out: [time, dollars (+ in, - out), which wallet]. Not a gain or a loss. */
+export type Flow = [number, number, string];
+/** What each wallet held at the last sample, to tell a deposit from a result. */
+export type Comp = { pc: number | null; pk: number; pst: number; sol: number | null; coins: number; rules: number | null; perps: number | null };
+let flows: Flow[] = [];
+let comp: Comp | null = null;
+
+/**
+ * Deposits and withdrawals between two samples (15 Nov 2026, enrique's deposits showed as "+$111 in 1 h"). Polymarket:
+ * cash moves $20 or more while claims and open bets did not move the other way by half of it (a redeem or a sale moves
+ * them). Solana wallets: SOL moves $5 or more while the coins held did not move the other way by half of it; a wallet
+ * seen for the first time counts whole. px = dollars per SOL.
+ */
+export function flowsBetween(a: Comp | null, b: Comp, px: number | null, t: number): Flow[] {
+  const out: Flow[] = [];
+  const r2 = (v: number) => Math.round(v * 100) / 100;
+  if (a && a.pc != null && b.pc != null) {
+    const d = b.pc - a.pc;
+    if (d >= 20 && b.pk - a.pk > -0.5 * d) out.push([t, r2(d), "Polymarket"]);
+    if (d <= -20 && b.pst - a.pst < 0.5 * -d && b.pk - a.pk < 0.5 * -d) out.push([t, r2(d), "Polymarket"]);
+  }
+  if (px != null) {
+    if (a && a.sol != null && b.sol != null) {
+      const d = (b.sol - a.sol) * px;
+      const dc = (b.coins - a.coins) * px;
+      if (Math.abs(d) >= 5 && !(Math.sign(dc) === -Math.sign(d) && Math.abs(dc) >= 0.5 * Math.abs(d))) out.push([t, r2(d), "Solana spot copy"]);
+    }
+    for (const [k, label] of [["rules", "Solana spot rules"], ["perps", "Solana perps"]] as const) {
+      const now = b[k];
+      if (now == null) continue;
+      const was = a ? a[k] : null;
+      const d = was == null ? now : now - was;
+      if (was == null ? d >= 0.5 : Math.abs(d) >= 5) out.push([t, r2(d), label]);
+    }
+  }
+  return out;
+}
+/** Samples before flows were recorded: a single step of $15 or more up is taken as a deposit (run once). */
+export function flowsFromJumps(h: [number, number][]): Flow[] {
+  const out: Flow[] = [];
+  for (let i = 1; i < h.length; i++) {
+    const d = h[i][1] - h[i - 1][1];
+    if (d >= 15 && h[i][0] - h[i - 1][0] <= 15 * 60_000) out.push([h[i][0], Math.round(d * 100) / 100, "deposit"]);
+  }
+  return out;
+}
+/** The series with money put in or taken out removed: each past point is lifted by what was put in after it. */
+export function netOfFlows<T extends [number, number, ...unknown[]]>(h: T[], fl: Flow[]): T[] {
+  return h.map((p) => {
+    const add = fl.reduce((a, f) => a + (f[0] > p[0] ? f[1] : 0), 0);
+    return add ? ([p[0], Math.round((p[1] + add) * 100) / 100, ...p.slice(2)] as unknown as T) : p;
+  });
+}
 let memo: { at: number; v: Worth } | null = null;
 let solPx: { at: number; v: number | null } = { at: 0, v: null };
 let hist: [number, number][] | null = null;
@@ -74,12 +127,17 @@ export function despike(h: [number, number][]): [number, number][] {
   return out;
 }
 
-export async function worthView(cash: number | null, claim: number, solBal: number | null): Promise<Worth & { age: number; hist: ([number, number] | [number, number, 1])[] }> {
+/** rules / perps = what the two strategy wallets hold in dollars (null = not read). */
+export async function worthView(cash: number | null, claim: number, solBal: number | null, extra: { rulesSol?: number | null; rulesUsdc?: number | null; perpsSol?: number | null; perpsUsdc?: number | null } = {}): Promise<Worth & { age: number; hist: ([number, number] | [number, number, 1])[]; flows: Flow[] }> {
   if (!hist) {
-    const f = loadJson<[number, number][] | { hist?: [number, number][]; back?: [number, number, 1][] }>(FILE, []);
+    const f = loadJson<[number, number][] | { hist?: [number, number][]; back?: [number, number, 1][]; flows?: Flow[]; comp?: Comp | null; v?: number }>(FILE, []);
+    flows = Array.isArray(f) ? [] : (f.flows ?? []);
+    comp = Array.isArray(f) ? null : (f.comp ?? null);
+    const needJumps = Array.isArray(f) || (f.v ?? 0) < 2;
     hist = (Array.isArray(f) ? f : (f.hist ?? [])).filter((p) => Array.isArray(p) && Number.isFinite(p[0]) && Number.isFinite(p[1]));
     back = Array.isArray(f) ? [] : (f.back ?? []);
     hist = despike(hist);
+    if (needJumps) flows = flowsFromJumps(hist);
   }
   if (!memo || Date.now() - memo.at > 15_000) {
     const [bets, px, slow] = await Promise.all([openWorth().catch(() => ({ n: 0, stake: 0, value: 0, priced: 0, days: {} })), solUsd(), solSlowView().catch(() => null)]);
@@ -89,10 +147,21 @@ export async function worthView(cash: number | null, claim: number, solBal: numb
     // Unpriced bets fall back to what was paid: with more than a tenth unpriced the total is not a reading, so it is
     // shown but not added to the chart.
     const priced = bets.n === 0 || bets.priced >= bets.n * 0.9;
-    const total = cash != null ? Math.round((cash + claim + bets.value + solPart) * 100) / 100 : null;
-    memo = { at: Date.now(), v: { at: Date.now(), total, cash, claim, bets: bets.value, betsN: bets.n, betsStake: bets.stake, days: bets.days, solBal, coinsSol: Math.round(coinsSol * 1e4) / 1e4, coinsN: open.length, solUsd: px } };
+    // A strategy wallet that could not be read this time keeps its last reading, so the total does not dip.
+    const usd = (sol: number | null | undefined, usdc: number | null | undefined, last: number | null) => (sol == null && usdc == null ? last : px != null || !sol ? (sol ?? 0) * (px ?? 0) + (usdc ?? 0) : last);
+    const rulesUsd = usd(extra.rulesSol, extra.rulesUsdc, comp?.rules ?? null);
+    const perpsUsd = usd(extra.perpsSol, extra.perpsUsdc, comp?.perps ?? null);
+    const total = cash != null ? Math.round((cash + claim + bets.value + solPart + (rulesUsd ?? 0) + (perpsUsd ?? 0)) * 100) / 100 : null;
+    memo = { at: Date.now(), v: { at: Date.now(), total, cash, claim, bets: bets.value, betsN: bets.n, betsStake: bets.stake, days: bets.days, solBal, coinsSol: Math.round(coinsSol * 1e4) / 1e4, coinsN: open.length, solUsd: px, rulesUsd, perpsUsd } };
     const last = hist[hist.length - 1];
     if (total != null && priced && (!last || Date.now() - last[0] >= 120_000)) {
+      // rules / perps are kept in dollars here, so their px is 1; the SOL wallet is kept in SOL
+      const nowC: Comp = { pc: cash, pk: claim + bets.value, pst: bets.stake, sol: solBal ?? comp?.sol ?? null, coins: coinsSol, rules: rulesUsd, perps: perpsUsd };
+      const solOnly = flowsBetween(comp ? { ...comp, rules: null, perps: null } : null, { ...nowC, rules: null, perps: null }, px, Date.now());
+      const extraOnly = flowsBetween(comp ? { ...comp, pc: null, sol: null } : { pc: null, pk: 0, pst: 0, sol: null, coins: 0, rules: null, perps: null }, { ...nowC, pc: null, sol: null }, 1, Date.now());
+      flows.push(...solOnly, ...extraOnly);
+      flows = flows.filter((f) => f[0] > Date.now() - 8 * 86_400_000);
+      comp = nowC;
       hist.push([Date.now(), total]);
       if (hist.length > 5040) hist = hist.slice(-5040); // a week at one sample every two minutes
       if (!back.length) {
@@ -102,10 +171,11 @@ export async function worthView(cash: number | null, claim: number, solBal: numb
           back = [];
         }
       }
-      saveJson(FILE, { hist, back });
+      saveJson(FILE, { hist, back, flows, comp, v: 2 });
     }
   }
   const step = Math.max(1, Math.ceil(hist.length / 300));
   const first = hist.length ? hist[0][0] : Infinity;
-  return { ...memo.v, age: Date.now() - memo.at, hist: [...back.filter((p) => p[0] < first), ...despike(hist).filter((_, i, a) => i % step === 0 || i === a.length - 1)] };
+  const series: ([number, number] | [number, number, 1])[] = [...back.filter((p) => p[0] < first), ...despike(hist).filter((_, i, a) => i % step === 0 || i === a.length - 1)];
+  return { ...memo.v, age: Date.now() - memo.at, hist: netOfFlows(series, flows), flows };
 }
