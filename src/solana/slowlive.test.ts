@@ -346,6 +346,70 @@ test("real day-holder copy: a copy sold while the start's recovery is still on i
   assert.equal(slowLiveSummary().copies, 1);
 });
 
+test("real day-holder copy: an open copy whose wallet has been off the list for 6 hours is sold; back on the list or no list at all, it is kept", async () => {
+  fresh({ ...CFG, follow: "proven" });
+  const c = chain(() => 0.009);
+  slow._test.reset();
+  const P = ["Drop1111111111111111111111111111111111111111", "Drop2222222222222222222222222222222222222222", "Keep1111111111111111111111111111111111111111"];
+  const st = slow._test.state();
+  const paper = (wallet: string, i: number, back: number) => ({ wallet, name: `coin buyer ${wallet.slice(0, 5)}`, mint: `c${i}`, seenMs: i, leaderSol: 1, entries: { e5: "10", e30: null, e300: null, e1800: null }, exits: { "e5-x5": back }, closed: "sold" as const });
+  for (const w of P) for (let i = 0; i < 20; i++) st.recent.push(paper(w, i, 0.3));
+  slow._test.follow(P);
+  assert.equal(wallets().length, 3);
+  // any valid addresses do for coins here
+  const coins = [A, B, "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA", "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL", "ComputeBudget111111111111111111111111111111"];
+  // Drop1 holds four coins, Keep one
+  for (const m of coins.slice(0, 4)) onSwap(swap(P[0], m, true));
+  onSwap(swap(P[2], coins[4], true));
+  await wait(1800);
+  assert.deepEqual(_test.state().opens.map((p) => p.stage), ["held", "held", "held", "held", "held"]);
+  const t0 = Date.now();
+  // the paper study has nothing (no list at all): no clock starts, nothing is sold however long it lasts
+  slow._test.follow([]);
+  _test.relist();
+  sweep(t0);
+  sweep(t0 + 7 * 3_600_000);
+  assert.equal(_test.state().opens.filter((p) => p.offMs).length, 0);
+  // Drop1 leaves the list: the clock starts at the first sweep that sees it; under 6 hours nothing is sold
+  slow._test.follow([P[1], P[2]]);
+  _test.relist();
+  sweep(t0);
+  assert.deepEqual(_test.state().opens.map((p) => !!p.offMs), [true, true, true, true, false]);
+  assert.equal(slowLiveSummary().openOffList, 4);
+  sweep(t0 + 5.9 * 3_600_000);
+  await wait(300);
+  assert.equal(_test.state().opens.length, 5);
+  // back on the list for a moment: the clock is cleared and starts again
+  slow._test.follow(P);
+  _test.relist();
+  sweep(t0 + 5.95 * 3_600_000);
+  assert.equal(_test.state().opens.filter((p) => p.offMs).length, 0);
+  slow._test.follow([P[1], P[2]]);
+  _test.relist();
+  sweep(t0 + 6 * 3_600_000);
+  sweep(t0 + 11.9 * 3_600_000);
+  await wait(300);
+  assert.equal(_test.state().opens.length, 5, "six hours from the new start, not from the first");
+  // six hours off the list: sold, three a sweep; the wallet still on the list keeps its copy
+  _test.relist();
+  sweep(t0 + 12 * 3_600_000 + 1);
+  await wait(3500);
+  assert.deepEqual(_test.state().rows.map((x) => x.exit), ["wallet dropped", "wallet dropped", "wallet dropped"]);
+  assert.equal(_test.state().opens.length, 2);
+  _test.relist();
+  sweep(t0 + 12 * 3_600_000 + 300_000);
+  await wait(3000);
+  assert.deepEqual(_test.state().opens.map((p) => p.mint), [coins[4]]);
+  assert.deepEqual(coins.map((m) => c.held.has(m)), [false, false, false, false, true], [...c.held].map(([k, v]) => `${k}:${v}`).join());
+  const s = slowLiveSummary();
+  assert.deepEqual([s.soldDropped, s.openOffList, s.copies, s.won], [4, 0, 4, 0]);
+  // each: -(0.01 + fee + rent) + (0.009 - fee) + (rent - fee)
+  assert.equal(_test.state().netSol, Math.round(4 * (0.009e9 - 0.01e9 - 3 * FEE)) / 1e9);
+  slow._test.reset();
+  slow._test.setCfg(null);
+  _test.reset();
+});
+
 test("real day-holder copy: the slow study's stream hands over its wallets' swaps", async () => {
   fresh();
   chain(() => 0.01);
