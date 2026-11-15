@@ -1291,7 +1291,7 @@ async function copyTick() {
           const usual = copyUsualBet(rows);
           const stake = copyStake(bet, usual, await walletValue(wl.address, now));
           if (!copyLooksBait(bet, usual)) noteSize(wl.name, stake);
-          const real = copyLooksBait(bet, usual) ? `small bet: $${bet.toFixed(2)} against its usual $${usual!.toFixed(2)} (paper only)` : await eventLiveBuy("copy", { rule, marketId: m.id, title, outcome, idx: b.idx, token, ask: bk.bestAsk, depth, fillable: w.full, feeRate, conditionId: b.cond, negRisk: Boolean(m.negRisk), stake, resolveAt: copyResolveAt(m) });
+          const real = copyLooksBait(bet, usual) ? `small bet: $${bet.toFixed(2)} against its usual $${usual!.toFixed(2)} (paper only)` : await eventLiveBuy("copy", { rule, marketId: m.id, title, outcome, idx: b.idx, token, ask: bk.bestAsk, depth, fillable: w.full, feeRate, conditionId: b.cond, negRisk: Boolean(m.negRisk), stake, resolveAt: copyResolveAt(m), usual });
           if (real) {
             log(`copy ${wl.name} ${title} ${outcome}: ${real}`);
             copyNotes.push({ t: now, title: `${wl.name}: ${title}`, why: real });

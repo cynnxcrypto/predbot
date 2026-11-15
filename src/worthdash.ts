@@ -13,11 +13,11 @@ import { loadJson, readAll, saveJson } from "./store.js";
 const SOL = "So11111111111111111111111111111111111111112";
 const USDC = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
 const FILE = "worth-history.json";
-type Worth = { at: number; total: number | null; cash: number | null; claim: number; bets: number; betsN: number; betsStake: number; days: Record<string, { n: number; stake: number; value: number; win: number; lose: number }>; solBal: number | null; coinsSol: number; coinsN: number; solUsd: number | null; rulesUsd: number | null; perpsUsd: number | null };
+type Worth = { at: number; total: number | null; cash: number | null; claim: number; bets: number; betsN: number; betsStake: number; days: Record<string, { n: number; stake: number; value: number; win: number; lose: number }>; solBal: number | null; coinsSol: number; coinsN: number; solUsd: number | null; rulesUsd: number | null; perpsUsd: number | null; rulesPos: number; perpsPos: number; parts?: Record<string, { sol: number | null; usdc: number | null; pos: number }> };
 /** Money put in or taken out: [time, dollars (+ in, - out), which wallet]. Not a gain or a loss. */
 export type Flow = [number, number, string];
 /** What each wallet held at the last sample, to tell a deposit from a result. */
-export type Comp = { pc: number | null; pk: number; pst: number; sol: number | null; coins: number; rules: number | null; perps: number | null };
+export type Comp = { pc: number | null; pk: number; pst: number; sol: number | null; coins: number; rules: number | null; perps: number | null; pkh?: number[] };
 let flows: Flow[] = [];
 let comp: Comp | null = null;
 
@@ -32,7 +32,9 @@ export function flowsBetween(a: Comp | null, b: Comp, px: number | null, t: numb
   const r2 = (v: number) => Math.round(v * 100) / 100;
   if (a && a.pc != null && b.pc != null) {
     const d = b.pc - a.pc;
-    if (d >= 20 && b.pk - a.pk > -0.5 * d) out.push([t, r2(d), "Polymarket"]);
+    // a claim can leave the "waiting" side a few samples before the cash shows it: compare with the most that was
+    // waiting over the last samples, not only the last one
+    if (d >= 20 && b.pk - Math.max(a.pk, ...(a.pkh ?? [])) > -0.5 * d) out.push([t, r2(d), "Polymarket"]);
     if (d <= -20 && b.pst - a.pst < 0.5 * -d && b.pk - a.pk < 0.5 * -d) out.push([t, r2(d), "Polymarket"]);
   }
   if (px != null) {
@@ -67,6 +69,53 @@ export function netOfFlows<T extends [number, number, ...unknown[]]>(h: T[], fl:
     return add ? ([p[0], Math.round((p[1] + add) * 100) / 100, ...p.slice(2)] as unknown as T) : p;
   });
 }
+/**
+ * WON EVENT BETS WAITING FOR THEIR CLAIM (15 Nov 2026, enrique: "is it real that we've lost 62usd in 24h??"). A won
+ * bet left the open bets when it settled and its money reached the cash only with the claim, up to hours later (one
+ * claim transaction every 3 hours). In between it was counted nowhere, and when a batch of $20+ was claimed the cash
+ * step was taken for a deposit and taken OFF the result. A span is one won bet: [settled, claimed (Infinity = not
+ * yet), payout in dollars].
+ */
+export type WinSpan = [number, number, number];
+export function winSpans(rows: { shares?: number; pay?: number | null; settledAt?: number | null; conditionId?: string | null }[], claims: Record<string, { at?: number; tx?: string | null } | undefined>): WinSpan[] {
+  const out: WinSpan[] = [];
+  for (const r of Array.isArray(rows) ? rows : []) {
+    if (!r || !((r.shares ?? 0) > 0) || !((r.pay ?? 0) > 0) || r.settledAt == null) continue;
+    const c = claims[r.conditionId ?? ""];
+    out.push([r.settledAt, c?.tx ? (c.at ?? r.settledAt) : Infinity, (r.shares ?? 0) * (r.pay ?? 0)]);
+  }
+  return out;
+}
+/** Dollars won and not yet claimed at time T. */
+export const unclaimedAt = (spans: WinSpan[], T: number) => Math.round(spans.reduce((a, s) => a + (s[0] <= T && s[1] > T ? s[2] : 0), 0) * 100) / 100;
+/** Dollars claimed between two times. */
+const claimedBetween = (spans: WinSpan[], from: number, to: number) => spans.reduce((a, s) => a + (s[1] >= from && s[1] <= to ? s[2] : 0), 0);
+function loadSpans(): WinSpan[] {
+  try {
+    return winSpans(loadJson<Parameters<typeof winSpans>[0]>("eventlive.json", []), loadJson<Parameters<typeof winSpans>[1]>("eventlive-claims.json", {}));
+  } catch {
+    return [];
+  }
+}
+/**
+ * The one-time repair of what was already kept: every sample gets the wins that were waiting at its time, and a
+ * "deposit" that was a claim (half or more of it claimed in the quarter hour before it) is taken off the list. Pure.
+ */
+export function repairClaims(h: [number, number][], fl: Flow[], spans: WinSpan[]): { hist: [number, number][]; flows: Flow[]; removed: number; removedUsd: number } {
+  const hist = h.map((p) => [p[0], Math.round((p[1] + unclaimedAt(spans, p[0])) * 100) / 100] as [number, number]);
+  const keep = fl.filter((f) => !(f[1] > 0 && (f[2] === "Polymarket" || f[2] === "deposit") && claimedBetween(spans, f[0] - 15 * 60_000, f[0] + 2 * 60_000) >= 0.5 * f[1]));
+  const gone = fl.filter((f) => !keep.includes(f));
+  return { hist, flows: keep, removed: gone.length, removedUsd: Math.round(gone.reduce((a, f) => a + f[1], 0) * 100) / 100 };
+}
+let fix: { removed: number; removedUsd: number } | null = null;
+/** For the public status: no balance and no deposit in it, only what the repair took off and the 24 h result. */
+export function worthCheck() {
+  if (!hist || !memo?.v.total) return null;
+  const series = netOfFlows([...back.filter((p) => p[0] < (hist![0]?.[0] ?? Infinity)), ...hist] as [number, number][], flows);
+  const T = Date.now() - 86_400_000;
+  const base = [...series].reverse().find((p) => p[0] <= T);
+  return { claimStepsTakenForDeposits: fix?.removed ?? null, thatWasUsd: fix?.removedUsd ?? null, wonWaitingForClaimUsd: unclaimedAt(loadSpans(), Date.now()), change24hUsd: base ? Math.round((memo.v.total - base[1]) * 100) / 100 : null, flows24h: flows.filter((f) => f[0] > T).length };
+}
 let memo: { at: number; v: Worth } | null = null;
 let solPx: { at: number; v: number | null } = { at: 0, v: null };
 let hist: [number, number][] | null = null;
@@ -87,10 +136,11 @@ function backfill(firstLive: number, solBal: number | null, px: number | null): 
   for (const f of ["solana-copylive.json", "solana-slowlive.json"]) for (const r of loadJson<{ rows?: { t: number; netSol?: number }[] }>(f, {}).rows ?? []) if (Number.isFinite(r?.t) && Number.isFinite(r?.netSol)) solRows.push({ t: r.t, netSol: r.netSol! });
   const solFrom = solRows.reduce((a, r) => Math.min(a, r.t), Infinity);
   const out: [number, number, 1][] = [];
+  const spansNow = loadSpans();
   let i = 0;
   for (let T = Math.ceil(Math.max(bal[0].t, firstLive - 7 * 86_400_000) / 3_600_000) * 3_600_000; T < firstLive; T += 3_600_000) {
     while (i + 1 < bal.length && bal[i + 1].t <= T) i++;
-    const open = bets.reduce((a, r) => a + (r.t <= T && (r.pnl == null || (r.settledAt ?? r.t) > T) ? r.cost : 0), 0);
+    const open = bets.reduce((a, r) => a + (r.t <= T && (r.pnl == null || (r.settledAt ?? r.t) > T) ? r.cost : 0), 0) + unclaimedAt(spansNow, T);
     const sol = px != null && solBal != null && T >= solFrom ? Math.max(0, solBal - solRows.reduce((a, r) => a + (r.t > T ? r.netSol : 0), 0)) * px : 0;
     out.push([T, Math.round((bal[i].bal + open + sol) * 100) / 100, 1]);
   }
@@ -128,9 +178,9 @@ export function despike(h: [number, number][]): [number, number][] {
 }
 
 /** rules / perps = what the two strategy wallets hold in dollars (null = not read). */
-export async function worthView(cash: number | null, claim: number, solBal: number | null, extra: { rulesSol?: number | null; rulesUsdc?: number | null; perpsSol?: number | null; perpsUsdc?: number | null } = {}): Promise<Worth & { age: number; hist: ([number, number] | [number, number, 1])[]; flows: Flow[] }> {
+export async function worthView(cash: number | null, claim: number, solBal: number | null, extra: { rulesSol?: number | null; rulesUsdc?: number | null; perpsSol?: number | null; perpsUsdc?: number | null; rulesHeldSol?: number; perpsPosUsd?: number } = {}): Promise<Worth & { age: number; hist: ([number, number] | [number, number, 1])[]; flows: Flow[] }> {
   if (!hist) {
-    const f = loadJson<[number, number][] | { hist?: [number, number][]; back?: [number, number, 1][]; flows?: Flow[]; comp?: Comp | null; v?: number }>(FILE, []);
+    const f = loadJson<[number, number][] | { hist?: [number, number][]; back?: [number, number, 1][]; flows?: Flow[]; comp?: Comp | null; v?: number; fix?: { removed: number; removedUsd: number } | null }>(FILE, []);
     flows = Array.isArray(f) ? [] : (f.flows ?? []);
     comp = Array.isArray(f) ? null : (f.comp ?? null);
     const needJumps = Array.isArray(f) || (f.v ?? 0) < 2;
@@ -138,7 +188,15 @@ export async function worthView(cash: number | null, claim: number, solBal: numb
     back = Array.isArray(f) ? [] : (f.back ?? []);
     hist = despike(hist);
     if (needJumps) flows = flowsFromJumps(hist);
+    if (Array.isArray(f) || (f.v ?? 0) < 3) {
+      const rep = repairClaims(hist, flows, loadSpans());
+      hist = rep.hist;
+      flows = rep.flows;
+      fix = { removed: rep.removed, removedUsd: rep.removedUsd };
+      back = []; // the hourly estimates are made again, with the waiting wins in them
+    } else fix = f.fix ?? null;
   }
+  claim += unclaimedAt(loadSpans(), Date.now());
   if (!memo || Date.now() - memo.at > 15_000) {
     const [bets, px, slow] = await Promise.all([openWorth().catch(() => ({ n: 0, stake: 0, value: 0, priced: 0, days: {} })), solUsd(), solSlowView().catch(() => null)]);
     const open = ((slow as { open?: { stage: string; worthSol: number | null }[] } | null)?.open ?? []).filter((c) => c.stage !== "waiting");
@@ -149,14 +207,24 @@ export async function worthView(cash: number | null, claim: number, solBal: numb
     const priced = bets.n === 0 || bets.priced >= bets.n * 0.9;
     // A strategy wallet that could not be read this time keeps its last reading, so the total does not dip.
     const usd = (sol: number | null | undefined, usdc: number | null | undefined, last: number | null) => ((sol == null || usdc == null) && last != null ? last : sol == null && usdc == null ? null : px != null || !sol ? (sol ?? 0) * (px ?? 0) + (usdc ?? 0) : last);
-    const rulesUsd = usd(extra.rulesSol, extra.rulesUsdc, comp?.rules ?? null);
-    const perpsUsd = usd(extra.perpsSol, extra.perpsUsdc, comp?.perps ?? null);
+    // In positions: the coins the spot rules hold and the perps collateral with its result so far. Counted in the
+    // wallet's worth so that opening a position does not read as money leaving it.
+    const rulesPos = px != null ? Math.round((extra.rulesHeldSol ?? 0) * px * 100) / 100 : 0;
+    const perpsPos = Math.round((extra.perpsPosUsd ?? 0) * 100) / 100;
+    const rulesUsd = usd(extra.rulesSol == null ? null : extra.rulesSol + (extra.rulesHeldSol ?? 0), extra.rulesUsdc, comp?.rules ?? null);
+    const perpsUsd = usd(extra.perpsSol, extra.perpsUsdc == null ? null : extra.perpsUsdc + perpsPos, comp?.perps ?? null);
+    // What each strategy wallet's figure is made of, in dollars, for the card's tooltip (null = that read failed).
+    const d2 = (v: number | null | undefined) => (v == null ? null : Math.round(v * 100) / 100);
+    const parts = {
+      rules: { sol: d2(extra.rulesSol == null || px == null ? null : extra.rulesSol * px), usdc: d2(extra.rulesUsdc), pos: rulesPos },
+      perps: { sol: d2(extra.perpsSol == null || px == null ? null : extra.perpsSol * px), usdc: d2(extra.perpsUsdc), pos: perpsPos },
+    };
     const total = cash != null ? Math.round((cash + claim + bets.value + solPart + (rulesUsd ?? 0) + (perpsUsd ?? 0)) * 100) / 100 : null;
-    memo = { at: Date.now(), v: { at: Date.now(), total, cash, claim, bets: bets.value, betsN: bets.n, betsStake: bets.stake, days: bets.days, solBal, coinsSol: Math.round(coinsSol * 1e4) / 1e4, coinsN: open.length, solUsd: px, rulesUsd, perpsUsd } };
+    memo = { at: Date.now(), v: { at: Date.now(), total, cash, claim, bets: bets.value, betsN: bets.n, betsStake: bets.stake, days: bets.days, solBal, coinsSol: Math.round(coinsSol * 1e4) / 1e4, coinsN: open.length, solUsd: px, rulesUsd, perpsUsd, parts, rulesPos, perpsPos } };
     const last = hist[hist.length - 1];
     if (total != null && priced && (!last || Date.now() - last[0] >= 120_000)) {
       // rules / perps are kept in dollars here, so their px is 1; the SOL wallet is kept in SOL
-      const nowC: Comp = { pc: cash, pk: claim + bets.value, pst: bets.stake, sol: solBal ?? comp?.sol ?? null, coins: coinsSol, rules: rulesUsd, perps: perpsUsd };
+      const nowC: Comp = { pc: cash, pk: claim + bets.value, pst: bets.stake, sol: solBal ?? comp?.sol ?? null, coins: coinsSol, rules: rulesUsd, perps: perpsUsd, pkh: comp ? [...(comp.pkh ?? []), comp.pk].slice(-10) : [] };
       const solOnly = flowsBetween(comp ? { ...comp, rules: null, perps: null } : null, { ...nowC, rules: null, perps: null }, px, Date.now());
       const extraOnly = flowsBetween(comp ? { ...comp, pc: null, sol: null } : { pc: null, pk: 0, pst: 0, sol: null, coins: 0, rules: null, perps: null }, { ...nowC, pc: null, sol: null }, 1, Date.now());
       flows.push(...solOnly, ...extraOnly);
@@ -171,7 +239,7 @@ export async function worthView(cash: number | null, claim: number, solBal: numb
           back = [];
         }
       }
-      saveJson(FILE, { hist, back, flows, comp, v: 2 });
+      saveJson(FILE, { hist, back, flows, comp, fix, v: 3 });
     }
   }
   const step = Math.max(1, Math.ceil(hist.length / 300));

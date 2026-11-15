@@ -239,3 +239,70 @@ test("buckets: the Jupiter allowance stops new requests", async () => {
   assert.ok(calls <= 2, `asked ${calls} times`);
   delete process.env.SOLANA_BUCKETS_JUP_DAY;
 });
+
+test("buckets: leverage on paper: liquidation, tiers, confidence, the traders' own leverage", () => {
+  const { levResult, liqMove, levTable, perpConfidence, worstMove, hlLeverage, CONF_LEV, LEV_TIERS } = B;
+  // 10x: the price may go 10% - fees (0.14%) - borrow - 0.2% against us
+  assert.ok(Math.abs(liqMove(10, 0) - (0.1 - 0.0014 - 0.002)) < 1e-12);
+  assert.deepEqual(levResult(0.01, 0.02, 1, 5), { ret: 0.05, liquidated: false });
+  // won in the end, but the price went 12% against a 10x on the way: the collateral is gone
+  assert.deepEqual(levResult(0.03, 0.12, 1, 10), { ret: -1, liquidated: true });
+  assert.equal(levResult(0.03, 0.12, 1, 5).liquidated, false);
+  assert.equal(levResult(-0.3, 0.1, 1, 5).ret, -1); // never more than the collateral
+  const table = levTable([{ net: 0.03, worst: 0.12, hours: 1, dir: -1 }, { net: 0.01, worst: 0, hours: 1, dir: 1 }, { net: 0.5, hours: 1, dir: 1 }]);
+  assert.equal(table.length, LEV_TIERS.length);
+  assert.deepEqual(table.find((x) => x.lev === 5), { lev: 5, trades: 2, won: 2, liquidated: 0, netUsd: 4, avgPctOfCollateral: 10 }); // the trade with no worst price is left out
+  assert.equal(table.find((x) => x.lev === 10)?.liquidated, 1);
+  assert.equal(table.find((x) => x.lev === 10)?.netUsd, -18);
+  // worst move: a short opened at 100 after hour 5; later candles reached 104
+  const k = { t: [4, 5, 6, 7], h: [120, 120, 104, 101], l: [90, 90, 99, 97], c: [100, 100, 100, 98] };
+  assert.ok(Math.abs(worstMove(k, 5, -1, 100, 98) - 0.04) < 1e-12);
+  assert.ok(Math.abs(worstMove(k, 5, 1, 100, 98) - 0.03) < 1e-12);
+  // confidence: a steady fall, quiet last day, traders short -> a short scores 4, a long 1 (quiet only)
+  const n = 800;
+  const c = Array.from({ length: n }, (_, i) => 300 - i * 0.2);
+  const wide = (i: number) => (i >= n - 24 ? 0.05 : 2);
+  const fall = { t: c.map((_, i) => i), h: c.map((x, i) => x + wide(i)), l: c.map((x, i) => x - wide(i)), c };
+  assert.equal(perpConfidence(fall, n - 1, -1, -50_000), 4);
+  assert.equal(perpConfidence(fall, n - 1, 1, -50_000), 1);
+  assert.equal(perpConfidence(fall, n - 1, -1, 0), 3);
+  assert.equal(CONF_LEV.length, 5);
+  assert.deepEqual(hlLeverage({ assetPositions: [{ position: { coin: "SOL", leverage: { type: "cross", value: 20 } } }, { position: { coin: "BTC", leverage: { value: 0 } } }, { position: { coin: "ETH" } }] }), { SOL: 20 });
+});
+
+test("buckets: one copied trader's own record and the bar for following it for real", () => {
+  const { traderRule, traderRecord, traderMeetsBar, perpMeetsBar, perpPaperOpens, perpRuleIds, TRADER_MIN_COPIES, bucketsSummary: sum } = B;
+  _bucketsTest.reset();
+  const A = "0x" + "ab".repeat(20);
+  const Z = "0x" + "cd".repeat(20);
+  const now = Date.now();
+  const copy = (trader: string, i: number, net: number, at: number) => ({ trader, coin: i % 2 ? "SOL" : "HYPE", dir: i % 2 ? -1 : 1, at: at + i, exitAt: at + i + 1000, net, why: "closed" as const, lev: 20, worst: 0.01 });
+  const old = now - 30 * 3_600_000;
+  _bucketsTest.state().hlTrades = [
+    ...Array.from({ length: TRADER_MIN_COPIES }, (_, i) => copy(A, i, i < 12 ? 0.02 : -0.01, old)),
+    ...Array.from({ length: TRADER_MIN_COPIES }, (_, i) => copy(Z, i, i < 12 ? 0.02 : -0.01, now - 3_600_000)), // good, but only an hour on paper
+  ] as never;
+  const rule = traderRule(A);
+  assert.equal(rule, "copy-abababab");
+  assert.equal(traderRecord(rule).trades, TRADER_MIN_COPIES);
+  assert.equal(perpMeetsBar(rule), true);
+  assert.equal(perpMeetsBar(traderRule(Z)), false, "a day on paper first");
+  assert.equal(perpMeetsBar(rule, now), false, "after a demotion only copies made later count");
+  assert.equal(traderMeetsBar({ trades: 19, won: 19, netUsd: 5, firstAt: old }), false);
+  assert.equal(traderMeetsBar({ trades: 20, won: 9, netUsd: 5, firstAt: old }), false);
+  assert.equal(traderMeetsBar({ trades: 20, won: 10, netUsd: 0, firstAt: old }), false);
+  assert.ok(perpRuleIds().includes(rule));
+  // its short on a major is offered to the real side under the trader's own name; a long or another coin is not
+  _bucketsTest.state().hlOpen = [{ trader: A, coin: "SOL", dir: -1, at: now, entry: 100, lev: 20, worst: 0 }, { trader: A, coin: "HYPE", dir: -1, at: now, entry: 30 }, { trader: A, coin: "BTC", dir: 1, at: now, entry: 60000 }] as never;
+  assert.deepEqual(perpPaperOpens().map((o) => [o.rule, o.coin, o.dir]), [[rule, "SOL", -1]]);
+  const pc = sum().perpCopy;
+  assert.equal(pc.tradersCopied, 2);
+  assert.equal(pc.tradersAtBar, 1);
+  const row = pc.traderRecords[0];
+  assert.equal(row.id, rule);
+  assert.equal(row.atBar, true);
+  assert.equal(row.leverage, 20);
+  // at the trader's 20x capped to 10x: 12 wins of +20% and 8 losses of -10% of the collateral
+  assert.deepEqual(row.atOwnLeverage, { trades: 20, won: 12, liquidated: 0, netUsd: 32, avgPctOfCollateral: 8 });
+  assert.ok(!JSON.stringify(pc).includes(A));
+});
