@@ -239,3 +239,33 @@ test("buckets: the Jupiter allowance stops new requests", async () => {
   assert.ok(calls <= 2, `asked ${calls} times`);
   delete process.env.SOLANA_BUCKETS_JUP_DAY;
 });
+
+test("buckets: leverage on paper: liquidation, tiers, confidence, the traders' own leverage", () => {
+  const { levResult, liqMove, levTable, perpConfidence, worstMove, hlLeverage, CONF_LEV, LEV_TIERS } = B;
+  // 10x: the price may go 10% - fees (0.14%) - borrow - 0.2% against us
+  assert.ok(Math.abs(liqMove(10, 0) - (0.1 - 0.0014 - 0.002)) < 1e-12);
+  assert.deepEqual(levResult(0.01, 0.02, 1, 5), { ret: 0.05, liquidated: false });
+  // won in the end, but the price went 12% against a 10x on the way: the collateral is gone
+  assert.deepEqual(levResult(0.03, 0.12, 1, 10), { ret: -1, liquidated: true });
+  assert.equal(levResult(0.03, 0.12, 1, 5).liquidated, false);
+  assert.equal(levResult(-0.3, 0.1, 1, 5).ret, -1); // never more than the collateral
+  const table = levTable([{ net: 0.03, worst: 0.12, hours: 1, dir: -1 }, { net: 0.01, worst: 0, hours: 1, dir: 1 }, { net: 0.5, hours: 1, dir: 1 }]);
+  assert.equal(table.length, LEV_TIERS.length);
+  assert.deepEqual(table.find((x) => x.lev === 5), { lev: 5, trades: 2, won: 2, liquidated: 0, netUsd: 4, avgPctOfCollateral: 10 }); // the trade with no worst price is left out
+  assert.equal(table.find((x) => x.lev === 10)?.liquidated, 1);
+  assert.equal(table.find((x) => x.lev === 10)?.netUsd, -18);
+  // worst move: a short opened at 100 after hour 5; later candles reached 104
+  const k = { t: [4, 5, 6, 7], h: [120, 120, 104, 101], l: [90, 90, 99, 97], c: [100, 100, 100, 98] };
+  assert.ok(Math.abs(worstMove(k, 5, -1, 100, 98) - 0.04) < 1e-12);
+  assert.ok(Math.abs(worstMove(k, 5, 1, 100, 98) - 0.03) < 1e-12);
+  // confidence: a steady fall, quiet last day, traders short -> a short scores 4, a long 1 (quiet only)
+  const n = 800;
+  const c = Array.from({ length: n }, (_, i) => 300 - i * 0.2);
+  const wide = (i: number) => (i >= n - 24 ? 0.05 : 2);
+  const fall = { t: c.map((_, i) => i), h: c.map((x, i) => x + wide(i)), l: c.map((x, i) => x - wide(i)), c };
+  assert.equal(perpConfidence(fall, n - 1, -1, -50_000), 4);
+  assert.equal(perpConfidence(fall, n - 1, 1, -50_000), 1);
+  assert.equal(perpConfidence(fall, n - 1, -1, 0), 3);
+  assert.equal(CONF_LEV.length, 5);
+  assert.deepEqual(hlLeverage({ assetPositions: [{ position: { coin: "SOL", leverage: { type: "cross", value: 20 } } }, { position: { coin: "BTC", leverage: { value: 0 } } }, { position: { coin: "ETH" } }] }), { SOL: 20 });
+});
