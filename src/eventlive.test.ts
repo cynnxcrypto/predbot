@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
-import { NEG_TRIAL, _eventLiveTest, restShares, ruleAdapt, eventLiveBlock, eventLiveBuy, eventLiveConfig, negRiskBlock, parseEventLive, type EventLiveRow } from "./eventlive.js";
+import { NEG_TRIAL, _eventLiveTest, restShares, ruleAdapt, paperGate, setPaperBehind, eventLiveBlock, eventLiveBuy, eventLiveConfig, negRiskBlock, parseEventLive, type EventLiveRow } from "./eventlive.js";
 import { NEG_PERMS, eventClaimCalls, negRiskCalls } from "./live.js";
 import { stopWhenOrderDone } from "./eventpaper.js";
 
@@ -190,6 +190,14 @@ test("per-wallet automatic rule: learning to 10 settled, back to paper at -$10, 
   const ten = [...nine, r("a", -2, 9)];
   assert.deepEqual(ruleAdapt(g, ten, "a"), { state: "paper", n: 10, net: -20 });
   assert.match(eventLiveBlock(cfg, "copy", "a", "new", 0.5, 10, true, ten, NOW5, 3)!, /back to paper/);
+  // the paper record gate: 20+ settled paper bets not ahead, or under half won, hold the wallet's new real copies
+  const pt = (rule: string, n: number, wonN: number, each: number) => Array.from({ length: n }, (_, i) => ({ rule, pnl: i < wonN ? each : -each, won: i < wonN }));
+  const gate = paperGate(["x1", "a", "b", "x4"], [...pt("x1", 19, 0, 1), ...pt("a", 20, 9, 1), ...pt("b", 20, 12, 1), ...pt("x4", 20, 12, 1), { rule: "x4", pnl: -9, won: false }, { rule: "b", pnl: -50, won: false, fillable: false }]);
+  assert.deepEqual([...gate.keys()], ["a", "x4"]);
+  setPaperBehind(gate);
+  assert.match(eventLiveBlock(cfg, "copy", "a", "new", 0.5, 10, true, [], NOW5, 3)!, /paper record \(9 of 20 won/);
+  assert.doesNotMatch(String(eventLiveBlock(cfg, "copy", "b", "new", 0.5, 10, true, [], NOW5, 3)), /paper record/);
+  setPaperBehind(new Map());
   assert.equal(eventLiveBlock(cfg, "copy", "b", "new", 0.5, 10, true, ten, NOW5, 3), null, "other wallets are not touched");
   const ahead = Array.from({ length: 10 }, (_, i) => r("b", i < 6 ? 1 : -1, i));
   assert.equal(ruleAdapt(g, ahead, "b").state, "up");
