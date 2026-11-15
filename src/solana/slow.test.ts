@@ -6,7 +6,7 @@ import { mock, test } from "node:test";
 
 process.env.DATA_DIR = mkdtempSync(join(tmpdir(), "solslow-"));
 
-const { tripsOf, screen, lateRet, ownRet, priceAfter, posRet, paperRules, slowTx, slowSummary, reportOf, followed, slowWatch, jupCoins, coinOld, creditsDay, copyableOf, provenWallets, crowdStudy, crowdOnePerCoin, _test, STAKE_SOL, TX_SOL, DELAY_COST, MIN_TRIPS } = await import("./slow.js");
+const { tripsOf, screen, lateRet, ownRet, priceAfter, posRet, paperRules, slowTx, slowSummary, reportOf, followed, slowWatch, jupCoins, coinOld, creditsDay, copyableOf, provenWallets, crowdStudy, crowdOnePerCoin, top5Sol, _test, STAKE_SOL, TX_SOL, DELAY_COST, MIN_TRIPS } = await import("./slow.js");
 
 const W = "Wa11et1111111111111111111111111111111111111";
 const M = "M1nt11111111111111111111111111111111111111";
@@ -592,4 +592,7 @@ test("crowd: closed paper copies by how many other followed wallets were already
   const one = crowdOnePerCoin(closed, open);
   assert.deepEqual(one.map((x) => [x.minOthers, x.n, x.won, x.coins]), [[0, 5, 4, 3], [1, 3, 2, 2], [2, 1, 1, 1], [3, 0, 0, 0]]);
   assert.deepEqual([one[0].newer.n, one[0].newer.won, one[2].avgRetPct, one[3].avgRetPct], [3, 2, 19.2, null]);
+  // the five best copies' SOL: four winners of +19.2% on 0.25 SOL here (losers count for nothing)
+  assert.deepEqual([one[0].top5Sol, one[3].top5Sol, top5Sol([1, 2, 3, 4, 5, 6, -1])], [0.192, 0, 5]);
+  assert.equal(paperRules(closed).find((x) => x.id === "slow-e5-x5")!.top5Sol, 0.24);
 });
