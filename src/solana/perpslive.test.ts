@@ -83,6 +83,8 @@ function setup(trades = paperTrades(REAL_MIN_TRADES, 60)) {
   P._test.reset();
   P._test.state().dry = { at: Date.now(), result: "ok" }; // the daily dry run is tested on its own
   P._test.state().dryClose = { at: Date.now(), result: "ok", tried: 1 };
+  P._test.state().dryLong = { at: Date.now(), result: "ok" };
+  P._test.state().dryCloseLong = { at: Date.now(), result: "ok", tried: 1 };
   _bucketsTest.state().perpTrades = trades as never;
 }
 
@@ -229,7 +231,7 @@ test("a rule that loses its stop goes back to paper until new paper trades meet 
   assert.equal(P.promoted(RULE), true);
 });
 
-test("longs and too little USDC are skipped; the daily dry run is recorded", async () => {
+test("too little USDC is skipped; the daily dry run is recorded", async () => {
   setup();
   const { c, deps } = world(5);
   _bucketsTest.state().perpOpen = [paperOpen(Date.now() - 1000, 1)] as never;
@@ -238,8 +240,7 @@ test("longs and too little USDC are skipped; the daily dry run is recorded", asy
   await P.perpsLiveTick(deps);
   assert.equal(c.sends, 0);
   const s = P._test.state();
-  assert.equal(s.skipped["not a short on SOL, BTC or ETH"], 1);
-  assert.equal(s.skipped["too little USDC"], 1);
+  assert.equal(s.skipped["too little USDC"], 2); // a long is an order like a short now
   s.dry = null;
   c.sim = { err: { InstructionError: [2, { Custom: 1 }] }, logs: ["Program log: Error: insufficient funds"] };
   _bucketsTest.state().perpOpen = [];
@@ -311,3 +312,66 @@ test("the one-time test short: opened with the switch off, closed at the next lo
   assert.equal(P._test.state().pos, null);
 });
 
+
+test("a long: backed by the coin, bought with USDC inside the order, closed below a floor", () => {
+  const w = namedWallet("perps");
+  const o = P.openLongIx(w.address, "SOL", 200, 10, 101, 7n, P.longMinOut("SOL", 10, 100));
+  assert.equal(o.ix.keys.length, 16);
+  assert.equal(o.ix.keys[7].pubkey, P.CUSTODY.SOL);
+  assert.equal(o.ix.keys[8].pubkey, P.CUSTODY.SOL, "the collateral custody of a long is the coin's own");
+  assert.equal(o.ix.data.length, 8 + 8 + 8 + 1 + 8 + 9 + 8);
+  assert.equal(o.ix.data[24], 1); // long
+  assert.equal(o.ix.data[33], 1); // a minimum out is given
+  assert.equal(Buffer.from(o.ix.data).readBigUInt64LE(34), 97_000_000n); // 0.097 SOL for $10 at $100, 3% room
+  assert.notEqual(o.position, P.positionAddress(w.address, "SOL"), "a long and a short of one coin are two positions");
+  assert.equal(P.closeLongIx(w.address, "SOL", 98, 8n).position, o.position);
+  assert.equal(P.boundPrice(1, 100, 0.01, false), 101);
+  assert.equal(P.boundPrice(1, 100, 0.02, true), 98);
+  assert.equal(P.boundPrice(-1, 100, 0.01, false), 99);
+  assert.equal(P.boundPrice(-1, 100, 0.02, true), 102);
+  assert.equal(P.unrealUsd(1, 200, 100, 103), 6);
+  assert.equal(P.unrealUsd(-1, 200, 100, 103), -6);
+});
+
+test("leverage: the trader's own, not capped by us, never above half of Jupiter's liquidation leverage", () => {
+  assert.equal(P.leverageFor(37.5, 2, 500), 37.5);
+  assert.equal(P.leverageFor(400, 2, 500), 250);
+  assert.equal(P.leverageFor(400, 2, null), 100);
+  assert.equal(P.leverageFor(undefined, 2, 500), 2); // a rule keeps the rule leverage
+  assert.equal(P.leverageFor(1, 2, 500), 1.1);
+  const b = Buffer.alloc(300);
+  b.writeBigUInt64LE(5_000_000n, 175);
+  assert.equal(P.custodyMaxLeverage(b.toString("base64")), 500);
+  assert.equal(P.custodyMaxLeverage(null), null);
+});
+
+test("a copied trader at the bar: its long is opened at its leverage and closed when it closes", async () => {
+  const { traderRule, TRADER_MIN_COPIES } = await import("./buckets.js");
+  _bucketsTest.reset();
+  P._test.reset();
+  const now = Date.now();
+  Object.assign(P._test.state(), { dry: { at: now, result: "ok" }, dryClose: { at: now, result: "ok", tried: 1 }, dryLong: { at: now, result: "ok" }, dryCloseLong: { at: now, result: "ok", tried: 1 } });
+  const A = "0x" + "ab".repeat(20);
+  _bucketsTest.state().hlTrades = Array.from({ length: TRADER_MIN_COPIES }, (_, i) => ({ trader: A, coin: "HYPE", dir: 1, at: now - 30 * 3_600_000 + i, exitAt: now - 29 * 3_600_000, net: i < 12 ? 0.02 : -0.01, why: "closed" })) as never;
+  const { c, deps, keeper, w } = world(40);
+  _bucketsTest.state().hlOpen = [{ trader: A, coin: "SOL", dir: 1, at: now - 1000, entry: 100, lev: 25, worst: 0 }] as never;
+  await P.perpsLiveTick(deps);
+  const p = P._test.state().pos;
+  assert.equal(p?.rule, traderRule(A));
+  assert.equal(p?.dir, 1);
+  assert.equal(p?.lev, 25);
+  assert.equal(p?.sizeUsd, 275); // $11 collateral at the trader's 25x
+  assert.equal(p?.position, P.positionAddress(w.address, "SOL", 1));
+  assert.equal(c.sends, 1);
+  keeper.fillOpen();
+  await P.perpsLiveTick(deps);
+  assert.equal(P._test.state().pos?.stage, "open");
+  _bucketsTest.state().hlOpen = [];
+  await P.perpsLiveTick(deps);
+  assert.equal(P._test.state().pos?.stage, "closing");
+  keeper.fillClose(12.5);
+  await P.perpsLiveTick(deps);
+  assert.equal(P._test.state().pos, null);
+  assert.equal(P._test.state().netUsd, 1.5);
+  assert.equal(P._test.state().rows[0].rule, traderRule(A));
+});

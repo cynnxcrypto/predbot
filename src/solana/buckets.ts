@@ -1053,12 +1053,13 @@ export const traderMeetsBar = (x: { trades: number; won: number; netUsd: number;
 /** Does this perp rule, or this copied trader, meet its bar for real on the paper trades made after `sinceMs`? */
 export const perpMeetsBar = (rule: string, sinceMs = 0, now = Date.now()) => (isTraderRule(rule) ? traderMeetsBar(traderRecord(rule, sinceMs), now) : meetsBar(perpPaperRecord(rule, sinceMs)));
 /** The perp paper positions that are open now (rules and copied traders' shorts), each with a name of its own. */
-export function perpPaperOpens(): { id: string; rule: string; coin: string; dir: number; at: number }[] {
+export function perpPaperOpens(): { id: string; rule: string; coin: string; dir: number; at: number; lev?: number }[] {
   if (!loaded) load();
   return [
     ...state.perpOpen.map((o) => ({ id: `${o.rule}:${o.at}`, rule: o.rule, coin: o.coin, dir: o.dir, at: o.at })),
-    // a copied trader's short on SOL, BTC or ETH, under the trader's own name: each trader is promoted on its own record
-    ...state.hlOpen.filter(isCopyShort).map((o) => ({ id: `${traderRule(o.trader)}:${o.coin}:${o.at}`, rule: traderRule(o.trader), coin: o.coin, dir: o.dir, at: o.at })),
+    // a copied trader's long or short on SOL, BTC or ETH, under the trader's own name and with the leverage the trader
+    // set: each trader is promoted on its own record
+    ...state.hlOpen.filter((o) => (PERP_COINS as readonly string[]).includes(o.coin)).map((o) => ({ id: `${traderRule(o.trader)}:${o.coin}:${o.at}`, rule: traderRule(o.trader), coin: o.coin, dir: o.dir, at: o.at, lev: o.lev })),
   ];
 }
 /** One perp rule's closed paper trades since `sinceMs`, in the shape of the bar (net in units of one position). */
