@@ -17,7 +17,7 @@
  */
 import { loadJson, saveJson } from "./store.js";
 import { autoFollowed, autoState, autoSummary, copyPromote, copyScan, scanDue } from "./copyscan.js";
-import { NEG_READY_FILE, spentOf, eventLiveAdapt, eventLiveBusy, eventLiveBuy, eventRestBid, eventRestSync, eventLiveConfig, eventLiveRows, eventLiveSettle, eventLiveSummary, eventLiveStop, type NegRiskReady } from "./eventlive.js";
+import { NEG_READY_FILE, spentOf, eventLiveAdapt, eventLiveBusy, eventLiveBuy, eventRestBid, eventRestSync, eventDelayedSync, eventLiveConfig, eventLiveRows, eventLiveSettle, eventLiveSummary, eventLiveStop, type NegRiskReady } from "./eventlive.js";
 import { JEV_CONTEXT, headlines, jevKey, jevStake, type JevStake } from "./jev.js";
 
 const GAMMA = "https://gamma-api.polymarket.com";
@@ -863,6 +863,14 @@ async function restTick() {
     }
   } catch (e) {
     log(`real resting bids: ${(e as Error).message}`);
+  }
+  try {
+    for (const line of await eventDelayedSync(now)) {
+      log(line);
+      realNotes.push({ t: now, title: line, why: "" });
+    }
+  } catch (e) {
+    log(`real delayed orders: ${(e as Error).message}`);
   }
   // 1. new bids (at most 15 markets a tick)
   const cands: { rule: string; m: { id: string; title: string; start: number; tokens: string[]; outcomes: string[] } }[] = [
