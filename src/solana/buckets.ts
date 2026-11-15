@@ -547,6 +547,7 @@ interface State {
   perpLast: Record<string, { px: number; d1: number | null; d7: number | null; d30: number | null }>;
   hlTraders: HlTrader[];
   hlAt: number;
+  hlV?: number;
   hlSeen: Record<string, Record<string, number>>;
   hlNext: number;
   hlOpen: HlOpen[];
@@ -557,6 +558,8 @@ interface State {
   errors: Record<string, string>;
 }
 const SORT_V = 4;
+/** version of the rules that pick the copied perp traders: an older file's list is read again at once */
+const HL_LIST_V = 2;
 const fresh = (): State => ({
   v: SORT_V,
   universe: [], universeAt: 0, slot: 0, series: {}, open: [], trades: [], cool: {}, missed: 0, perpHour: 0, perpOpen: [], perpTrades: [], perpLast: {},
@@ -572,6 +575,9 @@ function load() {
     state = { ...fresh(), ...(JSON.parse(readFileSync(FILE(), "utf8")) as State) };
     if (state.v !== SORT_V) state.universeAt = 0;
     state.v = SORT_V;
+    // the trader list's rules changed (60 -> 400 traders): the list is read again at once, not at its daily turn
+    if (state.hlV !== HL_LIST_V) state.hlAt = 0;
+    state.hlV = HL_LIST_V;
   } catch {
     state = fresh();
   }
