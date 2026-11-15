@@ -27,7 +27,7 @@ const L1 = WALLETS[0].address;
 const L2 = WALLETS[1].address;
 const sigOfTx = (b64: string) => base58(Buffer.from(b64, "base64").subarray(1, 65));
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
-const CFG: Cfg = { on: true, stakeSol: 0.01, maxLossSol: 0.1, maxOpen: 6, entrySec: 1, exitSec: 1, maxHoldH: 72, slippageBps: 1500, maxFeeLamports: 20_000, follow: "fixed" };
+const CFG: Cfg = { on: true, stakeSol: 0.01, maxLossSol: 0.1, stopLossSol: 0, maxOpen: 6, entrySec: 1, exitSec: 1, maxHoldH: 72, slippageBps: 1500, maxFeeLamports: 20_000, follow: "fixed" };
 
 /** A made-up chain and Jupiter that keep real books (as in copylive.test.ts): `worth(mint)` = what a sale brings back, SOL. */
 function chain(worth: (mint: string) => number, lamports = 0.08e9) {
@@ -118,7 +118,7 @@ test("real day-holder copy: off unless switched on, hard limits hold", () => {
   assert.deepEqual([c.on, c.maxLossSol, c.stakeSol, c.maxOpen, c.entrySec, c.exitSec, c.slippageBps, c.maxFeeLamports], [true, HARD_MAX_LOSS_SOL, HARD_STAKE_SOL, HARD_MAX_OPEN, 1, 60, 3000, 200_000]);
   const d = parseSlowLive(JSON.stringify({ solanaSlow: { on: true, maxLossSol: 0.08 } }));
   assert.deepEqual([d.stakeSol, d.maxOpen, d.entrySec, d.exitSec, d.maxHoldH, d.maxFeeLamports], [0.01, HARD_MAX_OPEN, 5, 5, 72, 20_000]);
-  assert.equal(HARD_MAX_LOSS_SOL, 0.6, "the whole wallet: no more than it may hold");
+  assert.equal(HARD_MAX_LOSS_SOL, 1.5, "the whole wallet: no more than it may hold");
   // which wallets: the paper-proven ones unless the file says "fixed"
   assert.deepEqual([d.follow, parseSlowLive(JSON.stringify({ solanaSlow: { on: true, maxLossSol: 0.08, wallets: "fixed" } })).follow, parseSlowLive(JSON.stringify({ solanaSlow: { on: true, maxLossSol: 0.08, wallets: 7 } })).follow], ["proven", "fixed", "proven"]);
 });

@@ -53,11 +53,18 @@ export const HARD_STAKE_SOL = 0.05;
  * (MAX_WALLET_SOL), and what really limits it is the balance check before every buy. More than that put into the
  * wallet means nothing is bought, so money added later is never at stake without his word.
  */
-export const HARD_MAX_LOSS_SOL = 0.6;
+export const HARD_MAX_LOSS_SOL = 1.5;
+/**
+ * 15 Nov 2026 17:38 KST, enrique: "these are the final funding numbers im gonna give you, your challenge is to make it
+ * all grow" (this wallet: about $101, some 1.4 SOL). The wallet he funded is the wallet to trade, so maxLossSol (how
+ * much may be OUT at once, every copy counted as lost) follows it; what the test may really LOSE before it stops
+ * buying is a number of its own, stopLossSol, so that the bigger wallet is not a bigger loss allowed.
+ */
+export const HARD_STOP_LOSS_SOL = 0.6;
 /** Open copies are limited by the wallet's SOL (stake, rent and a sale reserve each); this only bounds the count. */
-export const HARD_MAX_OPEN = 50;
+export const HARD_MAX_OPEN = 120;
 /** The wallet held up to 0.5 SOL for the first test; clearly more than that put in means nothing is bought. */
-export const MAX_WALLET_SOL = 0.6;
+export const MAX_WALLET_SOL = 1.6;
 /** What each copy may cost beyond its stake if it all goes wrong: fees of a buy and several sale tries, an unclosed account's rent. */
 export const COPY_ROOM_SOL = 0.003;
 /** A coin account's rent (comes back when the account is closed after the sale). */
@@ -102,6 +109,8 @@ export interface SlowLiveConfig {
   on: boolean;
   stakeSol: number;
   maxLossSol: number;
+  /** realised loss at which no new copy is bought (open ones are still sold); 0 = only maxLossSol limits */
+  stopLossSol: number;
   maxOpen: number;
   entrySec: number;
   exitSec: number;
@@ -112,7 +121,7 @@ export interface SlowLiveConfig {
   /** "proven" = the wallets the paper copy proves (the default); "fixed" = the first three */
   follow: "proven" | "fixed";
 }
-const OFF: SlowLiveConfig = { on: false, stakeSol: 0, maxLossSol: 0, maxOpen: 1, entrySec: 5, exitSec: 5, maxHoldH: 72, slippageBps: 1500, maxFeeLamports: 20_000, follow: "proven" };
+const OFF: SlowLiveConfig = { on: false, stakeSol: 0, maxLossSol: 0, stopLossSol: 0, maxOpen: 1, entrySec: 5, exitSec: 5, maxHoldH: 72, slippageBps: 1500, maxFeeLamports: 20_000, follow: "proven" };
 const num = (v: unknown, d: number) => (typeof v === "number" && Number.isFinite(v) ? v : d);
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 
@@ -125,7 +134,7 @@ export function parseSlowLive(text: string): SlowLiveConfig {
     const stakeSol = clamp(num(p.stakeSol, 0.01), 0, HARD_STAKE_SOL);
     if (!(maxLossSol > 0) || !(stakeSol >= 0.005)) return OFF;
     return {
-      on: true, stakeSol, maxLossSol,
+      on: true, stakeSol, maxLossSol, stopLossSol: clamp(num(p.stopLossSol, 0), 0, HARD_STOP_LOSS_SOL),
       // no count unless the file sets one: the balance check before each buy is the limit
       maxOpen: clamp(Math.floor(num(p.maxOpen, HARD_MAX_OPEN)), 1, HARD_MAX_OPEN),
       entrySec: clamp(num(p.entrySec, 5), 1, 600),
@@ -354,6 +363,10 @@ function onBuy(s: SlowSwap) {
   }
   if (bucketHeld().includes(s.mint)) return void state.missedSame++;
   if (state.opens.length >= c.maxOpen) return void state.missedOpen++;
+  if (c.stopLossSol > 0 && loss() >= c.stopLossSol - 1e-9) {
+    state.note = `loss stop: ${loss().toFixed(4)} SOL lost of ${c.stopLossSol} allowed; no new copies until a review`;
+    return void state.missedCap++;
+  }
   // the cap must hold with every copy that is out, and this one, lost in full
   if (loss() + (state.opens.length + 1) * (c.stakeSol + COPY_ROOM_SOL) > c.maxLossSol + 1e-9) return void state.missedCap++;
   const p: Pos = { wallet: s.wallet, name: nameOf(s.wallet), mint: s.mint, leaderSol: r6(s.sol), seenMs: s.seenMs, stage: "waiting", sigs: [], sellRounds: 0 };
@@ -692,6 +705,7 @@ export function slowLiveSummary() {
     stateNote: state.note,
     stakeSol: c.stakeSol,
     capSol: c.maxLossSol,
+    stopLossSol: c.stopLossSol,
     maxOpen: c.maxOpen,
     netSol: r6(state.netSol),
     copies: done.length,
