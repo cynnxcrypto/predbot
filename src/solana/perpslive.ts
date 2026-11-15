@@ -33,7 +33,7 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { DATA, ROOT } from "../config.js";
-import { meetsBar, perpPaperOpens, perpPaperRecord, perpRuleIds, setPerpsRealSummary, REAL_MIN_TRADES } from "./buckets.js";
+import { perpMeetsBar, perpPaperOpens, perpPaperRecord, perpRuleIds, setPerpsRealSummary, REAL_MIN_TRADES, TRADER_MIN_COPIES } from "./buckets.js";
 import { base58decode, namedWallet, signTransaction, type Wallet } from "./keys.js";
 import { USDC } from "./pools.js";
 import { fileSwap, gasSummary, gasTick, type GasDeps } from "./gas.js";
@@ -254,7 +254,7 @@ function save() {
 const loss = () => Math.max(0, -state.netUsd);
 const skip = (why: string) => void (state.skipped[why] = (state.skipped[why] ?? 0) + 1);
 const ruleNet = (rule: string) => state.rows.filter((x) => x.rule === rule && x.filled && x.t > (state.demoted[rule] ?? 0)).reduce((a, x) => a + x.netUsd, 0);
-export const promoted = (rule: string) => meetsBar(perpPaperRecord(rule, state.demoted[rule] ?? 0));
+export const promoted = (rule: string) => perpMeetsBar(rule, state.demoted[rule] ?? 0);
 
 export interface PerpDeps {
   cfg: () => PerpsLiveConfig;
@@ -539,10 +539,10 @@ export function perpsLiveSummary() {
     const since = state.demoted[id] ?? 0;
     const paper = perpPaperRecord(id, since);
     const mine = done.filter((x) => x.rule === id);
-    return { id, real: c.on && !state.halted && meetsBar(paper), paperTrades: paper.trades, paperWon: paper.won, paperNetUsd: r2(paper.netUsd), demotedAt: since || null, trades: mine.length, won: mine.filter((x) => x.netUsd > 0).length, netUsd: r2(mine.reduce((a, x) => a + x.netUsd, 0)) };
+    return { id, real: c.on && !state.halted && perpMeetsBar(id, since), paperTrades: paper.trades, paperWon: paper.won, paperNetUsd: r2(paper.netUsd), demotedAt: since || null, trades: mine.length, won: mine.filter((x) => x.netUsd > 0).length, netUsd: r2(mine.reduce((a, x) => a + x.netUsd, 0)) };
   });
   return {
-    note: `REAL, off unless the live rules switch it on. Shorts on SOL, BTC or ETH on Jupiter Perps, backed by USDC, in a wallet of its own, one position at a time, at most ${HARD_LEVERAGE}x. A perp paper rule (or the paper copies of perp traders' shorts) is traded only while its paper record meets the bar (${REAL_MIN_TRADES}+ paper trades, half or more won, ahead after costs); a rule whose real trades lose $${c.ruleStopUsd || 3} goes back to paper. Every transaction is simulated on the chain before it is sent; dryRun is the simulation of an open order, hourly until it passes and then daily (it fails for lack of funds while the wallet is empty, which is the right answer); dryRunClose is the same for a close order, simulated against a short that exists on the chain. Results are what a position did to the wallet's USDC; network fees in SOL are small and not counted. Longs stay on paper.`,
+    note: `REAL, off unless the live rules switch it on. Shorts on SOL, BTC or ETH on Jupiter Perps, backed by USDC, in a wallet of its own, one position at a time, at most ${HARD_LEVERAGE}x. A perp paper rule is traded only while its paper record meets the bar (${REAL_MIN_TRADES}+ paper trades, half or more won, ahead after costs). A copied perp trader ("copy-" and a short tag) is followed, on its shorts of these three coins, while its own paper copies meet the trader bar (${TRADER_MIN_COPIES}+ closed copies of any coin and side, half or more won, ahead, a day or more on paper); a rule whose real trades lose $${c.ruleStopUsd || 3} goes back to paper. Every transaction is simulated on the chain before it is sent; dryRun is the simulation of an open order, hourly until it passes and then daily (it fails for lack of funds while the wallet is empty, which is the right answer); dryRunClose is the same for a close order, simulated against a short that exists on the chain. Results are what a position did to the wallet's USDC; network fees in SOL are small and not counted. Longs stay on paper.`,
     on: c.on && !state.halted,
     switch: c.on ? "on" : "off",
     halted: state.halted,
@@ -570,7 +570,7 @@ export function perpsLiveSummary() {
     skipped: state.skipped,
     lastError: state.lastError,
     rulesReal: rules.filter((x) => x.real).length,
-    rules: rules.filter((x) => x.real || x.trades || x.demotedAt || x.paperTrades >= REAL_MIN_TRADES / 2),
+    rules: rules.filter((x) => x.real || x.trades || x.demotedAt || x.paperTrades >= (x.id.startsWith("copy-") ? TRADER_MIN_COPIES / 2 : REAL_MIN_TRADES / 2)),
   };
 }
 
