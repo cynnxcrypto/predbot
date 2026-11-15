@@ -232,9 +232,52 @@ function load() {
     state = { ...fresh(), ...(JSON.parse(text) as State) };
     if (!Array.isArray(state.opens)) state.opens = [];
     if (!Array.isArray(state.rows)) state.rows = [];
+    dedupe();
   } catch {
     // a file that is there but unreadable must never restart the loss count from zero
     state.halted = "the state file could not be read: the loss count is unknown, so nothing is bought";
+  }
+}
+/** The transactions of a finished copy, as one name: two rows with the same name are one copy counted twice. */
+const sigKey = (r: { sigs?: unknown }) => (Array.isArray(r.sigs) && r.sigs.length ? [...r.sigs].map(String).sort().join(",") : "");
+/**
+ * A copy counted twice (15 Nov 2026: one sold by the stream while the start's recovery still had it on its list) is
+ * counted once: the later row with the same transactions is taken out of the books and its SOL out of the total, and
+ * out of the trade log. Runs at every start and changes nothing when there is no such row.
+ */
+function dedupe() {
+  const seen = new Set<string>();
+  let off = 0;
+  const rows = state.rows.filter((r) => {
+    const k = sigKey(r);
+    if (!k || !seen.has(k)) return k ? (seen.add(k), true) : true;
+    off += Number(r.netSol) || 0;
+    return false;
+  });
+  if (rows.length !== state.rows.length) {
+    state.rows = rows;
+    state.netSol = Math.round((state.netSol - off) * 1e9) / 1e9;
+    save();
+  }
+  try {
+    const lines = readFileSync(ROWS(), "utf8").split("\n").filter(Boolean);
+    const had = new Set<string>();
+    const kept = lines.filter((l) => {
+      let k = "";
+      try {
+        k = sigKey(JSON.parse(l) as { sigs?: unknown });
+      } catch {
+        return true;
+      }
+      if (!k || !had.has(k)) return k ? (had.add(k), true) : true;
+      return false;
+    });
+    if (kept.length !== lines.length) {
+      writeFileSync(ROWS() + ".tmp", kept.join("\n") + "\n");
+      renameSync(ROWS() + ".tmp", ROWS());
+    }
+  } catch {
+    /* no log yet */
   }
 }
 function save() {
@@ -683,6 +726,10 @@ export function slowLiveSummary() {
 /** Test hooks. */
 export const _test = {
   setConfig: (c: SlowLiveConfig | null) => (cfgOverride = c),
+  reload: () => {
+    loaded = false;
+    load();
+  },
   reset: () => {
     state = fresh();
     loaded = true;

@@ -331,7 +331,7 @@ export async function perpsLiveTick(d: PerpDeps, now = Date.now()): Promise<void
   try {
     const w = d.wallet();
     // the daily dry run: is an open order of ours still one the program accepts? Read-only, whatever the switch says.
-    if (!state.pos && now - (state.dry?.at ?? 0) > DRY_MS) {
+    if (!state.pos && now - (state.dry?.at ?? 0) > (state.dry?.result === "ok" ? DRY_MS : 3_600_000)) {
       let result = "no answer";
       try {
         const px = await d.price("SOL");
@@ -342,7 +342,7 @@ export async function perpsLiveTick(d: PerpDeps, now = Date.now()): Promise<void
         // no price or no chain answer: tried again in an hour
       }
       // hourly until it passes (so the first check after funding is at most an hour away), then daily
-      state.dry = { at: result === "ok" ? now : now - DRY_MS + 3_600_000, result };
+      state.dry = { at: now, result }; // a result that is not "ok" is looked at again in an hour (see the check above)
       save();
     }
     const paper = perpPaperOpens();
