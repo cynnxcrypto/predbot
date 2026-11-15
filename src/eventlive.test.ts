@@ -226,4 +226,14 @@ test("daily wallet rescan: the screen, weekly profit, promotion to real and drop
   const lines = copyPromote(st, trades, NOW6);
   assert.equal(lines.length, 2);
   assert.deepEqual(st.wallets.map((w) => w.stage), ["real", "dropped", "paper"]);
+  // 15 Nov 2026: a real wallet whose paper record falls under the bar goes back to paper, and waits a day there
+  const worse = [...trades, ...Array.from({ length: 5 }, () => tr("copy-take-good", -1))];
+  assert.match(copyPromote(st, worse, NOW6 + 3600_000)[0], /good back to PAPER/);
+  assert.equal(st.wallets[0].stage, "paper");
+  assert.equal(copyPromote(st, trades, NOW6 + 2 * 3600_000).length, 0); // meets the bar again, but not a day on paper yet
+  assert.equal(st.wallets[0].stage, "paper");
+  assert.match(copyPromote(st, trades, NOW6 + 26 * 3600_000)[0], /good promoted to REAL/);
+  // a wallet added hours ago is not promoted on hours of results
+  const fresh = { ...st, wallets: [{ name: "good", address: "0x1", addedAt: NOW6 - 5 * 3600_000, stage: "paper" as const, why: "" }] };
+  assert.equal(copyPromote(fresh, trades, NOW6).length, 0);
 });

@@ -35,7 +35,7 @@ export const DROP_N = 10;
 const DATA = "https://data-api.polymarket.com";
 const CATS = ["overall", "crypto", "sports", "esports", "weather", "politics", "economics", "economy", "finance", "tech", "culture", "mentions"];
 
-export type AutoWallet = { name: string; address: string; addedAt: number; stage: "paper" | "real" | "dropped"; why: string; promotedAt?: number; droppedAt?: number };
+export type AutoWallet = { name: string; address: string; addedAt: number; stage: "paper" | "real" | "dropped"; why: string; promotedAt?: number; droppedAt?: number; demotedAt?: number };
 export type AutoState = { lastScan: number; scans: number; lastError: string | null; screened: number; passed: number; candidates?: number; failedAt?: Record<string, number>; runStart?: number; ver?: number; wallets: AutoWallet[]; log: { t: number; text: string }[] };
 const EMPTY: AutoState = { lastScan: 0, scans: 0, lastError: null, screened: 0, passed: 0, wallets: [], log: [] };
 
@@ -97,12 +97,26 @@ export function paperResult(trades: PaperTrade[], rule: string) {
   return { n: s.length, won: s.filter((t) => t.won === true).length, net: Math.round(s.reduce((a, t) => a + (t.pnl ?? 0), 0) * 100) / 100 };
 }
 /** Promotions and drops for the auto wallets. Mutates and returns log lines. Pure apart from the state passed in. */
+/** A wallet is on paper at least this long before it can go real, and again after a demotion. */
+export const PAPER_MIN_MS = 24 * 3600_000;
 export function copyPromote(s: AutoState, trades: PaperTrade[], now: number): string[] {
   const out: string[] = [];
   for (const w of s.wallets) {
-    if (w.stage !== "paper") continue;
+    if (w.stage !== "paper" && w.stage !== "real") continue;
     const r = paperResult(trades, `copy-take-${w.name}`);
-    if (r.n >= PROMOTE_N && r.won * 2 >= r.n && r.net > 0) {
+    const meets = r.n >= PROMOTE_N && r.won * 2 >= r.n && r.net > 0;
+    // 15 Nov 2026, enrique: "decide what to keep and what to demote and what to promote", recurrently. A real wallet
+    // whose paper record (it keeps running beside the real copies) no longer meets the bar goes back to paper, and a
+    // wallet waits a day on paper before it can go real (again): hours of luck are not a record.
+    if (w.stage === "real") {
+      if (!meets) {
+        w.stage = "paper";
+        w.demotedAt = now;
+        out.push(`${w.name} back to PAPER: paper ${r.won} of ${r.n} won, $${r.net.toFixed(2)}`);
+      }
+      continue;
+    }
+    if (meets && now - Math.max(w.addedAt, w.demotedAt ?? 0) >= PAPER_MIN_MS) {
       w.stage = "real";
       w.promotedAt = now;
       out.push(`${w.name} promoted to REAL: paper ${r.won} of ${r.n} won, +$${r.net.toFixed(2)}`);
@@ -236,8 +250,8 @@ export function autoSummary(trades: PaperTrade[]) {
     screened: s.screened,
     passed: s.passed,
     lastError: s.lastError,
-    bar: `added: up each of its last 4 weeks (no week over half), 14+ buys in 7 days, median buy <= $100, under a third crypto up/down; ${ADD_PER_DAY} a day at most, ${MAX_ACTIVE} followed at most. REAL when paper copy-take has ${PROMOTE_N}+ settled, half won, net > 0. Dropped after ${DROP_DAYS} days with ${DROP_N}+ settled and behind.`,
-    wallets: s.wallets.map((w) => ({ name: w.name, stage: w.stage, addedAt: w.addedAt, promotedAt: w.promotedAt ?? null, paper: paperResult(trades, `copy-take-${w.name}`) })),
+    bar: `added: up each of its last 4 weeks (no week over half), 14+ buys in 7 days, median buy <= $100, under a third crypto up/down; ${ADD_PER_DAY} a day at most, ${MAX_ACTIVE} followed at most. REAL when paper copy-take has ${PROMOTE_N}+ settled, half won, net > 0, after a day on paper; back to paper when that no longer holds. Dropped after ${DROP_DAYS} days with ${DROP_N}+ settled and behind.`,
+    wallets: s.wallets.map((w) => ({ name: w.name, stage: w.stage, addedAt: w.addedAt, promotedAt: w.promotedAt ?? null, demotedAt: w.demotedAt ?? null, paper: paperResult(trades, `copy-take-${w.name}`) })),
     log: s.log.slice(-30).reverse(),
   };
 }
