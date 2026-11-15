@@ -331,7 +331,8 @@ export async function perpsLiveTick(d: PerpDeps, now = Date.now()): Promise<void
       } catch {
         // no price or no chain answer: tried again in an hour
       }
-      state.dry = { at: result === "no answer" ? now - DRY_MS + 3_600_000 : now, result };
+      // hourly until it passes (so the first check after funding is at most an hour away), then daily
+      state.dry = { at: result === "ok" ? now : now - DRY_MS + 3_600_000, result };
       save();
     }
     const paper = perpPaperOpens();
@@ -433,7 +434,7 @@ export function perpsLiveSummary() {
     return { id, real: c.on && !state.halted && meetsBar(paper), paperTrades: paper.trades, paperWon: paper.won, paperNetUsd: r2(paper.netUsd), demotedAt: since || null, trades: mine.length, won: mine.filter((x) => x.netUsd > 0).length, netUsd: r2(mine.reduce((a, x) => a + x.netUsd, 0)) };
   });
   return {
-    note: `REAL, off unless the live rules switch it on. Shorts on SOL, BTC or ETH on Jupiter Perps, backed by USDC, in a wallet of its own, one position at a time, at most ${HARD_LEVERAGE}x. A perp paper rule (or the paper copies of perp traders' shorts) is traded only while its paper record meets the bar (${REAL_MIN_TRADES}+ paper trades, half or more won, ahead after costs); a rule whose real trades lose $${c.ruleStopUsd || 3} goes back to paper. Every transaction is simulated on the chain before it is sent; dryRun is the daily simulation of an open order (it fails for lack of funds while the wallet is empty, which is the right answer). Results are what a position did to the wallet's USDC; network fees in SOL are small and not counted. Longs stay on paper.`,
+    note: `REAL, off unless the live rules switch it on. Shorts on SOL, BTC or ETH on Jupiter Perps, backed by USDC, in a wallet of its own, one position at a time, at most ${HARD_LEVERAGE}x. A perp paper rule (or the paper copies of perp traders' shorts) is traded only while its paper record meets the bar (${REAL_MIN_TRADES}+ paper trades, half or more won, ahead after costs); a rule whose real trades lose $${c.ruleStopUsd || 3} goes back to paper. Every transaction is simulated on the chain before it is sent; dryRun is the simulation of an open order, hourly until it passes and then daily (it fails for lack of funds while the wallet is empty, which is the right answer). Results are what a position did to the wallet's USDC; network fees in SOL are small and not counted. Longs stay on paper.`,
     on: c.on && !state.halted,
     switch: c.on ? "on" : "off",
     halted: state.halted,
