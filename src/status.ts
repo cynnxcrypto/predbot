@@ -10,7 +10,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { DATA } from "./config.js";
 import { solSlowView } from "./solslowdash.js";
-import { worthView } from "./worthdash.js";
+import { worthView, worthCheck } from "./worthdash.js";
 import { solanaCopyLiveSummary } from "./solana/copylive.js";
 import { withdrawSummary } from "./withdraw.js";
 import { createServer } from "node:http";
@@ -83,7 +83,20 @@ export function serveStatus(recorder: Recorder, build: string, others: Recorder[
     const bk = solAddress("buckets");
     const pp = solAddress("perps");
     const [solBal, rulesSol, rulesUsdc, perpsSol, perpsUsdc] = await Promise.all([solBalance(sol), solBalance(bk), usdcBalance(bk), solBalance(pp), usdcBalance(pp)]);
-    return worthView(cash, mine.live?.toClaim ?? 0, solBal, { rulesSol, rulesUsdc, perpsSol, perpsUsdc });
+    // What the two strategy wallets have in positions: coins the spot rules hold, and the perps collateral with its
+    // result so far. Counted so that opening a position does not read as money leaving the wallet.
+    let heldSol = 0;
+    let perpPosUsd = 0;
+    try {
+      const bk2 = (solanaCopySummary() as { buckets?: { real?: { heldValueSol?: number }; perps?: { real?: { open?: { collateralUsd?: number; unrealisedUsd?: number } | null } } } } | null)?.buckets;
+      heldSol = Number(bk2?.real?.heldValueSol) || 0;
+      const o = bk2?.perps?.real?.open;
+      perpPosUsd = o ? (Number(o.collateralUsd) || 0) + (Number(o.unrealisedUsd) || 0) : 0;
+    } catch {
+      heldSol = 0;
+      perpPosUsd = 0;
+    }
+    return worthView(cash, mine.live?.toClaim ?? 0, solBal, { rulesSol: rulesSol == null ? null : rulesSol + heldSol, rulesUsdc, perpsSol, perpsUsdc: perpsUsdc == null ? null : perpsUsdc + perpPosUsd });
   };
   setInterval(() => void worthNow().catch(() => undefined), 120_000).unref();
   // data/dashboard.json { "password": "..." } (the AWS server, 31 Oct 2026): the page is reached through a Cloudflare tunnel,
@@ -443,7 +456,7 @@ export function serveStatus(recorder: Recorder, build: string, others: Recorder[
       res.writeHead(200, { "content-type": "application/json" });
       const mine = recorder.status() as { live?: { balance?: number | null; toClaim?: number; chain?: Record<string, number> | null } | null };
       const cash = mine.live?.balance != null ? (mine.live.chain?.pUSD ?? mine.live.balance) + (mine.live.chain?.["USDC.e"] ?? 0) + (mine.live.chain?.USDC ?? 0) : null;
-      res.end(JSON.stringify({ build, ...mine, walletHistory: walletHistorySummary(cash, mine.live?.toClaim ?? 0), solana: solanaSummary(), solanaCopy: solanaCopySummary(), solanaCopyLive: solanaCopyLiveSummary(), withdraw: withdrawSummary(), series: others.map((r) => r.status()), eventPaper: loadJson<unknown>("eventpaper-summary.json", null), budgets: [...budgets(), pairliveSummary().budget, pairfastliveSummary().budget], pairlive: pairliveSummary(), pairfastlive: pairfastliveSummary(), preopen: preopenSummary(), pairlock: pairlockSummary(), pairfast: pairfastSummary() }));
+      res.end(JSON.stringify({ build, ...mine, worthCheck: worthCheck(), walletHistory: walletHistorySummary(cash, mine.live?.toClaim ?? 0), solana: solanaSummary(), solanaCopy: solanaCopySummary(), solanaCopyLive: solanaCopyLiveSummary(), withdraw: withdrawSummary(), series: others.map((r) => r.status()), eventPaper: loadJson<unknown>("eventpaper-summary.json", null), budgets: [...budgets(), pairliveSummary().budget, pairfastliveSummary().budget], pairlive: pairliveSummary(), pairfastlive: pairfastliveSummary(), preopen: preopenSummary(), pairlock: pairlockSummary(), pairfast: pairfastSummary() }));
       return;
     }
     if (req.url === "/favicon.svg" || req.url === "/favicon.ico") {

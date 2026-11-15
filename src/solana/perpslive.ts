@@ -50,6 +50,7 @@ const PERPETUALS = () => pda(["perpetuals"], PERPS_PROGRAM).address;
 const EVENT_AUTHORITY = () => pda(["__event_authority"], PERPS_PROGRAM).address;
 const SIDE_SHORT = 2;
 
+export const TEST_RULE = "test-once";
 export const HARD_LEVERAGE = 2;
 export const HARD_COLLATERAL_USD = 25;
 export const HARD_MAX_LOSS_USD = 30;
@@ -220,6 +221,11 @@ interface State {
   seen: string[];
   skipped: Record<string, number>;
   dry: { at: number; result: string } | null;
+<<<<<<< HEAD
+=======
+  /** the one-time test trade that was made (its name in the live rules, and when): a name is used once, for good */
+  test?: { id: string; at: number };
+>>>>>>> origin/main
   /** the dry simulation of a CLOSE order, against a short that exists on the chain (someone else's; nothing is signed or sent) */
   dryClose?: { at: number; result: string; tried: number } | null;
   lastSim: string;
@@ -259,6 +265,8 @@ export interface PerpDeps {
   send: (tx: string) => Promise<unknown>;
   landed: (sig: string, ms: number) => Promise<{ slot: number; err: unknown } | null>;
   sigOf: (tx: string) => string;
+  /** the name of the one-time test trade asked for, "" = none */
+  testId?: () => string;
   /** the wallet's USDC, dollars */
   usdc: (address: string) => Promise<number>;
   /** the wallet's SOL */
@@ -439,6 +447,32 @@ export async function perpsLiveTick(d: PerpDeps, now = Date.now()): Promise<void
       }
       return;
     }
+    // ONE TEST TRADE (enrique, 15 Nov 2026 12:28 KST: "feel free to do one test in each of the new things so we know
+    // everything works, try to not lose money of course"): the smallest short on SOL (the size the dry run passes
+    // with), through the very code a promoted rule uses. It follows no paper position, so the next look closes it.
+    // One per name, whatever the switch says; the name is written down before anything is sent.
+    const tid = d.testId?.() ?? "";
+    if (tid && !state.halted && state.test?.id !== tid) {
+      state.test = { id: tid, at: now };
+      save();
+      const usdc = await d.usdc(w.address);
+      if (usdc < MIN_COLLATERAL_USD + 1 || (await d.sol(w.address)) < MIN_SOL) {
+        state.note = "test trade not made: too little USDC or SOL in the perps wallet";
+        save();
+      } else {
+        const px = await d.price("SOL");
+        const sizeUsd = MIN_COLLATERAL_USD * HARD_LEVERAGE;
+        const made = openShortIx(w.address, "SOL", sizeUsd, MIN_COLLATERAL_USD, px * (1 - OPEN_SLIP), counter());
+        state.pos = { rule: TEST_RULE, coin: "SOL", paperId: `test:${tid}`, stage: "opening", usdcBefore: usdc, sizeUsd, position: made.position, request: made.request, sentMs: now, closeTries: 0 };
+        save();
+        if (!(await sendChecked(d, w, [made.ix])) && state.lastSim !== "ok") {
+          state.pos = null; // the simulation said no: nothing was sent
+          state.note = `test trade not sent: simulation ${state.lastSim}`;
+        }
+        save();
+      }
+      return;
+    }
     for (const o of paper) {
       if (state.seen.includes(o.id)) continue;
       state.seen = [...state.seen, o.id].slice(-500);
@@ -480,6 +514,16 @@ export async function perpsLiveTick(d: PerpDeps, now = Date.now()): Promise<void
 }
 
 // ---- status (public: rule names and numbers only) -----------------------------------------------------------------------
+/** The one-time test asked for in deploy/live-rules.json ("solanaPerps": { "testOnce": "<name>" }); "" = none. */
+function fileTest(): string {
+  if (process.env.SOLANA_LIVE === "off") return "";
+  try {
+    const t = (JSON.parse(readFileSync(join(ROOT, "deploy", "live-rules.json"), "utf8")) as { solanaPerps?: { testOnce?: unknown } }).solanaPerps?.testOnce;
+    return typeof t === "string" ? t.slice(0, 40) : "";
+  } catch {
+    return "";
+  }
+}
 function fileCfg(): PerpsLiveConfig {
   if (process.env.SOLANA_LIVE === "off") return OFF;
   try {
@@ -519,6 +563,11 @@ export function perpsLiveSummary() {
     dryRun: state.dry,
     // the close order simulated as the owner of a short that exists on the chain (nothing signed or sent); tried = owners tried
     dryRunClose: state.dryClose ?? null,
+<<<<<<< HEAD
+=======
+    // the one-time test trade: its name, when, and what it did to the wallet's USDC
+    test: state.test ? { ...state.test, rows: state.rows.filter((x) => x.rule === TEST_RULE).map((x) => ({ t: x.t, filled: x.filled, netUsd: x.netUsd, heldH: x.heldH })) } : null,
+>>>>>>> origin/main
     lastSimulation: state.lastSim,
     skipped: state.skipped,
     lastError: state.lastError,
@@ -542,6 +591,7 @@ export async function startPerpsLive() {
   const d: PerpDeps = {
     cfg: fileCfg,
     wallet: () => namedWallet("perps"),
+    testId: fileTest,
     rpc,
     send: (tx) => kit.send(tx),
     landed: (sig, ms) => kit.landed(sig, ms),

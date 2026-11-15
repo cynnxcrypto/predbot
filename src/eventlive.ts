@@ -158,6 +158,8 @@ export function eventLiveBlock(cfg: EventLiveConfig, group: string, rule: string
   if (g.openUsd > 0 && openUsd + bet > g.openUsd + 1e-9) return `$${openUsd.toFixed(2)} in open bets + $${bet.toFixed(2)} would pass the $${g.openUsd} stake cap`;
   const ruleUsd = open.filter((r) => r.rule === rule).reduce((s, r) => s + r.cost, 0);
   if (g.walletUsd > 0 && ruleUsd + bet > g.walletUsd + 1e-9) return `$${ruleUsd.toFixed(2)} open on this wallet + $${bet.toFixed(2)} would pass its $${g.walletUsd} stake cap`;
+  const pb = paperBehind.get(rule);
+  if (group === "copy" && pb) return `back to paper: its paper record (${pb}) is under the bar`;
   const ad = ruleAdapt(g, rows.filter((r) => r.group === group), rule);
   if (ad.state === "paper") return `back to paper: $${ad.net.toFixed(2)} on its first ${ad.n}+ settled real bets`;
   const settled = mine.filter((r) => r.pnl != null);
@@ -173,6 +175,29 @@ export function eventLiveBlock(cfg: EventLiveConfig, group: string, rule: string
   if (lostToday >= g.dayLosses) return `${lostToday} losses today: stopped until the next KST day`;
   return null;
 }
+
+/**
+ * KEEP ONLY WHAT STAYS GOOD (enrique, 15 Nov 2026 12:44 KST: "only doing real on the ones that are good and stay
+ * good"). Every copied wallet of the live rules keeps its $3 paper twin running; once that paper record has
+ * PAPER_GATE_N+ settled bets that could be filled and it is not ahead with half or more won, the wallet's NEW real
+ * copies stop (open bets stay). It comes back by itself when the paper record meets the bar again. Under
+ * PAPER_GATE_N the wallet is still being learned and stays real. Pure; the paper loop refreshes it every look.
+ */
+export const PAPER_GATE_N = 20;
+export function paperGate(rules: string[], trades: { rule: string; pnl?: number | null; won?: boolean | null; fillable?: boolean }[]): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const rule of rules) {
+    const s = trades.filter((t) => t.rule === rule && t.pnl != null && t.fillable !== false);
+    const won = s.filter((t) => t.won === true).length;
+    const net = s.reduce((a, t) => a + (t.pnl ?? 0), 0);
+    if (s.length >= PAPER_GATE_N && !(won * 2 >= s.length && net > 0)) out.set(rule, `${won} of ${s.length} won, $${net.toFixed(2)}`);
+  }
+  return out;
+}
+let paperBehind = new Map<string, string>();
+export const setPaperBehind = (m: Map<string, string>) => void (paperBehind = m);
+/** Status: the copied wallets held on paper by their paper record (rule -> record). */
+export const paperBehindStatus = () => Object.fromEntries(paperBehind);
 
 /**
  * The automatic per-rule rule (see adaptN): "learning" until adaptN settled real bets with shares, then "paper" when the
