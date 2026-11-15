@@ -23,7 +23,9 @@ const paperTrades = (n: number, won: number, at = T0 - 1000) =>
 const paperOpen = (at: number, dir = -1) => ({ rule: RULE, coin: "SOL", dir, at, entry: 100 });
 const posData = (sizeUsd: number) => {
   const b = Buffer.alloc(200);
+  b.writeBigUInt64LE(104_000_000n, 153); // entry price $104
   b.writeBigUInt64LE(BigInt(Math.round(sizeUsd * 1e6)), 161);
+  b.writeBigUInt64LE(10_900_000n, 169); // collateral after the opening fee
   return b.toString("base64");
 };
 
@@ -155,6 +157,11 @@ test("open, wait for the keeper, close with the paper trade, book what the USDC 
   await P.perpsLiveTick(deps);
   assert.equal(P._test.state().pos?.stage, "open");
   assert.equal(c.sends, 1);
+  P._test.setCfg(() => CFG);
+  const open = P.perpsLiveSummary().open;
+  assert.equal(open?.collateralUsd, 10.9);
+  assert.equal(open?.unrealisedUsd, 0.85); // $22 short from 104 to 100
+
   _bucketsTest.state().perpOpen = []; // the paper short closed
   await P.perpsLiveTick(deps);
   assert.equal(c.sends, 2);

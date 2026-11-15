@@ -91,6 +91,9 @@ interface Pos {
   boughtMs?: number;
   sigs: string[];
   nextTryMs?: number;
+  /** what the coins held would bring if sold now (a real sell quote), SOL, and when that was read */
+  valueSol?: number;
+  valueMs?: number;
 }
 interface Row {
   t: number;
@@ -281,6 +284,8 @@ async function finish(d: LiveDeps, w: Wallet, p: Pos, buyState: Row["buy"]) {
   save();
 }
 
+/** how often the coins held are valued for the status */
+export const VALUE_MS = 5 * 60_000;
 let busy = false;
 /** One look: sell what paper has sold (or is too old), settle buys a restart cut off, buy what paper just bought. */
 export async function bucketsLiveTick(d: LiveDeps, now = Date.now()): Promise<void> {
@@ -306,6 +311,18 @@ export async function bucketsLiveTick(d: LiveDeps, now = Date.now()): Promise<vo
         }
       }
       if (p.stage === "held" && (p.nextTryMs ?? 0) <= now && (!twin(p) || now - (p.boughtMs ?? now) >= MAX_HOLD_H * 3_600_000)) await sell(d, p, c);
+      else if (p.stage === "held" && now - (p.valueMs ?? 0) >= VALUE_MS) {
+        // for the status only: the money is in coins, not gone
+        p.valueMs = now;
+        try {
+          const h = await d.kit.held(d.wallet().address, p.mint);
+          const q = h.amount > 0n ? await d.kit.quote(p.mint, SOL, h.amount.toString(), 300) : { outAmount: "0" };
+          if (q.outAmount) p.valueSol = Number(q.outAmount) / LAMPORTS;
+        } catch {
+          // no quote now: the last value stays
+        }
+        save();
+      }
     }
     for (const o of paper) {
       const key = `${o.rule}:${o.mint}:${o.at}`;
@@ -353,6 +370,10 @@ export function bucketsLiveSummary() {
     won: done.filter((x) => x.netSol > 0).length,
     notLanded: state.rows.length - done.length,
     open: state.opens.length,
+    // SOL that sits in coins now: what was paid for them, and what they would bring at a sell quote read in the last minutes
+    // (a coin not yet valued counts at what was paid). Not a loss and not a withdrawal until sold.
+    heldCostSol: r6(state.opens.length * c.stakeSol),
+    heldValueSol: r6(state.opens.reduce((a, p) => a + (p.valueSol ?? c.stakeSol), 0)),
     skipped: state.skipped,
     lastError: state.lastError,
     rulesReal: rules.filter((x) => x.real).length,

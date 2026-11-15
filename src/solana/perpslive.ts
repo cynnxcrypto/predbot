@@ -170,12 +170,16 @@ export function cancelRequestIx(owner: string, position: string, request: string
   ];
   return { program: PERPS_PROGRAM, keys, data: anchorDisc("close_position_request") };
 }
-/** A Position account's size in dollars (0 = no position). Layout from the program interface: sizeUsd at byte 161. */
-export function positionSizeUsd(dataB64: string | null | undefined): number {
-  if (!dataB64) return 0;
-  const b = Buffer.from(dataB64, "base64");
-  return b.length >= 169 ? Number(b.readBigUInt64LE(161)) / 1e6 : 0;
+/** A Position account (layout from the program interface): entry price at byte 153, sizeUsd at 161, collateralUsd at 169. */
+export function readPosition(dataB64: string | null | undefined): { entryPx: number; sizeUsd: number; collateralUsd: number } {
+  const b = dataB64 ? Buffer.from(dataB64, "base64") : Buffer.alloc(0);
+  if (b.length < 177) return { entryPx: 0, sizeUsd: b.length >= 169 ? Number(b.readBigUInt64LE(161)) / 1e6 : 0, collateralUsd: 0 };
+  return { entryPx: Number(b.readBigUInt64LE(153)) / 1e6, sizeUsd: Number(b.readBigUInt64LE(161)) / 1e6, collateralUsd: Number(b.readBigUInt64LE(169)) / 1e6 };
 }
+/** A Position account's size in dollars (0 = no position). */
+export const positionSizeUsd = (dataB64: string | null | undefined) => readPosition(dataB64).sizeUsd;
+/** What a short of `sizeUsd` opened at `entryPx` has made at `px`, before the fees to close. */
+export const shortUnrealUsd = (sizeUsd: number, entryPx: number, px: number) => (entryPx > 0 && px > 0 ? r2((sizeUsd * (entryPx - px)) / entryPx) : 0);
 
 // ---- state --------------------------------------------------------------------------------------------------------------
 interface Pos {
@@ -192,6 +196,11 @@ interface Pos {
   openedMs?: number;
   closeTries: number;
   cancelled?: boolean;
+  /** for the status: the collateral in the position and what it has made at the last price read (before closing fees) */
+  collateralUsd?: number;
+  entryPx?: number;
+  unrealUsd?: number;
+  markMs?: number;
 }
 interface Row {
   t: number;
@@ -295,7 +304,8 @@ async function sendChecked(d: PerpDeps, w: Wallet, ixs: Ix[], units = 400_000): 
   }
   return false;
 }
-const sizeOf = async (d: PerpDeps, position: string) => positionSizeUsd((await d.rpc<{ value: { data?: [string, string] } | null }>("getAccountInfo", [position, { encoding: "base64", commitment: "confirmed" }]))?.value?.data?.[0]);
+const posOf = async (d: PerpDeps, position: string) => readPosition((await d.rpc<{ value: { data?: [string, string] } | null }>("getAccountInfo", [position, { encoding: "base64", commitment: "confirmed" }]))?.value?.data?.[0]);
+const sizeOf = async (d: PerpDeps, position: string) => (await posOf(d, position)).sizeUsd;
 const exists = async (d: PerpDeps, address: string) => !!(await d.rpc<{ value: unknown | null }>("getAccountInfo", [address, { encoding: "base64", commitment: "confirmed", dataSlice: { offset: 0, length: 0 } }]))?.value;
 const counter = () => BigInt(Math.floor(Math.random() * 1_000_000_000));
 
@@ -338,7 +348,17 @@ export async function perpsLiveTick(d: PerpDeps, now = Date.now()): Promise<void
     const paper = perpPaperOpens();
     const p = state.pos;
     if (p) {
-      const size = await sizeOf(d, p.position);
+      const onChain = await posOf(d, p.position);
+      const size = onChain.sizeUsd;
+      if (size > 0) {
+        p.collateralUsd = onChain.collateralUsd;
+        p.entryPx = onChain.entryPx;
+        const px = await d.price(p.coin).catch(() => 0);
+        if (px > 0) {
+          p.unrealUsd = shortUnrealUsd(size, onChain.entryPx, px);
+          p.markMs = now;
+        }
+      }
       const pending = await exists(d, p.request);
       if (p.stage === "opening") {
         if (size > 0) {
@@ -447,7 +467,9 @@ export function perpsLiveSummary() {
     trades: done.length,
     won: done.filter((x) => x.netUsd > 0).length,
     notFilled: state.rows.length - done.length,
-    open: state.pos ? { rule: state.pos.rule, coin: state.pos.coin, stage: state.pos.stage, sizeUsd: state.pos.sizeUsd, since: state.pos.openedMs ?? state.pos.sentMs } : null,
+    // collateralUsd is USDC that sits in the position (or in a request on its way), not spent and not withdrawn;
+    // unrealisedUsd is what the short has made at the last price read, before the fees to close
+    open: state.pos ? { rule: state.pos.rule, coin: state.pos.coin, stage: state.pos.stage, sizeUsd: state.pos.sizeUsd, since: state.pos.openedMs ?? state.pos.sentMs, collateralUsd: r2(state.pos.collateralUsd ?? c.collateralUsd), entryPrice: state.pos.entryPx ?? null, unrealisedUsd: state.pos.unrealUsd ?? 0, pricedAt: state.pos.markMs ?? null } : null,
     dryRun: state.dry,
     lastSimulation: state.lastSim,
     skipped: state.skipped,
