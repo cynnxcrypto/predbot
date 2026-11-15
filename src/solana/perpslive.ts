@@ -221,11 +221,8 @@ interface State {
   seen: string[];
   skipped: Record<string, number>;
   dry: { at: number; result: string } | null;
-<<<<<<< HEAD
-=======
   /** the one-time test trade that was made (its name in the live rules, and when): a name is used once, for good */
   test?: { id: string; at: number };
->>>>>>> origin/main
   /** the dry simulation of a CLOSE order, against a short that exists on the chain (someone else's; nothing is signed or sent) */
   dryClose?: { at: number; result: string; tried: number } | null;
   lastSim: string;
@@ -563,11 +560,8 @@ export function perpsLiveSummary() {
     dryRun: state.dry,
     // the close order simulated as the owner of a short that exists on the chain (nothing signed or sent); tried = owners tried
     dryRunClose: state.dryClose ?? null,
-<<<<<<< HEAD
-=======
     // the one-time test trade: its name, when, and what it did to the wallet's USDC
     test: state.test ? { ...state.test, rows: state.rows.filter((x) => x.rule === TEST_RULE).map((x) => ({ t: x.t, filled: x.filled, netUsd: x.netUsd, heldH: x.heldH })) } : null,
->>>>>>> origin/main
     lastSimulation: state.lastSim,
     skipped: state.skipped,
     lastError: state.lastError,
