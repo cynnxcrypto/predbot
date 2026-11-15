@@ -114,7 +114,7 @@ test("real day-holder copy: off unless switched on, hard limits hold", () => {
   assert.equal(parseSlowLive(JSON.stringify({ solanaSlow: { on: true } })).on, false, "no loss cap means off");
   assert.equal(parseSlowLive(JSON.stringify({ solanaSlow: { on: true, maxLossSol: 0.05, stakeSol: 0.001 } })).on, false);
   assert.equal(parseSlowLive(JSON.stringify({ solanaCopy: { on: true, maxLossSol: 0.5 } })).on, false, "the first test's switch is not this one");
-  const c = parseSlowLive(JSON.stringify({ solanaSlow: { on: true, maxLossSol: 9, stakeSol: 9, maxOpen: 99, entrySec: 0, exitSec: 999, slippageBps: 1e6, maxFeeLamports: 1e12 } }));
+  const c = parseSlowLive(JSON.stringify({ solanaSlow: { on: true, maxLossSol: 9, stakeSol: 9, maxOpen: 999, entrySec: 0, exitSec: 999, slippageBps: 1e6, maxFeeLamports: 1e12 } }));
   assert.deepEqual([c.on, c.maxLossSol, c.stakeSol, c.maxOpen, c.entrySec, c.exitSec, c.slippageBps, c.maxFeeLamports], [true, HARD_MAX_LOSS_SOL, HARD_STAKE_SOL, HARD_MAX_OPEN, 1, 60, 3000, 200_000]);
   const d = parseSlowLive(JSON.stringify({ solanaSlow: { on: true, maxLossSol: 0.08 } }));
   assert.deepEqual([d.stakeSol, d.maxOpen, d.entrySec, d.exitSec, d.maxHoldH, d.maxFeeLamports], [0.01, HARD_MAX_OPEN, 5, 5, 72, 20_000]);

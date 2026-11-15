@@ -5,7 +5,8 @@
     "note2": "15 Nov 2026 17:38 KST, enrique: 'these are the final funding numbers ... make it all grow' (this wallet about $101). maxLossSol 0.6 -> 1.4: up to that much may be out in copies at once (was 0.5 of 0.6). stopLossSol 0.3: new copies stop when 0.3 SOL is really lost (review decides). Stake stays 0.01 until the sizing plan has his yes.",
     "maxLossSol": 1.4,
     "stopLossSol": 0.3,
-    "stakeSol": 0.01
+    "note3": "15 Nov 2026 17:51 KST, enrique: 'the solana spot copy is not still limited by extremely small trades and a tiny balance'. Stake 0.01 -> 0.035 SOL a copy (about $2.50; he agreed to $2-3 a copy, 17:52 KST 'okay sounds good' / 'lets get it all into the bot'): the wallet fits about 36 coins out.",
+    "stakeSol": 0.035
   },
   "solanaBuckets": {
     "note": "15 Nov 2026 08:40 KST, enrique: 'yes to both' (switch the spot bucket real side on so rules promote themselves) and 'so we separate budgets of different things' (its own wallet, funded by him 15 Nov ~11:00 KST). A spot bucket rule trades for real only while its paper record meets the bar (100+ paper trades, half won, ahead); 0.01 SOL a trade, a rule goes back to paper at -0.03 SOL, 5 coins out at most, total loss cap 0.1 SOL. Code src/solana/bucketslive.ts. Perps real stays off (no solanaPerps block).",
@@ -18,7 +19,12 @@
   },
   "solanaPerps": {
     "note": "OFF. Real perps trading needs a perp rule at the bar and enrique's own yes. testOnce: 15 Nov 2026 12:28 KST, enrique: 'feel free to do one test in each of the new things so we know everything works, try to not lose money of course' - ONE smallest SOL short ($10 collateral, $20 size), opened and closed at the next look, once per name; the same name on solanaBuckets buys and sells 0.01 SOL of JUP once.",
-    "on": false,
+    "on": true,
+    "note2": "15 Nov 2026 17:47 KST, enrique: 'oh okay perps can be on too'. ON like the spot rules: a perp paper rule trades for real only while its paper record meets the bar (100+ paper trades, half or more won, ahead) and goes back to paper under it or at -$3 real. Shorts only, 2x, one position at a time, $10 collateral to start, total loss cap $15.",
+    "collateralUsd": 10,
+    "leverage": 2,
+    "ruleStopUsd": 3,
+    "maxLossUsd": 15,
     "swapSolOnce": { "id": "swap-15nov", "keepSol": 0.05, "note": "15 Nov 2026 17:32 KST, enrique: 'i sent too much sol but it uses usdc no?' / 'yeah do the swap': the SOL above 0.05 in the perps wallet is swapped into USDC, once." },
     "testOnce": "test-15nov"
   },
