@@ -36,6 +36,7 @@ import { DATA, ROOT } from "../config.js";
 import { meetsBar, perpPaperOpens, perpPaperRecord, perpRuleIds, setPerpsRealSummary, REAL_MIN_TRADES } from "./buckets.js";
 import { base58decode, namedWallet, signTransaction, type Wallet } from "./keys.js";
 import { USDC } from "./pools.js";
+import { fileSwap, gasSummary, gasTick, type GasDeps } from "./gas.js";
 import { anchorDisc, ata, ATA_PROGRAM, budget, buildTx, pda, SYSTEM_PROGRAM, TOKEN_PROGRAM, u64le, type Ix } from "./soltx.js";
 
 export const PERPS_PROGRAM = "PERPHjGBqRHArX4DySjwM6UJHiR3sWAatqfdBS2qQJu";
@@ -560,6 +561,7 @@ export function perpsLiveSummary() {
     dryRun: state.dry,
     // the close order simulated as the owner of a short that exists on the chain (nothing signed or sent); tried = owners tried
     dryRunClose: state.dryClose ?? null,
+    gas: gasSummary(),
     // the one-time test trade: its name, when, and what it did to the wallet's USDC
     test: state.test ? { ...state.test, rows: state.rows.filter((x) => x.rule === TEST_RULE).map((x) => ({ t: x.t, filled: x.filled, netUsd: x.netUsd, heldH: x.heldH })) } : null,
     lastSimulation: state.lastSim,
@@ -601,7 +603,16 @@ export async function startPerpsLive() {
     fixed: (e) => whyNotSent(String((e as Error)?.message ?? e)),
   };
   setPerpsRealSummary(perpsLiveSummary);
-  timer = setInterval(() => void perpsLiveTick(d), 30_000);
+  // SOL for fees (src/solana/gas.ts): the top-up and the one swap in this wallet, and the low flags of all three
+  const addrOf = (f: string) => {
+    try {
+      return readFileSync(join(DATA, f), "utf8").trim();
+    } catch {
+      return "";
+    }
+  };
+  const g: GasDeps = { wallet: () => namedWallet("perps"), others: () => ({ copy: addrOf("solana-wallet-address.txt"), rules: addrOf("solana-wallet-buckets-address.txt") }), perpsBusy: () => busy || Boolean(state.pos), swapOnce: fileSwap, kit };
+  timer = setInterval(() => void perpsLiveTick(d).then(() => gasTick(g)), 30_000);
   timer.unref();
 }
 
