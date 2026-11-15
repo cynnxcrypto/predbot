@@ -240,7 +240,114 @@ export const PERP_RULES: PerpRule[] = [
     history: "Loses 0.13% a trade (880 a year). Kept as the frequent control.",
     signal: (k, i) => (cr(k.c, i, 1) <= -0.015 ? -1 : 0),
   },
+  // the long mirrors of the short rules (enrique, 15 Nov 2026 17:30 KST: "are we testing longs and shorts?")
+  {
+    key: "long-up-week", holdH: 168, text: "Longs for 7 days when the last 7 days and the last 30 days are both up (looked at once a day).",
+    history: "Mirror of the down-week short; not tested apart. Rare, and silent while the market falls.",
+    signal: (k, i) => (k.t[i] % 24 === 23 && cr(k.c, i, 168) > 0 && cr(k.c, i, 720) > 0 ? 1 : 0),
+  },
+  {
+    key: "long-dip-rising", holdH: 24, text: "Longs for a day after a 5% fall in a day while the last 30 days are up 10% or more.",
+    history: "Mirror of the bounce short; silent while the market falls.",
+    signal: (k, i) => (cr(k.c, i, 24) <= -0.05 && cr(k.c, i, 720) > 0.1 ? 1 : 0),
+  },
+  {
+    key: "long-dip-over-avg", holdH: 12, text: "Longs for 12 hours after a 3% fall in a day while the price is over its 7-day average.",
+    history: "Mirror of the under-average short (about zero).",
+    signal: (k, i) => (cr(k.c, i, 24) <= -0.03 && k.c[i] > mean(k.c, i, 168) ? 1 : 0),
+  },
+  {
+    key: "long-fall-1h", holdH: 4, text: "Longs for 4 hours after a 1.5% fall in one hour (buys the dip).",
+    history: "Loses about 0.1% a trade (880 a year). The frequent long control.",
+    signal: (k, i) => (cr(k.c, i, 1) <= -0.015 ? 1 : 0),
+  },
+  {
+    key: "long-pump-1h", holdH: 4, text: "Longs for 4 hours after a 1.5% rise in one hour (goes with the move).",
+    history: "Loses about 0.1% a trade (880 a year). The frequent long control.",
+    signal: (k, i) => (cr(k.c, i, 1) >= 0.015 ? 1 : 0),
+  },
 ];
+
+// ---- leverage on paper ------------------------------------------------------------------------------------------------------
+// enrique, 15 Nov 2026 17:30 KST: "2x is gonna be almost nothing ... build a way to decide confidence on the trade to do
+// variable leverage ... you can do odd numbers and decimals". Paper only: the real side keeps its 2x limit until he says.
+/** The leverage tiers every closed paper trade is scored at. */
+export const LEV_TIERS = [1.5, 2, 3, 5, 7.5, 10, 15, 20] as const;
+/** The collateral one paper trade puts up at every tier, dollars: results are comparable across tiers. */
+export const LEV_COLLATERAL_USD = 20;
+/** Jupiter closes a position by force when what is left of the collateral, after the loss and the fees owed, is under
+ *  about 0.2% of the position. On top of the fees this is the room that is lost. */
+export const LIQ_BUFFER = 0.002;
+/** How far the price may go against a position at `lev` before it is closed by force, as a fraction of the entry. */
+export const liqMove = (lev: number, hours: number, feeSide = PERP_FEE_SIDE) => 1 / lev - 2 * feeSide - PERP_BORROW_HOUR * hours - LIQ_BUFFER;
+/**
+ * One trade at `lev`, as a fraction of the COLLATERAL: `net` is its result as a fraction of the position (after fees
+ * and borrow), `worst` the furthest the price went against it while it was open. Liquidated = the collateral is gone,
+ * whatever the price did afterwards.
+ */
+export function levResult(net: number, worst: number, hours: number, lev: number, feeSide = PERP_FEE_SIDE): { ret: number; liquidated: boolean } {
+  if (worst >= liqMove(lev, hours, feeSide)) return { ret: -1, liquidated: true };
+  return { ret: Math.max(-1, lev * net), liquidated: false };
+}
+/** Leverage by confidence score 0-4 (decimals on purpose). */
+export const CONF_LEV = [1.5, 2.5, 4, 6.5, 10] as const;
+/**
+ * The confidence score of a trade, 0 to 4: one point for each of
+ *  1. the last 7 days went the trade's way, 2. the last 30 days went the trade's way,
+ *  3. the copied perp traders hold more dollars on the trade's side of this coin than against it,
+ *  4. the market is quiet: the last 24 hours' range is under the median of the 30 days before (less room to be liquidated).
+ * It is a guess fixed before any result. The paper table by score says whether a higher score really did better;
+ * if it does not, the score is worth nothing and leverage must not follow it.
+ */
+export function perpConfidence(k: Candles, i: number, dir: number, tradersNet: number): number {
+  let n = 0;
+  if (i >= 168 && Math.sign(cr(k.c, i, 168)) === dir) n++;
+  if (i >= 720 && Math.sign(cr(k.c, i, 720)) === dir) n++;
+  if (Math.sign(tradersNet) === dir) n++;
+  if (i >= 31 * 24) {
+    const range = (e: number) => (Math.max(...k.h.slice(e - 23, e + 1)) - Math.min(...k.l.slice(e - 23, e + 1))) / k.c[e];
+    const past = Array.from({ length: 30 }, (_, d) => range(i - 24 * (d + 1))).sort((a, b) => a - b);
+    if (range(i) < (past[14] + past[15]) / 2) n++;
+  }
+  return n;
+}
+/** The furthest the price went against a position opened after candle hour `hour` at `entry`, in the closed candles since and at `px`. */
+export function worstMove(k: Candles, hour: number, dir: number, entry: number, px: number): number {
+  let w = Math.max(0, -dir * (px / entry - 1));
+  for (let j = k.t.length - 1; j >= 0 && k.t[j] > hour; j--) w = Math.max(w, dir > 0 ? 1 - k.l[j] / entry : k.h[j] / entry - 1);
+  return w;
+}
+interface LevRow {
+  net: number;
+  worst?: number;
+  hours: number;
+  dir: number;
+  conf?: number;
+  /** a copied trader's own leverage */
+  lev?: number;
+  fee?: number;
+}
+const levTally = (xs: LevRow[], lev: (t: LevRow) => number | undefined) => {
+  let trades = 0, won = 0, liquidated = 0, sum = 0;
+  for (const t of xs) {
+    const L = lev(t);
+    if (t.worst === undefined || !(L! > 0)) continue;
+    const x = levResult(t.net, t.worst, t.hours, L!, t.fee);
+    trades++;
+    if (x.ret > 0) won++;
+    if (x.liquidated) liquidated++;
+    sum += x.ret;
+  }
+  return { trades, won, liquidated, netUsd: r(sum * LEV_COLLATERAL_USD), avgPctOfCollateral: trades ? r((sum / trades) * 100) : null };
+};
+/** Every tier side by side for one set of closed paper trades (only trades whose worst price was tracked). */
+export function levTable(xs: LevRow[]) {
+  return LEV_TIERS.map((lev) => ({ lev, ...levTally(xs, () => lev) }));
+}
+const median = (xs: number[]) => {
+  const a = [...xs].sort((x, y) => x - y);
+  return a.length ? r(a.length % 2 ? a[(a.length - 1) / 2] : (a[a.length / 2 - 1] + a[a.length / 2]) / 2) : null;
+};
 /** One perp trade after Jupiter's fees and borrow, as a fraction of the position. */
 export const perpNet = (dir: number, entry: number, exit: number, hours: number) => dir * (exit / entry - 1) - 2 * PERP_FEE_SIDE - PERP_BORROW_HOUR * hours;
 
@@ -318,6 +425,18 @@ export function hlPositions(state: unknown): Record<string, number> | null {
   }
   return out;
 }
+/** The leverage a trader has set on each open position (Hyperliquid's own number), out of a clearinghouseState answer. */
+export function hlLeverage(state: unknown): Record<string, number> {
+  const rows = (state as { assetPositions?: unknown })?.assetPositions;
+  const out: Record<string, number> = {};
+  if (!Array.isArray(rows)) return out;
+  for (const x of rows as { position?: Record<string, unknown> }[]) {
+    const p = x?.position;
+    const lev = Number((p?.leverage as { value?: unknown })?.value);
+    if (typeof p?.coin === "string" && lev >= 1 && lev <= 200) out[p.coin] = lev;
+  }
+  return out;
+}
 /** What changed between two looks at one trader: positions opened (or turned round) and positions closed. */
 export function hlDiff(before: Record<string, number>, after: Record<string, number>): { opened: { coin: string; dir: number }[]; closed: string[] } {
   const opened: { coin: string; dir: number }[] = [];
@@ -363,6 +482,9 @@ interface PerpOpen {
   hour: number;
   at: number;
   entry: number;
+  /** confidence score 0-4 when it was opened, and the furthest the price has gone against it (fraction of entry) */
+  conf?: number;
+  worst?: number;
 }
 interface PerpTrade {
   rule: string;
@@ -371,6 +493,8 @@ interface PerpTrade {
   at: number;
   exitAt: number;
   net: number;
+  conf?: number;
+  worst?: number;
 }
 interface HlOpen {
   trader: string;
@@ -378,6 +502,9 @@ interface HlOpen {
   dir: number;
   at: number;
   entry: number;
+  /** the leverage the trader set on it, and the furthest the price has gone against it at the prices we read */
+  lev?: number;
+  worst?: number;
 }
 interface HlTrade {
   trader: string;
@@ -387,6 +514,8 @@ interface HlTrade {
   exitAt: number;
   net: number;
   why: "closed" | "max hold";
+  lev?: number;
+  worst?: number;
 }
 interface State {
   /** version of the coin sorting: an older file's coin list is read again at once */
@@ -582,6 +711,8 @@ function close(o: SpotOpen, now: number, why: SpotTrade["why"], usdOut: number, 
 }
 
 // ---- perps: rules ---------------------------------------------------------------------------------------------------------
+/** Dollars the copied traders hold long minus short on one coin, at the last look at each of them. */
+const tradersNet = (coin: string) => state.hlTraders.reduce((a, t) => a + (state.hlSeen[t.address]?.[coin] ?? 0), 0);
 async function perpTick(deps: BucketDeps, now: number) {
   const lastClosed = Math.floor(now / 3_600_000) - 1;
   if (lastClosed <= state.perpHour || now % 3_600_000 < 15_000) return;
@@ -604,11 +735,12 @@ async function perpTick(deps: BucketDeps, now: number) {
       const id = `${coin}-${rule.key}`;
       const sig = rule.signal(k, i);
       const o = state.perpOpen.find((x) => x.rule === id);
+      if (o && o.worst !== undefined) o.worst = r(Math.max(o.worst, worstMove(k, o.hour, o.dir, o.entry, px)), 6)!;
       if (o && (hour - o.hour >= rule.holdH || (rule.flip && sig !== 0 && sig !== o.dir))) {
-        state.perpTrades.push({ rule: id, coin, dir: o.dir, at: o.at, exitAt: now, net: r(perpNet(o.dir, o.entry, px, (now - o.at) / 3_600_000), 6)! });
+        state.perpTrades.push({ rule: id, coin, dir: o.dir, at: o.at, exitAt: now, net: r(perpNet(o.dir, o.entry, px, (now - o.at) / 3_600_000), 6)!, conf: o.conf, worst: o.worst });
         state.perpOpen = state.perpOpen.filter((x) => x !== o);
       }
-      if (sig !== 0 && !state.perpOpen.some((x) => x.rule === id)) state.perpOpen.push({ rule: id, coin, dir: sig, hour, at: now, entry: px });
+      if (sig !== 0 && !state.perpOpen.some((x) => x.rule === id)) state.perpOpen.push({ rule: id, coin, dir: sig, hour, at: now, entry: px, conf: perpConfidence(k, i, sig, tradersNet(coin)), worst: 0 });
     }
   }
   if (state.perpTrades.length > KEEP_TRADES) state.perpTrades = state.perpTrades.slice(-KEEP_TRADES);
@@ -649,13 +781,16 @@ async function hlTick(deps: BucketDeps, now: number) {
     if (!px) return;
     const fee = hlCost(o.coin);
     const net = o.dir * (px / o.entry - 1) - 2 * fee - PERP_BORROW_HOUR * ((now - o.at) / 3_600_000);
-    state.hlTrades.push({ trader: o.trader, coin: o.coin, dir: o.dir, at: o.at, exitAt: now, net: r(net, 6)!, why });
+    const worst = o.worst === undefined ? undefined : r(Math.max(o.worst, -o.dir * (px / o.entry - 1)), 6)!;
+    state.hlTrades.push({ trader: o.trader, coin: o.coin, dir: o.dir, at: o.at, exitAt: now, net: r(net, 6)!, why, lev: o.lev, worst });
     state.hlOpen = state.hlOpen.filter((x) => x !== o);
   };
   for (let n = 0; n < Math.min(HL_PER_TICK, watch.length); n++) {
     const a = watch[state.hlNext++ % watch.length];
-    const after = hlPositions(await hlPost(deps, { type: "clearinghouseState", user: a }));
+    const answer = await hlPost(deps, { type: "clearinghouseState", user: a });
+    const after = hlPositions(answer);
     if (!after) continue;
+    const levs = hlLeverage(answer);
     const before = state.hlSeen[a];
     state.hlSeen[a] = after;
     if (!before) continue; // first look: what it already holds was opened at prices we never saw
@@ -664,8 +799,14 @@ async function hlTick(deps: BucketDeps, now: number) {
     if (!state.hlTraders.some((t) => t.address === a)) continue; // dropped from the list: only its open copies are finished
     for (const { coin, dir } of opened) {
       const px = await mid(coin);
-      if (px && !state.hlOpen.some((x) => x.trader === a && x.coin === coin)) state.hlOpen.push({ trader: a, coin, dir, at: now, entry: px });
+      if (px && !state.hlOpen.some((x) => x.trader === a && x.coin === coin)) state.hlOpen.push({ trader: a, coin, dir, at: now, entry: px, lev: levs[coin], worst: 0 });
     }
+  }
+  // how far each open copy has gone against us, at the prices of this look (between looks it can have gone further)
+  for (const o of state.hlOpen) {
+    if (o.worst === undefined) continue;
+    const px = await mid(o.coin);
+    if (px) o.worst = r(Math.max(o.worst, -o.dir * (px / o.entry - 1)), 6)!;
   }
   for (const o of state.hlOpen.filter((x) => now - x.at >= HL_MAX_HOLD_MS)) await shut(o, "max hold");
   if (state.hlTrades.length > KEEP_TRADES) state.hlTrades = state.hlTrades.slice(-KEEP_TRADES);
@@ -778,7 +919,24 @@ export function bucketsSummary() {
           return { id, coin, text: x.text, history: x.history, ...tally(state.perpTrades.filter((t) => t.rule === id).map((t) => t.net), PERP_USD), open: o ? { side: o.dir > 0 ? "long" : "short", since: o.at, entry: o.entry, nowPct: state.perpLast[coin] ? r(perpNet(o.dir, o.entry, state.perpLast[coin].px, 0) * 100) : null } : null };
         }),
       ),
-      recent: state.perpTrades.slice(-15).reverse().map((t) => ({ rule: t.rule, side: t.dir > 0 ? "long" : "short", openedAt: t.at, closedAt: t.exitAt, pct: r(t.net * 100) })),
+      recent: state.perpTrades.slice(-15).reverse().map((t) => ({ rule: t.rule, side: t.dir > 0 ? "long" : "short", openedAt: t.at, closedAt: t.exitAt, pct: r(t.net * 100), confidence: t.conf ?? null, worstPct: t.worst === undefined ? null : r(t.worst * 100) })),
+      sides: { longs: tally(state.perpTrades.filter((t) => t.dir > 0).map((t) => t.net), PERP_USD), shorts: tally(state.perpTrades.filter((t) => t.dir < 0).map((t) => t.net), PERP_USD) },
+      leverage: (() => {
+        const rows: LevRow[] = state.perpTrades.map((t) => ({ net: t.net, worst: t.worst, hours: (t.exitAt - t.at) / 3_600_000, dir: t.dir, conf: t.conf }));
+        const byConf = (t: LevRow) => (t.conf === undefined ? undefined : CONF_LEV[t.conf]);
+        return {
+          note: `PAPER. Every closed rule trade scored at each leverage with $${LEV_COLLATERAL_USD} of collateral: result = leverage x the trade's result after fees and borrow; a trade whose price went against it by more than (1 / leverage - fees - 0.2%) at any hourly candle while it was open is LIQUIDATED and loses all its collateral. Confidence is a score 0-4 fixed when the trade opens (7-day trend agrees, 30-day trend agrees, copied traders lean the same way, quiet market) and sets leverage ${CONF_LEV.join(", ")}x. It is an untested guess: byConfidence shows whether higher scores really did better. Only trades opened since this was added count.`,
+          collateralUsd: LEV_COLLATERAL_USD,
+          tiers: levTable(rows),
+          longs: levTable(rows.filter((t) => t.dir > 0)),
+          shorts: levTable(rows.filter((t) => t.dir < 0)),
+          variable: levTally(rows, byConf),
+          byConfidence: CONF_LEV.map((lev, score) => {
+            const xs = rows.filter((t) => t.conf === score && t.worst !== undefined);
+            return { score, lev, ...levTally(xs, () => lev), avgPctAt1x: xs.length ? r((xs.reduce((a, t) => a + t.net, 0) / xs.length) * 100) : null, wonAt1x: xs.filter((t) => t.net > 0).length };
+          }),
+        };
+      })(),
     },
     perpCopy: {
       traders: state.hlTraders.length,
@@ -789,6 +947,21 @@ export function bucketsSummary() {
       shorts: tally(state.hlTrades.filter((t) => t.dir < 0).map((t) => t.net), PERP_USD),
       longs: tally(state.hlTrades.filter((t) => t.dir > 0).map((t) => t.net), PERP_USD),
       open: state.hlOpen.length,
+      leverage: (() => {
+        const rows: LevRow[] = state.hlTrades.map((t) => ({ net: t.net, worst: t.worst, hours: (t.exitAt - t.at) / 3_600_000, dir: t.dir, lev: t.lev, fee: hlCost(t.coin) }));
+        const used = [...state.hlTrades, ...state.hlOpen].map((t) => t.lev).filter((x): x is number => x !== undefined);
+        const sorted = [...used].sort((a, b) => a - b);
+        const q = (f: number) => (sorted.length ? sorted[Math.min(sorted.length - 1, Math.floor(f * sorted.length))] : null);
+        return {
+          note: `PAPER. tradersUse is the leverage the copied traders had SET on the positions we copied (Hyperliquid's number; their real exposure can be lower when they keep spare cash). tiers scores each closed copy at every leverage with $${LEV_COLLATERAL_USD} collateral, asTheTrader at the trader's own setting. Liquidation is counted only at prices read while watching (about once a minute), so it is understated. Only copies opened since this was added count.`,
+          tradersUse: { positions: used.length, median: median(used), low: q(0.25), high: q(0.75), max: sorted.length ? sorted[sorted.length - 1] : null, at10xOrMore: used.filter((x) => x >= 10).length, at20xOrMore: used.filter((x) => x >= 20).length },
+          collateralUsd: LEV_COLLATERAL_USD,
+          tiers: levTable(rows),
+          longs: levTable(rows.filter((t) => t.dir > 0)),
+          shorts: levTable(rows.filter((t) => t.dir < 0)),
+          asTheTrader: levTally(rows, (t) => t.lev),
+        };
+      })(),
       // traders by a short tag only: a full address of a stranger does not belong in a public status
       byTrader: [...byTrader.entries()].map(([a, xs]) => ({ trader: a.slice(0, 6) + "…" + a.slice(-4), ...tally(xs, PERP_USD) })).sort((a, b) => (b.net ?? 0) - (a.net ?? 0)).slice(0, 20),
       recent: state.hlTrades.slice(-15).reverse().map((t) => ({ trader: t.trader.slice(0, 6) + "…" + t.trader.slice(-4), coin: t.coin, side: t.dir > 0 ? "long" : "short", openedAt: t.at, closedAt: t.exitAt, pct: r(t.net * 100), why: t.why })),
