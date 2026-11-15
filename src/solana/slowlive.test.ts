@@ -475,3 +475,21 @@ test("real day-holder copy: a buy left half-way by an error is settled from the 
   assert.deepEqual(_test.state().rows.map((r) => r.exit).sort(), ["buy did not land", "sold"]);
   _test.reset();
 });
+
+test("a copy counted twice is counted once at the next start, and only once", async () => {
+  const { writeFileSync, readFileSync, mkdirSync } = await import("node:fs");
+  const dir = process.env.DATA_DIR!;
+  const row = (name: string, netSol: number, sigs: string[]) => ({ t: 1, name, mint: "m", leaderSlot: 0, buy: "landed", netSol, sigs });
+  const rows = [row("a", 0.002, ["s1", "s2"]), row("b", -0.001292, ["s3", "s4"]), row("b", -0.001292, ["s4", "s3"]), row("c", -0.0005, [])];
+  writeFileSync(join(dir, "solana-slowlive.json"), JSON.stringify({ netSol: -0.001084, halted: "", opens: [], rows }));
+  mkdirSync(join(dir, "solana"), { recursive: true });
+  writeFileSync(join(dir, "solana", "slowlive-trades.jsonl"), rows.map((r) => JSON.stringify(r)).join("\n") + "\n");
+  _test.reload();
+  assert.equal(_test.state().rows.length, 3);
+  assert.equal(_test.state().netSol, 0.000208);
+  assert.equal(readFileSync(join(dir, "solana", "slowlive-trades.jsonl"), "utf8").trim().split("\n").length, 3);
+  _test.reload();
+  assert.equal(_test.state().rows.length, 3);
+  assert.equal(_test.state().netSol, 0.000208);
+  _test.reset();
+});

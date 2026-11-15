@@ -5,6 +5,20 @@
     "maxLossSol": 0.6,
     "stakeSol": 0.01
   },
+  "solanaBuckets": {
+    "note": "15 Nov 2026 08:40 KST, enrique: 'yes to both' (switch the spot bucket real side on so rules promote themselves) and 'so we separate budgets of different things' (its own wallet, funded by him 15 Nov ~11:00 KST). A spot bucket rule trades for real only while its paper record meets the bar (100+ paper trades, half won, ahead); 0.01 SOL a trade, a rule goes back to paper at -0.03 SOL, 5 coins out at most, total loss cap 0.1 SOL. Code src/solana/bucketslive.ts. Perps real stays off (no solanaPerps block).",
+    "on": true,
+    "stakeSol": 0.01,
+    "ruleStopSol": 0.03,
+    "maxOpen": 5,
+    "maxLossSol": 0.1,
+    "testOnce": "test-15nov-c"
+  },
+  "solanaPerps": {
+    "note": "OFF. Real perps trading needs a perp rule at the bar and enrique's own yes. testOnce: 15 Nov 2026 12:28 KST, enrique: 'feel free to do one test in each of the new things so we know everything works, try to not lose money of course' - ONE smallest SOL short ($10 collateral, $20 size), opened and closed at the next look, once per name; the same name on solanaBuckets buys and sells 0.01 SOL of JUP once.",
+    "on": false,
+    "testOnce": "test-15nov"
+  },
   "mode": "live",
   "minBalance": 0,
   "solanaCopy": { "on": true, "maxLossSol": 0.5, "stakeSol": 0.05, "holdSec": 60, "targetPct": 10, "stopPct": 15, "minGapPct": 0, "maxGapPct": 9, "traders": "cut-busy", "maxOpen": 5 },

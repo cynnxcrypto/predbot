@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
-import { NEG_TRIAL, _eventLiveTest, restShares, ruleAdapt, eventLiveBlock, eventLiveBuy, eventLiveConfig, negRiskBlock, parseEventLive, type EventLiveRow } from "./eventlive.js";
+import { NEG_TRIAL, _eventLiveTest, restShares, ruleAdapt, paperGate, setPaperBehind, eventLiveBlock, eventLiveBuy, eventLiveConfig, negRiskBlock, parseEventLive, type EventLiveRow } from "./eventlive.js";
 import { NEG_PERMS, eventClaimCalls, negRiskCalls } from "./live.js";
 import { stopWhenOrderDone } from "./eventpaper.js";
 
@@ -190,12 +190,30 @@ test("per-wallet automatic rule: learning to 10 settled, back to paper at -$10, 
   const ten = [...nine, r("a", -2, 9)];
   assert.deepEqual(ruleAdapt(g, ten, "a"), { state: "paper", n: 10, net: -20 });
   assert.match(eventLiveBlock(cfg, "copy", "a", "new", 0.5, 10, true, ten, NOW5, 3)!, /back to paper/);
+  // the paper record gate: 20+ settled paper bets not ahead, or under half won, hold the wallet's new real copies
+  const pt = (rule: string, n: number, wonN: number, each: number) => Array.from({ length: n }, (_, i) => ({ rule, pnl: i < wonN ? each : -each, won: i < wonN }));
+  const gate = paperGate(["x1", "a", "b", "x4"], [...pt("x1", 19, 0, 1), ...pt("a", 20, 9, 1), ...pt("b", 20, 12, 1), ...pt("x4", 20, 12, 1), { rule: "x4", pnl: -9, won: false }, { rule: "b", pnl: -50, won: false, fillable: false }]);
+  assert.deepEqual([...gate.keys()], ["a", "x4"]);
+  setPaperBehind(gate);
+  assert.match(eventLiveBlock(cfg, "copy", "a", "new", 0.5, 10, true, [], NOW5, 3)!, /paper record \(9 of 20 won/);
+  assert.doesNotMatch(String(eventLiveBlock(cfg, "copy", "b", "new", 0.5, 10, true, [], NOW5, 3)), /paper record/);
+  setPaperBehind(new Map());
   assert.equal(eventLiveBlock(cfg, "copy", "b", "new", 0.5, 10, true, ten, NOW5, 3), null, "other wallets are not touched");
   const ahead = Array.from({ length: 10 }, (_, i) => r("b", i < 6 ? 1 : -1, i));
   assert.equal(ruleAdapt(g, ahead, "b").state, "up");
   const down5 = Array.from({ length: 10 }, (_, i) => r("b", -0.5, i));
   assert.equal(ruleAdapt(g, down5, "b").state, "flat");
   assert.equal(ruleAdapt(parseEventLive(JSON.stringify({ mode: "live", events: { tennis: { rules: ["t"], size: 3 } } }), { funder: "0x1" }).groups.tennis, ten, "a").state, "off");
+});
+
+test("delayed orders: the fill is read from our own trades", async () => {
+  const { delayedFill } = await import("./eventlive.js");
+  const T = Date.parse("2026-11-15T00:00:00Z");
+  const tr = (o: Record<string, unknown>) => ({ side: "BUY", size: "5", price: "0.6", status: "MATCHED", trader_side: "TAKER", match_time: String(T / 1000 + 4), taker_order_id: "0xa", ...o });
+  assert.deepEqual(delayedFill([tr({}), tr({ taker_order_id: "0xb" })], { orderId: "0xa", t: T }), { shares: 5, cost: 3 });
+  // an old row has no order id: our taker buys within ten minutes of the order count
+  assert.deepEqual(delayedFill([tr({}), tr({ size: "2" }), tr({ match_time: String(T / 1000 + 3600) }), tr({ trader_side: "MAKER" }), tr({ side: "SELL" }), tr({ status: "FAILED" })], { t: T }), { shares: 7, cost: 4.2 });
+  assert.deepEqual(delayedFill([], { t: T }), { shares: 0, cost: 0 });
 });
 
 test("daily wallet rescan: the screen, weekly profit, promotion to real and drop", async () => {
@@ -226,4 +244,14 @@ test("daily wallet rescan: the screen, weekly profit, promotion to real and drop
   const lines = copyPromote(st, trades, NOW6);
   assert.equal(lines.length, 2);
   assert.deepEqual(st.wallets.map((w) => w.stage), ["real", "dropped", "paper"]);
+  // 15 Nov 2026: a real wallet whose paper record falls under the bar goes back to paper, and waits a day there
+  const worse = [...trades, ...Array.from({ length: 5 }, () => tr("copy-take-good", -1))];
+  assert.match(copyPromote(st, worse, NOW6 + 3600_000)[0], /good back to PAPER/);
+  assert.equal(st.wallets[0].stage, "paper");
+  assert.equal(copyPromote(st, trades, NOW6 + 2 * 3600_000).length, 0); // meets the bar again, but not a day on paper yet
+  assert.equal(st.wallets[0].stage, "paper");
+  assert.match(copyPromote(st, trades, NOW6 + 26 * 3600_000)[0], /good promoted to REAL/);
+  // a wallet added hours ago is not promoted on hours of results
+  const fresh = { ...st, wallets: [{ name: "good", address: "0x1", addedAt: NOW6 - 5 * 3600_000, stage: "paper" as const, why: "" }] };
+  assert.equal(copyPromote(fresh, trades, NOW6).length, 0);
 });

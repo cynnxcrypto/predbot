@@ -50,6 +50,7 @@ const PERPETUALS = () => pda(["perpetuals"], PERPS_PROGRAM).address;
 const EVENT_AUTHORITY = () => pda(["__event_authority"], PERPS_PROGRAM).address;
 const SIDE_SHORT = 2;
 
+export const TEST_RULE = "test-once";
 export const HARD_LEVERAGE = 2;
 export const HARD_COLLATERAL_USD = 25;
 export const HARD_MAX_LOSS_USD = 30;
@@ -170,12 +171,16 @@ export function cancelRequestIx(owner: string, position: string, request: string
   ];
   return { program: PERPS_PROGRAM, keys, data: anchorDisc("close_position_request") };
 }
-/** A Position account's size in dollars (0 = no position). Layout from the program interface: sizeUsd at byte 161. */
-export function positionSizeUsd(dataB64: string | null | undefined): number {
-  if (!dataB64) return 0;
-  const b = Buffer.from(dataB64, "base64");
-  return b.length >= 169 ? Number(b.readBigUInt64LE(161)) / 1e6 : 0;
+/** A Position account (layout from the program interface): entry price at byte 153, sizeUsd at 161, collateralUsd at 169. */
+export function readPosition(dataB64: string | null | undefined): { entryPx: number; sizeUsd: number; collateralUsd: number } {
+  const b = dataB64 ? Buffer.from(dataB64, "base64") : Buffer.alloc(0);
+  if (b.length < 177) return { entryPx: 0, sizeUsd: b.length >= 169 ? Number(b.readBigUInt64LE(161)) / 1e6 : 0, collateralUsd: 0 };
+  return { entryPx: Number(b.readBigUInt64LE(153)) / 1e6, sizeUsd: Number(b.readBigUInt64LE(161)) / 1e6, collateralUsd: Number(b.readBigUInt64LE(169)) / 1e6 };
 }
+/** A Position account's size in dollars (0 = no position). */
+export const positionSizeUsd = (dataB64: string | null | undefined) => readPosition(dataB64).sizeUsd;
+/** What a short of `sizeUsd` opened at `entryPx` has made at `px`, before the fees to close. */
+export const shortUnrealUsd = (sizeUsd: number, entryPx: number, px: number) => (entryPx > 0 && px > 0 ? r2((sizeUsd * (entryPx - px)) / entryPx) : 0);
 
 // ---- state --------------------------------------------------------------------------------------------------------------
 interface Pos {
@@ -192,6 +197,11 @@ interface Pos {
   openedMs?: number;
   closeTries: number;
   cancelled?: boolean;
+  /** for the status: the collateral in the position and what it has made at the last price read (before closing fees) */
+  collateralUsd?: number;
+  entryPx?: number;
+  unrealUsd?: number;
+  markMs?: number;
 }
 interface Row {
   t: number;
@@ -211,6 +221,10 @@ interface State {
   seen: string[];
   skipped: Record<string, number>;
   dry: { at: number; result: string } | null;
+  /** the one-time test trade that was made (its name in the live rules, and when): a name is used once, for good */
+  test?: { id: string; at: number };
+  /** the dry simulation of a CLOSE order, against a short that exists on the chain (someone else's; nothing is signed or sent) */
+  dryClose?: { at: number; result: string; tried: number } | null;
   lastSim: string;
   lastError: string;
 }
@@ -244,10 +258,12 @@ export const promoted = (rule: string) => meetsBar(perpPaperRecord(rule, state.d
 export interface PerpDeps {
   cfg: () => PerpsLiveConfig;
   wallet: () => Wallet;
-  rpc: <T>(method: string, params: unknown[]) => Promise<T>;
+  rpc: <T>(method: string, params: unknown[], timeoutMs?: number) => Promise<T>;
   send: (tx: string) => Promise<unknown>;
   landed: (sig: string, ms: number) => Promise<{ slot: number; err: unknown } | null>;
   sigOf: (tx: string) => string;
+  /** the name of the one-time test trade asked for, "" = none */
+  testId?: () => string;
   /** the wallet's USDC, dollars */
   usdc: (address: string) => Promise<number>;
   /** the wallet's SOL */
@@ -295,8 +311,42 @@ async function sendChecked(d: PerpDeps, w: Wallet, ixs: Ix[], units = 400_000): 
   }
   return false;
 }
-const sizeOf = async (d: PerpDeps, position: string) => positionSizeUsd((await d.rpc<{ value: { data?: [string, string] } | null }>("getAccountInfo", [position, { encoding: "base64", commitment: "confirmed" }]))?.value?.data?.[0]);
+const posOf = async (d: PerpDeps, position: string) => readPosition((await d.rpc<{ value: { data?: [string, string] } | null }>("getAccountInfo", [position, { encoding: "base64", commitment: "confirmed" }]))?.value?.data?.[0]);
+const sizeOf = async (d: PerpDeps, position: string) => (await posOf(d, position)).sizeUsd;
 const exists = async (d: PerpDeps, address: string) => !!(await d.rpc<{ value: unknown | null }>("getAccountInfo", [address, { encoding: "base64", commitment: "confirmed", dataSlice: { offset: 0, length: 0 } }]))?.value;
+/**
+ * Is our CLOSE order one the program accepts? We hold no position to try it on, and a simulation checks no
+ * signature, so the same order is simulated as the owner of a SOL short that exists on the chain now. Read-only:
+ * nothing is signed, nothing is sent, nobody's position is touched. Up to CLOSE_DRY_TRIES owners are tried, because
+ * one owner's own state (no SOL for the request's rent, no USDC account) can fail an order that is right.
+ */
+export const CLOSE_DRY_TRIES = 5;
+export async function dryClose(d: PerpDeps): Promise<{ result: string; tried: number }> {
+  const b58 = (await import("./whirlpool.js")).base58;
+  // Position accounts: custody at byte 72, collateral custody at 104, side at 152. Only owner..sizeUsd is fetched.
+  const rows = await d.rpc<{ account: { data: [string, string] } }[]>("getProgramAccounts", [PERPS_PROGRAM, {
+    encoding: "base64", commitment: "confirmed", dataSlice: { offset: 8, length: 161 },
+    filters: [{ memcmp: { offset: 72, bytes: CUSTODY.SOL } }, { memcmp: { offset: 104, bytes: USDC_CUSTODY } }, { memcmp: { offset: 152, bytes: b58(Buffer.from([SIDE_SHORT])) } }],
+  }], 60_000);
+  const owners: string[] = [];
+  for (const r of rows ?? []) {
+    const b = Buffer.from(r.account.data[0], "base64");
+    if (b.length >= 161 && Number(b.readBigUInt64LE(153)) / 1e6 >= 50) owners.push(b58(b.subarray(0, 32)));
+  }
+  if (!owners.length) return { result: "no open short on the chain to try it on", tried: 0 };
+  const px = await d.price("SOL");
+  let result = "no answer";
+  let tried = 0;
+  // spread over the list, so one odd owner is not tried every time
+  const start = Math.floor(Math.random() * owners.length);
+  for (let i = 0; i < Math.min(CLOSE_DRY_TRIES, owners.length) && result !== "ok"; i++) {
+    const owner = owners[(start + i * 7919) % owners.length];
+    const { value } = await d.rpc<{ value: { blockhash: string } }>("getLatestBlockhash", [{ commitment: "confirmed" }]);
+    result = await simulate(d, buildTx(owner, value.blockhash, [...budget(400_000, 100_000), closeShortIx(owner, "SOL", px * (1 + CLOSE_SLIP[0]), counter()).ix]));
+    tried++;
+  }
+  return { result, tried };
+}
 const counter = () => BigInt(Math.floor(Math.random() * 1_000_000_000));
 
 /** Book what the finished (or never filled) position did to the wallet's USDC; demote its rule or stop at a limit. */
@@ -321,7 +371,7 @@ export async function perpsLiveTick(d: PerpDeps, now = Date.now()): Promise<void
   try {
     const w = d.wallet();
     // the daily dry run: is an open order of ours still one the program accepts? Read-only, whatever the switch says.
-    if (!state.pos && now - (state.dry?.at ?? 0) > DRY_MS) {
+    if (!state.pos && now - (state.dry?.at ?? 0) > (state.dry?.result === "ok" ? DRY_MS : 3_600_000)) {
       let result = "no answer";
       try {
         const px = await d.price("SOL");
@@ -332,13 +382,34 @@ export async function perpsLiveTick(d: PerpDeps, now = Date.now()): Promise<void
         // no price or no chain answer: tried again in an hour
       }
       // hourly until it passes (so the first check after funding is at most an hour away), then daily
-      state.dry = { at: result === "ok" ? now : now - DRY_MS + 3_600_000, result };
+      state.dry = { at: now, result }; // a result that is not "ok" is looked at again in an hour (see the check above)
+      save();
+    }
+    // the same for a close order, hourly until it passes, then daily
+    if (!state.pos && now - (state.dryClose?.at ?? 0) > (state.dryClose?.result === "ok" ? DRY_MS : 3_600_000)) {
+      let r = { result: "no answer", tried: 0 };
+      try {
+        r = await dryClose(d);
+      } catch {
+        // the chain did not answer (the list of positions is a big read): tried again in an hour
+      }
+      state.dryClose = { at: now, ...r };
       save();
     }
     const paper = perpPaperOpens();
     const p = state.pos;
     if (p) {
-      const size = await sizeOf(d, p.position);
+      const onChain = await posOf(d, p.position);
+      const size = onChain.sizeUsd;
+      if (size > 0) {
+        p.collateralUsd = onChain.collateralUsd;
+        p.entryPx = onChain.entryPx;
+        const px = await d.price(p.coin).catch(() => 0);
+        if (px > 0) {
+          p.unrealUsd = shortUnrealUsd(size, onChain.entryPx, px);
+          p.markMs = now;
+        }
+      }
       const pending = await exists(d, p.request);
       if (p.stage === "opening") {
         if (size > 0) {
@@ -370,6 +441,32 @@ export async function perpsLiveTick(d: PerpDeps, now = Date.now()): Promise<void
           if ((await sendChecked(d, w, [made.ix])) || state.lastSim === "ok") p.stage = "closing";
           save();
         }
+      }
+      return;
+    }
+    // ONE TEST TRADE (enrique, 15 Nov 2026 12:28 KST: "feel free to do one test in each of the new things so we know
+    // everything works, try to not lose money of course"): the smallest short on SOL (the size the dry run passes
+    // with), through the very code a promoted rule uses. It follows no paper position, so the next look closes it.
+    // One per name, whatever the switch says; the name is written down before anything is sent.
+    const tid = d.testId?.() ?? "";
+    if (tid && !state.halted && state.test?.id !== tid) {
+      state.test = { id: tid, at: now };
+      save();
+      const usdc = await d.usdc(w.address);
+      if (usdc < MIN_COLLATERAL_USD + 1 || (await d.sol(w.address)) < MIN_SOL) {
+        state.note = "test trade not made: too little USDC or SOL in the perps wallet";
+        save();
+      } else {
+        const px = await d.price("SOL");
+        const sizeUsd = MIN_COLLATERAL_USD * HARD_LEVERAGE;
+        const made = openShortIx(w.address, "SOL", sizeUsd, MIN_COLLATERAL_USD, px * (1 - OPEN_SLIP), counter());
+        state.pos = { rule: TEST_RULE, coin: "SOL", paperId: `test:${tid}`, stage: "opening", usdcBefore: usdc, sizeUsd, position: made.position, request: made.request, sentMs: now, closeTries: 0 };
+        save();
+        if (!(await sendChecked(d, w, [made.ix])) && state.lastSim !== "ok") {
+          state.pos = null; // the simulation said no: nothing was sent
+          state.note = `test trade not sent: simulation ${state.lastSim}`;
+        }
+        save();
       }
       return;
     }
@@ -414,6 +511,16 @@ export async function perpsLiveTick(d: PerpDeps, now = Date.now()): Promise<void
 }
 
 // ---- status (public: rule names and numbers only) -----------------------------------------------------------------------
+/** The one-time test asked for in deploy/live-rules.json ("solanaPerps": { "testOnce": "<name>" }); "" = none. */
+function fileTest(): string {
+  if (process.env.SOLANA_LIVE === "off") return "";
+  try {
+    const t = (JSON.parse(readFileSync(join(ROOT, "deploy", "live-rules.json"), "utf8")) as { solanaPerps?: { testOnce?: unknown } }).solanaPerps?.testOnce;
+    return typeof t === "string" ? t.slice(0, 40) : "";
+  } catch {
+    return "";
+  }
+}
 function fileCfg(): PerpsLiveConfig {
   if (process.env.SOLANA_LIVE === "off") return OFF;
   try {
@@ -434,7 +541,7 @@ export function perpsLiveSummary() {
     return { id, real: c.on && !state.halted && meetsBar(paper), paperTrades: paper.trades, paperWon: paper.won, paperNetUsd: r2(paper.netUsd), demotedAt: since || null, trades: mine.length, won: mine.filter((x) => x.netUsd > 0).length, netUsd: r2(mine.reduce((a, x) => a + x.netUsd, 0)) };
   });
   return {
-    note: `REAL, off unless the live rules switch it on. Shorts on SOL, BTC or ETH on Jupiter Perps, backed by USDC, in a wallet of its own, one position at a time, at most ${HARD_LEVERAGE}x. A perp paper rule (or the paper copies of perp traders' shorts) is traded only while its paper record meets the bar (${REAL_MIN_TRADES}+ paper trades, half or more won, ahead after costs); a rule whose real trades lose $${c.ruleStopUsd || 3} goes back to paper. Every transaction is simulated on the chain before it is sent; dryRun is the simulation of an open order, hourly until it passes and then daily (it fails for lack of funds while the wallet is empty, which is the right answer). Results are what a position did to the wallet's USDC; network fees in SOL are small and not counted. Longs stay on paper.`,
+    note: `REAL, off unless the live rules switch it on. Shorts on SOL, BTC or ETH on Jupiter Perps, backed by USDC, in a wallet of its own, one position at a time, at most ${HARD_LEVERAGE}x. A perp paper rule (or the paper copies of perp traders' shorts) is traded only while its paper record meets the bar (${REAL_MIN_TRADES}+ paper trades, half or more won, ahead after costs); a rule whose real trades lose $${c.ruleStopUsd || 3} goes back to paper. Every transaction is simulated on the chain before it is sent; dryRun is the simulation of an open order, hourly until it passes and then daily (it fails for lack of funds while the wallet is empty, which is the right answer); dryRunClose is the same for a close order, simulated against a short that exists on the chain. Results are what a position did to the wallet's USDC; network fees in SOL are small and not counted. Longs stay on paper.`,
     on: c.on && !state.halted,
     switch: c.on ? "on" : "off",
     halted: state.halted,
@@ -447,8 +554,14 @@ export function perpsLiveSummary() {
     trades: done.length,
     won: done.filter((x) => x.netUsd > 0).length,
     notFilled: state.rows.length - done.length,
-    open: state.pos ? { rule: state.pos.rule, coin: state.pos.coin, stage: state.pos.stage, sizeUsd: state.pos.sizeUsd, since: state.pos.openedMs ?? state.pos.sentMs } : null,
+    // collateralUsd is USDC that sits in the position (or in a request on its way), not spent and not withdrawn;
+    // unrealisedUsd is what the short has made at the last price read, before the fees to close
+    open: state.pos ? { rule: state.pos.rule, coin: state.pos.coin, stage: state.pos.stage, sizeUsd: state.pos.sizeUsd, since: state.pos.openedMs ?? state.pos.sentMs, collateralUsd: r2(state.pos.collateralUsd ?? c.collateralUsd), entryPrice: state.pos.entryPx ?? null, unrealisedUsd: state.pos.unrealUsd ?? 0, pricedAt: state.pos.markMs ?? null } : null,
     dryRun: state.dry,
+    // the close order simulated as the owner of a short that exists on the chain (nothing signed or sent); tried = owners tried
+    dryRunClose: state.dryClose ?? null,
+    // the one-time test trade: its name, when, and what it did to the wallet's USDC
+    test: state.test ? { ...state.test, rows: state.rows.filter((x) => x.rule === TEST_RULE).map((x) => ({ t: x.t, filled: x.filled, netUsd: x.netUsd, heldH: x.heldH })) } : null,
     lastSimulation: state.lastSim,
     skipped: state.skipped,
     lastError: state.lastError,
@@ -462,8 +575,8 @@ export async function startPerpsLive() {
   if (timer || process.env.SOLANA_LIVE === "off" || process.env.SOLANA_BUCKETS === "off") return;
   const { kit, whyNotSent } = await import("./copylive.js");
   const { shared } = await import("./copyrun.js");
-  const rpc = async <T>(method: string, params: unknown[]): Promise<T> => {
-    const res = await shared.fetch()(shared.rpcUrl(), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }), signal: AbortSignal.timeout(8000) });
+  const rpc = async <T>(method: string, params: unknown[], timeoutMs = 8000): Promise<T> => {
+    const res = await shared.fetch()(shared.rpcUrl(), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }), signal: AbortSignal.timeout(timeoutMs) });
     if (!res.ok) throw new Error(`rpc ${method} http ${res.status}`);
     const j = (await res.json()) as { result?: T; error?: { message: string } };
     if (j.error) throw new Error(`rpc ${method}: error`);
@@ -472,6 +585,7 @@ export async function startPerpsLive() {
   const d: PerpDeps = {
     cfg: fileCfg,
     wallet: () => namedWallet("perps"),
+    testId: fileTest,
     rpc,
     send: (tx) => kit.send(tx),
     landed: (sig, ms) => kit.landed(sig, ms),
