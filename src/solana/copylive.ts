@@ -1625,6 +1625,8 @@ export function startSolanaCopyLive() {
   void import("./slowlive.js").then((m) => m.startSlowLive()).catch(() => undefined);
   // the real side of the paper buckets: off unless deploy/live-rules.json switches "solanaBuckets" on, and then only rules that meet the bar on paper
   void import("./bucketslive.js").then((m) => m.startBucketsLive()).catch(() => undefined);
+  // real shorts on Jupiter Perps for perp paper rules that meet the bar: off unless "solanaPerps" is switched on; its own wallet
+  void import("./perpslive.js").then((m) => m.startPerpsLive()).catch(() => undefined);
   if (walletReady && state.open) void recover();
   else if (walletReady && state.opens.length) void recoverMany();
   else if (walletReady) setTimeout(() => void tidy(), 20_000).unref();

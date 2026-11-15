@@ -17,9 +17,10 @@
  *    HARD_MAX_LOSS_SOL), counted from what our own transactions did to the wallet's SOL, read back from the chain.
  *    A buy is made only if the cap still holds with every open trade and the new one lost in full. At the cap it
  *    stops buying for good; what is out is still sold.
- *  - Its OWN wallet (enrique, 15 Nov 2026: "so we separate budgets of different things"): keys.ts walletNamed("buckets"),
- *    not the day-holder copy's. SOL itself is never "bought", and before each buy the wallet must cover the stake, a
- *    coin account's rent and a sale reserve for every trade that is out.
+ *  - ITS OWN WALLET (enrique, 15 Nov 2026: "so we separate budgets of different things"): keys.ts
+ *    namedWallet("buckets"), a file made on the server. The day-holder copy's wallet is never read or signed with
+ *    here. SOL itself is never "bought", and before each buy the wallet must cover the stake, a coin account's rent
+ *    and a sale reserve for every trade that is out.
  *  - A trade is written to the state file before its order is sent and after every transaction, so a restart can
  *    finish and count it.
  *  - The public status gets rule names and numbers only; coins, signatures and our address stay on the server.
@@ -29,15 +30,15 @@ import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { DATA, ROOT } from "../config.js";
 import { meetsBar, paperOpens, paperRecord, setBucketsRealSummary, spotRuleIds, REAL_MIN_TRADES, type Bucket } from "./buckets.js";
-import { signTransaction, walletNamed, type Wallet } from "./keys.js";
+import { namedWallet, signTransaction, type Wallet } from "./keys.js";
 import { SOL } from "./pools.js";
 
 export const HARD_STAKE_SOL = 0.02;
 export const HARD_MAX_LOSS_SOL = 0.2;
 export const HARD_MAX_OPEN = 10;
 export const HARD_RULE_STOP_SOL = 0.05;
-/** the most the wallet may hold (as agreed for the day-holder copy); clearly more in it means nothing is bought */
-export const MAX_WALLET_SOL = 0.6;
+/** the most this strategy's own wallet may hold; clearly more in it means nothing is bought */
+export const MAX_WALLET_SOL = 0.3;
 export const TRADE_ROOM_SOL = 0.003;
 export const RENT_SOL = 0.00204;
 export const SELL_RESERVE_SOL = 0.001;
@@ -155,7 +156,7 @@ export interface LiveDeps {
   kit: Kit;
   cfg: () => BucketsLiveConfig;
   wallet: () => Wallet;
-  /** coins the real day-holder copy holds or is buying */
+  /** coins another strategy holds in the same wallet (none in production: this side has a wallet of its own) */
   otherHeld: () => string[];
   sleep: (ms: number) => Promise<void>;
   fixed: (e: unknown) => string;
@@ -190,7 +191,7 @@ async function buy(d: LiveDeps, o: { rule: string; bucket: Bucket; mint: string;
   try {
     const w = d.wallet();
     const others = d.otherHeld();
-    if (others.includes(o.mint)) return skip("held by the day-holder copy");
+    if (others.includes(o.mint)) return skip("held by another strategy");
     const bal = await d.kit.balance(w.address);
     if (bal > MAX_WALLET_SOL + Math.max(0, state.netSol)) {
       state.note = `the wallet holds more than was agreed (${MAX_WALLET_SOL} SOL): not buying until the extra is taken out`;
@@ -363,15 +364,13 @@ let timer: ReturnType<typeof setInterval> | null = null;
 export async function startBucketsLive() {
   if (timer || process.env.SOLANA_LIVE === "off" || process.env.SOLANA_BUCKETS === "off") return;
   const { kit, whyNotSent } = await import("./copylive.js");
-  // Its own wallet (enrique, 15 Nov 2026: "so we separate budgets of different things"): data/solana-wallet-buckets.json,
-  // made here on the first start so its address can be read on the server and funded. The perps wallet is made ready too.
   try {
-    walletNamed("buckets");
-    walletNamed("perps");
+    namedWallet("buckets"); // made at the first start, so its address is on the server before the switch goes on
   } catch {
     return; // no usable wallet: this side stays off
   }
-  const d: LiveDeps = { kit, cfg: fileCfg, wallet: () => walletNamed("buckets"), otherHeld: () => [], sleep: (ms) => new Promise((res) => setTimeout(res, ms)), fixed: (e) => whyNotSent(String((e as Error)?.message ?? e)) };
+  // its own wallet (data/solana-wallet-buckets.json): nothing here can touch the day-holder copy's money, so no coin is shared
+  const d: LiveDeps = { kit, cfg: fileCfg, wallet: () => namedWallet("buckets"), otherHeld: () => [], sleep: (ms) => new Promise((res) => setTimeout(res, ms)), fixed: (e) => whyNotSent(String((e as Error)?.message ?? e)) };
   setBucketsRealSummary(bucketsLiveSummary);
   timer = setInterval(() => void bucketsLiveTick(d), 30_000);
   timer.unref();
