@@ -364,14 +364,11 @@ let timer: ReturnType<typeof setInterval> | null = null;
 export async function startBucketsLive() {
   if (timer || process.env.SOLANA_LIVE === "off" || process.env.SOLANA_BUCKETS === "off") return;
   const { kit, whyNotSent } = await import("./copylive.js");
-<<<<<<< HEAD
-=======
   try {
     namedWallet("buckets"); // made at the first start, so its address is on the server before the switch goes on
   } catch {
     return; // no usable wallet: this side stays off
   }
->>>>>>> origin/main
   // its own wallet (data/solana-wallet-buckets.json): nothing here can touch the day-holder copy's money, so no coin is shared
   const d: LiveDeps = { kit, cfg: fileCfg, wallet: () => namedWallet("buckets"), otherHeld: () => [], sleep: (ms) => new Promise((res) => setTimeout(res, ms)), fixed: (e) => whyNotSent(String((e as Error)?.message ?? e)) };
   setBucketsRealSummary(bucketsLiveSummary);
