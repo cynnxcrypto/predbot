@@ -12,7 +12,7 @@
     "ruleStopSol": 0.03,
     "maxOpen": 5,
     "maxLossSol": 0.1,
-    "testOnce": "test-15nov"
+    "testOnce": "test-15nov-b"
   },
   "solanaPerps": {
     "note": "OFF. Real perps trading needs a perp rule at the bar and enrique's own yes. testOnce: 15 Nov 2026 12:28 KST, enrique: 'feel free to do one test in each of the new things so we know everything works, try to not lose money of course' - ONE smallest SOL short ($10 collateral, $20 size), opened and closed at the next look, once per name; the same name on solanaBuckets buys and sells 0.01 SOL of JUP once.",

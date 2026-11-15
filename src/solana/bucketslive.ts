@@ -37,8 +37,12 @@ export const HARD_STAKE_SOL = 0.02;
 export const HARD_MAX_LOSS_SOL = 0.2;
 export const HARD_MAX_OPEN = 10;
 export const HARD_RULE_STOP_SOL = 0.05;
-/** the most this strategy's own wallet may hold; clearly more in it means nothing is bought */
-export const MAX_WALLET_SOL = 0.3;
+/**
+ * the most this strategy's own wallet may hold; clearly more in it means nothing is bought. 0.3 until 15 Nov 2026:
+ * enrique funded the wallet himself with more than that and the guard held every buy (the test trade too). What can
+ * be lost is set by the loss cap, the stake and the number of open positions, not by what sits in the wallet.
+ */
+export const MAX_WALLET_SOL = 5;
 export const TRADE_ROOM_SOL = 0.003;
 export const RENT_SOL = 0.00204;
 export const SELL_RESERVE_SOL = 0.001;
