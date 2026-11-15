@@ -210,6 +210,8 @@ export interface SRow {
   unread?: number;
   error?: string;
   sigs: string[];
+  /** the SOL the copy was bought with (rows before 15 Nov 2026 18:15 KST: 0.01, not written) */
+  stakeSol?: number;
 }
 interface State {
   netSol: number;
@@ -550,6 +552,7 @@ async function finish(w: Wallet, p: Pos, exit: Exit) {
     buy: exit === "buy did not land" ? "did not land" : exit === "buy failed" ? "failed" : "landed",
     exit, heldMin: p.boughtMs ? Math.round((Date.now() - p.boughtMs) / 60_000) : null,
     netSol: r.sol, sigs: p.sigs,
+    ...(p.stakeSol != null ? { stakeSol: p.stakeSol } : {}),
   };
   if (r.unread.length) {
     // landed but unreadable: the books may be short, so nothing new is bought until someone looks

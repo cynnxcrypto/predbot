@@ -9,6 +9,8 @@ import { join } from "node:path";
 import { DATA } from "./config.js";
 import { kit } from "./solana/copylive.js";
 import { shared } from "./solana/copyrun.js";
+// until this moment every copy was bought with 0.01 SOL; later rows carry their own stake or none
+const STAKE_RAISED_MS = Date.UTC(2026, 10, 15, 9, 0, 0);
 
 const SOL = "So11111111111111111111111111111111111111112";
 type Pos = { name: string; mint: string; stage: string; seenMs: number; boughtMs?: number; soldSeenMs?: number };
@@ -121,7 +123,9 @@ export async function solSlowView(): Promise<unknown> {
     await Promise.race([work, new Promise((ok) => setTimeout(ok, 3000))]);
   }
   for (const p of opens) if (!vals.has(p.mint)) vals.set(p.mint, worth.get(p.mint)?.sol ?? null);
-  const rows = (Array.isArray(st.rows) ? st.rows : []).filter((r) => r.buy === "landed").slice(-40);
+  const allRows = (Array.isArray(st.rows) ? st.rows : []).filter((r) => r.buy === "landed");
+  const rows = allRows.slice(-40);
+  const kstDayOf = (ms: number) => new Date(ms + 9 * 3600_000).toISOString().slice(0, 10);
   // open coins first: they are what is on screen
   await symbolsFor([...opens.map((p) => p.mint), ...rows.slice().reverse().map((r) => r.mint)], 3000);
   const sym = (m: string) => syms.get(m)?.sym ?? null;
@@ -130,6 +134,9 @@ export async function solSlowView(): Promise<unknown> {
   return {
     at: Date.now(),
     open: opens.map((p) => ({ name: short(p.name), sym: sym(p.mint), ms: ms(p.mint), stage: p.stage, t: p.boughtMs ?? p.seenMs, leaderSold: p.soldSeenMs != null, worthSol: vals.get(p.mint) ?? null, stakeSol: (p as { stakeSol?: number }).stakeSol ?? null })),
-    closed: rows.slice().reverse().map((r) => ({ name: short(r.name), sym: sym(r.mint), ms: ms(r.mint), t: r.t, closedAt: r.heldMin != null ? r.t + r.heldMin * 60_000 : null, exit: r.exit, heldMin: r.heldMin, netSol: r.netSol })),
+    // today's result over EVERY finished copy (the list below is only the newest 40)
+    todayNetSol: Math.round(allRows.filter((r) => kstDayOf(r.heldMin != null ? r.t + r.heldMin * 60_000 : r.t) === kstDayOf(Date.now())).reduce((x, r) => x + (r.netSol || 0), 0) * 1e6) / 1e6,
+    todayN: allRows.filter((r) => kstDayOf(r.heldMin != null ? r.t + r.heldMin * 60_000 : r.t) === kstDayOf(Date.now())).length,
+    closed: rows.slice().reverse().map((r) => ({ name: short(r.name), sym: sym(r.mint), ms: ms(r.mint), stakeSol: (r as { stakeSol?: number }).stakeSol ?? (r.t < STAKE_RAISED_MS ? 0.01 : null), t: r.t, closedAt: r.heldMin != null ? r.t + r.heldMin * 60_000 : null, exit: r.exit, heldMin: r.heldMin, netSol: r.netSol })),
   };
 }
