@@ -58,7 +58,7 @@
       "maxSize": 10,
       "maxDays": 14,
       "perWallet": 0,
-      "openUsd": 120,
+      "openUsd": 155,
       "walletUsd": 40,
       "adaptN": 10,
       "adaptStop": 10,
@@ -78,7 +78,7 @@
       "minDepth": 0,
       "dayLosses": 99,
       "maxOpen": 999,
-      "openUsd": 75,
+      "openUsd": 40,
       "stopNet": 15,
       "maxLoss": 90
     },
