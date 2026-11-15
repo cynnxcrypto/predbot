@@ -194,3 +194,24 @@ test("buckets real: a transaction that cannot be read back stops new buys; the s
   L._test.reload();
   assert.match(L._test.state().halted, /loss count is unknown/);
 });
+
+test("the one-time test trade: bought once, sold at the next look, never again under the same name", async () => {
+  setup([], []);
+  const { c, deps } = world(0.0099);
+  const d = { ...deps, testId: () => "t1" };
+  await L.bucketsLiveTick(d);
+  assert.deepEqual(L._test.state().opens.map((p) => [p.rule, p.mint, p.stage]), [[L.TEST_RULE, L.TEST_MINT, "held"]]);
+  assert.equal(c.sends, 1);
+  await L.bucketsLiveTick(d);
+  assert.equal(L._test.state().opens.length, 0);
+  assert.equal(c.sends, 2);
+  assert.equal(c.closed, 1);
+  const rows = L._test.state().rows;
+  assert.equal(rows.length, 1);
+  assert.ok(Math.abs(rows[0].netSol - (0.0099 - 0.01 - 0.00002)) < 1e-9);
+  await L.bucketsLiveTick(d);
+  await L.bucketsLiveTick(d);
+  assert.equal(c.sends, 2); // the name is used up
+  assert.equal(L._test.state().rows.length, 1);
+});
+

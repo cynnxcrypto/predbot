@@ -114,6 +114,8 @@ interface State {
   seen: string[];
   skipped: Record<string, number>;
   lastError: string;
+  /** the one-time test trade that was made (its name in the live rules, and when): a name is used once, for good */
+  test?: { id: string; at: number };
 }
 const fresh = (): State => ({ netSol: 0, halted: "", note: "", opens: [], rows: [], demoted: {}, seen: [], skipped: {}, lastError: "" });
 let state: State = fresh();
@@ -159,11 +161,30 @@ export interface LiveDeps {
   kit: Kit;
   cfg: () => BucketsLiveConfig;
   wallet: () => Wallet;
+  /** the name of the one-time test trade asked for, "" = none */
+  testId?: () => string;
   /** coins another strategy holds in the same wallet (none in production: this side has a wallet of its own) */
   otherHeld: () => string[];
   sleep: (ms: number) => Promise<void>;
   fixed: (e: unknown) => string;
 }
+/** The one-time test asked for in deploy/live-rules.json ("solanaBuckets": { "testOnce": "<name>" }); "" = none. */
+function fileTest(): string {
+  if (process.env.SOLANA_LIVE === "off") return "";
+  try {
+    const t = (JSON.parse(readFileSync(join(ROOT, "deploy", "live-rules.json"), "utf8")) as { solanaBuckets?: { testOnce?: unknown } }).solanaBuckets?.testOnce;
+    return typeof t === "string" ? t.slice(0, 40) : "";
+  } catch {
+    return "";
+  }
+}
+/**
+ * ONE TEST TRADE (enrique, 15 Nov 2026 12:28 KST: "feel free to do one test in each of the new things so we know
+ * everything works, try to not lose money of course"): the smallest stake of a big liquid coin, bought now and sold
+ * at the next look (it has no paper trade to wait for), through the very code a promoted rule uses. One per name.
+ */
+export const TEST_RULE = "test-once";
+export const TEST_MINT = "JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN"; // JUP
 function fileCfg(): BucketsLiveConfig {
   if (process.env.SOLANA_LIVE === "off") return OFF;
   try {
@@ -324,6 +345,13 @@ export async function bucketsLiveTick(d: LiveDeps, now = Date.now()): Promise<vo
         save();
       }
     }
+    const tid = d.testId?.() ?? "";
+    if (tid && c.on && !state.halted && state.test?.id !== tid && !state.opens.length) {
+      // the name is written down before anything is sent: whatever happens next, this test is never made twice
+      state.test = { id: tid, at: now };
+      save();
+      await buy(d, { rule: TEST_RULE, bucket: "high", mint: TEST_MINT, at: now }, { ...c, stakeSol: Math.min(c.stakeSol, 0.01) }, now);
+    }
     for (const o of paper) {
       const key = `${o.rule}:${o.mint}:${o.at}`;
       if (state.seen.includes(key)) continue;
@@ -376,6 +404,8 @@ export function bucketsLiveSummary() {
     heldValueSol: r6(state.opens.reduce((a, p) => a + (p.valueSol ?? c.stakeSol), 0)),
     skipped: state.skipped,
     lastError: state.lastError,
+    // the one-time test trade: its name, when, where it stands and what it did to the wallet (every fee in)
+    test: state.test ? { ...state.test, open: state.opens.filter((p) => p.rule === TEST_RULE).map((p) => p.stage), rows: state.rows.filter((x) => x.rule === TEST_RULE).map((x) => ({ t: x.t, buy: x.buy, netSol: r6(x.netSol), heldMin: x.heldMin })) } : null,
     rulesReal: rules.filter((x) => x.real).length,
     rules: rules.filter((x) => x.real || x.trades || x.demotedAt || x.paperTrades >= REAL_MIN_TRADES / 2),
   };
@@ -391,7 +421,7 @@ export async function startBucketsLive() {
     return; // no usable wallet: this side stays off
   }
   // its own wallet (data/solana-wallet-buckets.json): nothing here can touch the day-holder copy's money, so no coin is shared
-  const d: LiveDeps = { kit, cfg: fileCfg, wallet: () => namedWallet("buckets"), otherHeld: () => [], sleep: (ms) => new Promise((res) => setTimeout(res, ms)), fixed: (e) => whyNotSent(String((e as Error)?.message ?? e)) };
+  const d: LiveDeps = { kit, cfg: fileCfg, wallet: () => namedWallet("buckets"), testId: fileTest, otherHeld: () => [], sleep: (ms) => new Promise((res) => setTimeout(res, ms)), fixed: (e) => whyNotSent(String((e as Error)?.message ?? e)) };
   setBucketsRealSummary(bucketsLiveSummary);
   timer = setInterval(() => void bucketsLiveTick(d), 30_000);
   timer.unref();

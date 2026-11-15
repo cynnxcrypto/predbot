@@ -280,3 +280,34 @@ test("the close order is tried on a short that exists on the chain, and nothing 
   assert.equal(c.scans, 3);
   assert.equal(c.sends, 0);
 });
+
+test("the one-time test short: opened with the switch off, closed at the next look, never again under the same name", async () => {
+  setup([]);
+  const { c, deps, keeper } = world(30);
+  c.cfg = P.parsePerpsLive("{}"); // off
+  const d = { ...deps, testId: () => "t1" };
+  await P.perpsLiveTick(d);
+  assert.equal(c.sends, 1);
+  assert.equal(P._test.state().pos?.rule, P.TEST_RULE);
+  assert.equal(P._test.state().pos?.sizeUsd, 20);
+  keeper.fillOpen();
+  await P.perpsLiveTick(d); // seen open, and with no paper position behind it the close is asked at once
+  assert.equal(P._test.state().pos?.stage, "closing");
+  assert.equal(c.sends, 2);
+  keeper.fillClose(10.95);
+  await P.perpsLiveTick(d);
+  assert.equal(P._test.state().pos, null);
+  assert.deepEqual(P._test.state().rows.map((x) => [x.rule, x.filled, x.netUsd]), [[P.TEST_RULE, true, -0.05]]);
+  await P.perpsLiveTick(d);
+  await P.perpsLiveTick(d);
+  assert.equal(c.sends, 2); // the name is used up
+  // without the funds nothing is sent, and the name is still used up
+  setup([]);
+  const poor = world(5);
+  poor.c.cfg = P.parsePerpsLive("{}");
+  await P.perpsLiveTick({ ...poor.deps, testId: () => "t2" });
+  await P.perpsLiveTick({ ...poor.deps, testId: () => "t2" });
+  assert.equal(poor.c.sends, 0);
+  assert.equal(P._test.state().pos, null);
+});
+
