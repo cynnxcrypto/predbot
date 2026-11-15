@@ -267,6 +267,7 @@ interface State {
   dry: { at: number; result: string } | null;
   /** the one-time test trade that was made (its name in the live rules, and when): a name is used once, for good */
   test?: { id: string; at: number };
+  testLong?: { id: string; at: number };
   /** the dry simulation of a CLOSE order, against a short that exists on the chain (someone else's; nothing is signed or sent) */
   dryClose?: { at: number; result: string; tried: number } | null;
   /** the same two dry simulations for a LONG: an open order of ours, and a close order against a long that exists on the chain */
@@ -311,6 +312,8 @@ export interface PerpDeps {
   sigOf: (tx: string) => string;
   /** the name of the one-time test trade asked for, "" = none */
   testId?: () => string;
+  /** the name of the one-time test LONG asked for, "" = none */
+  testLongId?: () => string;
   /** the wallet's USDC, dollars */
   usdc: (address: string) => Promise<number>;
   /** the wallet's SOL */
@@ -543,11 +546,39 @@ export async function perpsLiveTick(d: PerpDeps, now = Date.now()): Promise<void
       }
       return;
     }
+    // ONE TEST LONG (enrique, 15 Nov 2026 18:52 KST: "feel free to run the test then"): the smallest long on SOL at 2x,
+    // through the very code a promoted long uses, closed at the next look. It waits until the open and the close of a
+    // long have passed their dry simulation; the name is written down before anything is sent, so it is made once.
+    const lid = d.testLongId?.() ?? "";
+    if (lid && !state.halted && state.testLong?.id !== lid && state.dryLong?.result === "ok" && state.dryCloseLong?.result === "ok") {
+      state.testLong = { id: lid, at: now };
+      save();
+      const usdc = await d.usdc(w.address);
+      if (usdc < MIN_COLLATERAL_USD + 1 || (await d.sol(w.address)) < MIN_SOL) {
+        state.note = "test long not made: too little USDC or SOL in the perps wallet";
+        save();
+      } else {
+        const px = await d.price("SOL");
+        const sizeUsd = MIN_COLLATERAL_USD * HARD_LEVERAGE;
+        const made = openLongIx(w.address, "SOL", sizeUsd, MIN_COLLATERAL_USD, boundPrice(1, px, OPEN_SLIP, false), counter(), longMinOut("SOL", MIN_COLLATERAL_USD, px));
+        state.pos = { rule: TEST_RULE, coin: "SOL", paperId: `test-long:${lid}`, stage: "opening", usdcBefore: usdc, sizeUsd, position: made.position, request: made.request, sentMs: now, closeTries: 0, dir: 1, lev: HARD_LEVERAGE };
+        save();
+        if (!(await sendChecked(d, w, [made.ix])) && state.lastSim !== "ok") {
+          state.pos = null; // the simulation said no: nothing was sent
+          state.note = `test long not sent: simulation ${state.lastSim}`;
+        }
+        save();
+      }
+      return;
+    }
     for (const o of paper) {
       if (state.seen.includes(o.id)) continue;
       state.seen = [...state.seen, o.id].slice(-500);
       if (!c.on || state.halted || !promoted(o.rule)) continue; // the usual case: paper only
       if (!o.dir || !CUSTODY[o.coin]) skip("not SOL, BTC or ETH");
+      // a long is new on the real side: none is sent until the open AND the close of a long have passed their dry
+      // simulation on the chain (MAIN, 15 Nov 2026)
+      else if (o.dir > 0 && !(state.dryLong?.result === "ok" && state.dryCloseLong?.result === "ok")) skip("long: dry run not passed yet");
       else if (now - o.at > OPEN_WINDOW_MS) skip("paper position too old");
       else if (loss() + c.collateralUsd > c.maxLossUsd + 1e-9) skip("no room under the cap");
       else {
@@ -598,6 +629,15 @@ function fileTest(): string {
     return "";
   }
 }
+function fileTestLong(): string {
+  if (process.env.SOLANA_LIVE === "off") return "";
+  try {
+    const t = (JSON.parse(readFileSync(join(ROOT, "deploy", "live-rules.json"), "utf8")) as { solanaPerps?: { testLongOnce?: unknown } }).solanaPerps?.testLongOnce;
+    return typeof t === "string" ? t.slice(0, 40) : "";
+  } catch {
+    return "";
+  }
+}
 function fileCfg(): PerpsLiveConfig {
   if (process.env.SOLANA_LIVE === "off") return OFF;
   try {
@@ -643,6 +683,7 @@ export function perpsLiveSummary() {
     // the real trades for the page, newest first
     rows: state.rows.slice(-40).reverse(),
     // the one-time test trade: its name, when, and what it did to the wallet's USDC
+    testLong: state.testLong ?? null,
     test: state.test ? { ...state.test, rows: state.rows.filter((x) => x.rule === TEST_RULE).map((x) => ({ t: x.t, filled: x.filled, netUsd: x.netUsd, heldH: x.heldH })) } : null,
     lastSimulation: state.lastSim,
     skipped: state.skipped,
@@ -668,6 +709,7 @@ export async function startPerpsLive() {
     cfg: fileCfg,
     wallet: () => namedWallet("perps"),
     testId: fileTest,
+    testLongId: fileTestLong,
     rpc,
     send: (tx) => kit.send(tx),
     landed: (sig, ms) => kit.landed(sig, ms),
