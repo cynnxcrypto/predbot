@@ -254,6 +254,9 @@ interface Row {
   filled: boolean;
   netUsd: number;
   heldH: number | null;
+  /** "long" or "short", and the leverage it was opened at (rows before 15 Nov 2026 20:15 KST have neither) */
+  side?: string;
+  leverage?: number;
 }
 interface State {
   netUsd: number;
@@ -406,7 +409,7 @@ async function finish(d: PerpDeps, w: Wallet, p: Pos, filled: boolean) {
   const now = await d.usdc(w.address);
   const net = r2(now - p.usdcBefore);
   state.netUsd = r2(state.netUsd + net);
-  state.rows = [...state.rows, { t: Date.now(), rule: p.rule, coin: p.coin, filled, netUsd: net, heldH: p.openedMs ? Math.round(((Date.now() - p.openedMs) / 3_600_000) * 10) / 10 : null }].slice(-2000);
+  state.rows = [...state.rows, { t: Date.now(), rule: p.rule, coin: p.coin, side: (p.dir ?? -1) > 0 ? "long" : "short", leverage: p.lev ?? HARD_LEVERAGE, filled, netUsd: net, heldH: p.openedMs ? Math.round(((Date.now() - p.openedMs) / 3_600_000) * 10) / 10 : null }].slice(-2000);
   state.pos = null;
   const c = d.cfg();
   if (c.ruleStopUsd > 0 && ruleNet(p.rule) <= -c.ruleStopUsd) state.demoted[p.rule] = Date.now();
