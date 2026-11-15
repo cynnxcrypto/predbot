@@ -319,6 +319,33 @@ test("real day-holder copy: max hold, failed sales tried again, and a restart fi
   _test.reset();
 });
 
+test("real day-holder copy: a copy sold while the start's recovery is still on its list is sold once and counted once", async () => {
+  fresh();
+  const c = chain(() => 0.012);
+  onSwap(swap(L1, A, true));
+  onSwap(swap(L2, B, true));
+  await wait(1500);
+  const [pa, pb] = _test.state().opens;
+  assert.deepEqual([pa.stage, pb.stage], ["held", "held"]);
+  // the wallet sells A: our sale starts a second later; the recovery of a start runs right into it
+  onSwap(swap(L1, A, false));
+  while (pa.stage !== "selling") await wait(20);
+  const sendsBefore = c.sends;
+  await recover();
+  assert.equal(pa.stage, "selling", "the recovery left the sale alone");
+  await wait(3000);
+  assert.equal(c.held.has(A), false);
+  assert.deepEqual(_test.state().rows.map((x) => x.mint), [A], "one row for the one copy");
+  assert.equal(_test.state().netSol, _test.state().rows[0].netSol);
+  // one sale and one account close for A, nothing else sent
+  assert.equal(c.sends - sendsBefore <= 2, true, `sends ${c.sends - sendsBefore}`);
+  // asked twice, counted once; a recovery that still has a counted copy on its list adds nothing
+  await _test.finish(wallet(), pa, "sold");
+  assert.equal(_test.state().rows.length, 1);
+  assert.equal(_test.state().opens.length, 1);
+  assert.equal(slowLiveSummary().copies, 1);
+});
+
 test("real day-holder copy: the slow study's stream hands over its wallets' swaps", async () => {
   fresh();
   chain(() => 0.01);

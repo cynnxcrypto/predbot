@@ -392,8 +392,20 @@ async function sellAll(w: Wallet, p: Pos, c: SlowLiveConfig): Promise<boolean> {
   const h = await kit.held(w.address, p.mint).catch(() => null);
   return !!h && h.amount === 0n;
 }
+/** Copies with a sale of ours under way in this run: a restart's recovery, still working through its list, leaves them alone. */
+const sellingNow = new WeakSet<Pos>();
+/** Copies counted in this run: a copy is counted once, whoever asks a second time. */
+const counted = new WeakSet<Pos>();
 async function sell(p: Pos, exit: Exit) {
-  if (!state.opens.includes(p) || p.stage !== "held") return;
+  if (!state.opens.includes(p) || p.stage !== "held" || sellingNow.has(p)) return;
+  sellingNow.add(p);
+  try {
+    await sellOnce(p, exit);
+  } finally {
+    sellingNow.delete(p);
+  }
+}
+async function sellOnce(p: Pos, exit: Exit) {
   p.stage = "selling";
   p.exit = exit;
   save();
@@ -419,6 +431,9 @@ async function sell(p: Pos, exit: Exit) {
 }
 /** Count a finished copy from its own transactions, write its row, drop it. */
 async function finish(w: Wallet, p: Pos, exit: Exit) {
+  // once: on 15 Nov 2026 a copy sold by the stream while the start's recovery was still on its list was counted twice
+  if (counted.has(p) || !state.opens.includes(p)) return;
+  counted.add(p);
   let r = await kit.booked(w, p.sigs);
   for (let i = 0; i < 3 && r.unread.length; i++) {
     await sleep(5000);
@@ -492,7 +507,10 @@ export async function soldSince(leader: string, mint: string, sinceMs: number): 
  * dropped; coin = held again. True when it is held.
  */
 async function settle(w: Wallet, p: Pos): Promise<boolean> {
+  if (sellingNow.has(p) || !state.opens.includes(p)) return false;
   const h = await kit.held(w.address, p.mint);
+  // a sale of ours began, or the copy was counted, while we looked: it is not ours to settle
+  if (sellingNow.has(p) || !state.opens.includes(p)) return false;
   if (h.amount === 0n) {
     await finish(w, p, p.stage === "buying" ? "buy did not land" : (p.exit ?? "sold"));
     return false;
@@ -523,6 +541,8 @@ export async function recover() {
         continue;
       }
       if (p.stage === "buying") await sleep(Math.max(0, p.seenMs + cfg().entrySec * 1000 + 150_000 - Date.now()));
+      // the list was taken at the start: a copy sold and counted since, or being sold right now, is no longer ours here
+      if (!state.opens.includes(p) || sellingNow.has(p)) continue;
       if (!(await settle(w, p))) continue;
       if (p.soldSeenMs || (await soldSince(p.wallet, p.mint, p.seenMs))) void sell(p, p.exit === "max hold" ? "max hold" : "sold while we were down");
     } catch (e) {
