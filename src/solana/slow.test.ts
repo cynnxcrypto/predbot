@@ -6,7 +6,7 @@ import { mock, test } from "node:test";
 
 process.env.DATA_DIR = mkdtempSync(join(tmpdir(), "solslow-"));
 
-const { tripsOf, screen, lateRet, ownRet, priceAfter, posRet, paperRules, slowTx, slowSummary, reportOf, followed, slowWatch, jupCoins, coinOld, creditsDay, copyableOf, provenWallets, crowdStudy, _test, STAKE_SOL, TX_SOL, DELAY_COST, MIN_TRIPS } = await import("./slow.js");
+const { tripsOf, screen, lateRet, ownRet, priceAfter, posRet, paperRules, slowTx, slowSummary, reportOf, followed, slowWatch, jupCoins, coinOld, creditsDay, copyableOf, provenWallets, crowdStudy, crowdOnePerCoin, _test, STAKE_SOL, TX_SOL, DELAY_COST, MIN_TRIPS } = await import("./slow.js");
 
 const W = "Wa11et1111111111111111111111111111111111111";
 const M = "M1nt11111111111111111111111111111111111111";
@@ -586,4 +586,10 @@ test("crowd: closed paper copies by how many other followed wallets were already
   assert.deepEqual(c.map((x) => [x.othersIn, x.n, x.won]), [["0", 3, 2], ["1", 3, 2], ["2+", 2, 2]]);
   // 0.3 back on 0.25 after two fees: +19.2%; 0.24: -4.8%
   assert.deepEqual([c[0].avgRetPct, c[2].avgRetPct, c[2].netSol], [11.2, 19.2, 0.096]);
+  // one copy a coin, in time order. Any buy: X by a (1000-5000), then d (5500-9000; b, c and a's second come while one is out),
+  // Y by e then f, Z by g: 5 copies of 3 coins. With 1+ others: X by b (2000-6000), then a's second (8000; d is in), Z by g.
+  // With 2+ others: X by c (3000-7000); d (5500) comes while that one is out: 1 copy. With 3+: none.
+  const one = crowdOnePerCoin(closed, open);
+  assert.deepEqual(one.map((x) => [x.minOthers, x.n, x.won, x.coins]), [[0, 5, 4, 3], [1, 3, 2, 2], [2, 1, 1, 1], [3, 0, 0, 0]]);
+  assert.deepEqual([one[0].newer.n, one[0].newer.won, one[2].avgRetPct, one[3].avgRetPct], [3, 2, 19.2, null]);
 });
