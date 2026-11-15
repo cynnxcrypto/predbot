@@ -148,7 +148,7 @@ export async function worthView(cash: number | null, claim: number, solBal: numb
     // shown but not added to the chart.
     const priced = bets.n === 0 || bets.priced >= bets.n * 0.9;
     // A strategy wallet that could not be read this time keeps its last reading, so the total does not dip.
-    const usd = (sol: number | null | undefined, usdc: number | null | undefined, last: number | null) => (sol == null && usdc == null ? last : px != null || !sol ? (sol ?? 0) * (px ?? 0) + (usdc ?? 0) : last);
+    const usd = (sol: number | null | undefined, usdc: number | null | undefined, last: number | null) => ((sol == null || usdc == null) && last != null ? last : sol == null && usdc == null ? null : px != null || !sol ? (sol ?? 0) * (px ?? 0) + (usdc ?? 0) : last);
     const rulesUsd = usd(extra.rulesSol, extra.rulesUsdc, comp?.rules ?? null);
     const perpsUsd = usd(extra.perpsSol, extra.perpsUsdc, comp?.perps ?? null);
     const total = cash != null ? Math.round((cash + claim + bets.value + solPart + (rulesUsd ?? 0) + (perpsUsd ?? 0)) * 100) / 100 : null;
