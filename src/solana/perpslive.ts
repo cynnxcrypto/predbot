@@ -54,7 +54,7 @@ const SIDE_SHORT = 2;
 export const TEST_RULE = "test-once";
 export const HARD_LEVERAGE = 2;
 export const HARD_COLLATERAL_USD = 25;
-export const HARD_MAX_LOSS_USD = 30;
+export const HARD_MAX_LOSS_USD = 50;
 export const HARD_RULE_STOP_USD = 10;
 export const MIN_COLLATERAL_USD = 10;
 /** SOL the wallet must hold for fees and the request's rent (the rent comes back when the keeper closes the request) */

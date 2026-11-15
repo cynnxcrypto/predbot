@@ -47,6 +47,17 @@ import { SOL } from "./pools.js";
 import { onSlowSwap, provenWallets, setSlowRealSummary, type SlowSwap } from "./slow.js";
 
 export const HARD_STAKE_SOL = 0.05;
+/** the most one stepped-up copy may be (stake x the top step, never above this) */
+export const HARD_STEP_STAKE_SOL = 0.15;
+/**
+ * SIZE UP WHAT WORKS (enrique, 15 Nov 2026 17:40 KST: "when something actually works, remember to size up in a way
+ * that makes sense"; plan agreed 17:52). Per copied wallet, from OUR OWN landed real copies of it in the last 30 days:
+ * x2 at STEP1_N+ copies with half or more won and SOL ahead; x4 at STEP2_N+ and ahead, and only on a buy where the
+ * leader itself put in STEP_LEADER_SOL or more; one step back down while its newest REST_LAST copies are behind.
+ */
+export const STEP1_N = 30;
+export const STEP2_N = 100;
+export const STEP_LEADER_SOL = 1;
 /**
  * enrique, 14 Nov 2026 23:21 KST: "the solana wallet for trading can use the whole wallet, there's almost no money
  * there so no worries". The whole wallet is at stake: the cap is the most the wallet may hold for this test to buy
@@ -60,7 +71,7 @@ export const HARD_MAX_LOSS_SOL = 1.5;
  * much may be OUT at once, every copy counted as lost) follows it; what the test may really LOSE before it stops
  * buying is a number of its own, stopLossSol, so that the bigger wallet is not a bigger loss allowed.
  */
-export const HARD_STOP_LOSS_SOL = 0.6;
+export const HARD_STOP_LOSS_SOL = 0.7;
 /** Open copies are limited by the wallet's SOL (stake, rent and a sale reserve each); this only bounds the count. */
 export const HARD_MAX_OPEN = 120;
 /** The wallet held up to 0.5 SOL for the first test; clearly more than that put in means nothing is bought. */
@@ -297,6 +308,23 @@ function save() {
 const loss = () => Math.max(0, -state.netSol);
 /** Real copies of one wallet (by its screen name) that count for resting it: landed, in the last REST_DAYS days, newest REST_LAST. */
 const lastReal = (name: string, now = Date.now()) => state.rows.filter((x) => x.name === name && x.buy === "landed" && now - x.t < REST_DAYS * 86_400_000).slice(-REST_LAST);
+/** The size step of a wallet (see STEP1_N): the multiplier and why. Pure over the rows given. */
+export function stepOf(rows: { name: string; buy: string; t: number; netSol: number }[], name: string, leaderSol: number, now = Date.now()): { mult: number; why: string } {
+  const s = rows.filter((x) => x.name === name && x.buy === "landed" && now - x.t < 30 * 86_400_000);
+  const net = s.reduce((a, x) => a + x.netSol, 0);
+  const won = s.filter((x) => x.netSol > 0).length;
+  let step = s.length >= STEP2_N && won * 2 >= s.length && net > 0 ? 2 : s.length >= STEP1_N && won * 2 >= s.length && net > 0 ? 1 : 0;
+  let why = step ? `step ${step}` : "learning";
+  if (step === 2 && leaderSol < STEP_LEADER_SOL) {
+    step = 1;
+    why = `step 1: the leader's buy is under ${STEP_LEADER_SOL} SOL`;
+  }
+  if (step > 0 && s.slice(-REST_LAST).reduce((a, x) => a + x.netSol, 0) < 0) {
+    step -= 1;
+    why = `one step down: its newest ${REST_LAST} are behind`;
+  }
+  return { mult: [1, 2, 4][step], why };
+}
 /** Rested: its newest REST_LAST real copies lost SOL and under half of them won. It comes back as they age out, if paper still proves it. */
 export function rested(name: string, now = Date.now()) {
   const rs = lastReal(name, now);
@@ -406,7 +434,8 @@ async function buy(p: Pos) {
       state.note = `the wallet holds more than was agreed (${MAX_WALLET_SOL} SOL plus what this test has won): not buying until the extra is taken out`;
       return drop(() => state.missedLow++);
     }
-    if (bal < c.stakeSol + RENT_SOL + SELL_RESERVE_SOL * (out + 1)) {
+    const stakeSol = Math.min(HARD_STEP_STAKE_SOL, c.stakeSol * stepOf(state.rows, p.name, p.leaderSol).mult);
+    if (bal < stakeSol + RENT_SOL + SELL_RESERVE_SOL * (out + 1)) {
       state.note = "wallet balance too low for a copy";
       return drop(() => state.missedLow++);
     }
@@ -414,7 +443,7 @@ async function buy(p: Pos) {
     if (p.soldSeenMs) return drop(() => state.skippedSold++);
     // the bucket side may have bought the coin while this copy waited for its entry
     if (bucketHeld().includes(p.mint)) return drop(() => state.missedSame++);
-    const q = await kit.quote(SOL, p.mint, String(Math.round(c.stakeSol * LAMPORTS)), c.slippageBps);
+    const q = await kit.quote(SOL, p.mint, String(Math.round(stakeSol * LAMPORTS)), c.slippageBps);
     if (!q.outAmount || q.outAmount === "0") return drop(() => state.notSent++);
     const tx = signTransaction(await kit.swapTx(q, w.address, c.maxFeeLamports), w);
     // written down before it is sent: a restart must know of every transaction of a copy
@@ -704,6 +733,8 @@ export function slowLiveSummary() {
     halted: state.halted,
     stateNote: state.note,
     stakeSol: c.stakeSol,
+    // the size step of each wallet followed now (x1 while learning): from our own real copies of it
+    steps: wallets().map((w) => ({ name: nameOf(w.address), ...stepOf(state.rows, nameOf(w.address), STEP_LEADER_SOL) })).filter((x) => x.mult > 1),
     capSol: c.maxLossSol,
     stopLossSol: c.stopLossSol,
     maxOpen: c.maxOpen,

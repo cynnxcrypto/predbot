@@ -9,7 +9,7 @@ process.env.DATA_DIR = mkdtempSync(join(tmpdir(), "slowlive-"));
 // made-up keys: every network call here is faked
 process.env.HELIUS_API_KEY = "test-helius";
 process.env.JUPITER_API_KEY = "test-jupiter";
-const { parseSlowLive, slowLiveSummary, onSwap, sweep, recover, startSlowLive, wallets, rested, HARD_MAX_LOSS_SOL, HARD_STAKE_SOL, HARD_MAX_OPEN, WALLETS, _test } = await import("./slowlive.js");
+const { parseSlowLive, slowLiveSummary, onSwap, sweep, recover, startSlowLive, wallets, rested, HARD_MAX_LOSS_SOL, HARD_STAKE_SOL, HARD_MAX_OPEN, WALLETS, stepOf, _test } = await import("./slowlive.js");
 const { _test: run } = await import("./copyrun.js");
 const { buildSigned, wallet } = await import("./keys.js");
 const { base58 } = await import("./whirlpool.js");
@@ -119,6 +119,16 @@ test("real day-holder copy: off unless switched on, hard limits hold", () => {
   const d = parseSlowLive(JSON.stringify({ solanaSlow: { on: true, maxLossSol: 0.08 } }));
   assert.deepEqual([d.stakeSol, d.maxOpen, d.entrySec, d.exitSec, d.maxHoldH, d.maxFeeLamports], [0.01, HARD_MAX_OPEN, 5, 5, 72, 20_000]);
   assert.equal(HARD_MAX_LOSS_SOL, 1.5, "the whole wallet: no more than it may hold");
+  // size steps from our own landed copies of a wallet
+  const NOWS = 1_800_000_000_000;
+  const mk = (n: number, each: (i: number) => number) => Array.from({ length: n }, (_, i) => ({ name: "w", buy: "landed", t: NOWS - (n - i) * 60_000, netSol: each(i) }));
+  assert.equal(stepOf(mk(29, () => 0.001), "w", 5, NOWS).mult, 1);
+  assert.equal(stepOf(mk(30, () => 0.001), "w", 0.2, NOWS).mult, 2);
+  assert.equal(stepOf(mk(100, () => 0.001), "w", 0.2, NOWS).mult, 2, "the top step needs a leader buy of 1+ SOL");
+  assert.equal(stepOf(mk(100, () => 0.001), "w", 1.5, NOWS).mult, 4);
+  assert.equal(stepOf(mk(100, (i) => (i < 85 ? 0.001 : -0.001)), "w", 1.5, NOWS).mult, 2, "newest 15 behind: one step down");
+  assert.equal(stepOf(mk(40, (i) => (i % 2 ? 0.001 : -0.002)), "w", 5, NOWS).mult, 1, "behind overall");
+  assert.equal(stepOf(mk(40, () => 0.001), "other", 5, NOWS).mult, 1);
   // which wallets: the paper-proven ones unless the file says "fixed"
   assert.deepEqual([d.follow, parseSlowLive(JSON.stringify({ solanaSlow: { on: true, maxLossSol: 0.08, wallets: "fixed" } })).follow, parseSlowLive(JSON.stringify({ solanaSlow: { on: true, maxLossSol: 0.08, wallets: 7 } })).follow], ["proven", "fixed", "proven"]);
 });
