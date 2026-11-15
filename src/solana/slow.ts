@@ -917,6 +917,12 @@ export function crowdStudy(closed: Pos[], open: Pos[]) {
     return { othersIn, n: v.length, won: v.filter((y) => y > 0).length, avgRetPct: v.length ? r((avg(v) ?? 0) * 100) : null, netSol: r(v.reduce((a, y) => a + y, 0) * STAKE_SOL, 3) };
   });
 }
+/** Every closed paper copy with a 5 s in, 5 s out result: whose buy, which coin, when we saw it, what it made. For the real copy's taken-versus-skipped check. */
+export const paperResults = () =>
+  state.recent.flatMap((p) => {
+    const ret = p.closed ? posRet(p, 5, 5) : undefined;
+    return ret === undefined ? [] : [{ name: p.name, mint: p.mint, seenMs: p.seenMs, ret }];
+  });
 let followSet = new Set<string>();
 const refreshFollow = () => (followSet = new Set(followed().map((x) => x.address)));
 /**
