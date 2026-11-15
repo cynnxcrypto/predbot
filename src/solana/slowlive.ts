@@ -44,7 +44,7 @@ import { swapOf, type Meta } from "./discover.js";
 import { makeReader, type Item } from "./history.js";
 import { signTransaction, wallet, type Wallet } from "./keys.js";
 import { SOL } from "./pools.js";
-import { onSlowSwap, provenWallets, setSlowRealSummary, type SlowSwap } from "./slow.js";
+import { onSlowSwap, paperResults, provenWallets, setSlowRealSummary, STAKE_SOL as PAPER_STAKE_SOL, top5Sol, type SlowSwap } from "./slow.js";
 
 export const HARD_STAKE_SOL = 0.05;
 /** when the stake went from 0.01 to 0.035 SOL (the restart of 18:00 KST 15 Nov 2026) */
@@ -230,6 +230,20 @@ interface State {
   credits: number;
   creditsDay: string;
   lastError: string;
+  /** buys let go since 16 Nov 2026, newest KEEP_MISSED: whose (screen name), which coin, when seen, why. Server only. */
+  missed?: Missed[];
+}
+type Why = "same" | "open" | "cap" | "low";
+interface Missed {
+  n: string;
+  m: string;
+  t: number;
+  w: Why;
+}
+const KEEP_MISSED = 4000;
+/** A buy let go is written down, so that the paper copy of the very same buy can say what it was worth (takenVsSkipped). */
+function miss(name: string, mint: string, seenMs: number, why: Why) {
+  state.missed = [...(state.missed ?? []), { n: name, m: mint, t: seenMs, w: why }].slice(-KEEP_MISSED);
 }
 const fresh = (): State => ({ netSol: 0, halted: "", note: "", opens: [], rows: [], missedSame: 0, missedCap: 0, missedOpen: 0, missedLow: 0, skippedSold: 0, notSent: 0, unreadTx: 0, credits: 0, creditsDay: "", lastError: "" });
 let state: State = fresh();
@@ -394,18 +408,27 @@ function onBuy(s: SlowSwap) {
   if (!wallets().some((w) => w.address === s.wallet)) return;
   const same = state.opens.find((p) => p.mint === s.mint);
   if (same) {
-    if (same.wallet !== s.wallet) state.missedSame++;
+    if (same.wallet !== s.wallet) {
+      state.missedSame++;
+      miss(nameOf(s.wallet), s.mint, s.seenMs, "same");
+    }
     return; // the wallet adding to a coin it holds is not copied
   }
   if (bucketHeld().includes(s.mint)) return void state.missedSame++;
-  if (state.opens.length >= c.maxOpen) return void state.missedOpen++;
+  if (state.opens.length >= c.maxOpen) {
+    miss(nameOf(s.wallet), s.mint, s.seenMs, "open");
+    return void state.missedOpen++;
+  }
   if (c.stopLossSol > 0 && loss() >= c.stopLossSol - 1e-9) {
     state.note = `loss stop: ${loss().toFixed(4)} SOL lost of ${c.stopLossSol} allowed; no new copies until a review`;
     return void state.missedCap++;
   }
   // the cap must hold with every copy that is out, and this one, lost in full
   // (each copy that is out at ITS OWN stake: the older, smaller ones do not count as big ones)
-  if (loss() + state.opens.reduce((a, o) => a + (o.stakeSol ?? c.stakeSol) + COPY_ROOM_SOL, 0) + c.stakeSol + COPY_ROOM_SOL > c.maxLossSol + 1e-9) return void state.missedCap++;
+  if (loss() + state.opens.reduce((a, o) => a + (o.stakeSol ?? c.stakeSol) + COPY_ROOM_SOL, 0) + c.stakeSol + COPY_ROOM_SOL > c.maxLossSol + 1e-9) {
+    miss(nameOf(s.wallet), s.mint, s.seenMs, "cap");
+    return void state.missedCap++;
+  }
   const p: Pos = { wallet: s.wallet, name: nameOf(s.wallet), mint: s.mint, leaderSol: r6(s.sol), seenMs: s.seenMs, stage: "waiting", sigs: [], sellRounds: 0 };
   state.opens.push(p);
   save();
@@ -446,6 +469,7 @@ async function buy(p: Pos) {
     const stakeSol = Math.min(HARD_STEP_STAKE_SOL, c.stakeSol * stepOf(state.rows, p.name, p.leaderSol).mult);
     if (bal < stakeSol + RENT_SOL + SELL_RESERVE_SOL * (out + 1)) {
       state.note = "wallet balance too low for a copy";
+      miss(p.name, p.mint, p.seenMs, "low");
       return drop(() => state.missedLow++);
     }
     state.note = "";
@@ -731,6 +755,73 @@ export function startSlowLive() {
 }
 
 // ---- status (public: numbers and the leaders' screen names only) ----------------------------------------------------
+/**
+ * Were the buys we let go as good as the ones we took? Each side is priced by the PAPER copy of the very same buy
+ * (same wallet, same coin, seen within two minutes; 5 s in, 5 s out), so both are measured alike:
+ *  - taken: the real copies that landed, by their paper twin; `real` is what those same copies really made, % of stake.
+ *  - cap / same / low / open: buys let go for that reason, written down since 16 Nov 2026.
+ *  - notTakenBefore: an estimate for the time before that: paper copies of a wallet made between its first and its
+ *    last real copy that have no real copy. It mixes every reason, and hours the wallet was off the list.
+ * Numbers only. MAIN asked for it on 16 Nov 2026 to decide between a smaller stake and a shorter hold.
+ */
+export function takenVsSkipped() {
+  const by = new Map<string, { seenMs: number; ret: number; used: boolean }[]>();
+  for (const x of paperResults()) {
+    const k = `${x.name}|${x.mint}`;
+    const l = by.get(k);
+    if (l) l.push({ seenMs: x.seenMs, ret: x.ret, used: false });
+    else by.set(k, [{ seenMs: x.seenMs, ret: x.ret, used: false }]);
+  }
+  const twin = (name: string, mint: string, t: number) => {
+    const x = by.get(`${name}|${mint}`)?.find((y) => !y.used && Math.abs(y.seenMs - t) <= 120_000);
+    if (x) x.used = true;
+    return x?.ret;
+  };
+  const stat = (v: number[]) => ({ n: v.length, won: v.filter((y) => y > 0).length, avgRetPct: v.length ? r1((v.reduce((a, y) => a + y, 0) / v.length) * 100) : null, netSol: r6(v.reduce((a, y) => a + y, 0) * PAPER_STAKE_SOL), top5Sol: top5Sol(v) });
+  const done = state.rows.filter((x) => x.buy === "landed");
+  const taken: number[] = [];
+  const real: number[] = [];
+  const span = new Map<string, [number, number]>();
+  for (const x of done) {
+    const sp = span.get(x.name);
+    span.set(x.name, sp ? [Math.min(sp[0], x.t), Math.max(sp[1], x.t)] : [x.t, x.t]);
+    const v = twin(x.name, x.mint, x.t);
+    if (v === undefined) continue;
+    taken.push(v);
+    real.push(x.netSol / (x.stakeSol ?? 0.01));
+  }
+  const why: Record<Why, number[]> = { cap: [], same: [], low: [], open: [] };
+  const firstMiss = Math.min(...(state.missed ?? []).map((x) => x.t), Infinity);
+  for (const x of state.missed ?? []) {
+    const v = twin(x.n, x.m, x.t);
+    if (v !== undefined) why[x.w].push(v);
+  }
+  const before: number[] = [];
+  for (const [k, l] of by) {
+    const sp = span.get(k.slice(0, k.indexOf("|")));
+    if (sp) for (const y of l) if (!y.used && y.seenMs >= sp[0] && y.seenMs <= sp[1] && y.seenMs < firstMiss) before.push(y.ret);
+  }
+  return {
+    taken: { ...stat(taken), real: { won: real.filter((y) => y > 0).length, avgRetPct: real.length ? r1((real.reduce((a, y) => a + y, 0) / real.length) * 100) : null } },
+    cap: stat(why.cap), same: stat(why.same), low: stat(why.low), open: stat(why.open),
+    notTakenBefore: stat(before),
+    missedWritten: (state.missed ?? []).length,
+  };
+}
+const r1 = (x: number) => Math.round(x * 10) / 10;
+/** What fills the wallet: the copies that are out, by whether their wallet is still on the list and by how long they have been held. */
+export function openNow(now = Date.now()) {
+  const out = state.opens.filter((p) => p.stage !== "waiting");
+  const h = (p: Pos) => (now - (p.boughtMs ?? p.seenMs)) / 3_600_000;
+  const n = (f: (p: Pos) => boolean) => out.filter(f).length;
+  return {
+    onList: n((p) => !p.offMs), offList: n((p) => !!p.offMs),
+    under6h: n((p) => h(p) < 6), h6to24: n((p) => h(p) >= 6 && h(p) < 24), h24to48: n((p) => h(p) >= 24 && h(p) < 48), over48h: n((p) => h(p) >= 48),
+    /** its wallet has sold and our sale has not gone through yet (tried again by the sweep) */
+    saleNotThrough: n((p) => !!p.soldSeenMs || !!p.exit),
+    stakeSol: r6(out.reduce((a, p) => a + (p.stakeSol ?? 0.01), 0)),
+  };
+}
 export function slowLiveSummary() {
   const c = cfg();
   const done = state.rows.filter((x) => x.buy === "landed");
@@ -767,6 +858,9 @@ export function slowLiveSummary() {
     /** open copies whose wallet is off the list (sold DROP_SELL_MS after the sweep first saw that), and copies sold for that reason */
     openOffList: state.opens.filter((p) => p.offMs).length,
     soldDropped: done.filter((x) => x.exit === "wallet dropped").length,
+    /** what fills the wallet, and whether the buys let go were as good as the ones taken (paper twin of each) */
+    openNow: openNow(),
+    takenVsSkipped: takenVsSkipped(),
     /** copied now, and rested (proven on paper, but its own newest real copies are behind) */
     wallets: now.map((w) => w.name),
     rested: [...new Set(done.map((x) => x.name))].filter((n) => rested(n)),
