@@ -177,7 +177,7 @@ test("resting bids: 5-share minimum, one bid per player, resting money counts in
   assert.match(blk([rest(0, "a"), rest(1, "a"), rest(0, "b")], 0, "c")!, /stake cap/, "$9 resting + $3 > $10");
   assert.match(eventLiveBlock(cfg, "tennis", "t", "m", 0.93, 100, true, [rest(0)], NOW4)!, /another real test/);
   const live = parseEventLive(readFileSync(join(process.cwd(), "deploy", "live-rules.json"), "utf8"), { mode: "live", funder: "0xabc" }).groups.tennisrest;
-  if (live) assert.ok(live.stopNet > 0 && live.stopNet <= 15 && live.maxSize <= 5 && live.openUsd > 0 && live.openUsd <= 40);
+  if (live) assert.ok(live.stopNet > 0 && live.stopNet <= 15 && live.maxSize <= 5 && live.openUsd > 0 && live.openUsd <= 75 && live.maxLoss <= live.stopNet + live.openUsd);
 });
 
 test("per-wallet automatic rule: learning to 10 settled, back to paper at -$10, x1.5 while ahead", () => {

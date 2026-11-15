@@ -16,8 +16,8 @@
  * Every rule is $5 at the real ask (walking the book), taker fee rate x p x (1-p) per share, held to settlement.
  */
 import { loadJson, saveJson } from "./store.js";
-import { autoFollowed, autoState, autoSummary, copyPromote, copyScan } from "./copyscan.js";
-import { NEG_READY_FILE, eventLiveAdapt, eventLiveBusy, eventLiveBuy, eventRestBid, eventRestSync, eventLiveConfig, eventLiveRows, eventLiveSettle, eventLiveSummary, eventLiveStop, type NegRiskReady } from "./eventlive.js";
+import { autoFollowed, autoState, autoSummary, copyPromote, copyScan, scanDue } from "./copyscan.js";
+import { NEG_READY_FILE, spentOf, eventLiveAdapt, eventLiveBusy, eventLiveBuy, eventRestBid, eventRestSync, eventLiveConfig, eventLiveRows, eventLiveSettle, eventLiveSummary, eventLiveStop, type NegRiskReady } from "./eventlive.js";
 import { JEV_CONTEXT, headlines, jevKey, jevStake, type JevStake } from "./jev.js";
 
 const GAMMA = "https://gamma-api.polymarket.com";
@@ -1193,11 +1193,20 @@ function copyRulesFor(w: { name: string }) {
   RULE_TEXT[`copy-any-${w.name}`] = ["copy", `Paper only: every first buy of ${w.name} at the ask, no price limit.`];
   GROUPS.copy.push(`copy-rest-${w.name}`, `copy-take-${w.name}`, `copy-any-${w.name}`);
 }
+const AUTO_PAPER_PER_TICK = 10;
+let autoTurn = 0;
+let scanning = false;
 async function copyTick() {
   const now = Date.now();
-  const auto = autoFollowed().map((w) => ({ name: w.name, address: w.address }));
-  for (const w of auto) copyRulesFor(w);
-  for (const wl of [...COPY_WALLETS, ...auto]) {
+  // Wallets from the daily rescan: the real ones are read every tick like the fixed list; the paper ones take turns,
+  // AUTO_PAPER_PER_TICK a tick (60 paper wallets = each read every 90 s), so the data API load stays near 2 calls/s.
+  const followed = autoFollowed();
+  for (const w of followed) copyRulesFor(w);
+  const autoReal = followed.filter((w) => w.stage === "real");
+  const autoPaper = followed.filter((w) => w.stage !== "real");
+  const turn = autoPaper.length ? Array.from({ length: Math.min(AUTO_PAPER_PER_TICK, autoPaper.length) }, (_, i) => autoPaper[(autoTurn + i) % autoPaper.length]) : [];
+  autoTurn += AUTO_PAPER_PER_TICK;
+  for (const wl of [...COPY_WALLETS, ...autoReal, ...turn]) {
     const st = (copyStats[wl.name] ??= { buysSeen: 0, repeats: 0, noMarket: 0, restPlaced: 0, taken: 0, takeSkipped: 0, lastError: "", lastAt: 0 });
     const seenKey = `copy:seen:${wl.name}`;
     if (!state.done[seenKey]) state.done[seenKey] = Math.floor(now / 1000); // no backfill: only buys made from now on
@@ -1746,19 +1755,29 @@ async function cricketTick() {
 }
 
 // ---------- open real bets marked at the market price (14 Nov 2026, enrique: "expectations of open trades") ----------
-type OpenMark = { at: number; n: number; stake: number; value: number; winning: number; losing: number; unknown: number; byDay: Record<string, { n: number; stake: number; value: number }>; byGroup: Record<string, { n: number; stake: number; value: number }> };
+/** An open real bet whose match or end time has passed (15 Nov 2026, enrique: "predictions that shouldve resolved but didnt"). */
+type Overdue = { group: string; title: string; outcome: string; stake: number; hours: number; price: number | null; state: string };
+type OpenMark = { at: number; overdue?: Overdue[]; unclaimed?: { title: string; outcome: string; payout: number; hours: number; error: string | null }[]; n: number; stake: number; value: number; winning: number; losing: number; unknown: number; byDay: Record<string, { n: number; stake: number; value: number }>; byGroup: Record<string, { n: number; stake: number; value: number }> };
 let openMark: OpenMark | null = null;
 async function markOpenTick() {
   const rows = eventLiveRows().filter((r) => r.shares > 0 && r.pnl == null);
   const m: OpenMark = { at: Date.now(), n: 0, stake: 0, value: 0, winning: 0, losing: 0, unknown: 0, byDay: {}, byGroup: {} };
   const cache = new Map<string, GMarket | null>();
-  for (const r of rows) {
+  for (const r0 of rows) {
+    const r = { ...r0, cost: spentOf(r0) };
     if (!cache.has(r.marketId)) cache.set(r.marketId, await getJson<GMarket>(`${GAMMA}/markets/${r.marketId}`).catch(() => null));
     const g = cache.get(r.marketId);
     const px = g ? jl<string[]>(g.outcomePrices, []).map(Number)[r.idx] : NaN;
     const ends = g ? copyResolveAt(g) : NaN;
     const day = Number.isFinite(ends) ? kstDay(ends) : "unknown";
     const value = Number.isFinite(px) ? r.shares * px : r.cost;
+    // game markets: 4 h after the start; others: 2 h after the end date
+    const due = g && Number.isFinite(tsOf(g.gameStartTime)) ? tsOf(g.gameStartTime) + 4 * 3600_000 : ends + 2 * 3600_000;
+    if (Number.isFinite(due) && m.at > due) {
+      const u = String((g as { umaResolutionStatus?: string } | null)?.umaResolutionStatus ?? "");
+      const state = !g ? "market not readable" : g.closed ? "closed on Polymarket, our settle has not run yet" : u ? `waiting on the resolution (${u})` : g.acceptingOrders === false ? "trading stopped, waiting on the resolution" : "still trading, result not proposed yet";
+      (m.overdue ??= []).push({ group: r.group, title: r.title.slice(0, 80), outcome: r.outcome.slice(0, 30), stake: Math.round(r.cost * 100) / 100, hours: Math.round((m.at - (due - (Number.isFinite(tsOf(g?.gameStartTime)) ? 4 : 2) * 3600_000)) / 360_000) / 10, price: Number.isFinite(px) ? px : null, state });
+    }
     m.n += 1;
     m.stake += r.cost;
     m.value += value;
@@ -1781,6 +1800,15 @@ async function markOpenTick() {
     o.stake = r2(o.stake);
     o.value = r2(o.value);
   }
+  m.overdue?.sort((a, b) => b.hours - a.hours);
+  // won but not claimed 4 h after it settled
+  const claims = loadJson<Record<string, { tx?: string | null; error?: string | null }>>("eventlive-claims.json", {});
+  m.unclaimed = eventLiveRows()
+    .filter((r) => r.shares > 0 && (r.pay ?? 0) > 0 && r.settledAt != null && m.at - r.settledAt > 4 * 3600_000 && !claims[r.conditionId ?? ""]?.tx)
+    .map((r) => ({ title: r.title.slice(0, 80), outcome: r.outcome.slice(0, 30), payout: Math.round(r.shares * (r.pay ?? 0) * 100) / 100, hours: Math.round((m.at - (r.settledAt ?? 0)) / 360_000) / 10, error: claims[r.conditionId ?? ""]?.error ? String(claims[r.conditionId ?? ""]?.error).replace(/0x[0-9a-fA-F]{8,}/g, "0x…").slice(0, 100) : null }));
+  // paper trades still open 3 days after they were made (most paper markets settle within a day)
+  (m as OpenMark & { paperOld?: number; paperOpen?: number }).paperOpen = state.trades.filter((t) => t.pnl == null).length;
+  (m as OpenMark & { paperOld?: number }).paperOld = state.trades.filter((t) => t.pnl == null && m.at - t.t > 3 * 86400_000).length;
   openMark = m;
 }
 // ---------- settlement and summary ----------
@@ -2050,11 +2078,13 @@ async function main() {
       });
     }
     // daily wallet rescan (14 Nov 2026, enrique: "yeah"), first one about 10 min after a start
-    if (now - autoState().lastScan > 24 * 3600_000 && now - startedAt > 10 * 60_000) {
-      await guard("wallet rescan", async () => {
+    // Not awaited: the wide scan takes up to about half an hour and must not hold up the other loggers.
+    if (!scanning && scanDue(now) && now - startedAt > 10 * 60_000) {
+      scanning = true;
+      void guard("wallet rescan", async () => {
         const own = String(loadJson<{ funder?: string }>("live.json", {}).funder ?? "");
         for (const t of await copyScan([...COPY_WALLETS, { name: "weather wallet", address: WX_COPY_WALLET }], own, (u) => getJson(u, 20_000))) log(t);
-      });
+      }).finally(() => (scanning = false));
     }
     {
       await guard("jev", jevTick);
