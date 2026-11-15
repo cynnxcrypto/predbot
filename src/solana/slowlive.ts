@@ -47,6 +47,8 @@ import { SOL } from "./pools.js";
 import { onSlowSwap, provenWallets, setSlowRealSummary, type SlowSwap } from "./slow.js";
 
 export const HARD_STAKE_SOL = 0.05;
+/** when the stake went from 0.01 to 0.035 SOL (the restart of 18:00 KST 15 Nov 2026) */
+export const STAKE_RAISED_MS = Date.UTC(2026, 10, 15, 9, 0, 0);
 /** the most one stepped-up copy may be (stake x the top step, never above this) */
 export const HARD_STEP_STAKE_SOL = 0.15;
 /**
@@ -182,6 +184,8 @@ export interface Pos {
   /** when we saw the leader's first sale of the coin, ms */
   soldSeenMs?: number;
   boughtMs?: number;
+  /** the SOL this copy was bought with (15 Nov 2026: stakes differ by day and by wallet, so each copy keeps its own) */
+  stakeSol?: number;
   /** every transaction of ours for this copy (buy, sale tries, account close): what they did to our SOL is the result */
   sigs: string[];
   sellRounds: number;
@@ -252,6 +256,8 @@ function load() {
     state = { ...fresh(), ...(JSON.parse(text) as State) };
     if (!Array.isArray(state.opens)) state.opens = [];
     if (!Array.isArray(state.rows)) state.rows = [];
+    // copies bought before each kept its own stake: 0.01 SOL until the 18:00 KST restart of 15 Nov 2026, 0.035 after
+    for (const p of state.opens) if (p.stakeSol == null && p.stage !== "waiting") p.stakeSol = (p.boughtMs ?? p.seenMs) >= STAKE_RAISED_MS ? 0.035 : 0.01;
     dedupe();
   } catch {
     // a file that is there but unreadable must never restart the loss count from zero
@@ -396,7 +402,8 @@ function onBuy(s: SlowSwap) {
     return void state.missedCap++;
   }
   // the cap must hold with every copy that is out, and this one, lost in full
-  if (loss() + (state.opens.length + 1) * (c.stakeSol + COPY_ROOM_SOL) > c.maxLossSol + 1e-9) return void state.missedCap++;
+  // (each copy that is out at ITS OWN stake: the older, smaller ones do not count as big ones)
+  if (loss() + state.opens.reduce((a, o) => a + (o.stakeSol ?? c.stakeSol) + COPY_ROOM_SOL, 0) + c.stakeSol + COPY_ROOM_SOL > c.maxLossSol + 1e-9) return void state.missedCap++;
   const p: Pos = { wallet: s.wallet, name: nameOf(s.wallet), mint: s.mint, leaderSol: r6(s.sol), seenMs: s.seenMs, stage: "waiting", sigs: [], sellRounds: 0 };
   state.opens.push(p);
   save();
@@ -443,6 +450,7 @@ async function buy(p: Pos) {
     if (p.soldSeenMs) return drop(() => state.skippedSold++);
     // the bucket side may have bought the coin while this copy waited for its entry
     if (bucketHeld().includes(p.mint)) return drop(() => state.missedSame++);
+    p.stakeSol = stakeSol;
     const q = await kit.quote(SOL, p.mint, String(Math.round(stakeSol * LAMPORTS)), c.slippageBps);
     if (!q.outAmount || q.outAmount === "0") return drop(() => state.notSent++);
     const tx = signTransaction(await kit.swapTx(q, w.address, c.maxFeeLamports), w);

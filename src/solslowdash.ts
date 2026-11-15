@@ -129,7 +129,7 @@ export async function solSlowView(): Promise<unknown> {
   const ms = (m: string) => (typeof m === "string" && m.length > 8 ? m.slice(0, 4) + "…" : null);
   return {
     at: Date.now(),
-    open: opens.map((p) => ({ name: short(p.name), sym: sym(p.mint), ms: ms(p.mint), stage: p.stage, t: p.boughtMs ?? p.seenMs, leaderSold: p.soldSeenMs != null, worthSol: vals.get(p.mint) ?? null })),
+    open: opens.map((p) => ({ name: short(p.name), sym: sym(p.mint), ms: ms(p.mint), stage: p.stage, t: p.boughtMs ?? p.seenMs, leaderSold: p.soldSeenMs != null, worthSol: vals.get(p.mint) ?? null, stakeSol: (p as { stakeSol?: number }).stakeSol ?? null })),
     closed: rows.slice().reverse().map((r) => ({ name: short(r.name), sym: sym(r.mint), ms: ms(r.mint), t: r.t, closedAt: r.heldMin != null ? r.t + r.heldMin * 60_000 : null, exit: r.exit, heldMin: r.heldMin, netSol: r.netSol })),
   };
 }

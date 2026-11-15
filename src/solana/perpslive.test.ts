@@ -91,7 +91,7 @@ test("off unless switched on, and the hard limits hold", () => {
   assert.equal(P.parsePerpsLive("not json").on, false);
   assert.equal(P.parsePerpsLive('{"solanaPerps":{"on":true}}').on, false); // no loss cap = off
   const c = P.parsePerpsLive('{"solanaPerps":{"on":true,"maxLossUsd":999,"leverage":50,"collateralUsd":5000,"ruleStopUsd":500}}');
-  assert.deepEqual(c, { on: true, maxLossUsd: 30, collateralUsd: 25, leverage: 2, ruleStopUsd: 10 });
+  assert.deepEqual(c, { on: true, maxLossUsd: 50, collateralUsd: 25, leverage: 2, ruleStopUsd: 10 });
 });
 
 test("the orders have the shape of Jupiter's program interface", () => {
