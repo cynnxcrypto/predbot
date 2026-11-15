@@ -831,20 +831,55 @@ export function provenWallets(): { name: string; address: string; n: number; won
  * followed wallets had bought that coin before this one and had not yet sold when it bought. The real copy lets a
  * second wallet's buy of a coin it holds go (one copy a coin), so this also says what those let-go buys were worth.
  */
-export function crowdStudy(closed: Pos[], open: Pos[]) {
+/** For each copy: how many other followed wallets had bought its coin before it and not yet sold when it bought. */
+function othersIn(closed: Pos[], open: Pos[]): (p: Pos) => number {
   const by = new Map<string, Pos[]>();
   for (const p of [...closed, ...open]) {
     const l = by.get(p.mint);
     if (l) l.push(p);
     else by.set(p.mint, [p]);
   }
+  return (p) => {
+    const others = new Set<string>();
+    for (const q of by.get(p.mint) ?? []) if (q.wallet !== p.wallet && q.seenMs < p.seenMs && (q.soldMs ?? q.closedMs ?? Infinity) > p.seenMs) others.add(q.wallet);
+    return others.size;
+  };
+}
+/** The crowd rules tried: a coin is copied when at least this many other followed wallets already hold it (0 = any buy, as the real copy does). */
+export const CROWD_MIN = [0, 1, 2, 3] as const;
+/**
+ * The crowd split as a real copy would have to run it: ONE copy a coin. In time order a closed paper copy (5 s in,
+ * 5 s out) is taken when `minOthers`+ other followed wallets were already in the coin and no copy of that coin taken
+ * earlier is still held; it ends with the wallet whose buy it copied. The many copies of one coin in crowdStudy
+ * count once here, so this is the number to judge the lead by. `newer` = the newer half of the copies taken.
+ */
+export function crowdOnePerCoin(closed: Pos[], open: Pos[]) {
+  const n = othersIn(closed, open);
+  const list = closed
+    .map((p) => ({ p, v: posRet(p, 5, 5), o: n(p) }))
+    .filter((x): x is { p: Pos; v: number; o: number } => x.v !== undefined)
+    .sort((a, b) => a.p.seenMs - b.p.seenMs);
+  const stat = (v: number[]) => ({ n: v.length, won: v.filter((y) => y > 0).length, avgRetPct: v.length ? r((avg(v) ?? 0) * 100) : null, netSol: r(v.reduce((a, y) => a + y, 0) * STAKE_SOL, 3) });
+  return CROWD_MIN.map((minOthers) => {
+    const until = new Map<string, number>();
+    const coins = new Set<string>();
+    const v: number[] = [];
+    for (const x of list) {
+      if (x.o < minOthers || (until.get(x.p.mint) ?? 0) > x.p.seenMs) continue;
+      until.set(x.p.mint, x.p.closedMs ?? x.p.soldMs ?? x.p.seenMs);
+      coins.add(x.p.mint);
+      v.push(x.v);
+    }
+    return { minOthers, ...stat(v), coins: coins.size, newer: stat(v.slice(Math.floor(v.length / 2))) };
+  });
+}
+export function crowdStudy(closed: Pos[], open: Pos[]) {
+  const n = othersIn(closed, open);
   const groups: number[][] = [[], [], []];
   for (const p of closed) {
     const v = posRet(p, 5, 5);
     if (v === undefined) continue;
-    const others = new Set<string>();
-    for (const q of by.get(p.mint) ?? []) if (q.wallet !== p.wallet && q.seenMs < p.seenMs && (q.soldMs ?? q.closedMs ?? Infinity) > p.seenMs) others.add(q.wallet);
-    groups[Math.min(others.size, 2)].push(v);
+    groups[Math.min(n(p), 2)].push(v);
   }
   return (["0", "1", "2+"] as const).map((othersIn, i) => {
     const v = groups[i];
@@ -1124,7 +1159,7 @@ export function slowSummary() {
   const fol = followed();
   const proven = provenWallets();
   return {
-    note: `Paper and read-only. CANDIDATES: the listed wallets, the busiest pump.fun buyers, and (day holders) wallets that bought ${MIN_BUYER_SOL}+ SOL of coins that keep trading for days (${COIN_MIN_AGE_D}+ days old, no stables or staked SOL: on ${JUP_LISTS.length} of Jupiter's lists, or verified with $${VERIFIED_MIN_VOL_USD}+ traded in a day; and coins our wallets traded on 3+ days), sampled at ${SAMPLE_DAYS.join(" / ")} days back, ${SAMPLE_PAGES} pages each. A full first page inside ${BOT_PAGE_H} h = bot; ${FAST_TRIPS}+ trips in its newest ${FAST_PAGES * 100} transactions with a median hold under ${FAST_HOLD_MIN} min = fast (flipper); neither is read further. A wallet read in full that neither passes nor is near (10+ trips, median hold ${MIN_HOLD_MIN}+ min, ahead) keeps its numbers but not its swaps and is read again every ${OUT_REFRESH_MS / 86_400_000} days; passing and near ones daily. SCREEN: each candidate's own SOL swaps over the last ${DAYS_BACK} days as round trips (first buy until ${CLOSE_SHARE * 100}% sold). Passes = not a bot, ${MIN_TRIPS}+ trips, first sell a median ${MIN_HOLD_MIN}+ min after its first buy, realised SOL positive in BOTH halves of the period, ${MIN_WIN * 100}%+ won, no single trade half or more of the profit. Realised SOL is before network fees. LATE: for its newest ${DELAY_TRIPS} trips, a copier entering 30 s / 5 min after its first buy and selling ${EXIT_SEC} s after its first sale, priced from other people's trades, ${DELAY_COST * 100}% cost taken off: an estimate (a late price over ${LATE_OFF}x off the wallet's own is left out). NOT COPYABLE: a passing wallet with ${NO_COPY_MIN}+ late copies checked and fewer than 1 in ${NO_COPY_ONE_IN} won; it is not followed. smallStartPct = trips whose first buy was under half the wallet's usual. PAPER: followed wallets copied live with ${STAKE_SOL} SOL at Jupiter quotes, ${ENTRY_DELAYS.map(when).join(" / ")} after we see the buy, sold ${EXIT_DELAYS.join(" / ")} s after its first sale (or at ${MAX_HOLD_H} h); by wallet, in5s is the entry a real copy makes; proven = followed now, and of its newest ${PROVEN_LAST} closed 5 s copies ${PROVEN_MIN}+ priced, half or more won, ahead; crowd = closed 5 s copies by how many other followed wallets had bought the coin before and not yet sold. Leads to test, not proof.`,
+    note: `Paper and read-only. CANDIDATES: the listed wallets, the busiest pump.fun buyers, and (day holders) wallets that bought ${MIN_BUYER_SOL}+ SOL of coins that keep trading for days (${COIN_MIN_AGE_D}+ days old, no stables or staked SOL: on ${JUP_LISTS.length} of Jupiter's lists, or verified with $${VERIFIED_MIN_VOL_USD}+ traded in a day; and coins our wallets traded on 3+ days), sampled at ${SAMPLE_DAYS.join(" / ")} days back, ${SAMPLE_PAGES} pages each. A full first page inside ${BOT_PAGE_H} h = bot; ${FAST_TRIPS}+ trips in its newest ${FAST_PAGES * 100} transactions with a median hold under ${FAST_HOLD_MIN} min = fast (flipper); neither is read further. A wallet read in full that neither passes nor is near (10+ trips, median hold ${MIN_HOLD_MIN}+ min, ahead) keeps its numbers but not its swaps and is read again every ${OUT_REFRESH_MS / 86_400_000} days; passing and near ones daily. SCREEN: each candidate's own SOL swaps over the last ${DAYS_BACK} days as round trips (first buy until ${CLOSE_SHARE * 100}% sold). Passes = not a bot, ${MIN_TRIPS}+ trips, first sell a median ${MIN_HOLD_MIN}+ min after its first buy, realised SOL positive in BOTH halves of the period, ${MIN_WIN * 100}%+ won, no single trade half or more of the profit. Realised SOL is before network fees. LATE: for its newest ${DELAY_TRIPS} trips, a copier entering 30 s / 5 min after its first buy and selling ${EXIT_SEC} s after its first sale, priced from other people's trades, ${DELAY_COST * 100}% cost taken off: an estimate (a late price over ${LATE_OFF}x off the wallet's own is left out). NOT COPYABLE: a passing wallet with ${NO_COPY_MIN}+ late copies checked and fewer than 1 in ${NO_COPY_ONE_IN} won; it is not followed. smallStartPct = trips whose first buy was under half the wallet's usual. PAPER: followed wallets copied live with ${STAKE_SOL} SOL at Jupiter quotes, ${ENTRY_DELAYS.map(when).join(" / ")} after we see the buy, sold ${EXIT_DELAYS.join(" / ")} s after its first sale (or at ${MAX_HOLD_H} h); by wallet, in5s is the entry a real copy makes; proven = followed now, and of its newest ${PROVEN_LAST} closed 5 s copies ${PROVEN_MIN}+ priced, half or more won, ahead; crowd = closed 5 s copies by how many other followed wallets had bought the coin before and not yet sold; crowdOnePerCoin = that as a rule at one copy a coin (a copy taken when minOthers+ others hold the coin and none of ours is out), newer = its newer half. Leads to test, not proof.`,
     state: health.state,
     working: health.working,
     windowDays: DAYS_BACK,
@@ -1181,6 +1216,8 @@ export function slowSummary() {
       proven: proven.map((x) => ({ name: x.name, n: x.n, won: x.won, netSol: x.netSol })),
       /** closed 5 s copies by how many other followed wallets were already in the coin when this one bought */
       crowd: crowdStudy(done, state.open),
+      /** the same lead at one copy a coin, as a real copy would run it: copy when minOthers+ other followed wallets already hold the coin */
+      crowdOnePerCoin: crowdOnePerCoin(done, state.open),
       holdMinMedian: r(median(done.filter((p) => p.soldMs).map((p) => (p.soldMs! - p.seenMs) / 60_000)), 0),
     },
     /** the real day-holder copy (slowlive.ts), when it runs */
