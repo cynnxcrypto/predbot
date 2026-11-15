@@ -6,7 +6,7 @@ import { mock, test } from "node:test";
 
 process.env.DATA_DIR = mkdtempSync(join(tmpdir(), "solslow-"));
 
-const { tripsOf, screen, lateRet, ownRet, priceAfter, posRet, paperRules, slowTx, slowSummary, reportOf, followed, slowWatch, jupCoins, coinOld, creditsDay, copyableOf, provenWallets, _test, STAKE_SOL, TX_SOL, DELAY_COST, MIN_TRIPS } = await import("./slow.js");
+const { tripsOf, screen, lateRet, ownRet, priceAfter, posRet, paperRules, slowTx, slowSummary, reportOf, followed, slowWatch, jupCoins, coinOld, creditsDay, copyableOf, provenWallets, crowdStudy, _test, STAKE_SOL, TX_SOL, DELAY_COST, MIN_TRIPS } = await import("./slow.js");
 
 const W = "Wa11et1111111111111111111111111111111111111";
 const M = "M1nt11111111111111111111111111111111111111";
@@ -564,4 +564,26 @@ test("not copyable: a passing wallet whose late copies lose is not followed; a m
   _test.follow(["Good111111"]);
   assert.deepEqual(provenWallets(), []);
   _test.reset();
+});
+
+test("crowd: closed paper copies by how many other followed wallets were already in the coin", () => {
+  const pos = (wallet: string, mint: string, seenMs: number, soldMs: number | undefined, back: number | undefined) => ({
+    wallet, name: wallet, mint, seenMs, soldMs, leaderSol: 1, entries: { e5: "10", e30: null, e300: null, e1800: null },
+    exits: (back === undefined ? {} : { "e5-x5": back }) as Record<string, number | null>, closed: back === undefined ? undefined : ("sold" as const), closedMs: soldMs,
+  });
+  const closed = [
+    pos("a", "X", 1000, 5000, 0.3), // first into X: nobody else
+    pos("b", "X", 2000, 6000, 0.24), // a was in
+    pos("c", "X", 3000, 7000, 0.3), // a and b were in
+    pos("d", "X", 5500, 9000, 0.3), // a had sold; b and c in
+    pos("a", "X", 8000, 9500, 0.3), // its own earlier copy does not count; d still in: 1
+    pos("e", "Y", 1000, 2000, 0.3), // alone
+    pos("f", "Y", 2500, 3000, 0.24), // e sold before: alone
+    pos("g", "Z", 4000, 5000, 0.3), // an open copy of h counts
+  ];
+  const open = [pos("h", "Z", 1000, undefined, undefined)];
+  const c = crowdStudy(closed, open);
+  assert.deepEqual(c.map((x) => [x.othersIn, x.n, x.won]), [["0", 3, 2], ["1", 3, 2], ["2+", 2, 2]]);
+  // 0.3 back on 0.25 after two fees: +19.2%; 0.24: -4.8%
+  assert.deepEqual([c[0].avgRetPct, c[2].avgRetPct, c[2].netSol], [11.2, 19.2, 0.096]);
 });
