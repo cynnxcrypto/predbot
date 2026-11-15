@@ -27,6 +27,7 @@
     "ruleStopUsd": 10,
     "maxLossUsd": 50,
     "swapSolOnce": { "id": "swap-15nov", "keepSol": 0.05, "note": "15 Nov 2026 17:32 KST, enrique: 'i sent too much sol but it uses usdc no?' / 'yeah do the swap': the SOL above 0.05 in the perps wallet is swapped into USDC, once." },
+    "testLongOnce": "long-15nov",
     "testOnce": "test-15nov"
   },
   "mode": "live",

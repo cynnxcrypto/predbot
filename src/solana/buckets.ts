@@ -547,6 +547,7 @@ interface State {
   perpLast: Record<string, { px: number; d1: number | null; d7: number | null; d30: number | null }>;
   hlTraders: HlTrader[];
   hlAt: number;
+  hlV?: number;
   hlSeen: Record<string, Record<string, number>>;
   hlNext: number;
   hlOpen: HlOpen[];
@@ -557,6 +558,8 @@ interface State {
   errors: Record<string, string>;
 }
 const SORT_V = 4;
+/** version of the rules that pick the copied perp traders: an older file's list is read again at once */
+const HL_LIST_V = 2;
 const fresh = (): State => ({
   v: SORT_V,
   universe: [], universeAt: 0, slot: 0, series: {}, open: [], trades: [], cool: {}, missed: 0, perpHour: 0, perpOpen: [], perpTrades: [], perpLast: {},
@@ -572,6 +575,9 @@ function load() {
     state = { ...fresh(), ...(JSON.parse(readFileSync(FILE(), "utf8")) as State) };
     if (state.v !== SORT_V) state.universeAt = 0;
     state.v = SORT_V;
+    // the trader list's rules changed (60 -> 400 traders): the list is read again at once, not at its daily turn
+    if (state.hlV !== HL_LIST_V) state.hlAt = 0;
+    state.hlV = HL_LIST_V;
   } catch {
     state = fresh();
   }
@@ -1053,12 +1059,13 @@ export const traderMeetsBar = (x: { trades: number; won: number; netUsd: number;
 /** Does this perp rule, or this copied trader, meet its bar for real on the paper trades made after `sinceMs`? */
 export const perpMeetsBar = (rule: string, sinceMs = 0, now = Date.now()) => (isTraderRule(rule) ? traderMeetsBar(traderRecord(rule, sinceMs), now) : meetsBar(perpPaperRecord(rule, sinceMs)));
 /** The perp paper positions that are open now (rules and copied traders' shorts), each with a name of its own. */
-export function perpPaperOpens(): { id: string; rule: string; coin: string; dir: number; at: number }[] {
+export function perpPaperOpens(): { id: string; rule: string; coin: string; dir: number; at: number; lev?: number }[] {
   if (!loaded) load();
   return [
     ...state.perpOpen.map((o) => ({ id: `${o.rule}:${o.at}`, rule: o.rule, coin: o.coin, dir: o.dir, at: o.at })),
-    // a copied trader's short on SOL, BTC or ETH, under the trader's own name: each trader is promoted on its own record
-    ...state.hlOpen.filter(isCopyShort).map((o) => ({ id: `${traderRule(o.trader)}:${o.coin}:${o.at}`, rule: traderRule(o.trader), coin: o.coin, dir: o.dir, at: o.at })),
+    // a copied trader's long or short on SOL, BTC or ETH, under the trader's own name and with the leverage the trader
+    // set: each trader is promoted on its own record
+    ...state.hlOpen.filter((o) => (PERP_COINS as readonly string[]).includes(o.coin)).map((o) => ({ id: `${traderRule(o.trader)}:${o.coin}:${o.at}`, rule: traderRule(o.trader), coin: o.coin, dir: o.dir, at: o.at, lev: o.lev })),
   ];
 }
 /** One perp rule's closed paper trades since `sinceMs`, in the shape of the bar (net in units of one position). */
