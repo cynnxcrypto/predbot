@@ -371,14 +371,27 @@ export function parseKlines(rows: unknown, now: number): { k: Candles; px: numbe
 }
 
 // ---- perp copy: Hyperliquid traders -------------------------------------------------------------------------------------
-export const HL_FOLLOW = 60;
-export const HL_MIN_ACCOUNT_USD = 100_000;
+// enrique, 15 Nov 2026 18:23 KST: "for solana perps, do more for copying top traders, that might be way better than
+// trying to come up with rules". The list went from 60 to 400 traders and smaller accounts are let in.
+export const HL_FOLLOW = 400;
+export const HL_MIN_ACCOUNT_USD = 25_000;
 export const HL_MIN_MONTH_ROI = 0.1;
 export const HL_MAX_TURNOVER = 200; // month volume / account: above this it is a market maker or a bot
 export const HL_MIN_POS_USD = 10_000;
 export const HL_MAX_HOLD_MS = 14 * 86_400_000;
 const HL_REFRESH_MS = 24 * 3_600_000;
-const HL_PER_TICK = 20;
+/** traders looked at in one minute: those we hold a copy of (or have copied before) every minute, the rest in turns.
+ *  One look costs 2 of Hyperliquid's 1,200 weight a minute for an address: 120 looks are 240, a fifth of it. */
+const HL_PER_TICK = 120;
+const HL_HOT_MAX = 50;
+const HL_BATCH = 10;
+/** A copied trader's own leverage is followed on paper up to this (decimals kept): above it the copy uses this. */
+export const HL_LEV_CAP = 10;
+/** The bar for ONE trader to be followed for real, the way Polymarket wallets go real: this many closed paper
+ *  copies, half or more won, ahead after costs, and a day or more since the first of them. */
+export const TRADER_MIN_COPIES = 20;
+export const TRADER_MIN_AGE_MS = 24 * 3_600_000;
+export const traderRule = (address: string) => `copy-${address.slice(2, 10)}`;
 /** coins a Solana venue lists; SOL, BTC, ETH at Jupiter's price, the rest at an order book's (0.04% + spread) */
 export const hlCost = (coin: string) => ((PERP_COINS as readonly string[]).includes(coin) ? PERP_FEE_SIDE : 0.0006);
 export interface HlTrader {
@@ -785,21 +798,36 @@ async function hlTick(deps: BucketDeps, now: number) {
     state.hlTrades.push({ trader: o.trader, coin: o.coin, dir: o.dir, at: o.at, exitAt: now, net: r(net, 6)!, why, lev: o.lev, worst });
     state.hlOpen = state.hlOpen.filter((x) => x !== o);
   };
-  for (let n = 0; n < Math.min(HL_PER_TICK, watch.length); n++) {
-    const a = watch[state.hlNext++ % watch.length];
-    const answer = await hlPost(deps, { type: "clearinghouseState", user: a });
-    const after = hlPositions(answer);
-    if (!after) continue;
-    const levs = hlLeverage(answer);
-    const before = state.hlSeen[a];
-    state.hlSeen[a] = after;
-    if (!before) continue; // first look: what it already holds was opened at prices we never saw
-    const { opened, closed } = hlDiff(before, after);
-    for (const coin of closed) for (const o of state.hlOpen.filter((x) => x.trader === a && x.coin === coin)) await shut(o, "closed");
-    if (!state.hlTraders.some((t) => t.address === a)) continue; // dropped from the list: only its open copies are finished
-    for (const { coin, dir } of opened) {
-      const px = await mid(coin);
-      if (px && !state.hlOpen.some((x) => x.trader === a && x.coin === coin)) state.hlOpen.push({ trader: a, coin, dir, at: now, entry: px, lev: levs[coin], worst: 0 });
+  // who is looked at this minute: traders with an open copy first, then those copied before (most copies first), then the rest in turns
+  const copies = new Map<string, number>();
+  for (const t of state.hlTrades) copies.set(t.trader, (copies.get(t.trader) ?? 0) + 1);
+  const holding = [...new Set(state.hlOpen.map((o) => o.trader))];
+  const before0 = [...copies.entries()].sort((x, y) => y[1] - x[1]).map(([a]) => a).filter((a) => watch.includes(a) && !holding.includes(a));
+  const hot = [...holding, ...before0].slice(0, Math.max(HL_HOT_MAX, holding.length));
+  const turn: string[] = [];
+  const cold = watch.filter((a) => !hot.includes(a));
+  for (let n = 0; n < Math.min(Math.max(0, HL_PER_TICK - hot.length), cold.length); n++) turn.push(cold[state.hlNext++ % cold.length]);
+  const todo = [...new Set([...hot, ...turn])];
+  for (let b = 0; b < todo.length; b += HL_BATCH) {
+    const batch = todo.slice(b, b + HL_BATCH);
+    const answers = await Promise.all(batch.map((a) => hlPost(deps, { type: "clearinghouseState", user: a }).catch(() => null)));
+    if (b === 0 && answers.every((x) => x === null)) throw new Error("traders: no answer");
+    for (let j = 0; j < batch.length; j++) {
+      const a = batch[j];
+      const answer = answers[j];
+      const after = hlPositions(answer);
+      if (!after) continue;
+      const levs = hlLeverage(answer);
+      const before = state.hlSeen[a];
+      state.hlSeen[a] = after;
+      if (!before) continue; // first look: what it already holds was opened at prices we never saw
+      const { opened, closed } = hlDiff(before, after);
+      for (const coin of closed) for (const o of state.hlOpen.filter((x) => x.trader === a && x.coin === coin)) await shut(o, "closed");
+      if (!state.hlTraders.some((t) => t.address === a)) continue; // dropped from the list: only its open copies are finished
+      for (const { coin, dir } of opened) {
+        const px = await mid(coin);
+        if (px && !state.hlOpen.some((x) => x.trader === a && x.coin === coin)) state.hlOpen.push({ trader: a, coin, dir, at: now, entry: px, lev: levs[coin], worst: 0 });
+      }
     }
   }
   // how far each open copy has gone against us, at the prices of this look (between looks it can have gone further)
@@ -899,7 +927,7 @@ export function bucketsSummary() {
   const major = (c: string) => (PERP_COINS as readonly string[]).includes(c);
   return {
     mode: "paper",
-    note: `Paper only, nothing is sent. SPOT: coins from Jupiter's lists in four buckets by market value, up to ${PER_BUCKET} each, priced once a minute and kept as 5-minute closes. A rule buys on a 5-minute close; the buy is a real quote for a $${STAKE_USD} swap taken after the signal and the sale a real quote for the swap back, less $${TX_USD} a transaction. Thresholds are the rule's base move times the bucket's scale (${BUCKETS.map((b) => `${b} x${SCALE[b]}`).join(", ")}). PERPS: SOL, BTC, ETH on hourly candles, filled at the price when the hour's close is read, charged Jupiter Perps' ${PERP_FEE_SIDE * 100}% a side and ${PERP_BORROW_HOUR * 100}% an hour borrow, $${PERP_USD} a position. The history test (84 rules, 15 Nov 2026) found none that survives costs; "history" says what each did there. COPY, spot: the day-holder study's paper copies (bought ${COPY_ENTRY_S} s after we see the buy, sold ${COPY_EXIT_S} s after its first sale) sorted by the coin's bucket today. COPY, perps: up to ${HL_FOLLOW} traders from Hyperliquid's public leaderboard (ahead over week, month and all time, month +${HL_MIN_MONTH_ROI * 100}%+, account $${HL_MIN_ACCOUNT_USD}+, not a market maker), each looked at about every 3 minutes; a position of $${HL_MIN_POS_USD}+ they open is copied at the price we read after seeing it and closed when they close, charged a Solana venue's costs. Bar for real: 100+ trades on one rule or trader set, half or more won, net positive. A quote is the best case for a fill.`,
+    note: `Paper only, nothing is sent. SPOT: coins from Jupiter's lists in four buckets by market value, up to ${PER_BUCKET} each, priced once a minute and kept as 5-minute closes. A rule buys on a 5-minute close; the buy is a real quote for a $${STAKE_USD} swap taken after the signal and the sale a real quote for the swap back, less $${TX_USD} a transaction. Thresholds are the rule's base move times the bucket's scale (${BUCKETS.map((b) => `${b} x${SCALE[b]}`).join(", ")}). PERPS: SOL, BTC, ETH on hourly candles, filled at the price when the hour's close is read, charged Jupiter Perps' ${PERP_FEE_SIDE * 100}% a side and ${PERP_BORROW_HOUR * 100}% an hour borrow, $${PERP_USD} a position. The history test (84 rules, 15 Nov 2026) found none that survives costs; "history" says what each did there. COPY, spot: the day-holder study's paper copies (bought ${COPY_ENTRY_S} s after we see the buy, sold ${COPY_EXIT_S} s after its first sale) sorted by the coin's bucket today. COPY, perps: up to ${HL_FOLLOW} traders from Hyperliquid's public leaderboard (ahead over week, month and all time, month +${HL_MIN_MONTH_ROI * 100}%+, account $${HL_MIN_ACCOUNT_USD}+, not a market maker), those we have copied looked at every minute and the rest about every 3 to 4 minutes; a position of $${HL_MIN_POS_USD}+ they open is copied at the price we read after seeing it and closed when they close, charged a Solana venue's costs. Bar for real: 100+ trades on one rule, half or more won, net positive; for one copied trader ${TRADER_MIN_COPIES}+ closed copies, half or more won, ahead, a day or more on paper. A quote is the best case for a fill.`,
     updatedAt: Date.now(),
     real: realSummary(),
     jupiter: { usedToday: state.jupCalls, allowance: JUP_DAY() },
@@ -960,8 +988,28 @@ export function bucketsSummary() {
           longs: levTable(rows.filter((t) => t.dir > 0)),
           shorts: levTable(rows.filter((t) => t.dir < 0)),
           asTheTrader: levTally(rows, (t) => t.lev),
+          asTheTraderCapped: levTally(rows, (t) => (t.lev === undefined ? undefined : Math.min(t.lev, HL_LEV_CAP))),
         };
       })(),
+      // each copied trader's own paper record: at 1x, and at the trader's own leverage (capped) with liquidations
+      copyLevCap: HL_LEV_CAP,
+      traderBar: { copies: TRADER_MIN_COPIES, ageHours: TRADER_MIN_AGE_MS / 3_600_000 },
+      tradersCopied: copiedTraders().length,
+      tradersAtBar: copiedTraders().filter((a) => traderMeetsBar(traderRecord(traderRule(a)))).length,
+      traderRecords: copiedTraders()
+        .map((a) => {
+          const mine = state.hlTrades.filter((t) => t.trader === a);
+          const rec = traderRecord(traderRule(a));
+          const levs = [...mine, ...state.hlOpen.filter((o) => o.trader === a)].map((t) => t.lev).filter((x): x is number => x !== undefined);
+          const rows: LevRow[] = mine.map((t) => ({ net: t.net, worst: t.worst, hours: (t.exitAt - t.at) / 3_600_000, dir: t.dir, lev: t.lev, fee: hlCost(t.coin) }));
+          return {
+            id: traderRule(a), trades: rec.trades, won: rec.won, net: r(rec.netUsd), firstCopyAt: rec.firstAt, open: state.hlOpen.filter((o) => o.trader === a).length,
+            longs: mine.filter((t) => t.dir > 0).length, shorts: mine.filter((t) => t.dir < 0).length, majors: mine.filter((t) => major(t.coin)).length,
+            leverage: median(levs), atOwnLeverage: levTally(rows, (t) => (t.lev === undefined ? undefined : Math.min(t.lev, HL_LEV_CAP))), atBar: traderMeetsBar(rec),
+          };
+        })
+        .sort((x, y) => Number(y.atBar) - Number(x.atBar) || y.trades - x.trades || (y.net ?? 0) - (x.net ?? 0))
+        .slice(0, 60),
       // traders by a short tag only: a full address of a stranger does not belong in a public status
       byTrader: [...byTrader.entries()].map(([a, xs]) => ({ trader: a.slice(0, 6) + "…" + a.slice(-4), ...tally(xs, PERP_USD) })).sort((a, b) => (b.net ?? 0) - (a.net ?? 0)).slice(0, 20),
       recent: state.hlTrades.slice(-15).reverse().map((t) => ({ trader: t.trader.slice(0, 6) + "…" + t.trader.slice(-4), coin: t.coin, side: t.dir > 0 ? "long" : "short", openedAt: t.at, closedAt: t.exitAt, pct: r(t.net * 100), why: t.why })),
@@ -988,19 +1036,35 @@ export function paperOpens(): { rule: string; bucket: Bucket; mint: string; symb
 /** The rule name of the paper copies of perp traders that a real short could follow: shorts on SOL, BTC, ETH. */
 export const COPY_SHORTS = "copy-shorts";
 const isCopyShort = (t: { coin: string; dir: number }) => t.dir < 0 && (PERP_COINS as readonly string[]).includes(t.coin);
-export const perpRuleIds = () => [...PERP_COINS.flatMap((c) => PERP_RULES.map((x) => `${c}-${x.key}`)), COPY_SHORTS];
+const copiedTraders = () => [...new Set([...state.hlTrades, ...state.hlOpen].map((t) => t.trader))];
+export const perpRuleIds = () => {
+  if (!loaded) load();
+  return [...PERP_COINS.flatMap((c) => PERP_RULES.map((x) => `${c}-${x.key}`)), ...copiedTraders().map(traderRule)];
+};
+const isTraderRule = (rule: string) => rule.startsWith("copy-") && rule !== COPY_SHORTS;
+/** One trader's closed paper copies since `sinceMs` (every coin, both sides: the trader is judged whole). */
+export function traderRecord(rule: string, sinceMs = 0) {
+  if (!loaded) load();
+  const xs = state.hlTrades.filter((t) => traderRule(t.trader) === rule && t.at > sinceMs);
+  return { trades: xs.length, won: xs.filter((t) => t.net > 0).length, netUsd: xs.reduce((a, t) => a + t.net, 0) * PERP_USD, firstAt: xs.length ? Math.min(...xs.map((t) => t.at)) : null };
+}
+export const traderMeetsBar = (x: { trades: number; won: number; netUsd: number; firstAt: number | null }, now = Date.now()) =>
+  x.trades >= TRADER_MIN_COPIES && x.won * 2 >= x.trades && x.netUsd > 0 && x.firstAt !== null && now - x.firstAt >= TRADER_MIN_AGE_MS;
+/** Does this perp rule, or this copied trader, meet its bar for real on the paper trades made after `sinceMs`? */
+export const perpMeetsBar = (rule: string, sinceMs = 0, now = Date.now()) => (isTraderRule(rule) ? traderMeetsBar(traderRecord(rule, sinceMs), now) : meetsBar(perpPaperRecord(rule, sinceMs)));
 /** The perp paper positions that are open now (rules and copied traders' shorts), each with a name of its own. */
 export function perpPaperOpens(): { id: string; rule: string; coin: string; dir: number; at: number }[] {
   if (!loaded) load();
   return [
     ...state.perpOpen.map((o) => ({ id: `${o.rule}:${o.at}`, rule: o.rule, coin: o.coin, dir: o.dir, at: o.at })),
-    ...state.hlOpen.filter(isCopyShort).map((o) => ({ id: `${COPY_SHORTS}:${o.coin}:${o.at}:${o.trader.slice(2, 10)}`, rule: COPY_SHORTS, coin: o.coin, dir: o.dir, at: o.at })),
+    // a copied trader's short on SOL, BTC or ETH, under the trader's own name: each trader is promoted on its own record
+    ...state.hlOpen.filter(isCopyShort).map((o) => ({ id: `${traderRule(o.trader)}:${o.coin}:${o.at}`, rule: traderRule(o.trader), coin: o.coin, dir: o.dir, at: o.at })),
   ];
 }
 /** One perp rule's closed paper trades since `sinceMs`, in the shape of the bar (net in units of one position). */
 export function perpPaperRecord(rule: string, sinceMs = 0) {
   if (!loaded) load();
-  const xs = rule === COPY_SHORTS ? state.hlTrades.filter((t) => isCopyShort(t) && t.at > sinceMs) : state.perpTrades.filter((t) => t.rule === rule && t.at > sinceMs);
+  const xs = rule === COPY_SHORTS ? state.hlTrades.filter((t) => isCopyShort(t) && t.at > sinceMs) : isTraderRule(rule) ? state.hlTrades.filter((t) => traderRule(t.trader) === rule && t.at > sinceMs) : state.perpTrades.filter((t) => t.rule === rule && t.at > sinceMs);
   return { trades: xs.length, won: xs.filter((t) => t.net > 0).length, netUsd: xs.reduce((a, t) => a + t.net, 0) * PERP_USD };
 }
 let perpRealSummary: () => unknown = () => null;
