@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
-import { NEG_TRIAL, _eventLiveTest, restShares, ruleAdapt, paperGate, setPaperBehind, eventLiveBlock, eventLiveBuy, eventLiveConfig, negRiskBlock, parseEventLive, type EventLiveRow } from "./eventlive.js";
+import { NEG_TRIAL, _eventLiveTest, restShares, ruleAdapt, sizeStep, paperGate, setPaperBehind, eventLiveBlock, eventLiveBuy, eventLiveConfig, negRiskBlock, parseEventLive, type EventLiveRow } from "./eventlive.js";
 import { NEG_PERMS, eventClaimCalls, negRiskCalls } from "./live.js";
 import { stopWhenOrderDone } from "./eventpaper.js";
 
@@ -198,6 +198,20 @@ test("per-wallet automatic rule: learning to 10 settled, back to paper at -$10, 
   assert.match(eventLiveBlock(cfg, "copy", "a", "new", 0.5, 10, true, [], NOW5, 3)!, /paper record \(9 of 20 won/);
   assert.doesNotMatch(String(eventLiveBlock(cfg, "copy", "b", "new", 0.5, 10, true, [], NOW5, 3)), /paper record/);
   setPaperBehind(new Map());
+  // size steps: from our own settled real copies; the trader's money gates the steps above x2; a bad run steps down
+  const gs = { ...g, steps: "wallet" as const, size: 3 };
+  const many = (rule: string, n: number, wonN: number, win: number, lose: number) => Array.from({ length: n }, (_, i) => ({ ...r(rule, i % Math.round(n / (n - wonN) || 1) === 0 && n !== wonN ? -lose : win, i), settledAt: i }));
+  assert.equal(sizeStep(gs, many("s", 19, 19, 1, 0), "s", 900).mult, 1);
+  assert.equal(sizeStep(gs, many("s", 20, 20, 1, 0), "s", 900).mult, 2);
+  assert.equal(sizeStep(gs, many("s", 50, 50, 1, 0), "s", 900).mult, 3);
+  assert.equal(sizeStep(gs, many("s", 50, 50, 1, 0), "s", 100).mult, 2, "a small trader stays at x2");
+  assert.equal(sizeStep(gs, many("s", 100, 100, 1, 0), "s", 900).mult, 5);
+  assert.equal(sizeStep(gs, many("s", 50, 50, 0.4, 0), "s", 900).mult, 2, "50 settled but under $25 ahead");
+  const sour = [...many("s", 60, 60, 1, 0), ...Array.from({ length: 20 }, (_, i) => ({ ...r("s", i < 12 ? -1 : 1, 100 + i), settledAt: 100 + i }))];
+  assert.deepEqual([sizeStep(gs, sour, "s", 900).mult, sizeStep(gs, sour, "s", 900).why], [2, "one step down: its newest 20 are behind"]);
+  assert.equal(sizeStep(g, many("s", 100, 100, 1, 0), "s", 900).mult, 1, "off unless the group says steps");
+  const gr = { ...g, steps: "rule" as const, size: 3 };
+  assert.deepEqual([sizeStep(gr, many("s", 49, 49, 1, 0), "s").mult, Math.round(sizeStep(gr, many("s", 50, 50, 1, 0), "s").mult * 3), Math.round(sizeStep(gr, many("s", 100, 100, 1, 0), "s").mult * 3)], [1, 5, 8]);
   assert.equal(eventLiveBlock(cfg, "copy", "b", "new", 0.5, 10, true, ten, NOW5, 3), null, "other wallets are not touched");
   const ahead = Array.from({ length: 10 }, (_, i) => r("b", i < 6 ? 1 : -1, i));
   assert.equal(ruleAdapt(g, ahead, "b").state, "up");

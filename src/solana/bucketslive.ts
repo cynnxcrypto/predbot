@@ -408,6 +408,9 @@ export function bucketsLiveSummary() {
     heldValueSol: r6(state.opens.reduce((a, p) => a + (p.valueSol ?? c.stakeSol), 0)),
     skipped: state.skipped,
     lastError: state.lastError,
+    // the real trades for the page: newest 40 closed and what is out now (rule and bucket only: no coin, no transaction)
+    rows: state.rows.slice(-40).reverse(),
+    opens: state.opens.map((p) => ({ rule: p.rule, bucket: p.bucket, stage: p.stage, since: p.paperAt })),
     // the one-time test trade: its name, when, where it stands and what it did to the wallet (every fee in)
     test: state.test ? { ...state.test, open: state.opens.filter((p) => p.rule === TEST_RULE).map((p) => p.stage), rows: state.rows.filter((x) => x.rule === TEST_RULE).map((x) => ({ t: x.t, buy: x.buy, netSol: r6(x.netSol), heldMin: x.heldMin })) } : null,
     rulesReal: rules.filter((x) => x.real).length,

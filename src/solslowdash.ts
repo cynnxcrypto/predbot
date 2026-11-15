@@ -4,7 +4,7 @@
  * each coin still held what a sale would bring now (the same Jupiter quote the bot sells with), cached a minute.
  * Per-coin times are served only from /api/solslow, behind the dashboard password; never in /api/status; coin addresses are not served at all.
  */
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { DATA } from "./config.js";
 import { kit } from "./solana/copylive.js";
@@ -36,21 +36,67 @@ async function worthNow(address: string, mint: string): Promise<number | null> {
 // The coin's ticker (15 Nov 2026, enrique could not tell what a row was): read once per coin from the RPC's asset
 // lookup and kept in memory; a failed read is tried again after ten minutes. Only the ticker is served, never the address.
 const syms = new Map<string, { at: number; sym: string | null }>();
+// Kept in a file too (data/, not in the repo): every deploy restarts the bot, and asking for 70 names at once right
+// after a start was refused by the RPC, which left most coins without a name for ten minutes (15 Nov 2026).
+const SYM_FILE = join(DATA, "solana-symbols.json");
+let symsLoaded = false;
+function loadSyms() {
+  if (symsLoaded) return;
+  symsLoaded = true;
+  try {
+    if (existsSync(SYM_FILE)) for (const [m, v] of Object.entries(JSON.parse(readFileSync(SYM_FILE, "utf8")) as Record<string, string>)) if (typeof v === "string" && v) syms.set(m, { at: Date.now(), sym: v });
+  } catch {
+    // start empty
+  }
+}
+function saveSyms() {
+  try {
+    const o: Record<string, string> = {};
+    for (const [m, v] of [...syms].slice(-2000)) if (v.sym) o[m] = v.sym;
+    writeFileSync(SYM_FILE, JSON.stringify(o));
+  } catch {
+    // the names stay in memory
+  }
+}
+const cleanSym = (v: unknown) => [...String(v ?? "").replace(/[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2066-\u2069]/g, "").trim()].slice(0, 12).join("");
 async function symbolOf(mint: string): Promise<string | null> {
   const c = syms.get(mint);
-  if (c && (c.sym || Date.now() - c.at < 600_000)) return c.sym;
+  if (c && (c.sym || Date.now() - c.at < 60_000)) return c.sym;
   let sym: string | null = null;
   try {
     const r = await fetch(shared.rpcUrl(), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "getAsset", params: { id: mint } }), signal: AbortSignal.timeout(4000) });
     const j = (await r.json()) as { result?: { content?: { metadata?: { symbol?: string; name?: string } }; token_info?: { symbol?: string } } };
-    const clean = (v: unknown) => [...String(v ?? "").replace(/[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2066-\u2069]/g, "").trim()].slice(0, 12).join("");
-    const raw = clean(j.result?.token_info?.symbol) || clean(j.result?.content?.metadata?.symbol) || clean(j.result?.content?.metadata?.name);
-    sym = raw || null;
+    sym = cleanSym(j.result?.token_info?.symbol) || cleanSym(j.result?.content?.metadata?.symbol) || cleanSym(j.result?.content?.metadata?.name) || null;
   } catch {
     sym = null;
   }
+  if (!sym) {
+    // second source: Jupiter's token search by address
+    try {
+      const r = await fetch(`https://lite-api.jup.ag/tokens/v2/search?query=${mint}`, { signal: AbortSignal.timeout(4000) });
+      const rows = (await r.json()) as { id?: string; symbol?: string; name?: string }[];
+      const row = Array.isArray(rows) ? rows.find((x) => x?.id === mint) : null;
+      sym = cleanSym(row?.symbol) || cleanSym(row?.name) || null;
+    } catch {
+      sym = null;
+    }
+  }
   syms.set(mint, { at: Date.now(), sym });
+  if (sym) saveSyms();
   return sym;
+}
+/** Names for these coins: the known ones at once, the unknown ones four at a time, for at most `ms`. */
+async function symbolsFor(mints: string[], ms: number) {
+  loadSyms();
+  const need = [...new Set(mints)].filter((m) => {
+    const c = syms.get(m);
+    return !(c && (c.sym || Date.now() - c.at < 60_000));
+  });
+  const end = Date.now() + ms;
+  const worker = async () => {
+    while (need.length && Date.now() < end) await symbolOf(need.shift()!);
+  };
+  await Promise.race([Promise.all([worker(), worker(), worker(), worker()]), new Promise((ok) => setTimeout(ok, ms))]);
 }
 
 export async function solSlowView(): Promise<unknown> {
@@ -76,11 +122,14 @@ export async function solSlowView(): Promise<unknown> {
   }
   for (const p of opens) if (!vals.has(p.mint)) vals.set(p.mint, worth.get(p.mint)?.sol ?? null);
   const rows = (Array.isArray(st.rows) ? st.rows : []).filter((r) => r.buy === "landed").slice(-40);
-  await Promise.race([Promise.all([...new Set([...opens.map((p) => p.mint), ...rows.map((r) => r.mint)])].map((m) => symbolOf(m))), new Promise((ok) => setTimeout(ok, 3000))]);
+  // open coins first: they are what is on screen
+  await symbolsFor([...opens.map((p) => p.mint), ...rows.slice().reverse().map((r) => r.mint)], 3000);
   const sym = (m: string) => syms.get(m)?.sym ?? null;
+  // no name found: the start of the address stands in (this page is behind the password)
+  const ms = (m: string) => (typeof m === "string" && m.length > 8 ? m.slice(0, 4) + "…" : null);
   return {
     at: Date.now(),
-    open: opens.map((p) => ({ name: short(p.name), sym: sym(p.mint), stage: p.stage, t: p.boughtMs ?? p.seenMs, leaderSold: p.soldSeenMs != null, worthSol: vals.get(p.mint) ?? null })),
-    closed: rows.slice().reverse().map((r) => ({ name: short(r.name), sym: sym(r.mint), t: r.t, closedAt: r.heldMin != null ? r.t + r.heldMin * 60_000 : null, exit: r.exit, heldMin: r.heldMin, netSol: r.netSol })),
+    open: opens.map((p) => ({ name: short(p.name), sym: sym(p.mint), ms: ms(p.mint), stage: p.stage, t: p.boughtMs ?? p.seenMs, leaderSold: p.soldSeenMs != null, worthSol: vals.get(p.mint) ?? null, stakeSol: (p as { stakeSol?: number }).stakeSol ?? null })),
+    closed: rows.slice().reverse().map((r) => ({ name: short(r.name), sym: sym(r.mint), ms: ms(r.mint), t: r.t, closedAt: r.heldMin != null ? r.t + r.heldMin * 60_000 : null, exit: r.exit, heldMin: r.heldMin, netSol: r.netSol })),
   };
 }

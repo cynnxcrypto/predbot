@@ -13,7 +13,7 @@ import { loadJson, readAll, saveJson } from "./store.js";
 const SOL = "So11111111111111111111111111111111111111112";
 const USDC = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
 const FILE = "worth-history.json";
-type Worth = { at: number; total: number | null; cash: number | null; claim: number; bets: number; betsN: number; betsStake: number; days: Record<string, { n: number; stake: number; value: number; win: number; lose: number }>; solBal: number | null; coinsSol: number; coinsN: number; solUsd: number | null; rulesUsd: number | null; perpsUsd: number | null };
+type Worth = { at: number; total: number | null; cash: number | null; claim: number; bets: number; betsN: number; betsStake: number; days: Record<string, { n: number; stake: number; value: number; win: number; lose: number }>; solBal: number | null; coinsSol: number; coinsN: number; solUsd: number | null; rulesUsd: number | null; perpsUsd: number | null; rulesPos: number; perpsPos: number; parts?: Record<string, { sol: number | null; usdc: number | null; pos: number }> };
 /** Money put in or taken out: [time, dollars (+ in, - out), which wallet]. Not a gain or a loss. */
 export type Flow = [number, number, string];
 /** What each wallet held at the last sample, to tell a deposit from a result. */
@@ -178,7 +178,7 @@ export function despike(h: [number, number][]): [number, number][] {
 }
 
 /** rules / perps = what the two strategy wallets hold in dollars (null = not read). */
-export async function worthView(cash: number | null, claim: number, solBal: number | null, extra: { rulesSol?: number | null; rulesUsdc?: number | null; perpsSol?: number | null; perpsUsdc?: number | null } = {}): Promise<Worth & { age: number; hist: ([number, number] | [number, number, 1])[]; flows: Flow[] }> {
+export async function worthView(cash: number | null, claim: number, solBal: number | null, extra: { rulesSol?: number | null; rulesUsdc?: number | null; perpsSol?: number | null; perpsUsdc?: number | null; rulesHeldSol?: number; perpsPosUsd?: number } = {}): Promise<Worth & { age: number; hist: ([number, number] | [number, number, 1])[]; flows: Flow[] }> {
   if (!hist) {
     const f = loadJson<[number, number][] | { hist?: [number, number][]; back?: [number, number, 1][]; flows?: Flow[]; comp?: Comp | null; v?: number; fix?: { removed: number; removedUsd: number } | null }>(FILE, []);
     flows = Array.isArray(f) ? [] : (f.flows ?? []);
@@ -207,10 +207,20 @@ export async function worthView(cash: number | null, claim: number, solBal: numb
     const priced = bets.n === 0 || bets.priced >= bets.n * 0.9;
     // A strategy wallet that could not be read this time keeps its last reading, so the total does not dip.
     const usd = (sol: number | null | undefined, usdc: number | null | undefined, last: number | null) => ((sol == null || usdc == null) && last != null ? last : sol == null && usdc == null ? null : px != null || !sol ? (sol ?? 0) * (px ?? 0) + (usdc ?? 0) : last);
-    const rulesUsd = usd(extra.rulesSol, extra.rulesUsdc, comp?.rules ?? null);
-    const perpsUsd = usd(extra.perpsSol, extra.perpsUsdc, comp?.perps ?? null);
+    // In positions: the coins the spot rules hold and the perps collateral with its result so far. Counted in the
+    // wallet's worth so that opening a position does not read as money leaving it.
+    const rulesPos = px != null ? Math.round((extra.rulesHeldSol ?? 0) * px * 100) / 100 : 0;
+    const perpsPos = Math.round((extra.perpsPosUsd ?? 0) * 100) / 100;
+    const rulesUsd = usd(extra.rulesSol == null ? null : extra.rulesSol + (extra.rulesHeldSol ?? 0), extra.rulesUsdc, comp?.rules ?? null);
+    const perpsUsd = usd(extra.perpsSol, extra.perpsUsdc == null ? null : extra.perpsUsdc + perpsPos, comp?.perps ?? null);
+    // What each strategy wallet's figure is made of, in dollars, for the card's tooltip (null = that read failed).
+    const d2 = (v: number | null | undefined) => (v == null ? null : Math.round(v * 100) / 100);
+    const parts = {
+      rules: { sol: d2(extra.rulesSol == null || px == null ? null : extra.rulesSol * px), usdc: d2(extra.rulesUsdc), pos: rulesPos },
+      perps: { sol: d2(extra.perpsSol == null || px == null ? null : extra.perpsSol * px), usdc: d2(extra.perpsUsdc), pos: perpsPos },
+    };
     const total = cash != null ? Math.round((cash + claim + bets.value + solPart + (rulesUsd ?? 0) + (perpsUsd ?? 0)) * 100) / 100 : null;
-    memo = { at: Date.now(), v: { at: Date.now(), total, cash, claim, bets: bets.value, betsN: bets.n, betsStake: bets.stake, days: bets.days, solBal, coinsSol: Math.round(coinsSol * 1e4) / 1e4, coinsN: open.length, solUsd: px, rulesUsd, perpsUsd } };
+    memo = { at: Date.now(), v: { at: Date.now(), total, cash, claim, bets: bets.value, betsN: bets.n, betsStake: bets.stake, days: bets.days, solBal, coinsSol: Math.round(coinsSol * 1e4) / 1e4, coinsN: open.length, solUsd: px, rulesUsd, perpsUsd, parts, rulesPos, perpsPos } };
     const last = hist[hist.length - 1];
     if (total != null && priced && (!last || Date.now() - last[0] >= 120_000)) {
       // rules / perps are kept in dollars here, so their px is 1; the SOL wallet is kept in SOL

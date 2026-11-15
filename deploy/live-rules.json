@@ -2,8 +2,11 @@
   "solanaSlow": {
     "note": "14 Nov 2026 14:40 KST, enrique: 'since we have very little in the sol wallet anyways, just real trade those 3 wallets, lets see'. Real copy of the 3 day-holding Solana wallets (paper slow-e5-x5): 0.01 SOL a copy 5 s after one of them buys a coin for 0.1+ SOL, sold 5 s after its first sale or after 72 h; hard loss cap 0.1 SOL, a copy only goes in if the cap holds with every open copy lost; stops for good when none fits. Code src/solana/slowlive.ts. 14 Nov 2026 23:21 KST, enrique: 'the solana wallet for trading can use the whole wallet, there's almost no money there so no worries': maxLossSol 0.1 -> 0.6 (= MAX_WALLET_SOL, so SOL added later is never at stake), no maxOpen; the balance check before each buy is the limit.",
     "on": true,
-    "maxLossSol": 0.6,
-    "stakeSol": 0.01
+    "note2": "15 Nov 2026 17:38 KST, enrique: 'these are the final funding numbers ... make it all grow' (this wallet about $101). maxLossSol 0.6 -> 1.4: up to that much may be out in copies at once (was 0.5 of 0.6). stopLossSol: new copies stop when that much SOL is really lost (review decides); 0.3, then 0.7 on his word 17:59 KST ('yeah thats fine lets try that'). Stake stays 0.01 until the sizing plan has his yes.",
+    "maxLossSol": 1.4,
+    "stopLossSol": 0.7,
+    "note3": "15 Nov 2026 17:51 KST, enrique: 'the solana spot copy is not still limited by extremely small trades and a tiny balance'. Stake 0.01 -> 0.035 SOL a copy (about $2.50; he agreed to $2-3 a copy, 17:52 KST 'okay sounds good' / 'lets get it all into the bot'): the wallet fits about 36 coins out.",
+    "stakeSol": 0.035
   },
   "solanaBuckets": {
     "note": "15 Nov 2026 08:40 KST, enrique: 'yes to both' (switch the spot bucket real side on so rules promote themselves) and 'so we separate budgets of different things' (its own wallet, funded by him 15 Nov ~11:00 KST). A spot bucket rule trades for real only while its paper record meets the bar (100+ paper trades, half won, ahead); 0.01 SOL a trade, a rule goes back to paper at -0.03 SOL, 5 coins out at most, total loss cap 0.1 SOL. Code src/solana/bucketslive.ts. Perps real stays off (no solanaPerps block).",
@@ -16,7 +19,14 @@
   },
   "solanaPerps": {
     "note": "OFF. Real perps trading needs a perp rule at the bar and enrique's own yes. testOnce: 15 Nov 2026 12:28 KST, enrique: 'feel free to do one test in each of the new things so we know everything works, try to not lose money of course' - ONE smallest SOL short ($10 collateral, $20 size), opened and closed at the next look, once per name; the same name on solanaBuckets buys and sells 0.01 SOL of JUP once.",
-    "on": false,
+    "on": true,
+    "note2": "15 Nov 2026 17:47 KST, enrique: 'oh okay perps can be on too'. ON like the spot rules: a perp paper rule trades for real only while its paper record meets the bar (100+ paper trades, half or more won, ahead) and goes back to paper under it or at -$3 real. Shorts only, 2x, one position at a time, $10 collateral to start, total loss cap $15.",
+    "collateralUsd": 10,
+    "leverage": 2,
+    "note3": "15 Nov 2026 17:58 KST, enrique: 'seems like it's very tight' / 'especially for perps no?' / 'yeah thats fine lets try that': total loss cap $15 -> $50, a rule back to paper at -$10 (was -$3).",
+    "ruleStopUsd": 10,
+    "maxLossUsd": 50,
+    "swapSolOnce": { "id": "swap-15nov", "keepSol": 0.05, "note": "15 Nov 2026 17:32 KST, enrique: 'i sent too much sol but it uses usdc no?' / 'yeah do the swap': the SOL above 0.05 in the perps wallet is swapped into USDC, once." },
     "testOnce": "test-15nov"
   },
   "mode": "live",
@@ -58,6 +68,8 @@
       "maxSize": 10,
       "maxDays": 14,
       "perWallet": 0,
+      "steps": "wallet",
+      "stepsNote": "15 Nov 2026 17:40-17:52 KST, enrique: 'when something actually works, remember to size up in a way that makes sense' / 'lets get it all into the bot'. Per copied wallet, on OUR settled real copies: x2 at 20+ (half won, ahead), x3 at 50+ and $25+ ahead, x5 at 100+ and $75+ ahead (above x2 only when the trader's usual bet is $500+); one step down while its newest 20 are behind or it gave back 5 stakes. Replaces the x1.5 rule. src/eventlive.ts sizeStep.",
       "openUsd": 155,
       "walletUsd": 40,
       "adaptN": 10,
@@ -78,6 +90,7 @@
       "minDepth": 0,
       "dayLosses": 99,
       "maxOpen": 999,
+      "steps": "rule",
       "openUsd": 40,
       "stopNet": 15,
       "maxLoss": 55
