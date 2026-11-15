@@ -292,9 +292,9 @@ test("buckets: one copied trader's own record and the bar for following it for r
   assert.equal(traderMeetsBar({ trades: 20, won: 9, netUsd: 5, firstAt: old }), false);
   assert.equal(traderMeetsBar({ trades: 20, won: 10, netUsd: 0, firstAt: old }), false);
   assert.ok(perpRuleIds().includes(rule));
-  // its short on a major is offered to the real side under the trader's own name; a long or another coin is not
+  // its positions on SOL, BTC, ETH (long or short) are offered to the real side under the trader's own name; another coin is not
   _bucketsTest.state().hlOpen = [{ trader: A, coin: "SOL", dir: -1, at: now, entry: 100, lev: 20, worst: 0 }, { trader: A, coin: "HYPE", dir: -1, at: now, entry: 30 }, { trader: A, coin: "BTC", dir: 1, at: now, entry: 60000 }] as never;
-  assert.deepEqual(perpPaperOpens().map((o) => [o.rule, o.coin, o.dir]), [[rule, "SOL", -1]]);
+  assert.deepEqual(perpPaperOpens().map((o) => [o.rule, o.coin, o.dir]), [[rule, "SOL", -1], [rule, "BTC", 1]]);
   const pc = sum().perpCopy;
   assert.equal(pc.tradersCopied, 2);
   assert.equal(pc.tradersAtBar, 1);

@@ -3,12 +3,14 @@
  * enrique, 15 Nov 2026 08:40 KST: "yes to both" (switch the spot side on; build perps now), and "so we separate
  * budgets of different things". Built ready to switch on; the switch is MAIN's change to deploy/live-rules.json.
  *
- * WHAT IS TRADED: only SHORTS on SOL, BTC or ETH, backed by USDC, and only for a perp paper rule (or the paper copies
- * of perp traders' shorts, "copy-shorts") that MEETS THE BAR (buckets.ts meetsBar: 100+ paper trades, half or more
- * won, ahead after costs). When such a rule opens a paper short, a real one of `collateralUsd` x `leverage` dollars
- * is opened; it is closed when the paper one closes, or after MAX_HOLD_H. Longs stay on paper (a long is backed by
- * the coin itself and needs a swap inside the order: not built). ONE position at a time, so its result is simply
- * what it did to the wallet's USDC.
+ * WHAT IS TRADED: longs and shorts on SOL, BTC or ETH. A short is backed by USDC; a long by the coin itself, which
+ * the USDC we pay is swapped to inside the order. Two kinds of signal, each only while it MEETS ITS BAR on paper:
+ *  - a perp paper rule (buckets.ts meetsBar: 100+ paper trades, half or more won, ahead), at the rule leverage (2x or less);
+ *  - a copied perp trader (traderMeetsBar: 20+ closed copies, half won, ahead, a day on paper), at the leverage the
+ *    trader set. enrique, 15 Nov 2026 18:33 KST: "yes build it, dont cap it, replicate leverage". What bounds the
+ *    loss is the collateral of a position: a liquidation takes that and no more.
+ * The real position is closed when the paper one closes, or after MAX_HOLD_H. ONE position at a time, so its result
+ * is simply what it did to the wallet's USDC.
  * BACK TO PAPER: a rule whose real trades have lost `ruleStopUsd` is demoted until its paper trades made after that
  * meet the bar again. At `maxLossUsd` in all, nothing new is opened for good.
  *
@@ -50,6 +52,17 @@ export const USDC_CUSTODY = "G18jKKXQwBbrHeiK3C9MRXhkHsLHf7XgCSisykV46EZa";
 const PERPETUALS = () => pda(["perpetuals"], PERPS_PROGRAM).address;
 const EVENT_AUTHORITY = () => pda(["__event_authority"], PERPS_PROGRAM).address;
 const SIDE_SHORT = 2;
+const SIDE_LONG = 1;
+/** token decimals of the three coins as Jupiter Perps holds them (SOL, and the bridged ETH and BTC) */
+const DECIMALS: Record<string, number> = { SOL: 9, ETH: 8, BTC: 8 };
+/** a long is backed by the coin itself: the USDC we pay is swapped inside the order, and at least this share must come out */
+export const LONG_SWAP_MIN = 0.97;
+/** enrique, 15 Nov 2026 18:33 KST: "yes build it, dont cap it, replicate leverage". A copied trader's own leverage is
+ *  used as it is. What bounds a position is its collateral (all that a liquidation can take) and Jupiter's own limit:
+ *  the custody account's maxLeverage is where Jupiter liquidates, so we stay at half of it or lower; if it cannot
+ *  be read, at this. */
+export const JUP_MAX_LEV_FALLBACK = 100;
+export const MIN_LEVERAGE = 1.1;
 
 export const TEST_RULE = "test-once";
 export const HARD_LEVERAGE = 2;
@@ -103,18 +116,29 @@ export function parsePerpsLive(text: string): PerpsLiveConfig {
 
 // ---- the orders -------------------------------------------------------------------------------------------------------
 const usd6 = (x: number) => BigInt(Math.round(x * 1e6));
-export const positionAddress = (owner: string, coin: string) =>
-  pda(["position", base58decode(owner), base58decode(JLP_POOL), base58decode(CUSTODY[coin]), base58decode(USDC_CUSTODY), Buffer.from([SIDE_SHORT])], PERPS_PROGRAM).address;
+/** a short is backed by USDC, a long by the coin itself */
+const collateralCustody = (coin: string, dir: number) => (dir > 0 ? CUSTODY[coin] : USDC_CUSTODY);
+const sideByte = (dir: number) => (dir > 0 ? SIDE_LONG : SIDE_SHORT);
+export const positionAddress = (owner: string, coin: string, dir = -1) =>
+  pda(["position", base58decode(owner), base58decode(JLP_POOL), base58decode(CUSTODY[coin]), base58decode(collateralCustody(coin, dir)), Buffer.from([sideByte(dir)])], PERPS_PROGRAM).address;
 /** 1 = a request to open or add, 2 = a request to close or reduce */
 export const requestAddress = (position: string, counter: bigint, change: 1 | 2) =>
   pda(["position_request", base58decode(position), u64le(counter), Buffer.from([change])], PERPS_PROGRAM).address;
 const tail = [{ pubkey: TOKEN_PROGRAM }, { pubkey: ATA_PROGRAM }, { pubkey: SYSTEM_PROGRAM }];
 
 /** The request to open a short of `sizeUsd` dollars backed by `collateralUsd` USDC, refused below `minPrice`. */
-export function openShortIx(owner: string, coin: string, sizeUsd: number, collateralUsd: number, minPrice: number, counter: bigint): { ix: Ix; position: string; request: string } {
-  const position = positionAddress(owner, coin);
+export const openShortIx = (owner: string, coin: string, sizeUsd: number, collateralUsd: number, minPrice: number, counter: bigint) => openIx(owner, coin, -1, sizeUsd, collateralUsd, minPrice, counter, null);
+/** The request to open a long: `collateralUsd` USDC is paid in and swapped to the coin inside the order (at least
+ *  `minOut` of the coin's smallest units must come out); refused above `maxPrice`. */
+export const openLongIx = (owner: string, coin: string, sizeUsd: number, collateralUsd: number, maxPrice: number, counter: bigint, minOut: bigint) => openIx(owner, coin, 1, sizeUsd, collateralUsd, maxPrice, counter, minOut);
+/** What the swap of a long's USDC must bring at the least, in the coin's smallest units, at price `px`. */
+export const longMinOut = (coin: string, collateralUsd: number, px: number) => BigInt(Math.floor((collateralUsd / px) * LONG_SWAP_MIN * 10 ** DECIMALS[coin]));
+/** The price bound of an order: an open short is refused below it and an open long above it; a close the other way round. */
+export const boundPrice = (dir: number, px: number, slip: number, closing: boolean) => px * (1 + (closing ? -dir : dir) * slip);
+function openIx(owner: string, coin: string, dir: number, sizeUsd: number, collateralUsd: number, bound: number, counter: bigint, minOut: bigint | null): { ix: Ix; position: string; request: string } {
+  const position = positionAddress(owner, coin, dir);
   const request = requestAddress(position, counter, 1);
-  const data = Buffer.concat([anchorDisc("create_increase_position_market_request"), u64le(usd6(sizeUsd)), u64le(usd6(collateralUsd)), Buffer.from([SIDE_SHORT]), u64le(usd6(minPrice)), Buffer.from([0]), u64le(counter)]);
+  const data = Buffer.concat([anchorDisc("create_increase_position_market_request"), u64le(usd6(sizeUsd)), u64le(usd6(collateralUsd)), Buffer.from([sideByte(dir)]), u64le(usd6(bound)), minOut === null ? Buffer.from([0]) : Buffer.concat([Buffer.from([1]), u64le(minOut)]), u64le(counter)]);
   const keys = [
     { pubkey: owner, signer: true, writable: true },
     { pubkey: ata(owner, USDC), writable: true }, // fundingAccount
@@ -124,7 +148,7 @@ export function openShortIx(owner: string, coin: string, sizeUsd: number, collat
     { pubkey: request, writable: true },
     { pubkey: ata(request, USDC), writable: true },
     { pubkey: CUSTODY[coin] },
-    { pubkey: USDC_CUSTODY },
+    { pubkey: collateralCustody(coin, dir) },
     { pubkey: USDC }, // inputMint
     { pubkey: PERPS_PROGRAM }, // referral: none (an absent optional account is the program itself)
     ...tail,
@@ -134,8 +158,11 @@ export function openShortIx(owner: string, coin: string, sizeUsd: number, collat
   return { ix: { program: PERPS_PROGRAM, keys, data }, position, request };
 }
 /** The request to close the whole short and take the USDC back, refused above `maxPrice`. */
-export function closeShortIx(owner: string, coin: string, maxPrice: number, counter: bigint): { ix: Ix; position: string; request: string } {
-  const position = positionAddress(owner, coin);
+export const closeShortIx = (owner: string, coin: string, maxPrice: number, counter: bigint) => closeIx(owner, coin, -1, maxPrice, counter);
+/** The request to close the whole long and take USDC back, refused below `minPrice`. */
+export const closeLongIx = (owner: string, coin: string, minPrice: number, counter: bigint) => closeIx(owner, coin, 1, minPrice, counter);
+function closeIx(owner: string, coin: string, dir: number, maxPrice: number, counter: bigint): { ix: Ix; position: string; request: string } {
+  const position = positionAddress(owner, coin, dir);
   const request = requestAddress(position, counter, 2);
   const data = Buffer.concat([anchorDisc("create_decrease_position_market_request"), u64le(0), u64le(0), u64le(usd6(maxPrice)), Buffer.from([0]), Buffer.from([1, 1]), u64le(counter)]);
   const keys = [
@@ -147,7 +174,7 @@ export function closeShortIx(owner: string, coin: string, maxPrice: number, coun
     { pubkey: request, writable: true },
     { pubkey: ata(request, USDC), writable: true },
     { pubkey: CUSTODY[coin] },
-    { pubkey: USDC_CUSTODY },
+    { pubkey: collateralCustody(coin, dir) },
     { pubkey: USDC }, // desiredMint
     { pubkey: PERPS_PROGRAM }, // referral: none
     ...tail,
@@ -182,6 +209,19 @@ export function readPosition(dataB64: string | null | undefined): { entryPx: num
 export const positionSizeUsd = (dataB64: string | null | undefined) => readPosition(dataB64).sizeUsd;
 /** What a short of `sizeUsd` opened at `entryPx` has made at `px`, before the fees to close. */
 export const shortUnrealUsd = (sizeUsd: number, entryPx: number, px: number) => (entryPx > 0 && px > 0 ? r2((sizeUsd * (entryPx - px)) / entryPx) : 0);
+/** The same for either side (dir +1 long, -1 short). */
+export const unrealUsd = (dir: number, sizeUsd: number, entryPx: number, px: number) => (dir > 0 ? -1 : 1) * shortUnrealUsd(sizeUsd, entryPx, px) || 0;
+/** Jupiter's liquidation leverage for a coin, out of its Custody account (pricing.maxLeverage, in hundredths of a percent, at byte 175). */
+export function custodyMaxLeverage(dataB64: string | null | undefined): number | null {
+  const b = dataB64 ? Buffer.from(dataB64, "base64") : Buffer.alloc(0);
+  if (b.length < 183) return null;
+  const x = Number(b.readBigUInt64LE(175)) / 10_000;
+  return x >= 2 && x <= 5000 ? x : null;
+}
+/** The leverage a position is opened at: the copied trader's own when there is one, else the rule's; never above half of
+ *  where Jupiter liquidates. */
+export const leverageFor = (traderLev: number | undefined, ruleLev: number, jupMax: number | null) =>
+  Math.max(1, Math.min(traderLev !== undefined && traderLev >= 1 ? Math.max(MIN_LEVERAGE, traderLev) : ruleLev, jupMax ? jupMax / 2 : JUP_MAX_LEV_FALLBACK));
 
 // ---- state --------------------------------------------------------------------------------------------------------------
 interface Pos {
@@ -198,6 +238,9 @@ interface Pos {
   openedMs?: number;
   closeTries: number;
   cancelled?: boolean;
+  /** +1 long, -1 short (absent = short), and the leverage it was opened at */
+  dir?: number;
+  lev?: number;
   /** for the status: the collateral in the position and what it has made at the last price read (before closing fees) */
   collateralUsd?: number;
   entryPx?: number;
@@ -226,6 +269,9 @@ interface State {
   test?: { id: string; at: number };
   /** the dry simulation of a CLOSE order, against a short that exists on the chain (someone else's; nothing is signed or sent) */
   dryClose?: { at: number; result: string; tried: number } | null;
+  /** the same two dry simulations for a LONG: an open order of ours, and a close order against a long that exists on the chain */
+  dryLong?: { at: number; result: string } | null;
+  dryCloseLong?: { at: number; result: string; tried: number } | null;
   lastSim: string;
   lastError: string;
 }
@@ -322,19 +368,19 @@ const exists = async (d: PerpDeps, address: string) => !!(await d.rpc<{ value: u
  * one owner's own state (no SOL for the request's rent, no USDC account) can fail an order that is right.
  */
 export const CLOSE_DRY_TRIES = 5;
-export async function dryClose(d: PerpDeps): Promise<{ result: string; tried: number }> {
+export async function dryClose(d: PerpDeps, dir = -1): Promise<{ result: string; tried: number }> {
   const b58 = (await import("./whirlpool.js")).base58;
   // Position accounts: custody at byte 72, collateral custody at 104, side at 152. Only owner..sizeUsd is fetched.
   const rows = await d.rpc<{ account: { data: [string, string] } }[]>("getProgramAccounts", [PERPS_PROGRAM, {
     encoding: "base64", commitment: "confirmed", dataSlice: { offset: 8, length: 161 },
-    filters: [{ memcmp: { offset: 72, bytes: CUSTODY.SOL } }, { memcmp: { offset: 104, bytes: USDC_CUSTODY } }, { memcmp: { offset: 152, bytes: b58(Buffer.from([SIDE_SHORT])) } }],
+    filters: [{ memcmp: { offset: 72, bytes: CUSTODY.SOL } }, { memcmp: { offset: 104, bytes: collateralCustody("SOL", dir) } }, { memcmp: { offset: 152, bytes: b58(Buffer.from([sideByte(dir)])) } }],
   }], 60_000);
   const owners: string[] = [];
   for (const r of rows ?? []) {
     const b = Buffer.from(r.account.data[0], "base64");
     if (b.length >= 161 && Number(b.readBigUInt64LE(153)) / 1e6 >= 50) owners.push(b58(b.subarray(0, 32)));
   }
-  if (!owners.length) return { result: "no open short on the chain to try it on", tried: 0 };
+  if (!owners.length) return { result: "no open position on the chain to try it on", tried: 0 };
   const px = await d.price("SOL");
   let result = "no answer";
   let tried = 0;
@@ -343,7 +389,9 @@ export async function dryClose(d: PerpDeps): Promise<{ result: string; tried: nu
   for (let i = 0; i < Math.min(CLOSE_DRY_TRIES, owners.length) && result !== "ok"; i++) {
     const owner = owners[(start + i * 7919) % owners.length];
     const { value } = await d.rpc<{ value: { blockhash: string } }>("getLatestBlockhash", [{ commitment: "confirmed" }]);
-    result = await simulate(d, buildTx(owner, value.blockhash, [...budget(400_000, 100_000), closeShortIx(owner, "SOL", px * (1 + CLOSE_SLIP[0]), counter()).ix]));
+    // a long's owner may hold no USDC account to be paid into: the simulation makes one first (ours exists)
+    const pre: Ix[] = dir > 0 ? [{ program: ATA_PROGRAM, keys: [{ pubkey: owner, signer: true, writable: true }, { pubkey: ata(owner, USDC), writable: true }, { pubkey: owner }, { pubkey: USDC }, { pubkey: SYSTEM_PROGRAM }, { pubkey: TOKEN_PROGRAM }], data: Buffer.from([1]) }] : [];
+    result = await simulate(d, buildTx(owner, value.blockhash, [...budget(400_000, 100_000), ...pre, closeIx(owner, "SOL", dir, boundPrice(dir, px, CLOSE_SLIP[0], true), counter()).ix]));
     tried++;
   }
   return { result, tried };
@@ -397,6 +445,30 @@ export async function perpsLiveTick(d: PerpDeps, now = Date.now()): Promise<void
       state.dryClose = { at: now, ...r };
       save();
     }
+    // and for a long: an open order of ours, and a close order against a long that exists on the chain
+    if (!state.pos && now - (state.dryLong?.at ?? 0) > (state.dryLong?.result === "ok" ? DRY_MS : 3_600_000)) {
+      let result = "no answer";
+      try {
+        const px = await d.price("SOL");
+        const { value } = await d.rpc<{ value: { blockhash: string } }>("getLatestBlockhash", [{ commitment: "confirmed" }]);
+        const { ix } = openLongIx(w.address, "SOL", MIN_COLLATERAL_USD * HARD_LEVERAGE, MIN_COLLATERAL_USD, boundPrice(1, px, OPEN_SLIP, false), counter(), longMinOut("SOL", MIN_COLLATERAL_USD, px));
+        result = await simulate(d, buildTx(w.address, value.blockhash, [...budget(400_000, 100_000), ix]));
+      } catch {
+        // tried again in an hour
+      }
+      state.dryLong = { at: now, result };
+      save();
+    }
+    if (!state.pos && now - (state.dryCloseLong?.at ?? 0) > (state.dryCloseLong?.result === "ok" ? DRY_MS : 3_600_000)) {
+      let r = { result: "no answer", tried: 0 };
+      try {
+        r = await dryClose(d, 1);
+      } catch {
+        // tried again in an hour
+      }
+      state.dryCloseLong = { at: now, ...r };
+      save();
+    }
     const paper = perpPaperOpens();
     const p = state.pos;
     if (p) {
@@ -407,7 +479,7 @@ export async function perpsLiveTick(d: PerpDeps, now = Date.now()): Promise<void
         p.entryPx = onChain.entryPx;
         const px = await d.price(p.coin).catch(() => 0);
         if (px > 0) {
-          p.unrealUsd = shortUnrealUsd(size, onChain.entryPx, px);
+          p.unrealUsd = unrealUsd(p.dir ?? -1, size, onChain.entryPx, px);
           p.markMs = now;
         }
       }
@@ -433,7 +505,7 @@ export async function perpsLiveTick(d: PerpDeps, now = Date.now()): Promise<void
         if (size === 0) await finish(d, w, p, true); // gone already (liquidated, or closed by hand)
         else {
           const px = await d.price(p.coin);
-          const made = closeShortIx(w.address, p.coin, px * (1 + CLOSE_SLIP[Math.min(p.closeTries, CLOSE_SLIP.length - 1)]), counter());
+          const made = closeIx(w.address, p.coin, p.dir ?? -1, boundPrice(p.dir ?? -1, px, CLOSE_SLIP[Math.min(p.closeTries, CLOSE_SLIP.length - 1)], true), counter());
           p.request = made.request;
           p.sentMs = now;
           p.closeTries++;
@@ -475,7 +547,7 @@ export async function perpsLiveTick(d: PerpDeps, now = Date.now()): Promise<void
       if (state.seen.includes(o.id)) continue;
       state.seen = [...state.seen, o.id].slice(-500);
       if (!c.on || state.halted || !promoted(o.rule)) continue; // the usual case: paper only
-      if (o.dir >= 0 || !CUSTODY[o.coin]) skip("not a short on SOL, BTC or ETH");
+      if (!o.dir || !CUSTODY[o.coin]) skip("not SOL, BTC or ETH");
       else if (now - o.at > OPEN_WINDOW_MS) skip("paper position too old");
       else if (loss() + c.collateralUsd > c.maxLossUsd + 1e-9) skip("no room under the cap");
       else {
@@ -489,10 +561,14 @@ export async function perpsLiveTick(d: PerpDeps, now = Date.now()): Promise<void
         } else {
           state.note = "";
           const px = await d.price(o.coin);
-          const sizeUsd = r2(c.collateralUsd * c.leverage);
-          const made = openShortIx(w.address, o.coin, sizeUsd, c.collateralUsd, px * (1 - OPEN_SLIP), counter());
+          const dir = o.dir > 0 ? 1 : -1;
+          // a copied trader's own leverage, as it is; a rule's from the live rules. The collateral is all a liquidation can take.
+          const jupMax = custodyMaxLeverage((await d.rpc<{ value: { data?: [string, string] } | null }>("getAccountInfo", [CUSTODY[o.coin], { encoding: "base64", commitment: "confirmed" }]).catch(() => null))?.value?.data?.[0]);
+          const lev = Math.round(leverageFor(o.lev, c.leverage, jupMax) * 100) / 100;
+          const sizeUsd = r2(c.collateralUsd * lev);
+          const made = openIx(w.address, o.coin, dir, sizeUsd, c.collateralUsd, boundPrice(dir, px, OPEN_SLIP, false), counter(), dir > 0 ? longMinOut(o.coin, c.collateralUsd, px) : null);
           // written down before it is sent
-          state.pos = { rule: o.rule, coin: o.coin, paperId: o.id, stage: "opening", usdcBefore: usdc, sizeUsd, position: made.position, request: made.request, sentMs: now, closeTries: 0 };
+          state.pos = { rule: o.rule, coin: o.coin, paperId: o.id, stage: "opening", usdcBefore: usdc, sizeUsd, position: made.position, request: made.request, sentMs: now, closeTries: 0, dir, lev };
           save();
           if (!(await sendChecked(d, w, [made.ix])) && state.lastSim !== "ok") {
             state.pos = null; // the simulation said no: nothing was sent
@@ -542,7 +618,7 @@ export function perpsLiveSummary() {
     return { id, real: c.on && !state.halted && perpMeetsBar(id, since), paperTrades: paper.trades, paperWon: paper.won, paperNetUsd: r2(paper.netUsd), demotedAt: since || null, trades: mine.length, won: mine.filter((x) => x.netUsd > 0).length, netUsd: r2(mine.reduce((a, x) => a + x.netUsd, 0)) };
   });
   return {
-    note: `REAL, off unless the live rules switch it on. Shorts on SOL, BTC or ETH on Jupiter Perps, backed by USDC, in a wallet of its own, one position at a time, at most ${HARD_LEVERAGE}x. A perp paper rule is traded only while its paper record meets the bar (${REAL_MIN_TRADES}+ paper trades, half or more won, ahead after costs). A copied perp trader ("copy-" and a short tag) is followed, on its shorts of these three coins, while its own paper copies meet the trader bar (${TRADER_MIN_COPIES}+ closed copies of any coin and side, half or more won, ahead, a day or more on paper); a rule whose real trades lose $${c.ruleStopUsd || 3} goes back to paper. Every transaction is simulated on the chain before it is sent; dryRun is the simulation of an open order, hourly until it passes and then daily (it fails for lack of funds while the wallet is empty, which is the right answer); dryRunClose is the same for a close order, simulated against a short that exists on the chain. Results are what a position did to the wallet's USDC; network fees in SOL are small and not counted. Longs stay on paper.`,
+    note: `REAL, off unless the live rules switch it on. Longs and shorts on SOL, BTC or ETH on Jupiter Perps, in a wallet of its own, one position at a time, $${c.collateralUsd || MIN_COLLATERAL_USD} of collateral each (all that a liquidation can take; a short is backed by USDC, a long by the coin, bought with USDC inside the order). A perp paper rule is traded at ${c.leverage || HARD_LEVERAGE}x while its paper record meets the bar (${REAL_MIN_TRADES}+ paper trades, half or more won, ahead after costs). A copied perp trader ("copy-" and a short tag) is followed on these three coins, at the leverage the trader set (not capped by us; never above half of where Jupiter liquidates), while its own paper copies meet the trader bar (${TRADER_MIN_COPIES}+ closed copies of any coin and side, half or more won, ahead, a day or more on paper). A rule or trader whose real trades lose $${c.ruleStopUsd || 3} goes back to paper. Every transaction is simulated on the chain before it is sent. dryRun / dryRunLong: an open order of ours simulated, hourly until it passes and then daily; dryRunClose / dryRunCloseLong: a close order simulated against a position that exists on the chain. Results are what a position did to the wallet's USDC; network fees in SOL are small and not counted.`,
     on: c.on && !state.halted,
     switch: c.on ? "on" : "off",
     halted: state.halted,
@@ -557,10 +633,12 @@ export function perpsLiveSummary() {
     notFilled: state.rows.length - done.length,
     // collateralUsd is USDC that sits in the position (or in a request on its way), not spent and not withdrawn;
     // unrealisedUsd is what the short has made at the last price read, before the fees to close
-    open: state.pos ? { rule: state.pos.rule, coin: state.pos.coin, stage: state.pos.stage, sizeUsd: state.pos.sizeUsd, since: state.pos.openedMs ?? state.pos.sentMs, collateralUsd: r2(state.pos.collateralUsd ?? c.collateralUsd), entryPrice: state.pos.entryPx ?? null, unrealisedUsd: state.pos.unrealUsd ?? 0, pricedAt: state.pos.markMs ?? null } : null,
+    open: state.pos ? { rule: state.pos.rule, coin: state.pos.coin, side: (state.pos.dir ?? -1) > 0 ? "long" : "short", leverage: state.pos.lev ?? null, stage: state.pos.stage, sizeUsd: state.pos.sizeUsd, since: state.pos.openedMs ?? state.pos.sentMs, collateralUsd: r2(state.pos.collateralUsd ?? c.collateralUsd), entryPrice: state.pos.entryPx ?? null, unrealisedUsd: state.pos.unrealUsd ?? 0, pricedAt: state.pos.markMs ?? null } : null,
     dryRun: state.dry,
     // the close order simulated as the owner of a short that exists on the chain (nothing signed or sent); tried = owners tried
     dryRunClose: state.dryClose ?? null,
+    dryRunLong: state.dryLong ?? null,
+    dryRunCloseLong: state.dryCloseLong ?? null,
     gas: gasSummary(),
     // the real trades for the page, newest first
     rows: state.rows.slice(-40).reverse(),
