@@ -562,6 +562,8 @@ export function perpsLiveSummary() {
     // the close order simulated as the owner of a short that exists on the chain (nothing signed or sent); tried = owners tried
     dryRunClose: state.dryClose ?? null,
     gas: gasSummary(),
+    // the real trades for the page, newest first
+    rows: state.rows.slice(-40).reverse(),
     // the one-time test trade: its name, when, and what it did to the wallet's USDC
     test: state.test ? { ...state.test, rows: state.rows.filter((x) => x.rule === TEST_RULE).map((x) => ({ t: x.t, filled: x.filled, netUsd: x.netUsd, heldH: x.heldH })) } : null,
     lastSimulation: state.lastSim,
