@@ -32,7 +32,7 @@ const posData = (sizeUsd: number) => {
 /** A made-up chain: a sent request sits until `keeper()` fills it (or turns it down). */
 function world(usdc = 30) {
   const w = namedWallet("perps");
-  const c = { usdc, sol: 0.05, size: 0, request: false, sims: 0, sends: 0, sim: { err: null as unknown, logs: [] as string[] }, cfg: CFG, lastTx: "" };
+  const c = { usdc, sol: 0.05, size: 0, request: false, sims: 0, sends: 0, scans: 0, sim: { err: null as unknown, logs: [] as string[] }, cfg: CFG, lastTx: "" };
   const deps: import("./perpslive.js").PerpDeps = {
     cfg: () => c.cfg,
     wallet: () => w,
@@ -46,6 +46,16 @@ function world(usdc = 30) {
         const sliced = !!(params[1] as { dataSlice?: unknown }).dataSlice;
         if (sliced) return { value: c.request ? { data: ["", "base64"] } : null };
         return { value: c.size > 0 ? { data: [posData(c.size), "base64"] } : null };
+      }
+      if (method === "getProgramAccounts") {
+        c.scans++;
+        const row = (sizeUsd: number, fill: number) => {
+          const b = Buffer.alloc(161, 0);
+          b.fill(fill, 0, 32);
+          b.writeBigUInt64LE(BigInt(sizeUsd * 1e6), 153);
+          return { account: { data: [b.toString("base64"), "base64"] } };
+        };
+        return [row(0, 1), row(500, 2), row(900, 3)];
       }
       throw new Error("unexpected " + method);
     }) as never,
@@ -72,6 +82,7 @@ function setup(trades = paperTrades(REAL_MIN_TRADES, 60)) {
   _bucketsTest.reset();
   P._test.reset();
   P._test.state().dry = { at: Date.now(), result: "ok" }; // the daily dry run is tested on its own
+  P._test.state().dryClose = { at: Date.now(), result: "ok", tried: 1 };
   _bucketsTest.state().perpTrades = trades as never;
 }
 
@@ -245,4 +256,27 @@ test("the summary names rules and numbers only", () => {
   assert.ok(!text.includes(w.address));
   assert.ok(text.includes(RULE));
   assert.ok(P.perpsLiveSummary().rules.every((x) => x.id !== COPY_SHORTS || x.paperTrades >= 50));
+});
+
+test("the close order is tried on a short that exists on the chain, and nothing is sent", async () => {
+  setup();
+  const { c, deps } = world();
+  P._test.state().dryClose = null;
+  await P.perpsLiveTick(deps);
+  assert.equal(c.scans, 1);
+  assert.equal(c.sims, 1);
+  assert.equal(c.sends, 0);
+  assert.deepEqual({ ...P._test.state().dryClose, at: 0 }, { at: 0, result: "ok", tried: 1 });
+  // a failure is tried on more owners (here both that hold a short), then looked at again in an hour
+  P._test.state().dryClose = null;
+  c.sim = { err: { InstructionError: [2, { Custom: 6005 }] }, logs: [] };
+  const t = Date.now();
+  await P.perpsLiveTick(deps, t);
+  assert.equal(P._test.state().dryClose?.tried, 2);
+  assert.equal(P._test.state().dryClose?.result, "failed: instruction 2, custom error 6005");
+  await P.perpsLiveTick(deps, t + 30 * 60_000);
+  assert.equal(c.scans, 2);
+  await P.perpsLiveTick(deps, t + 61 * 60_000);
+  assert.equal(c.scans, 3);
+  assert.equal(c.sends, 0);
 });
