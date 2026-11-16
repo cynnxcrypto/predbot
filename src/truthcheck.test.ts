@@ -45,6 +45,35 @@ test("Solana transfers: only money from or to wallets that are not ours, at leas
   ]);
 });
 
+test("data API v2 positions: snake_case current_value is read", () => {
+  assert.deepEqual(T.splitPositions([{ size: "4", current_value: "1.5", redeemable: false }, { size: 2, current_value: 2, redeemable: true }]), { open: 1.5, openN: 1, won: 2, wonN: 1, lostN: 0 });
+});
+
+test("transfers: only a plain wallet on the other side is money in or out; token, program and closed accounts are not", () => {
+  const W = "Wallet1111111111111111111111111111111111111";
+  const FRIEND = "Friend11111111111111111111111111111111111111";
+  const COINACC = "CoinAcc1111111111111111111111111111111111111";
+  const CUSTODY = "Custody1111111111111111111111111111111111111";
+  const CLOSED = "Closed11111111111111111111111111111111111111";
+  const txs = [
+    { signature: "dep", timestamp: 10, nativeTransfers: [{ fromUserAccount: FRIEND, toUserAccount: W, amount: 1e9 }] }, // a real deposit
+    { signature: "rent", timestamp: 20, nativeTransfers: [{ fromUserAccount: COINACC, toUserAccount: W, amount: 0.03e9 }] }, // coin accounts closed for rent
+    { signature: "perp", timestamp: 30, tokenTransfers: [{ fromUserAccount: W, toUserAccount: CUSTODY, mint: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", tokenAmount: 10 }] }, // perps collateral
+    { signature: "wsol", timestamp: 40, nativeTransfers: [{ fromUserAccount: CLOSED, toUserAccount: W, amount: 0.5e9 }] }, // wrapped SOL account closed
+  ];
+  assert.deepEqual(T.counterparts(txs, W).sort(), [CLOSED, COINACC, CUSTODY, FRIEND].sort());
+  const kinds = new Map<string, "wallet" | "token" | "program" | "gone">([[FRIEND, "wallet"], [COINACC, "token"], [CUSTODY, "program"], [CLOSED, "gone"]]);
+  assert.deepEqual(T.externalTransfers(txs, W, new Set([W]), 70, "Solana perps", kinds), [{ t: 10_000, wallet: "Solana perps", usd: 70, sig: "dep" }]);
+  assert.equal(T.externalTransfers(txs, W, new Set([W]), 70, "Solana perps").length, 4, "without kinds every transfer of $1 or more counts (the first run's 30)");
+});
+
+test("window flow difference: the chart's Solana flows minus the chain's, Polymarket left out", () => {
+  const chain = [{ t: 5_000, wallet: "Solana spot rules", usd: 100, sig: "a" }, { t: 50_000, wallet: "Solana perps", usd: 100, sig: "b" }];
+  const flows: [number, number, string][] = [[5_100, 98, "Solana spot rules"], [60_000, 12, "Solana spot copy"], [70_000, 40, "Polymarket"]];
+  assert.equal(T.windowFlowDiff(chain, flows, 0), -90, "98 + 12 taken out by the chart, 200 moved on the chain");
+  assert.equal(T.windowFlowDiff(chain, flows, 40_000), -88);
+});
+
 test("flows against the chain: matched, missing from the chart, and chart flows with nothing on the chain", () => {
   const chain = [
     { t: 1_000_000, wallet: "Solana perps", usd: 100, sig: "a" },
@@ -70,8 +99,8 @@ test("a run with made-up sources; the public copy has differences and counts onl
     const body = init?.body ? JSON.parse(String(init.body)) : null;
     const json = (x: unknown) => new Response(JSON.stringify(x), { status: 200 });
     if (u.startsWith("https://polygon")) return json({ result: bal[body.params[0].to] });
-    if (u.includes("/positions?")) return json([{ size: 10, currentValue: 145.5, redeemable: false }, { size: 31.36, currentValue: 31.36, redeemable: true }]);
-    if (u.includes("lb-api")) return new Response("no", { status: 404 });
+    if (u.includes("/v2/positions?")) return json({ data: [{ size: 10, current_value: 145.5, redeemable: false }, { size: 31.36, current_value: 31.36, redeemable: true }], pagination: { next_cursor: null } });
+    if (u.includes("/v2/user-pnl?")) return u.includes("interval=all") ? new Response("no", { status: 400 }) : json({ data: { points: [{ timestamp: 1, economic_pnl: -800, unrealized_pnl: 0 }, { timestamp: 2, economic_pnl: -900, unrealized_pnl: -19.4 }] } });
     if (u.includes("rpc")) {
       if (body.method === "getBalance") return json({ result: { value: 0.3e9 } });
       if (body.method === "getTokenAccountsByOwner") return json({ result: { value: body.params[1].programId.startsWith("Tokenkeg") ? [{ account: { data: { parsed: { info: { mint: "Coin111111111111111111111111111111111111111", tokenAmount: { amount: "5000", uiAmount: 5 } } } } } }, { account: { data: { parsed: { info: { mint: "Lost111111111111111111111111111111111111111", tokenAmount: { amount: "9", uiAmount: 9 } } } } } }] : [] } });
@@ -98,6 +127,7 @@ test("a run with made-up sources; the public copy has differences and counts onl
   assert.equal(by["Polymarket cash"].ok, true);
   assert.equal(by["Polymarket open bets"].diff, 0.33);
   assert.equal(by["Polymarket won, waiting for claim"].ok, true);
+  assert.equal(by["Polymarket all time"].diff, -0.23, "Polymarket's newest point, realised plus open (interval=all refused, max answered)");
   assert.equal(by["Solana spot copy card"].src, 56, "0.3 SOL + a coin worth 0.1 SOL at $140; the coin with no route counts 0");
   assert.equal(by["Solana spot copy card"].ok, true);
   const pub = T.truthPublic()!;
