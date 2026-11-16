@@ -6,7 +6,7 @@ import { mock, test } from "node:test";
 
 process.env.DATA_DIR = mkdtempSync(join(tmpdir(), "solslow-"));
 
-const { tripsOf, screen, lateRet, ownRet, priceAfter, posRet, paperRules, slowTx, slowSummary, reportOf, followed, slowWatch, jupCoins, coinOld, creditsDay, copyableOf, provenWallets, crowdStudy, crowdOnePerCoin, top5Sol, provenThen, _test, STAKE_SOL, TX_SOL, DELAY_COST, MIN_TRIPS } = await import("./slow.js");
+const { tripsOf, screen, lateRet, ownRet, priceAfter, posRet, paperRules, slowTx, slowSummary, reportOf, followed, copySafe, onSlowSwap, slowWatch, jupCoins, coinOld, creditsDay, copyableOf, provenWallets, crowdStudy, crowdOnePerCoin, top5Sol, provenThen, _test, STAKE_SOL, TX_SOL, DELAY_COST, MIN_TRIPS } = await import("./slow.js");
 
 const W = "Wa11et1111111111111111111111111111111111111";
 const M = "M1nt11111111111111111111111111111111111111";
@@ -301,11 +301,64 @@ test("screen from the chain: the wallet's own swaps read, others' left out; late
   assert.equal(_test.state().credits, 10 + 24 * 3 * 10);
   // every late copy here buys at the others' price and sells 2% under it: none of 24 wins, so it passes but is not followed
   assert.deepEqual([late.in30s.won, reportOf(W)!.copyable], [0, false]);
+  // for the real copy's own-record override: a wallet that cannot be copied fails the safety screens
+  assert.equal(copySafe(W), false);
   assert.deepEqual(followed(), []);
   const sum = slowSummary();
   assert.deepEqual([sum.passing, sum.notCopyable], [1, 1]);
   assert.equal(sum.pass[0].name, "Slowpoke");
   assert.ok(!JSON.stringify(sum).includes("api-key"));
+  _test.reset();
+});
+
+test("the real copy's safety screens hold for a wallet the scan has filed as far from the bar: a flipper or a program by its hold, or one that cannot be copied", async () => {
+  // what the scan's own daily read leaves behind: no swaps, so the report alone can no longer tell
+  for (const [holdSec, word] of [[300, "holds 5 min"], [60, "bot"]] as const) {
+    _test.reset();
+    const now = Math.floor(Date.now() / 1000);
+    const own: ReturnType<typeof txOf>[] = [];
+    // 24 two-hour round trips, ahead: it passes
+    for (let i = 0; i < 24; i++) {
+      const t0 = now - 13 * 86_400 + i * 40_000;
+      own.push(txOf(W, `m${i}`, true, 1, 1000, 1000 + i * 100, t0));
+      own.push(txOf(W, `m${i}`, false, i % 2 ? 1.4 : 0.9, 1000, 1050 + i * 100, t0 + 7200));
+    }
+    const fake = (async (_url: string, init: { body: string }) => {
+      const { params } = JSON.parse(init.body) as { params: [string, { filters: { blockTime?: { gt?: number } } }] };
+      const gt = params[1].filters.blockTime?.gt ?? 0;
+      const data = params[0] === W ? own.filter((x) => (x.blockTime ?? 0) > gt).reverse() : [];
+      return new Response(JSON.stringify({ result: { data, paginationToken: null } }), { status: 200 });
+    }) as unknown as typeof fetch;
+    _test.setCfg({ rpcUrl: () => "https://rpc.test/?api-key=k", fetch: () => fake, listed: () => [], busy: () => [], quote: async () => null });
+    _test.state().candidates.push({ name: "Turned", address: W });
+    assert.equal(await _test.readWallet({ name: "Turned", address: W }), true);
+    assert.deepEqual([reportOf(W)!.pass, copySafe(W)], [true, true]);
+    // then it turns: 40 new round trips of a few minutes each, still winning. Its next read is a daily one (not whole)
+    for (let i = 0; i < 40; i++) {
+      const t0 = now - 86_400 + i * 600;
+      own.push(txOf(W, `f${i}`, true, 1, 1000, 10_000 + i * 100, t0));
+      own.push(txOf(W, `f${i}`, false, 1.1, 1000, 10_050 + i * 100, t0 + holdSec));
+    }
+    assert.equal(await _test.readWallet({ name: "Turned", address: W }), true);
+    const w = _test.state().wallets[W];
+    assert.ok(w.out && !w.bot && !w.fast && w.swaps.length === 0, "filed as far from the bar: its numbers only");
+    assert.ok(w.out.why.includes(word), w.out.why.join());
+    // the report built from no swaps says neither program nor flipper, and nothing about its late copies...
+    const rep = reportOf(W)!;
+    assert.deepEqual([rep.bot, rep.fast, rep.copyable, rep.pass], [false, false, null, false]);
+    // ...so the stored verdict is asked: never copied on its real record
+    assert.equal(copySafe(W), false, word);
+  }
+  // a wallet filed for its record alone (a day holder that lost) is not held back by these screens
+  const st = _test.state();
+  const filed = (out: Record<string, unknown>) => ({ name: "w", doneAt: Date.now(), newest: 0, txPerDay: 10, buysPerDay: 2, spanDays: 30, swaps: [], late: {}, out: { trips: 30, tripsPerDay: 1, sol: -2, wonPct: 40, holdMin: 240, why: ["lost", "40% won"], ...out } });
+  st.wallets.Lost1 = filed({}) as never;
+  st.wallets.Fast1 = filed({ holdMin: 9, why: ["holds 9 min"] }) as never;
+  st.wallets.Edge1 = filed({ holdMin: 10, why: ["holds 10 min"] }) as never;
+  st.wallets.NoHold = filed({ holdMin: null, trips: 0, why: ["0 trips", "holds null min"] }) as never;
+  st.wallets.NoCopy = filed({ copyable: false }) as never;
+  st.wallets.Unsure = filed({ copyable: null }) as never;
+  assert.deepEqual(["Lost1", "Fast1", "Edge1", "NoHold", "NoCopy", "Unsure"].map((a) => copySafe(a)), [true, false, true, false, false, true]);
   _test.reset();
 });
 
@@ -556,6 +609,15 @@ test("the wide scan: a wallet far from the bar keeps its numbers, not its swaps;
   assert.equal(await _test.readWallet({ name: "near", address: NEAR }), true);
   assert.ok(Math.abs(calls[0].gt - (now - 30 * 86_400)) < 5, "whole, not from its newest transaction");
   assert.equal(st.wallets[NEAR].redo, undefined);
+  // a wallet the real copy watches is read daily though it is filed as far from the bar (two weeks otherwise), and first
+  st.wallets[LOSER].redo = undefined;
+  st.wallets[LOSER].doneAt = Date.now() - 2 * 86_400_000;
+  assert.ok(st.wallets[LOSER].out && !_test.dueWallets().some((c) => c.name === "loser"), "two days old, filed far off: not due");
+  onSlowSwap(() => [LOSER], () => undefined);
+  assert.equal(_test.dueWallets()[0].name, "loser");
+  st.wallets[LOSER].doneAt = Date.now() - 3_600_000;
+  assert.ok(!_test.dueWallets().some((c) => c.name === "loser"), "read an hour ago: not again today");
+  onSlowSwap(() => [], () => undefined);
   // the daily budget: 500,000 credits until the plan resets on 24 Nov 2026, 150,000 after
   assert.deepEqual([creditsDay(Date.UTC(2026, 10, 23, 23)), creditsDay(Date.UTC(2026, 10, 24, 1))], [500_000, 150_000]);
   _test.reset();

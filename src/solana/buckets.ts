@@ -1048,6 +1048,14 @@ export const perpRuleIds = () => {
   return [...PERP_COINS.flatMap((c) => PERP_RULES.map((x) => `${c}-${x.key}`)), ...copiedTraders().map(traderRule)];
 };
 const isTraderRule = (rule: string) => rule.startsWith("copy-") && rule !== COPY_SHORTS;
+/**
+ * Is this copied trader on the list followed now? Off it (the daily list read left it out), hlTick only finishes its
+ * open copies and copies nothing new, so nothing new of it can be opened for real either. Not a trader: true.
+ */
+export const traderListed = (rule: string) => {
+  if (!loaded) load();
+  return !isTraderRule(rule) || state.hlTraders.some((t) => traderRule(t.address) === rule);
+};
 /** One trader's closed paper copies since `sinceMs` (every coin, both sides: the trader is judged whole). */
 export function traderRecord(rule: string, sinceMs = 0) {
   if (!loaded) load();

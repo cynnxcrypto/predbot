@@ -16,6 +16,7 @@ import { crowd, type RealCopy, EXITS, followerPrice, fomoStudy, LATE_CHECK_MS, L
 import { SOL, USDC } from "./pools.js";
 import { busyWallets, discoverSummary, foundWallets, startDiscover, stopDiscover } from "./discover.js";
 import { slowSummary, slowTx, slowWatch, startSlow, stopSlow } from "./slow.js";
+import { startSlowExits, stopSlowExits } from "./slowexits.js";
 import { historySummary, startHistory, stopHistory } from "./history.js";
 import { linkedWallets, linksSummary, seedWallets, startLinks, stopLinks } from "./links.js";
 import { preconfSeen, preconfSummary, startPreconf, stopPreconf } from "./preconf.js";
@@ -858,6 +859,8 @@ export function startSolanaCopy(fetcher: Fetch = fetch) {
   // slow wallets (read-only screen, then a paper copy of the ones that pass); SOLANA_SLOW=off disables. A slow copy
   // waits seconds to minutes anyway, so its quotes may wait their turn up to two minutes.
   startSlow({ rpcUrl: () => (helius() ? rpcUrl() : null), fetch: () => net, listed: () => listed(), busy: (k) => busyWallets(k), quote: (a, b, amount) => quote(a, b, amount, false, 120_000), jup: (path) => jupList(path) });
+  // other sale rules on paper beside the real day-holder copies (read-only: a sell quote per open copy every two minutes); SOLANA_SLOW_EXITS=off disables
+  startSlowExits({ quote: (a, b, amount) => quote(a, b, amount, false, 120_000) });
   // the tracer (read-only): the wallets behind the fomo traders in seeds.ts; SOLANA_LINKS=off disables
   startLinks({ rpcUrl: () => (helius() ? rpcUrl() : null), fetch: () => net });
   // the early-stream measurement (read-only, one short run with a credit budget); SOLANA_PRECONF=off disables
@@ -896,6 +899,7 @@ export function stopSolanaCopy() {
   stopDiscover();
   stopHistory();
   stopSlow();
+  stopSlowExits();
   stopLinks();
   stopPreconf();
   stopDip();
