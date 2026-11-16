@@ -28,8 +28,10 @@ async function worthNow(address: string, mint: string): Promise<number | null> {
       const q = await kit.quote(mint, SOL, h.amount.toString(), 300);
       sol = q.outAmount ? Number(q.outAmount) / 1e9 : null;
     }
-  } catch {
-    // keep the last value; tried again in a minute
+  } catch (e) {
+    // the price service says the coin cannot be sold (no route: a 4xx other than 429, 401, 403, 408): it is worth
+    // nothing now. Anything else (asked too fast, the network): keep the last value; tried again in a minute.
+    if (/^jupiter \S+ http 4(?!29|01|03|08)\d\d\b/.test(String((e as Error)?.message ?? e))) sol = 0;
   }
   worth.set(mint, { at: Date.now(), sol });
   return sol;
@@ -151,8 +153,13 @@ export async function solSlowView(): Promise<unknown> {
   const short = (n: string) => n.replace(/^coin buyer /, "");
   const vals = new Map<string, number | null>();
   if (/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(addr)) {
-    const work = Promise.all(opens.filter((p) => p.stage === "held" || p.stage === "selling").map(async (p) => vals.set(p.mint, await worthNow(addr, p.mint))));
-    await Promise.race([work, new Promise((ok) => setTimeout(ok, 3000))]);
+    // three at a time: 40+ quotes at once on the key the real copy buys with were refused for asking too fast (and
+    // refused the real buys' quotes with them); what is not priced in time keeps its last value and is asked next time
+    const todo = opens.filter((p) => p.stage === "held" || p.stage === "selling");
+    const worker = async () => {
+      for (let p = todo.shift(); p; p = todo.shift()) vals.set(p.mint, await worthNow(addr, p.mint));
+    };
+    await Promise.race([Promise.all([worker(), worker(), worker()]), new Promise((ok) => setTimeout(ok, 3000))]);
   }
   for (const p of opens) if (!vals.has(p.mint)) vals.set(p.mint, worth.get(p.mint)?.sol ?? null);
   const rowsAll = Array.isArray(st.rows) ? st.rows : [];
