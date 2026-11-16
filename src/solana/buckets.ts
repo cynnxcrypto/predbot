@@ -844,6 +844,11 @@ async function hlTick(deps: BucketDeps, now: number) {
   }
   for (const o of state.hlOpen.filter((x) => now - x.at >= HL_MAX_HOLD_MS)) await shut(o, "max hold");
   if (state.hlTrades.length > KEEP_TRADES) state.hlTrades = state.hlTrades.slice(-KEEP_TRADES);
+  // a trader the list dropped is looked at only while a copy of it is open. Once that is finished, what we last saw
+  // it hold goes too: kept, it would be compared with what it holds on the day it is back on the list, and positions
+  // it opened in between, at prices we never saw, would be copied as new (MAIN's review, 16 Nov 2026)
+  const watched = new Set([...state.hlTraders.map((t) => t.address), ...state.hlOpen.map((o) => o.trader)]);
+  for (const a of Object.keys(state.hlSeen)) if (!watched.has(a)) delete state.hlSeen[a];
   delete state.errors.traders;
 }
 

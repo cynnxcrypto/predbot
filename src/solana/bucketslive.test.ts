@@ -303,3 +303,88 @@ test("buckets real: a coin bought before a cut and sold after it counts for the 
   assert.deepEqual([off?.real, off?.why], [false, "paper: real trading is switched off"]);
   L._test.reset();
 });
+
+test("buckets real: the rent of a coin account that could not be closed is in no trade's result, and is not handed to the next trade of that coin", async () => {
+  const st = setup(paperTrades(120, 80), [paperOpen(T0)]);
+  const { c, deps } = world(0.0112);
+  // this wallet answers with the coin's accounts, and the first close does not go through
+  let accts = 0;
+  let closeWorks = false;
+  const send0 = deps.kit.send;
+  deps.kit.send = async (tx) => {
+    const sig = deps.kit.sigOf(tx);
+    const fresh = !c.delta.has(sig);
+    await send0(tx);
+    if (!fresh || c.built.get(sig) !== "buy") return;
+    if (accts > 0) (c.delta.set(sig, c.delta.get(sig)! + 0.00204), (c.sol += 0.00204)); // the account is there already: no rent is paid
+    else accts = 1;
+  };
+  deps.kit.held = async () => ({ amount: c.held, accounts: Array.from({ length: accts }) });
+  const close0 = deps.kit.closeEmpty;
+  deps.kit.closeEmpty = async (w, m, row) => {
+    if (!closeWorks) return;
+    await close0(w, m, row);
+    accts = 0;
+  };
+  await L.bucketsLiveTick(deps, T0 + 5000);
+  st.open = [];
+  await L.bucketsLiveTick(deps, T0 + 65_000);
+  const s = L._test.state();
+  assert.equal(s.rows.length, 1);
+  assert.ok(Math.abs(s.rows[0].netSol - (0.0112 - 0.01 - 0.00002)) < 1e-9, "the trade made 0.0012 less fees: the rent left in the account is not its loss");
+  assert.ok(Math.abs((s.rentOutSol ?? 0) - 0.00204) < 1e-9);
+  assert.ok(Math.abs(s.netSol - s.rows[0].netSol) < 1e-9);
+  // the same coin again: no rent paid at the buy, and this time the close brings the old rent back
+  closeWorks = true;
+  st.open = [paperOpen(T0 + 100_000)];
+  await L.bucketsLiveTick(deps, T0 + 105_000);
+  st.open = [];
+  await L.bucketsLiveTick(deps, T0 + 165_000);
+  assert.equal(s === L._test.state() ? L._test.state().rows.length : 0, 2);
+  assert.ok(Math.abs(L._test.state().rows[1].netSol - (0.0112 - 0.01 - 0.00002)) < 1e-9, "the rent that came back is not this trade's gain");
+  assert.ok(Math.abs(L._test.state().rentOutSol ?? 0) < 1e-9);
+  assert.equal(L.bucketsLiveSummary().rentOutSol, 0);
+});
+
+test("buckets real: a coin that cannot be sold is written off into its rule's record, and a later sale is added to it", async () => {
+  const st = setup(paperTrades(120, 80), [paperOpen(T0)]);
+  const { c, deps } = world(0.004);
+  let route = false;
+  const quote0 = deps.kit.quote;
+  deps.kit.quote = async (i, o, a, s) => (i === SOL || route ? quote0(i, o, a, s) : {});
+  await L.bucketsLiveTick(deps, T0 + 5000);
+  st.open = [];
+  await L.bucketsLiveTick(deps, T0 + 65_000);
+  assert.deepEqual(L._test.state().opens.map((p) => p.stage), ["held"], "no route: still held, tried again later");
+  assert.equal(L._test.state().rows.length, 0);
+  // six hours of failed sales later
+  const p = L._test.state().opens[0];
+  p.sellFailMs = Date.now() - L.WRITE_OFF_MS - 1;
+  p.nextTryMs = 0;
+  await L.bucketsLiveTick(deps, T0 + 95_000);
+  let s = L._test.state();
+  assert.equal(s.opens.length, 0, "its place is free");
+  assert.equal(s.stuck?.length, 1);
+  assert.equal(s.rows.length, 1);
+  assert.equal(s.rows[0].stuck, true);
+  assert.ok(Math.abs(s.rows[0].netSol + (0.01 + 0.00204 + 0.00001)) < 1e-9, "the stake, the rent and the fee: all of it is in the rule's record");
+  assert.ok(Math.abs(s.netSol - s.rows[0].netSol) < 1e-9);
+  assert.equal(L.bucketsLiveSummary().stuck, 1);
+  assert.equal(L.bucketsLiveSummary().rules.find((x) => x.id === RULE)!.realTrades, 1);
+  // the same coin is not bought again while it is stuck
+  st.open = [paperOpen(T0 + 100_000)];
+  await L.bucketsLiveTick(deps, T0 + 105_000);
+  assert.equal(L._test.state().opens.length, 0);
+  st.open = [];
+  // a route appears: sold at the hourly try, and what it brings is added to the same row
+  route = true;
+  L._test.state().stuck![0].nextTryMs = 0;
+  await L.bucketsLiveTick(deps, T0 + 135_000);
+  s = L._test.state();
+  assert.equal(s.stuck?.length, 0);
+  assert.equal(c.held, 0n);
+  assert.equal(s.rows.length, 1);
+  assert.equal(s.rows[0].recovered, true);
+  assert.ok(Math.abs(s.rows[0].netSol - (0.004 - 0.01 - 0.00002)) < 1e-9);
+  assert.ok(Math.abs(s.netSol - s.rows[0].netSol) < 1e-9, "the books and the row agree");
+});
