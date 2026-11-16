@@ -136,3 +136,17 @@ test("worth: each KST day's real change, whole account and per wallet", () => {
   assert.deepEqual(w["2026-11-16"].sr, { usd: 1, part: true });
   assert.deepEqual(w["2026-11-15"].sc, { usd: -2, part: true });
 });
+
+test("wallet seed fills readings before the first sample, never over one", async () => {
+  const { withSeed, walletsToday } = await import("./worthdash.js");
+  const mid = Date.UTC(2026, 10, 15, 15, 0); // 16 Nov 00:00 KST
+  const wh: import("./worthdash.js").WalletPoint[] = [[mid + 18 * 36e5, 300, 95, 100, 99]];
+  const now = mid + 19 * 36e5;
+  assert.equal(walletsToday(wh, [], [290, 94, 100, 99], now).poly, null);
+  const seeded = withSeed(wh, [[mid - 60e3, 320, 100, null, 100], [mid + 20 * 36e5, 1, 1, 1, 1], ["x"]]);
+  assert.equal(seeded.length, 2);
+  const t = walletsToday(seeded, [], [290, 94, 100, 99], now);
+  assert.equal(t.poly?.usd, -30);
+  assert.equal(t.sc?.usd, -6);
+  assert.equal(t.sr, null);
+});

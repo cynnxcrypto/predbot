@@ -46,7 +46,9 @@ export function walletsToday(wh: WalletPoint[], fl: Flow[], now: (number | null)
       if (p[0] <= T || !b) b = p;
       if (p[0] > T) break;
     }
-    if (v == null || !b) return void (out[k] = null);
+    // no reading from near midnight: no "today" for this wallet (16 Nov 2026, enrique: "since 18:03, how is that a
+    // thing"); the page shows the settled figure, labelled so
+    if (v == null || !b || b[0] > T + 30 * 60e3) return void (out[k] = null);
     const put = fl.reduce((a, f) => a + (f[2] === label && f[0] > b![0] && f[0] <= t ? f[1] : 0), 0);
     out[k] = { usd: Math.round((v - (b[i + 1] as number) - put) * 100) / 100, at: b[0] };
   });
@@ -342,6 +344,21 @@ export function despike(h: [number, number][]): [number, number][] {
 }
 
 const r2w = (v: number | null) => (v == null ? null : Math.round(v * 100) / 100);
+/**
+ * data/wallet-seed.json (server only): wallet readings rebuilt by hand for times before the wallet samples began, as
+ * [time ms, Polymarket, spot copy, spot rules, perps] in dollars (null = not known). Only points earlier than the first
+ * real sample are taken, so a seed never overrides a reading.
+ */
+const SEED = "wallet-seed.json";
+export function withSeed(wh: WalletPoint[], seed: unknown): WalletPoint[] {
+  if (!Array.isArray(seed)) return wh;
+  const first = wh.length ? wh[0][0] : Infinity;
+  const ok = (x: unknown) => x == null || (typeof x === "number" && Number.isFinite(x));
+  const add = seed.filter((p): p is WalletPoint => Array.isArray(p) && p.length === 5 && typeof p[0] === "number" && Number.isFinite(p[0]) && p[0] < first && p.slice(1).every(ok))
+    .map((p) => [p[0], p[1] ?? null, p[2] ?? null, p[3] ?? null, p[4] ?? null] as WalletPoint)
+    .sort((a, b) => a[0] - b[0]);
+  return add.length ? [...add, ...wh] : wh;
+}
 /** Each wallet's worth in WalletPoint order. */
 function wallNow(cash: number | null, claim: number, bets: number, sol: number | null, rules: number | null, perps: number | null): [number | null, number | null, number | null, number | null] {
   return [cash == null ? null : r2w(cash + claim + bets), r2w(sol), r2w(rules), r2w(perps)];
@@ -351,6 +368,7 @@ export async function worthView(cash: number | null, claim: number, solBal: numb
   if (!hist) {
     const f = loadJson<[number, number][] | { hist?: [number, number][]; back?: [number, number, 1][]; flows?: Flow[]; comp?: Comp | null; v?: number; fix?: { removed: number; removedUsd: number } | null; wall?: WalletPoint[] }>(FILE, []);
     wallHist = Array.isArray(f) ? [] : (f.wall ?? []).filter((p) => Array.isArray(p) && Number.isFinite(p[0]));
+    wallHist = withSeed(wallHist, loadJson<unknown>(SEED, []));
     flows = Array.isArray(f) ? [] : (f.flows ?? []);
     comp = Array.isArray(f) ? null : (f.comp ?? null);
     const needJumps = Array.isArray(f) || (f.v ?? 0) < 2;
