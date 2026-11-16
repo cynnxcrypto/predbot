@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { flowsBetween, repairClaims, unclaimedAt, kstMidnight, winSpans, worthToday, worthWindows, type Comp, type Flow } from "./worthdash.js";
+import { flowsBetween, repairClaims, unclaimedAt, kstMidnight, walletsToday, winSpans, worthToday, worthWindows, type Comp, type Flow, type WalletPoint } from "./worthdash.js";
 
 test("worth: a won bet waiting for its claim is counted, and its claim is not a deposit", () => {
   const H = 3_600_000;
@@ -106,4 +106,19 @@ test("worth today: the real worth change since 00:00 KST, against the last sampl
   assert.equal(worthToday(late, 607.9, now)!.at, mid + 3 * H);
   assert.equal(worthToday(late, 607.9, now)!.usd, -2.1);
   assert.equal(worthToday([], 607.9, now), null);
+});
+
+test("worth: each wallet's today is its worth since 00:00 KST, its own deposits left out", () => {
+  const now = Date.UTC(2026, 10, 16, 8, 0, 0);
+  const mid = kstMidnight(now);
+  const wh: WalletPoint[] = [[mid - 3e5, 100, 50, 30, 90], [mid + 3e5, 110, 52, 30, 90], [now - 6e4, 95, 47, 31, 88]];
+  const fl: Flow[] = [[mid + 6e5, 20, "Polymarket"], [mid - 6e5, 9, "Polymarket"], [mid + 6e5, 5, "Solana perps"]];
+  const t = walletsToday(wh, fl, [96, 47, 31, 88], now);
+  assert.deepEqual(t.poly, { usd: -24, at: mid - 3e5 });
+  assert.equal(t.sc!.usd, -3);
+  assert.equal(t.pp!.usd, -7);
+  // no sample before midnight yet: the first of the day is used, and says so by its time
+  const late = walletsToday(wh.slice(1), [], [96, 47, null, 88], now);
+  assert.deepEqual(late.poly, { usd: -14, at: mid + 3e5 });
+  assert.equal(late.sr, null);
 });

@@ -101,8 +101,40 @@ async function symbolsFor(mints: string[], ms: number) {
   await Promise.race([Promise.all([worker(), worker(), worker(), worker()]), new Promise((ok) => setTimeout(ok, ms))]);
 }
 
+/**
+ * The spot copy wallet's settled result since 00:00 KST: its books' netSol now less the netSol kept at the first
+ * reading of the day (data/solslow-day.json). A reading taken after midnight is only exact when nothing closed between
+ * midnight and it, so that first reading is lowered by the rows that closed in between. Every row counts, failed buys'
+ * fees too, as in the books.
+ */
+function settledToday(st: { rows?: Row[]; netSol?: number }, kstDayOf: (ms: number) => string): number {
+  const rows = Array.isArray(st.rows) ? st.rows : [];
+  const day = kstDayOf(Date.now());
+  const closedAt = (r: Row) => (r.heldMin != null ? r.t + r.heldMin * 60_000 : r.t);
+  const sumToday = (until: number) => rows.reduce((x, r) => x + (kstDayOf(closedAt(r)) === day && closedAt(r) <= until ? Number(r.netSol) || 0 : 0), 0);
+  const net = Number(st.netSol);
+  const r6 = (v: number) => Math.round(v * 1e6) / 1e6;
+  if (!Number.isFinite(net)) return r6(sumToday(Infinity));
+  const f = join(DATA, "solslow-day.json");
+  let k: { day?: string; startSol?: number } = {};
+  try {
+    if (existsSync(f)) k = JSON.parse(readFileSync(f, "utf8"));
+  } catch {
+    k = {};
+  }
+  if (k.day !== day || !Number.isFinite(k.startSol)) {
+    k = { day, startSol: net - sumToday(Date.now()) };
+    try {
+      writeFileSync(f, JSON.stringify(k));
+    } catch {
+      /* read only: worked out again next time */
+    }
+  }
+  return r6(net - (k.startSol as number));
+}
+
 export async function solSlowView(): Promise<unknown> {
-  let st: { opens?: Pos[]; rows?: Row[] } = {};
+  let st: { opens?: Pos[]; rows?: Row[]; netSol?: number } = {};
   try {
     const f = join(DATA, "solana-slowlive.json");
     if (existsSync(f)) st = JSON.parse(readFileSync(f, "utf8"));
@@ -123,7 +155,8 @@ export async function solSlowView(): Promise<unknown> {
     await Promise.race([work, new Promise((ok) => setTimeout(ok, 3000))]);
   }
   for (const p of opens) if (!vals.has(p.mint)) vals.set(p.mint, worth.get(p.mint)?.sol ?? null);
-  const allRows = (Array.isArray(st.rows) ? st.rows : []).filter((r) => r.buy === "landed");
+  const rowsAll = Array.isArray(st.rows) ? st.rows : [];
+  const allRows = rowsAll.filter((r) => r.buy === "landed");
   const rows = allRows.slice(-40);
   const kstDayOf = (ms: number) => new Date(ms + 9 * 3600_000).toISOString().slice(0, 10);
   // open coins first: they are what is on screen
@@ -134,8 +167,11 @@ export async function solSlowView(): Promise<unknown> {
   return {
     at: Date.now(),
     open: opens.map((p) => ({ name: short(p.name), sym: sym(p.mint), ms: ms(p.mint), stage: p.stage, t: p.boughtMs ?? p.seenMs, leaderSold: p.soldSeenMs != null, worthSol: vals.get(p.mint) ?? null, stakeSol: (p as { stakeSol?: number }).stakeSol ?? null })),
-    // today's result over EVERY finished copy (the list below is only the newest 40)
-    todayNetSol: Math.round(allRows.filter((r) => kstDayOf(r.heldMin != null ? r.t + r.heldMin * 60_000 : r.t) === kstDayOf(Date.now())).reduce((x, r) => x + (r.netSol || 0), 0) * 1e6) / 1e6,
+    // today's settled result: the wallet's books (its netSol) now against 00:00 KST, as the status counts it, failed
+    // buys' fees included (16 Nov 2026: summing only the landed copies' rows read about $1.27 too high); the rows of the
+    // day are the fallback until a reading from before midnight is kept
+    todayNetSol: settledToday(st, kstDayOf),
+    todayNetSolRows: Math.round(rowsAll.filter((r) => kstDayOf(r.heldMin != null ? r.t + r.heldMin * 60_000 : r.t) === kstDayOf(Date.now())).reduce((x, r) => x + (Number(r.netSol) || 0), 0) * 1e6) / 1e6,
     // every finished copy by the Korean day it closed, newest 30 days (for the overview's day by day)
     days: (() => {
       const m: Record<string, { n: number; won: number; netSol: number }> = {};
