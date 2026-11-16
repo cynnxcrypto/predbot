@@ -6,7 +6,7 @@ import { mock, test } from "node:test";
 
 process.env.DATA_DIR = mkdtempSync(join(tmpdir(), "solslow-"));
 
-const { tripsOf, screen, lateRet, ownRet, priceAfter, posRet, paperRules, slowTx, slowSummary, reportOf, followed, slowWatch, jupCoins, coinOld, creditsDay, copyableOf, provenWallets, crowdStudy, crowdOnePerCoin, _test, STAKE_SOL, TX_SOL, DELAY_COST, MIN_TRIPS } = await import("./slow.js");
+const { tripsOf, screen, lateRet, ownRet, priceAfter, posRet, paperRules, slowTx, slowSummary, reportOf, followed, slowWatch, jupCoins, coinOld, creditsDay, copyableOf, provenWallets, crowdStudy, crowdOnePerCoin, top5Sol, provenThen, _test, STAKE_SOL, TX_SOL, DELAY_COST, MIN_TRIPS } = await import("./slow.js");
 
 const W = "Wa11et1111111111111111111111111111111111111";
 const M = "M1nt11111111111111111111111111111111111111";
@@ -592,4 +592,26 @@ test("crowd: closed paper copies by how many other followed wallets were already
   const one = crowdOnePerCoin(closed, open);
   assert.deepEqual(one.map((x) => [x.minOthers, x.n, x.won, x.coins]), [[0, 5, 4, 3], [1, 3, 2, 2], [2, 1, 1, 1], [3, 0, 0, 0]]);
   assert.deepEqual([one[0].newer.n, one[0].newer.won, one[2].avgRetPct, one[3].avgRetPct], [3, 2, 19.2, null]);
+  // the five best copies' SOL: four winners of +19.2% on 0.25 SOL here (losers count for nothing)
+  assert.deepEqual([one[0].top5Sol, one[3].top5Sol, top5Sol([1, 2, 3, 4, 5, 6, -1])], [0.192, 0, 5]);
+  assert.equal(paperRules(closed).find((x) => x.id === "slow-e5-x5")!.top5Sol, 0.24);
+});
+
+test("proven then: each closed paper copy by what its wallet's record said when the copy was bought", () => {
+  // one copy an hour, each closed half an hour later; 0.3 back is a win (+19.2%), 0.24 a loss (-4.8%)
+  const copy = (wallet: string, i: number, back: number) => ({ wallet, name: wallet, mint: `${wallet}${i}`, seenMs: i * 3_600_000, soldMs: i * 3_600_000 + 1_800_000, closedMs: i * 3_600_000 + 1_800_000, leaderSol: 1, entries: { e5: "10", e30: null, e300: null, e1800: null }, exits: { "e5-x5": back } as Record<string, number | null>, closed: "sold" as const });
+  const closed = [
+    // good: 20 wins, then 5 more (bought while proven): 4 wins and a loss
+    ...Array.from({ length: 25 }, (_, i) => copy("good", i, i === 22 ? 0.24 : 0.3)),
+    // bad: 20 losses, then 3 wins (bought while not proven)
+    ...Array.from({ length: 23 }, (_, i) => copy("bad", i, i < 20 ? 0.24 : 0.3)),
+    // new: 5 copies, never enough to say
+    ...Array.from({ length: 5 }, (_, i) => copy("new", i, 0.3)),
+  ];
+  const t = provenThen(closed);
+  assert.deepEqual([t.proven.n, t.proven.won, t.notProven.n, t.notProven.won, t.tooFew.n, t.tooFew.won], [5, 4, 3, 3, 45, 25]);
+  assert.deepEqual([t.proven.avgRetPct, t.notProven.avgRetPct, t.proven.top5Sol], [14.4, 19.2, 0.192]);
+  // a copy still out when the next one is bought does not count for it: 20 closed copies bought in the same hour are all "too few"
+  const same = Array.from({ length: 21 }, (_, i) => ({ ...copy("burst", 0, 0.3), mint: `b${i}` }));
+  assert.equal(provenThen(same).tooFew.n, 21);
 });

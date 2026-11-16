@@ -9,7 +9,7 @@ process.env.DATA_DIR = mkdtempSync(join(tmpdir(), "slowlive-"));
 // made-up keys: every network call here is faked
 process.env.HELIUS_API_KEY = "test-helius";
 process.env.JUPITER_API_KEY = "test-jupiter";
-const { parseSlowLive, slowLiveSummary, onSwap, sweep, recover, startSlowLive, wallets, rested, HARD_MAX_LOSS_SOL, HARD_STAKE_SOL, HARD_MAX_OPEN, WALLETS, stepOf, _test } = await import("./slowlive.js");
+const { parseSlowLive, slowLiveSummary, onSwap, sweep, recover, startSlowLive, wallets, rested, takenVsSkipped, openNow, HARD_MAX_LOSS_SOL, HARD_STAKE_SOL, HARD_MAX_OPEN, WALLETS, stepOf, _test } = await import("./slowlive.js");
 const { _test: run } = await import("./copyrun.js");
 const { buildSigned, wallet } = await import("./keys.js");
 const { base58 } = await import("./whirlpool.js");
@@ -415,6 +415,50 @@ test("real day-holder copy: an open copy whose wallet has been off the list for 
   assert.deepEqual([s.soldDropped, s.openOffList, s.copies, s.won], [4, 0, 4, 0]);
   // each: -(0.01 + fee + rent) + (0.009 - fee) + (rent - fee)
   assert.equal(_test.state().netSol, Math.round(4 * (0.009e9 - 0.01e9 - 3 * FEE)) / 1e9);
+  slow._test.reset();
+  slow._test.setCfg(null);
+  _test.reset();
+});
+
+test("real day-holder copy: buys let go are written down and priced by the paper copy of the same buy, beside the ones taken; what fills the wallet", async () => {
+  fresh({ ...CFG, maxOpen: 1 });
+  chain(() => 0.012);
+  slow._test.reset();
+  const C = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA";
+  const [n1, n2] = [WALLETS[0].name, WALLETS[1].name];
+  const t0 = Date.now();
+  // the first wallet buys A: taken. The second buys A too (we hold it): let go, "same". The first buys B and C: let go, one copy at most ("open").
+  onSwap({ ...swap(L1, A, true), seenMs: t0 });
+  onSwap({ ...swap(L2, A, true), seenMs: t0 + 1000 });
+  onSwap({ ...swap(L1, B, true), seenMs: t0 + 2000 });
+  onSwap({ ...swap(L1, C, true), seenMs: t0 + 3000 });
+  assert.deepEqual(_test.state().missed!.map((x) => [x.n, x.m, x.w]), [[n2, A, "same"], [n1, B, "open"], [n1, C, "open"]]);
+  await wait(1500);
+  const o = openNow(Date.now() + 7 * 3_600_000);
+  assert.deepEqual([o.onList, o.offList, o.under6h, o.h6to24, o.h24to48, o.over48h, o.saleNotThrough, o.stakeSol], [1, 0, 0, 1, 0, 0, 0, 0.01]);
+  onSwap(swap(L1, A, false));
+  await wait(3000);
+  assert.equal(_test.state().rows.length, 1);
+  // the paper copy saw the same four buys (0.25 SOL each; 0.3 back = +19.2%, 0.24 = -4.8%), and one older buy of the first wallet nobody took
+  const paper = (name: string, mint: string, seenMs: number, back: number) => ({ wallet: name, name, mint, seenMs, leaderSol: 1, entries: { e5: "10", e30: null, e300: null, e1800: null }, exits: { "e5-x5": back } as Record<string, number | null>, closed: "sold" as const });
+  slow._test.state().recent.push(paper(n1, A, t0 + 20, 0.3), paper(n2, A, t0 + 1010, 0.24), paper(n1, B, t0 + 2010, 0.3), paper(n1, C, t0 + 3010, 0.24), paper(n1, "old", t0 - 3_600_000, 0.3));
+  const v = takenVsSkipped();
+  assert.deepEqual([v.taken.n, v.taken.won, v.taken.avgRetPct, v.taken.real.won], [1, 1, 19.2, 1]);
+  // the real copy of that buy: 0.012 back on 0.01 less three fees
+  assert.ok(Math.abs(v.taken.real.avgRetPct! - 19.85) < 0.06, String(v.taken.real.avgRetPct));
+  assert.deepEqual([v.same.n, v.same.won, v.same.avgRetPct], [1, 0, -4.8]);
+  assert.deepEqual([v.open.n, v.open.won, v.open.avgRetPct, v.cap.n, v.low.n, v.missedWritten], [2, 1, 7.2, 0, 0, 3]);
+  // before misses were written down: nothing here (the old paper copy is outside the wallet's real copies)
+  assert.equal(v.notTakenBefore.n, 0);
+  const s = slowLiveSummary();
+  assert.ok(s.takenVsSkipped && s.openNow);
+  const text = JSON.stringify(s);
+  assert.ok(!text.includes(A) && !text.includes(C), "no coin in the public summary");
+  // the estimate for the time before: with no misses written, a paper copy between a wallet's first and last real copy that has no real copy
+  _test.state().missed = [];
+  _test.state().rows.push({ ..._test.state().rows[0], t: t0 + 10_000, mint: "later" });
+  const w = takenVsSkipped();
+  assert.deepEqual([w.taken.n, w.notTakenBefore.n, w.notTakenBefore.won], [1, 2, 1]);
   slow._test.reset();
   slow._test.setCfg(null);
   _test.reset();

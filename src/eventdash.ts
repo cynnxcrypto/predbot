@@ -368,6 +368,12 @@ function realRecord(group: string): unknown {
     byRule,
     tot,
     days: Object.keys(days).sort().reverse().slice(0, 30).map((day) => ({ day, ...days[day] })),
+    // every settled bet, newest first by when it settled (the log above is by order time and mostly open bets)
+    settled: rows
+      .filter((r) => r.pnl != null)
+      .sort((x, y) => (y.settledAt ?? y.t) - (x.settledAt ?? x.t))
+      .slice(0, 40)
+      .map((r) => ({ t: r.t, settledAt: r.settledAt ?? null, rule: r.rule, title: r.title, outcome: r.outcome, ask: r.ask, cost: r.cost, shares: r.shares, pnl: r.pnl, rest: r.group === "tennisrest" })),
     log: rows.slice(-60).reverse().map((r) => ({ t: r.t, marketId: r.marketId ?? null, idx: r.idx ?? null, rule: r.rule, title: r.title, outcome: r.outcome, ask: r.ask, cost: r.cost, shares: r.shares, status: r.status, error: r.error, pnl: r.pnl ?? null, settledAt: r.settledAt ?? null, until: r.until ?? null, rest: r.group === "tennisrest" })),
   };
 }
