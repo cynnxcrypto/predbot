@@ -9,7 +9,7 @@ process.env.DATA_DIR = mkdtempSync(join(tmpdir(), "slowlive-"));
 // made-up keys: every network call here is faked
 process.env.HELIUS_API_KEY = "test-helius";
 process.env.JUPITER_API_KEY = "test-jupiter";
-const { parseSlowLive, slowLiveSummary, onSwap, sweep, recover, startSlowLive, wallets, rested, realWinner, losingRun, realOf, oneStake, resultOf, heldCopies, afterOf, AFTER_MAX_MS, saleRefused, GIVE_UP_ROUNDS, RETRY_MS, RETRY_UNSOLD_MS, UNSOLD_DAYS, LEVEL_STAKES, takenVsSkipped, openNow, cutClearly, CUT_HOLD_MS, HARD_MAX_LOSS_SOL, HARD_STAKE_SOL, HARD_MAX_OPEN, WALLETS, stepOf, _test } = await import("./slowlive.js");
+const { parseSlowLive, slowLiveSummary, onSwap, sweep, recover, startSlowLive, wallets, rested, realWinner, losingRun, realOf, oneStake, resultOf, heldCopies, afterOf, AFTER_MAX_MS, NET_ROUNDS_FREE, saleRefused, GIVE_UP_ROUNDS, RETRY_MS, RETRY_UNSOLD_MS, UNSOLD_DAYS, LEVEL_STAKES, takenVsSkipped, openNow, cutClearly, CUT_HOLD_MS, HARD_MAX_LOSS_SOL, HARD_STAKE_SOL, HARD_MAX_OPEN, WALLETS, stepOf, _test } = await import("./slowlive.js");
 const { _test: run } = await import("./copyrun.js");
 const { buildSigned, wallet } = await import("./keys.js");
 const { base58 } = await import("./whirlpool.js");
@@ -881,16 +881,16 @@ test("real day-holder copy: a sale round lost to the network is not a failed sal
   // 1. the price service refuses every ask of a round for asking too fast: nothing is learned about the coin
   c.refuse = (kind) => (kind === "sell" ? { status: 429 } : null);
   await _test.sell(p, "sold");
-  assert.deepEqual([p.stage, p.sellRounds, p.failRounds], ["held", 1, 0]);
+  assert.deepEqual([p.stage, p.sellRounds, p.failRounds, p.netRounds], ["held", 0, 0, 1], "sellRounds carries the failed rounds only (a rollback reads it so)");
   assert.ok(Math.abs(p.nextTryMs! - Date.now() - RETRY_MS) < 5000, "tried again ten minutes later");
-  // however many rounds the network eats, the coin is not counted as lost
-  p.sellRounds = 40;
+  // rounds the network eats (up to NET_ROUNDS_FREE) do not count the coin as lost
+  p.netRounds = 20;
   assert.deepEqual([realOf(who).n, slowLiveSummary().unsold, resultOf(B, p.seenMs)], [0, 0, undefined]);
   // 2. the sale lands and fails on the chain: that is the sale itself
   c.refuse = null;
   c.failSell = true;
   await _test.sell(p, "sold");
-  assert.deepEqual([p.stage, p.sellRounds, p.failRounds, c.held.get(B)], ["held", 41, 1, 1000n]);
+  assert.deepEqual([p.stage, p.sellRounds, p.failRounds, p.netRounds, c.held.get(B)], ["held", 1, 1, 20, 1000n]);
   c.failSell = false;
   // 3. no route, for the round that makes it GIVE_UP_ROUNDS: now the coin counts as a lost stake, and is tried again hours later
   p.failRounds = GIVE_UP_ROUNDS - 1;
@@ -902,10 +902,9 @@ test("real day-holder copy: a sale round lost to the network is not a failed sal
   const lost = realOf(who);
   assert.deepEqual([lost.n, lost.won, Math.round(lost.netSol * 1e6), slowLiveSummary().unsold], [1, 0, -Math.round((0.01 + 0.00204) * 1e6), 1]);
   assert.equal(resultOf(B, p.seenMs)?.unsold, true);
-  // not before its time; and a week after it was given up, not at all
+  // not before its time (a week after it was given up it is written off: see the next test)
   const q0 = c.quotes;
   sweep();
-  sweep(p.unsoldMs! + UNSOLD_DAYS * 86_400_000 + 1);
   await wait(300);
   assert.equal(c.quotes, q0);
   // a round of an unsellable coin is two tries, not six: a sale that lands and fails costs a fee each try
@@ -1164,4 +1163,54 @@ test("real day-holder copy: a restart is not one more sale round; a copy whose s
   await wait(300);
   assert.equal(c.quotes, q1);
   _test.reset();
+});
+
+test("real day-holder copy: rounds the network eats are free only for a while; a coin unsold for a week is written off and frees its place", async () => {
+  fresh();
+  const c = chain(() => 0.012);
+  const name = WALLETS[0].name;
+  const who = { name, address: L1 };
+  c.held.set(B, 1000n);
+  // bought for real: its buy transaction is on the books
+  _test.state().opens.push({ wallet: L1, name, mint: B, leaderSol: 0.3, seenMs: Date.now() - 600_000, boughtMs: Date.now() - 590_000, soldSeenMs: Date.now() - 1000, stakeSol: 0.01, stage: "held", sigs: ["buy1"], sellRounds: 0, failRounds: 0 });
+  c.txs.set("buy1", { pre: c.lamports + 0.01e9 + FEE + RENT, post: c.lamports, ok: true });
+  const p = _test.state().opens[0];
+  // 1. the network eats every round: free up to NET_ROUNDS_FREE, each one after that counts as failed
+  c.refuse = (kind) => (kind === "sell" ? { status: 503 } : null);
+  p.netRounds = NET_ROUNDS_FREE - 1;
+  await _test.sell(p, "sold");
+  assert.deepEqual([p.netRounds, p.failRounds, p.sellRounds], [NET_ROUNDS_FREE, 0, 0]);
+  await _test.sell(p, "sold");
+  assert.deepEqual([p.netRounds, p.failRounds, p.sellRounds], [NET_ROUNDS_FREE + 1, 1, 1]);
+  p.failRounds = p.sellRounds = GIVE_UP_ROUNDS - 1;
+  await _test.sell(p, "sold");
+  assert.deepEqual([p.failRounds, p.sellRounds, !!p.unsoldMs, slowLiveSummary().unsold], [GIVE_UP_ROUNDS, GIVE_UP_ROUNDS, true, 1], "given up: a lost stake, tried every few hours");
+  assert.equal(realOf(who).n, 1);
+  // 2. a week later: written off from its own transactions, no sale tried; its place and cap room are free again
+  const q0 = c.quotes;
+  sweep(p.unsoldMs! + UNSOLD_DAYS * 86_400_000 + 1);
+  for (let i = 0; i < 80 && _test.state().opens.length; i++) await wait(100);
+  const row = _test.state().rows.at(-1)!;
+  assert.deepEqual([_test.state().opens.length, c.quotes, row.exit, row.buy, c.held.get(B)], [0, q0, "written off", "landed", 1000n]);
+  assert.equal(row.netSol, -(0.01e9 + FEE + RENT) / 1e9, "the stake, its fee and the coin account's rent: what its own transactions say");
+  assert.equal(_test.state().netSol, row.netSol);
+  const r = realOf(who);
+  assert.deepEqual([r.n, r.won, r.netSol, slowLiveSummary().unsold, slowLiveSummary().writtenOff], [1, 0, row.netSol, 0, 1]);
+  assert.deepEqual(resultOf(B, row.t), { netSol: row.netSol, stakeSol: 0.01, heldMin: row.heldMin, exit: "written off" });
+  _test.reset();
+});
+
+test("the scan: a wallet on the real watch is re-read daily whatever it was filed as (a held-back winner filed as a bot)", () => {
+  slow._test.reset();
+  const st = slow._test.state();
+  const H = "Hold1111111111111111111111111111111111111111";
+  const N = "Bot21111111111111111111111111111111111111111";
+  const twoDays = Date.now() - 2 * 86_400_000;
+  st.candidates = [{ address: H }, { address: N }] as never;
+  st.wallets[H] = { name: "w", doneAt: twoDays, newest: 0, txPerDay: 900, buysPerDay: 300, spanDays: 30, bot: true, swaps: [], late: {} } as never;
+  st.wallets[N] = { name: "w", doneAt: twoDays, newest: 0, txPerDay: 900, buysPerDay: 300, spanDays: 30, bot: true, swaps: [], late: {} } as never;
+  slow.onSlowSwap(() => [H], () => undefined);
+  assert.deepEqual(slow._test.dueWallets().map((c: { address: string }) => c.address), [H], "the watched bot is due after a day; the other bot waits its 30 days");
+  slow.onSlowSwap(() => [], () => undefined);
+  slow._test.reset();
 });

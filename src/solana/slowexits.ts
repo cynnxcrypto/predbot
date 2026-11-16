@@ -228,7 +228,7 @@ function sync(now: number): Track[] {
     changed = true;
     const own = !!r && (r.exit === "max hold" || r.exit === "wallet dropped" || r.exit === "wallet cut");
     // scored as every copy is, on what the rules saw until our sale
-    if (r) state.done.push({ name: t.name, stakeSol: r.stakeSol, netSol: r.netSol, heldMin: r.heldMin, polls: t.polls, lastV: t.v, near: !r.unsold && t.polls > 0 && gone - t.lastMs <= 2 * POLL_MS, ...(own ? { own: true } : {}), fired: { ...t.fired } });
+    if (r) state.done.push({ name: t.name, stakeSol: r.stakeSol, netSol: r.netSol, heldMin: r.heldMin, polls: t.polls, lastV: t.v, near: !r.unsold && r.exit !== "written off" && t.polls > 0 && gone - t.lastMs <= 2 * POLL_MS, ...(own ? { own: true } : {}), fired: { ...t.fired } });
     if (state.done.length > KEEP_DONE) state.done = state.done.slice(-KEEP_DONE);
     // our own sale, the copied wallet still holding: the copy is followed on (see After)
     if (r && own && !r.unsold && t.polls > 0 && source!.after?.(t.mint, t.seenMs) === "holds") {
