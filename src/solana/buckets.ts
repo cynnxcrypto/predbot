@@ -1081,12 +1081,17 @@ export const traderListed = (rule: string) => {
 export function traderRecord(rule: string, sinceMs = 0) {
   if (!loaded) load();
   const xs = state.hlTrades.filter((t) => traderRule(t.trader) === rule && t.at > sinceMs);
-  return { trades: xs.length, won: xs.filter((t) => t.net > 0).length, netUsd: xs.reduce((a, t) => a + t.net, 0) * PERP_USD, firstAt: xs.length ? Math.min(...xs.map((t) => t.at)) : null };
+  // ours = the copies on the coins traded for real (SOL, BTC, ETH)
+  return { trades: xs.length, won: xs.filter((t) => t.net > 0).length, netUsd: xs.reduce((a, t) => a + t.net, 0) * PERP_USD, firstAt: xs.length ? Math.min(...xs.map((t) => t.at)) : null, ours: xs.filter((t) => (PERP_COINS as readonly string[]).includes(t.coin)).length };
 }
-export const traderMeetsBar = (x: { trades: number; won: number; netUsd: number; firstAt: number | null }, now = Date.now()) =>
-  x.trades >= TRADER_MIN_COPIES && x.won * 2 >= x.trades && x.netUsd > 0 && x.firstAt !== null && now - x.firstAt >= TRADER_MIN_AGE_MS;
+/**
+ * minOurs (solanaPerps.traderMinOurs, 0 = off): that many of the closed paper copies must be on SOL, BTC or ETH, the
+ * only coins traded for real (review 63 of 16 Nov 2026: fe7ce058 went real with 0 of its 28 paper copies on them).
+ */
+export const traderMeetsBar = (x: { trades: number; won: number; netUsd: number; firstAt: number | null; ours?: number }, now = Date.now(), minOurs = 0) =>
+  x.trades >= TRADER_MIN_COPIES && x.won * 2 >= x.trades && x.netUsd > 0 && x.firstAt !== null && now - x.firstAt >= TRADER_MIN_AGE_MS && (x.ours ?? 0) >= minOurs;
 /** Does this perp rule, or this copied trader, meet its bar for real on the paper trades made after `sinceMs`? */
-export const perpMeetsBar = (rule: string, sinceMs = 0, now = Date.now()) => (isTraderRule(rule) ? traderMeetsBar(traderRecord(rule, sinceMs), now) : meetsBar(perpPaperRecord(rule, sinceMs)));
+export const perpMeetsBar = (rule: string, sinceMs = 0, now = Date.now(), minOurs = 0) => (isTraderRule(rule) ? traderMeetsBar(traderRecord(rule, sinceMs), now, minOurs) : meetsBar(perpPaperRecord(rule, sinceMs)));
 /** The perp paper positions that are open now (rules and copied traders' shorts), each with a name of its own. */
 export function perpPaperOpens(): { id: string; rule: string; coin: string; dir: number; at: number; lev?: number }[] {
   if (!loaded) load();

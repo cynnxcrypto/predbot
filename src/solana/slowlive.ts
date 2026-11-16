@@ -221,6 +221,8 @@ export interface Pos {
   sellRounds: number;
   /** sale rounds in which the sale itself failed, not the network (16 Nov 2026; see failedRounds) */
   failRounds?: number;
+  /** sale rounds lost to the network (no answer, refused for asking too fast, not landed); see NET_ROUNDS_FREE */
+  netRounds?: number;
   /** when the coin first counted as unsellable (GIVE_UP_ROUNDS failed sales), ms: tried for UNSOLD_DAYS from then */
   unsoldMs?: number;
   /** a sale that failed is tried again from this time (ms) */
@@ -231,7 +233,7 @@ export interface Pos {
   offMs?: number;
   exit?: Exit;
 }
-type Exit = "sold" | "sold, seen late" | "max hold" | "wallet dropped" | "wallet cut" | "sold while we were down" | "buy did not land" | "buy failed";
+type Exit = "sold" | "sold, seen late" | "max hold" | "wallet dropped" | "wallet cut" | "sold while we were down" | "buy did not land" | "buy failed" | "written off";
 export interface SRow {
   t: number;
   name: string;
@@ -402,6 +404,12 @@ const stuck = (p: Pos) => !!p.exit && (p.failRounds != null ? p.failRounds >= GI
 const failedRounds = (p: Pos) => p.failRounds ?? p.sellRounds;
 /** After this many rounds in which the sale itself failed, the coin counts as one we could not sell (a lost stake). */
 export const GIVE_UP_ROUNDS = 6;
+/**
+ * Rounds lost to the network that are only tried again (about 6 h at RETRY_MS). Past that every further one counts as
+ * failed too: a coin whose every sale "times out" for hours is a coin that cannot be sold, and its tries (each a
+ * signature to read back) must not go on for good.
+ */
+export const NET_ROUNDS_FREE = 36;
 /**
  * A round is tried again RETRY_MS after it failed. Once the coin counts as unsellable it is still tried, every
  * RETRY_UNSOLD_MS for UNSOLD_DAYS days (a route can come back), with two tries a round instead of six: a coin whose
@@ -802,10 +810,18 @@ async function sellOnce(p: Pos, exit: Exit) {
   const c = cfg();
   try {
     const w = wallet();
-    p.sellRounds++;
+    // a copy from before the count (no failRounds) keeps the old one: a round counts when it starts
+    if (p.failRounds == null) p.sellRounds++;
     const r0 = await sellAll(w, p, c);
-    // a copy from before the count: its earlier rounds stand for it
-    if (!r0.sold) p.failRounds = (p.failRounds ?? p.sellRounds - 1) + (r0.refused ? 1 : 0);
+    if (!r0.sold) {
+      // the sale itself refused; or the network, free for NET_ROUNDS_FREE rounds and failed after that
+      if (!r0.refused) p.netRounds = (p.netRounds ?? 0) + 1;
+      const failed = r0.refused || (p.netRounds ?? 0) > NET_ROUNDS_FREE;
+      p.failRounds = (p.failRounds ?? p.sellRounds - 1) + (failed ? 1 : 0);
+      // sellRounds carries the failed rounds only: code from before 16 Nov 2026 (a rollback) reads it as failed
+      // rounds, gives up at six and stops trying, so a round the network ate must not count there either
+      p.sellRounds = p.failRounds;
+    }
     if (r0.sold) {
       // the emptied coin account's rent back; its transaction is counted with the copy
       const r: Row = { t: Date.now(), name: p.name, mint: p.mint, leaderSlot: 0, buy: "landed", netSol: 0, sigs: [] };
@@ -823,6 +839,18 @@ async function sellOnce(p: Pos, exit: Exit) {
   if (failedRounds(p) >= GIVE_UP_ROUNDS) p.unsoldMs ??= Date.now();
   p.nextTryMs = Date.now() + (p.unsoldMs ? RETRY_UNSOLD_MS : RETRY_MS);
   save();
+}
+/** A coin we could not sell for UNSOLD_DAYS: its row is written from its own transactions (the stake, the fees and the rent lost), and the copy is dropped. */
+async function writeOff(p: Pos) {
+  if (sellingNow.has(p) || !state.opens.includes(p) || p.stage !== "held") return;
+  sellingNow.add(p);
+  try {
+    await finish(wallet(), p, "written off");
+  } catch (e) {
+    state.lastError = fixed(e);
+  } finally {
+    sellingNow.delete(p);
+  }
 }
 /** Count a finished copy from its own transactions, write its row, drop it. */
 async function finish(w: Wallet, p: Pos, exit: Exit) {
@@ -992,8 +1020,11 @@ export function sweep(now = Date.now()) {
     if (p.stage !== "held") continue;
     if (p.exit) {
       // tried again at its time (see sellOnce): slower once the coin counts as unsellable, and for UNSOLD_DAYS from then.
-      // A copy given up before 16 Nov 2026 carries no such time: its first try here starts that clock.
-      if (now >= (p.nextTryMs ?? 0) && !(p.unsoldMs && now - p.unsoldMs > UNSOLD_DAYS * 86_400_000)) void sell(p, p.exit);
+      // A copy given up before 16 Nov 2026 carries no such time: its first try here starts that clock. At the end of
+      // those days it is written off: counted from its own transactions and dropped, so it no longer holds a place
+      // nor room under the cap. The coin stays in the wallet; nothing more is spent on it.
+      if (p.unsoldMs && now - p.unsoldMs > UNSOLD_DAYS * 86_400_000) void writeOff(p);
+      else if (now >= (p.nextTryMs ?? 0)) void sell(p, p.exit);
     } else if (now - (p.boughtMs ?? p.seenMs) > c.maxHoldH * 3_600_000) void sell(p, "max hold");
     // its wallet was cut on its real record (at two sweeps): sold now, not after the 6 h clock (only when switched on; a few a sweep)
     else if (c.sellCut && !p.soldSeenMs && cutClearly({ name: p.name, address: p.wallet }, now) && drops++ < DROP_SELLS_PER_SWEEP) void sell(p, "wallet cut");
@@ -1195,6 +1226,8 @@ export function slowLiveSummary() {
     /** open copies whose wallet is off the list (sold DROP_SELL_MS after the sweep first saw that), and copies sold for that reason */
     openOffList: state.opens.filter((p) => p.offMs).length,
     soldDropped: done.filter((x) => x.exit === "wallet dropped").length,
+    /** coins we could not sell for UNSOLD_DAYS, written off (their row holds the stake and fees lost) */
+    writtenOff: done.filter((x) => x.exit === "written off").length,
     /** is a cut wallet's open copy sold at once (see sellCut), and the copies sold for that reason */
     sellCut: c.sellCut === true,
     soldCut: done.filter((x) => x.exit === "wallet cut").length,

@@ -16,6 +16,13 @@ test("event live config: local off, missing funder or broken repo text all mean 
   assert.equal(parseEventLive(repo, { mode: "live" }).mode, "off");
   assert.deepEqual(parseEventLive("{", { mode: "live", funder: "0xabc" }).groups, {});
   assert.equal(parseEventLive(JSON.stringify({ mode: "live", events: { tennis: { rules: ["x"], size: 50 } } }), { funder: "0x1" }).groups.tennis.size, 10);
+  // review 63 (16 Nov 2026): the copy group's price check and rescan switch; both off unless the live rules say so
+  const cg = (v: object) => parseEventLive(JSON.stringify({ mode: "live", events: { copy: { rules: ["x"], size: 3, ...v } } }), { funder: "0x1" }).groups.copy;
+  assert.equal(cg({}).maxAbove, 0);
+  assert.equal(cg({}).autoReal, true);
+  assert.equal(cg({ maxAbove: 0.05, autoReal: false }).maxAbove, 0.05);
+  assert.equal(cg({ maxAbove: 0.05, autoReal: false }).autoReal, false);
+  assert.equal(cg({ maxAbove: 3 }).maxAbove, 0.5);
   assert.deepEqual(parseEventLive(JSON.stringify({ mode: "live", events: { tennis: { rules: [], size: 3 } } }), { funder: "0x1" }).groups, {});
 });
 
@@ -304,4 +311,10 @@ test("daily wallet rescan: the screen, weekly profit, promotion to real and drop
   // a wallet added hours ago is not promoted on hours of results
   const fresh = { ...st, wallets: [{ name: "good", address: "0x1", addedAt: NOW6 - 5 * 3600_000, stage: "paper" as const, why: "" }] };
   assert.equal(copyPromote(fresh, trades, NOW6).length, 0);
+  // review 63 (16 Nov 2026): the live rules can keep the rescan on paper: nothing is promoted, a real one goes back
+  assert.equal(st.wallets[0].stage, "real");
+  assert.match(copyPromote(st, trades, NOW6 + 27 * 3600_000, () => ({ n: 2, net: 5 }), false)[0], /good back to PAPER: the rescan's wallets stay on paper/);
+  assert.equal(st.wallets[0].stage, "paper");
+  assert.equal(copyPromote(st, trades, NOW6 + 60 * 3600_000, undefined, false).length, 0, "meets the bar, a day on paper, still not promoted");
+  assert.equal(st.wallets[0].stage, "paper");
 });

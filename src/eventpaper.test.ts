@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { copyBetUsd, copyLooksBait, copyResolveAt, copyStake, copyUsualBet, parseBook, slugDate, solveQ, tennisTour, walk, winMarketFor, zonedUtc } from "./eventpaper.js";
+import { copyAboveNote, copyBetUsd, copyLooksBait, copyResolveAt, copyStake, copyUsualBet, parseBook, slugDate, solveQ, tennisTour, walk, winMarketFor, zonedUtc } from "./eventpaper.js";
 
 test("eventpaper helpers", () => {
   const q = solveQ(0.648);
@@ -135,4 +135,12 @@ test("bait check: a bet under a tenth of the wallet's usual bet is not copied wi
   assert.equal(copyLooksBait(2, 25), true);
   assert.equal(copyLooksBait(2.5, 25), false);
   assert.equal(copyLooksBait(1, null), false, "usual bet unknown: copied");
+});
+
+test("real copy price check (review 63, 16 Nov 2026): off at 0, else over maxAbove above the wallet's price stays on paper", () => {
+  assert.equal(copyAboveNote(0.6, 0.4, 0), null, "off: copy all");
+  assert.equal(copyAboveNote(0.45, 0.4, 0.05), null, "exactly 5c above is still copied");
+  assert.equal(copyAboveNote(0.44, 0.4, 0.05), null);
+  assert.match(copyAboveNote(0.46, 0.4, 0.05)!, /ask 46c is more than 5c above the 40c it paid \(paper only\)/);
+  assert.match(copyAboveNote(0.153, 0.1, 0.05)!, /15\.3c/);
 });

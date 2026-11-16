@@ -1038,8 +1038,9 @@ async function wxCopyTick() {
       if (eventLiveConfig().groups.copy?.rules.includes(rule)) {
         const openMine = eventLiveRows().filter((r) => r.group === "copy" && r.rule === rule && r.pnl == null && (r.shares > 0 || r.status === "unknown")).length;
         const each = copyPerWallet();
-        let real: string | null = `${openMine} real bets of this wallet open (its share is ${each})`;
-        if (openMine < each) {
+        const above = copyAboveNote(bk.bestAsk, b.price, eventLiveConfig().groups.copy?.maxAbove ?? 0);
+        let real: string | null = above ?? `${openMine} real bets of this wallet open (its share is ${each})`;
+        if (!above && openMine < each) {
           const depth = bk.asks.filter((a) => a.price <= bk.bestAsk! + 0.02 + 1e-9).reduce((x, a) => x + a.price * a.size, 0);
           const bet = copyBetUsd(rows, b.cond, (r) => /^yes$/i.test(String(r.outcome ?? "")) === b.yes);
           const usual = copyUsualBet(rows);
@@ -1170,6 +1171,17 @@ function noteSize(name: string, stake: number) {
 }
 /** how far above the wallet's price the ask may be for the taking copy (2c until 13:35 KST 12 Nov 2026) */
 const COPY_SLIP = 0.05;
+/**
+ * The real copy's price check (review 63 of 16 Nov 2026, events.copy.maxAbove; 0 = off, as since enrique's 14 Nov
+ * "i want to copy all"): why a real copy is left on paper when the ask is more than maxAbove above the price the copied
+ * wallet paid, else null. Real buys over 5c above lost (26 bets, 10 won where the prices said 14.3, -$18.81) while
+ * those within 5c made +$49.81 on 36; on paper, the same split is -18.8% against -8.0% over about 3,900 copies.
+ */
+export function copyAboveNote(ask: number, paid: number, maxAbove: number): string | null {
+  if (!(maxAbove > 0) || !(ask > paid + maxAbove + 1e-9)) return null;
+  const c = (x: number) => `${Math.round(x * 1000) / 10}c`;
+  return `ask ${c(ask)} is more than ${c(maxAbove)} above the ${c(paid)} it paid (paper only)`;
+}
 // copy-any-<wallet>: every first buy of the wallet at the ask we would have paid, with NO price limit (paper only),
 // so the copies skipped for price can be shown next to the ones taken.
 for (const w of COPY_WALLETS) RULE_TEXT[`copy-any-${w.name}`] = ["copy", `Paper only: every first buy of ${w.name} taken at the ask for $3 whatever the ask is, with no price limit. Next to copy-take-${w.name} it shows what the copies skipped for price would have earned or lost.`];
@@ -1278,6 +1290,12 @@ async function copyTick() {
       // betty4 -$10.55 vs -$12.82, maximus374 the same at 13 Nov 2026). Paper copy-take keeps the 5c check.
       if (bk.bestAsk == null || any.shares <= 0 || any.avg == null) continue;
       const w = any;
+      const above = eventLiveConfig().groups.copy?.rules.includes(rule) ? copyAboveNote(bk.bestAsk, b.price, eventLiveConfig().groups.copy?.maxAbove ?? 0) : null;
+      if (above) {
+        copyNotes.push({ t: now, title: `${wl.name}: ${title}`, why: above });
+        if (copyNotes.length > 50) copyNotes.splice(0, copyNotes.length - 50);
+        continue;
+      }
       // Each copied wallet may hold at most COPY_OPEN_EACH real bets at once, so one busy wallet cannot fill the shared
       // budget with open stakes and leave the others without a single copy to judge them by.
       const openMine = eventLiveRows().filter((r) => r.group === "copy" && r.rule === rule && r.pnl == null && (r.shares > 0 || r.status === "unknown")).length;
@@ -2077,7 +2095,7 @@ async function main() {
       await guard("wallet promotions", async () => {
         setPaperBehind(paperGate(eventLiveConfig().groups.copy?.rules ?? [], state.trades));
         const st = autoState();
-        const lines = copyPromote(st, state.trades, Date.now(), (rule) => realRecord("copy", rule));
+        const lines = copyPromote(st, state.trades, Date.now(), (rule) => realRecord("copy", rule), eventLiveConfig().groups.copy?.autoReal !== false);
         if (lines.length) {
           for (const t of lines) st.log.push({ t: Date.now(), text: t });
           st.log = st.log.slice(-30);

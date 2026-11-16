@@ -35,7 +35,8 @@ test("dip rule: the signal and the exits are those of the history test", () => {
     held.push(!!pos);
   });
   assert.deepEqual(held, [false, false, true, true, false, false, false]);
-  assert.ok(DIP_RULES.every((x) => x.fallPct >= 5 && x.holdHours <= 72) && new Set(DIP_RULES.map((x) => x.id)).size === DIP_RULES.length);
+  assert.ok(DIP_RULES.every((x) => x.fallPct >= 2 && x.holdHours <= 72) && new Set(DIP_RULES.map((x) => x.id)).size === DIP_RULES.length);
+  assert.equal(DIP_RULES.length, 8);
 });
 
 test("dip rule: only closed candles are read", () => {
@@ -73,19 +74,20 @@ test("dip rule on paper: buys at a real quote after the fall, sells at the targe
   now = 1031 * H + 20_000; // hour 1030 closed at 89: 11% below 24 hours earlier
   await dipTick(deps, now);
   const open = _dipTest.state().open;
-  // 11% down buys for the 6, 8 and 10% rules (two exits of the 10% one) and the 4 hour 5% rule; not for the 12% rule
-  assert.deepEqual(open.map((o) => o.rule).sort(), ["dip24-10-tp10-24h", "dip24-10-tp5-24h", "dip24-6-tp10-24h", "dip24-8-tp10-24h", "dip4-5-tp10-72h"]);
+  // 11% down in one hour buys for the 4, 6, 8 and 10% rules (two exits of the 10% one), the 4 hour 5% rule and the
+  // 1 hour 2% rule; not for the 12% rule
+  assert.deepEqual(open.map((o) => o.rule).sort(), ["dip1-2-tp3-12h", "dip24-10-tp10-24h", "dip24-10-tp5-24h", "dip24-4-tp5-24h", "dip24-6-tp10-24h", "dip24-8-tp10-24h", "dip4-5-tp10-72h"]);
   assert.deepEqual([open[0].signalHour, open[0].refPrice, open[0].quotePrice], [1030, 89, 89.2]);
-  assert.deepEqual(asked, Array.from({ length: 5 }, () => `buy ${DIP_STAKE_USD * 1e6}`));
+  assert.deepEqual(asked, Array.from({ length: 7 }, () => `buy ${DIP_STAKE_USD * 1e6}`));
   now = 1032 * H + 20_000; // hour 1031 closed at 89 again: already in, nothing bought twice
   await dipTick(deps, now);
-  assert.equal(_dipTest.state().open.length, 5);
+  assert.equal(_dipTest.state().open.length, 7);
   // hour 1033 closes at 99: +11% on the close it bought on. The first quote fails, the second answers.
   fail = 1;
   now = 1034 * H + 20_000;
   await dipTick(deps, now);
   const s = _dipTest.state();
-  assert.deepEqual(s.open.map((o) => o.rule), [], "all five sold at the target");
+  assert.deepEqual(s.open.map((o) => o.rule), [], "all seven sold at the target");
   const tr = s.trades.find((x) => x.rule === "dip24-10-tp10-24h")!;
   const usdOut = (100 / 89.2) * 98.8;
   assert.deepEqual([tr.why, tr.exitHour, tr.exitRef, tr.late], ["target", 1033, 99, undefined]);
@@ -98,7 +100,7 @@ test("dip rule on paper: buys at a real quote after the fall, sells at the targe
   assert.deepEqual([sum.lastLook!.price, sum.lastLook!.change24hPct, sum.mode], [99, -1, "paper"]);
   // kept across a restart
   _dipTest.reload();
-  assert.equal(_dipTest.state().trades.length, 5);
+  assert.equal(_dipTest.state().trades.length, 7);
   assert.ok(readFileSync(join(dir, "solana", "dip-state.json"), "utf8").includes("dip24-10-tp10-24h"));
 });
 
@@ -118,24 +120,26 @@ test("dip rule on paper: the time exit, a sale that gets no quote, and a buy tha
   quotes = false;
   now = 2031 * H + 20_000;
   await dipTick(deps, now);
-  assert.deepEqual([_dipTest.state().open.length, _dipTest.state().missedEntries, n], [0, 6, 18], "all six rules wanted to buy; each asked three times");
-  // an hour later the price is still 12% below 24 hours earlier: now it buys (the 12% rule too)
+  assert.deepEqual([_dipTest.state().open.length, _dipTest.state().missedEntries, n], [0, 8, 24], "all eight rules wanted to buy; each asked three times");
+  // an hour later the price is still 12% below 24 hours earlier: now the seven 24 hour and 4 hour rules buy (the 12% rule
+  // too); the 1 hour rule does not, its hour has passed
   quotes = true;
   now = 2032 * H + 20_000;
   await dipTick(deps, now);
-  assert.equal(_dipTest.state().open.length, 6);
+  assert.equal(_dipTest.state().open.length, 7);
+  assert.ok(!_dipTest.state().open.some((o) => o.rule === "dip1-2-tp3-12h"));
   // 24 hours after the close it bought on the price is unchanged: the 24 hour rules are due, the 72 hour one is not.
   // The price service gives no quote: they stay open.
   quotes = false;
   now = 2056 * H + 20_000;
   await dipTick(deps, now);
-  assert.deepEqual([_dipTest.state().open.length, _dipTest.state().trades.length], [6, 0]);
+  assert.deepEqual([_dipTest.state().open.length, _dipTest.state().trades.length], [7, 0]);
   // a minute later it answers: sold, and marked late
   quotes = true;
   await dipTick(deps, now + 60_000);
   const s = _dipTest.state();
   assert.deepEqual(s.open.map((o) => o.rule), ["dip4-5-tp10-72h"]);
-  assert.ok(s.trades.length === 5 && s.trades.every((x) => x.why === "time" && x.late === true && x.exitHour === 2055));
+  assert.ok(s.trades.length === 6 && s.trades.every((x) => x.why === "time" && x.late === true && x.exitHour === 2055));
   assert.ok(Math.abs(s.trades[0].netUsd - -2 * DIP_TX_USD) < 0.001, "bought and sold at the same price: only the network fees");
   // a rule that sold at a close does not buy again at that same close, as in the history test
   assert.equal(s.open.filter((o) => o.rule.startsWith("dip24")).length, 0);

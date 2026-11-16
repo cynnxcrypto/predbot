@@ -101,10 +101,19 @@ export function paperResult(trades: PaperTrade[], rule: string) {
 /** Promotions and drops for the auto wallets. Mutates and returns log lines. Pure apart from the state passed in. */
 /** A wallet is on paper at least this long before it can go real, and again after a demotion. */
 export const PAPER_MIN_MS = 24 * 3600_000;
-export function copyPromote(s: AutoState, trades: PaperTrade[], now: number, real?: (rule: string) => { n: number; net: number }): string[] {
+export function copyPromote(s: AutoState, trades: PaperTrade[], now: number, real?: (rule: string) => { n: number; net: number }, promote = true): string[] {
   const out: string[] = [];
   for (const w of s.wallets) {
     if (w.stage !== "paper" && w.stage !== "real") continue;
+    // the live rules keep the rescan on paper (events.copy.autoReal false; review 63 of 16 Nov 2026: the 7 wallets it
+    // promoted lost $36.02 on 23 real bets, all of the real sports and same-day losses): none is promoted, and one
+    // that is real goes back to paper. Drops go on as before.
+    if (!promote && w.stage === "real") {
+      w.stage = "paper";
+      w.demotedAt = now;
+      out.push(`${w.name} back to PAPER: the rescan's wallets stay on paper (live rules)`);
+      continue;
+    }
     const r = paperResult(trades, `copy-take-${w.name}`);
     const meets = r.n >= (w.stage === "real" ? KEEP_N : PROMOTE_N) && r.won * 2 >= r.n && r.net > 0;
     // 15 Nov 2026, enrique: "decide what to keep and what to demote and what to promote", recurrently. A real wallet
@@ -121,7 +130,7 @@ export function copyPromote(s: AutoState, trades: PaperTrade[], now: number, rea
       }
       continue;
     }
-    if (meets && now - Math.max(w.addedAt, w.demotedAt ?? 0) >= PAPER_MIN_MS) {
+    if (promote && meets && now - Math.max(w.addedAt, w.demotedAt ?? 0) >= PAPER_MIN_MS) {
       w.stage = "real";
       w.promotedAt = now;
       out.push(`${w.name} promoted to REAL: paper ${r.won} of ${r.n} won, +$${r.net.toFixed(2)}`);

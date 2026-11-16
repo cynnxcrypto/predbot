@@ -100,6 +100,8 @@ export interface PerpsLiveConfig {
   ruleStopUsd: number;
   /** positions held at once (absent = HARD_MAX_OPEN) */
   maxOpen?: number;
+  /** a copied trader needs this many closed paper copies on SOL, BTC or ETH to go real (0 = off; review 63, 16 Nov 2026) */
+  traderMinOurs?: number;
 }
 const OFF: PerpsLiveConfig = { on: false, collateralUsd: 0, leverage: 1, maxLossUsd: 0, ruleStopUsd: 0, maxOpen: 0 };
 /** Jupiter keeps one position per coin and side for a wallet: three coins, two sides. */
@@ -122,6 +124,7 @@ export function parsePerpsLive(text: string): PerpsLiveConfig {
       leverage: clamp(num(p.leverage, HARD_LEVERAGE), 1, HARD_LEVERAGE),
       ruleStopUsd: clamp(num(p.ruleStopUsd, 3), 1, HARD_RULE_STOP_USD),
       maxOpen: Math.floor(clamp(num(p.maxOpen, HARD_MAX_OPEN), 1, HARD_MAX_OPEN)),
+      traderMinOurs: Math.floor(clamp(num(p.traderMinOurs, 0), 0, 50)),
     };
   } catch {
     return OFF;
@@ -338,7 +341,7 @@ const skip = (why: string) => void (state.skipped[why] = (state.skipped[why] ?? 
 /** One trader's or rule's real record: its filled real trades since it was last cut. */
 const realOf = (rule: string) => realRecord(state.rows.filter((x) => x.rule === rule && x.filled && x.t > (state.demoted[rule] ?? 0)).map((x) => x.netUsd));
 /** Real results first (realfirst.ts): real record ahead or level = real; no real trades yet, or behind on fewer than three = the paper bar decides. */
-export const standingOf = (rule: string) => standing(realOf(rule), perpMeetsBar(rule, state.demoted[rule] ?? 0), state.demotedWhy?.[rule]);
+export const standingOf = (rule: string) => standing(realOf(rule), perpMeetsBar(rule, state.demoted[rule] ?? 0, Date.now(), liveCfg().traderMinOurs ?? 0), state.demotedWhy?.[rule]);
 export const promoted = (rule: string) => standingOf(rule).real;
 /** The copied traders the paper side must keep following even off the daily list: a real position open, or real copies ahead. */
 export const keptTraders = () => {
@@ -808,7 +811,7 @@ export function perpsLiveSummary() {
   // (entryPrice is rounded to three figures: the exact entry price of a position, with its coin and side, would find it and the wallet on the chain)
   const openRows = state.opens.map((x) => ({ rule: x.rule, coin: x.coin, side: (x.dir ?? -1) > 0 ? "long" : "short", leverage: x.lev ?? null, stage: x.stage, sizeUsd: x.sizeUsd, since: x.openedMs ?? x.sentMs, collateralUsd: r2(x.collateralUsd ?? x.collUsd ?? c.collateralUsd), entryPrice: x.entryPx ? Number(x.entryPx.toPrecision(3)) : null, unrealisedUsd: x.unrealUsd ?? 0, pricedAt: x.markMs ?? null }));
   return {
-    note: `REAL, off unless the live rules switch it on. Longs and shorts on SOL, BTC or ETH on Jupiter Perps, in a wallet of its own, up to ${maxOpenOf(c)} positions at once (one per trader or rule, one per coin and side), $${c.collateralUsd || MIN_COLLATERAL_USD} of collateral each (all that a liquidation can take; a short is backed by USDC, a long by the coin, bought with USDC inside the order). A perp paper rule gets its first real trades, at ${c.leverage || HARD_LEVERAGE}x, when its paper record meets the bar (${REAL_MIN_TRADES}+ paper trades, half or more won, ahead after costs). A copied perp trader ("copy-" and a short tag) is followed on these three coins, at the leverage the trader set (not capped by us; never above half of where Jupiter liquidates), when its own paper copies meet the trader bar (${TRADER_MIN_COPIES}+ closed copies of any coin and side, half or more won, ahead, a day or more on paper). Real results come first (enrique, 16 Nov 2026: "cut loser and bring winners", "real is more important"): once it has real trades it stays real while its real net is zero or better, even under the paper bar, and goes back to paper when its real trades are behind after ${CUT_MIN_TRADES} or more, or have lost $${c.ruleStopUsd || 3}; it returns on paper trades made after that. In rules: why = the reason in words; realTrades, realWon, realNetUsd = its real record since it was last cut; trades, won, netUsd = all its real trades ever. Every transaction is simulated on the chain before it is sent. dryRun / dryRunLong: an open order of ours simulated, hourly until it passes and then daily; dryRunClose / dryRunCloseLong: a close order simulated against a position that exists on the chain. Results are what a position did to the wallet's USDC; network fees in SOL are small and not counted.`,
+    note: `REAL, off unless the live rules switch it on. Longs and shorts on SOL, BTC or ETH on Jupiter Perps, in a wallet of its own, up to ${maxOpenOf(c)} positions at once (one per trader or rule, one per coin and side), $${c.collateralUsd || MIN_COLLATERAL_USD} of collateral each (all that a liquidation can take; a short is backed by USDC, a long by the coin, bought with USDC inside the order). A perp paper rule gets its first real trades, at ${c.leverage || HARD_LEVERAGE}x, when its paper record meets the bar (${REAL_MIN_TRADES}+ paper trades, half or more won, ahead after costs). A copied perp trader ("copy-" and a short tag) is followed on these three coins, at the leverage the trader set (not capped by us; never above half of where Jupiter liquidates), when its own paper copies meet the trader bar (${TRADER_MIN_COPIES}+ closed copies of any coin and side, half or more won, ahead, a day or more on paper${c.traderMinOurs ? `, and ${c.traderMinOurs}+ of them on SOL, BTC or ETH` : ""}). Real results come first (enrique, 16 Nov 2026: "cut loser and bring winners", "real is more important"): once it has real trades it stays real while its real net is zero or better, even under the paper bar, and goes back to paper when its real trades are behind after ${CUT_MIN_TRADES} or more, or have lost $${c.ruleStopUsd || 3}; it returns on paper trades made after that. In rules: why = the reason in words; realTrades, realWon, realNetUsd = its real record since it was last cut; trades, won, netUsd = all its real trades ever. Every transaction is simulated on the chain before it is sent. dryRun / dryRunLong: an open order of ours simulated, hourly until it passes and then daily; dryRunClose / dryRunCloseLong: a close order simulated against a position that exists on the chain. Results are what a position did to the wallet's USDC; network fees in SOL are small and not counted.`,
     on: c.on && !state.halted,
     switch: c.on ? "on" : "off",
     halted: state.halted,

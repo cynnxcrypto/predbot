@@ -291,6 +291,14 @@ test("buckets: one copied trader's own record and the bar for following it for r
   assert.equal(traderMeetsBar({ trades: 19, won: 19, netUsd: 5, firstAt: old }), false);
   assert.equal(traderMeetsBar({ trades: 20, won: 9, netUsd: 5, firstAt: old }), false);
   assert.equal(traderMeetsBar({ trades: 20, won: 10, netUsd: 0, firstAt: old }), false);
+  // review 63 (16 Nov 2026): with minOurs, that many of the copies must be on SOL, BTC or ETH (0 = off)
+  assert.equal(traderMeetsBar({ trades: 28, won: 20, netUsd: 5, firstAt: old, ours: 0 }), true);
+  assert.equal(traderMeetsBar({ trades: 28, won: 20, netUsd: 5, firstAt: old, ours: 0 }, Date.now(), 3), false);
+  assert.equal(traderMeetsBar({ trades: 28, won: 20, netUsd: 5, firstAt: old, ours: 2 }, Date.now(), 3), false);
+  assert.equal(traderMeetsBar({ trades: 28, won: 20, netUsd: 5, firstAt: old, ours: 3 }, Date.now(), 3), true);
+  const ours = traderRecord(rule).ours;
+  assert.equal(perpMeetsBar(rule, 0, Date.now(), ours), true);
+  assert.equal(perpMeetsBar(rule, 0, Date.now(), ours + 1), false, "one copy short on SOL, BTC or ETH");
   assert.ok(perpRuleIds().includes(rule));
   // its positions on SOL, BTC, ETH (long or short) are offered to the real side under the trader's own name; another coin is not
   _bucketsTest.state().hlOpen = [{ trader: A, coin: "SOL", dir: -1, at: now, entry: 100, lev: 20, worst: 0 }, { trader: A, coin: "HYPE", dir: -1, at: now, entry: 30 }, { trader: A, coin: "BTC", dir: 1, at: now, entry: 60000 }] as never;

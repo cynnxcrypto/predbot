@@ -207,14 +207,20 @@ export function worthCheck() {
   const series = netOfFlows([...back.filter((p) => p[0] < (hist![0]?.[0] ?? Infinity)), ...hist] as [number, number][], flows);
   const T = Date.now() - 86_400_000;
   const base = [...series].reverse().find((p) => p[0] <= T);
-  const windows: Record<string, { usd: number; est: boolean; from: number; at?: number }> = Object.fromEntries(worthWindows(pageSeries(), memo.v.total, Date.now()).map((w) => [w.k, { usd: w.usd, est: w.est, from: w.from }]));
-  const today = worthToday(fullSeries(), memo.v.total, Date.now());
-  if (today) windows.today = today;
+  // the windows are measured from the last FULL reading (bets and coins priced, SOL balance read), never from a partial
+  // one: none yet after a start means no windows rather than wrong ones (16 Nov 2026: 1 h read -$55 on a partial one)
+  const now = full?.total ?? null;
+  const windows: Record<string, { usd: number; est: boolean; from: number; at?: number }> = now == null ? {} : Object.fromEntries(worthWindows(pageSeries(), now, full!.at).map((w) => [w.k, { usd: w.usd, est: w.est, from: w.from }]));
+  // the page's own figure, which keeps the last full reading through a partial one
+  const today = memo.v.today?.all ?? null;
+  if (today) windows.today = today as { usd: number; est: boolean; from: number; at: number };
   const tw = memo.v.today ?? {};
   const todayByWallet = Object.fromEntries(WALLETS.map(([k, label]) => [label, tw[k] ? { usd: tw[k]!.usd, at: tw[k]!.at } : null]));
-  return { todayByWallet, claimStepsTakenForDeposits: fix?.removed ?? null, thatWasUsd: fix?.removedUsd ?? null, wonWaitingForClaimUsd: unclaimedAt(loadSpans(), Date.now()), change24hUsd: base ? Math.round((memo.v.total - base[1]) * 100) / 100 : null, flows24h: flows.filter((f) => f[0] > T).length, windows, worthAt: memo.at };
+  return { todayByWallet, claimStepsTakenForDeposits: fix?.removed ?? null, thatWasUsd: fix?.removedUsd ?? null, wonWaitingForClaimUsd: unclaimedAt(loadSpans(), Date.now()), change24hUsd: base && now != null ? Math.round((now - base[1]) * 100) / 100 : null, flows24h: flows.filter((f) => f[0] > T).length, windows, worthAt: full?.at ?? null };
 }
 let memo: { at: number; v: Worth } | null = null;
+/** The last full reading's total (see worthCheck). */
+let full: { at: number; total: number } | null = null;
 let solPx: { at: number; v: number | null } = { at: 0, v: null };
 let hist: [number, number][] | null = null;
 /** Hourly estimates for the days before the live samples began (see backfill). */
@@ -291,6 +297,13 @@ export async function worthView(cash: number | null, claim: number, solBal: numb
     hist = (Array.isArray(f) ? f : (f.hist ?? [])).filter((p) => Array.isArray(p) && Number.isFinite(p[0]) && Number.isFinite(p[1]));
     back = Array.isArray(f) ? [] : (f.back ?? []);
     hist = despike(hist);
+    // 16 Nov 2026 17:24-18:00 KST: after two restarts the spot copy's coins went unpriced and counted as nothing (fixed
+    // in 235fa6ad), so those samples read up to $58 low with about $3 really lost. Taken out, so that no window (1 h,
+    // today, a card's today) is measured from them. Done at every load; nothing else falls in that half hour.
+    const badFrom = Date.UTC(2026, 10, 16, 8, 24);
+    const badTo = Date.UTC(2026, 10, 16, 9, 0);
+    hist = hist.filter((p) => p[0] < badFrom || p[0] > badTo);
+    wallHist = wallHist.filter((p) => p[0] < badFrom || p[0] > badTo);
     if (needJumps) flows = flowsFromJumps(hist);
     if (Array.isArray(f) || (f.v ?? 0) < 3) {
       const rep = repairClaims(hist, flows, loadSpans());
@@ -333,8 +346,11 @@ export async function worthView(cash: number | null, claim: number, solBal: numb
     const total = cash != null ? Math.round((cash + claim + bets.value + solPart + (rulesUsd ?? 0) + (perpsUsd ?? 0)) * 100) / 100 : null;
     const wn = wallNow(cash, claim, bets.value, px != null ? solPart : null, rulesUsd, perpsUsd);
     const all = total != null ? worthToday(fullSeries(), total, Date.now()) : null;
-    const today = { all, ...walletsToday(wallHist, flows, wn, Date.now()) };
+    // a partial reading (bets or coins not priced, the SOL balance not read) gives no new "today": the last full one is
+    // kept, as the chart keeps no sample from it (16 Nov 2026: after a restart unpriced coins read as -$84 today)
+    const today = priced ? { all, ...walletsToday(wallHist, flows, wn, Date.now()) } : (memo?.v.today ?? undefined);
     memo = { at: Date.now(), v: { at: Date.now(), total, cash, claim, bets: bets.value, betsN: bets.n, betsStake: bets.stake, days: bets.days, solBal, coinsSol: Math.round(coinsSol * 1e4) / 1e4, coinsN: open.length, solUsd: px, rulesUsd, perpsUsd, parts, rulesPos, perpsPos, today } };
+    if (total != null && priced) full = { at: Date.now(), total };
     const last = hist[hist.length - 1];
     if (total != null && priced && (!last || Date.now() - last[0] >= 120_000)) {
       // rules / perps are kept in dollars here, so their px is 1; the SOL wallet is kept in SOL
