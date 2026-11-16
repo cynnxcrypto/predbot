@@ -10,6 +10,8 @@
  *   money in and out         each Solana wallet's transfers from and to wallets that are not ours (Helius, 8 days),
  *                            against the deposits and withdrawals the worth chart takes out of its windows
  *   Polymarket all time      Polymarket's own profit figure for the wallet, where its public endpoint answers
+ *   day by day               each Korean day's closed real trades and net per line, as the dashboard serves them,
+ *                            against a recount from the raw trade files (16 Nov 2026)
  *
  * Read-only: it sends nothing. Absolute figures (balances, deposits) stay on this machine in data/truth.json and in the
  * password-protected page; the public status gets only the differences (dashboard minus source), which give no
@@ -154,6 +156,147 @@ export function windowFlowDiff(chain: Transfer[], flows: [number, number, string
   return r2(fl - ch);
 }
 
+// ---- day by day (16 Nov 2026) -----------------------------------------------------------------------------------------
+// The owner found the overview's "profit and loss by day" wrong right after this check was called done: closed counts
+// piling up across days and day lines that did not add up. The check now also recounts each Korean day's closed real
+// trades from the raw trade files and compares them with what the dashboard serves for that day, line by line.
+
+/** The Korean day (UTC+9) of a time in ms; "" when there is no time. */
+export const kstDay = (ms: number) => (Number.isFinite(ms) ? new Date(ms + 9 * 3_600_000).toISOString().slice(0, 10) : "");
+/** One line of one day: closed trades, how many won, and the net (USD, or SOL for the two Solana spot wallets). */
+export type DayCell = { n: number; won: number; net: number };
+export type DayTable = Record<string, Record<string, DayCell>>;
+/** The day lines whose net is in SOL (the dashboard turns them into dollars at today's SOL price, both sides alike). */
+const SOL_TYPES = new Set(["spot copy", "spot rules"]);
+
+/** The raw rows, as the trading code writes them. Polymarket: data/eventlive.json. Solana: rows of
+ *  solana-slowlive.json (t = when the copy was seen, heldMin from the buy), solana-bucketslive.json and
+ *  solana-perpslive.json (t = when the trade was closed). */
+export type EvRaw = { t: number; group?: string; shares?: number; pnl?: number | null; settledAt?: number | null };
+export type SlowRaw = { t: number; buy?: string; heldMin?: number | null; netSol?: number };
+export type RuleRaw = { t: number; buy?: string; heldMin?: number | null; netSol?: number };
+export type PerpRaw = { t: number; filled?: boolean; netUsd?: number };
+export type RawTrades = { events: EvRaw[]; slow: SlowRaw[]; rules: RuleRaw[]; perps: PerpRaw[] };
+/** What the dashboard serves for its day panel: /api/events?sec=copy and ?sec=tennis realRec.days, /api/solslow days,
+ *  and the spot rules' and perps' rows of the status (null = that part could not be read). */
+export type ServedDays = {
+  copy: { day: string; settled: number; won: number; net: number }[] | null;
+  tennis: { day: string; settled: number; won: number; net: number }[] | null;
+  slow: { day: string; n: number; won: number; netSol: number }[] | null;
+  ruleRows: { t: number; buy?: string; heldMin?: number | null; netSol?: number | null }[] | null;
+  perpRows: { t: number; filled?: boolean; netUsd?: number | null }[] | null;
+};
+
+/** Adds a whole served day line (n trades, won of them, net). */
+const addDay = (tab: DayTable, day: string, type: string, n: number, won: number, net: number) => {
+  if (!day) return;
+  const c = ((tab[day] ??= {})[type] ??= { n: 0, won: 0, net: 0 });
+  c.n += n;
+  c.won += won;
+  c.net += net;
+};
+/** Adds one trade. */
+const addCell = (tab: DayTable, day: string, type: string, net: number, won: boolean) => addDay(tab, day, type, 1, won ? 1 : 0, net);
+
+/**
+ * Each Korean day's closed real trades, counted again from the raw rows by this file's own rules: a Polymarket bet is
+ * closed when it was filled (shares > 0) and has a result, on the day it settled; tennis's resting bids (group
+ * tennisrest) count with tennis, as the tennis tab shows them; a spot copy is closed when its buy landed, on the day it
+ * was sold (seen + minutes held); a spot rule trade when its buy landed and a perp when it filled, on the day the row was
+ * written. `all` counts every row that closed on a day whatever its kind (unfilled, not landed): no day can show more.
+ */
+export function recountDays(raw: RawTrades): { cells: DayTable; all: DayTable; groups: DayTable } {
+  const cells: DayTable = {};
+  const all: DayTable = {};
+  const groups: DayTable = {};
+  for (const r of raw.events) {
+    if (r?.pnl == null || !Number.isFinite(Number(r.pnl))) continue;
+    const day = kstDay(Number(r.settledAt ?? r.t));
+    const g = String(r.group ?? "unknown");
+    const type = g === "tennisrest" ? "tennis" : g;
+    addCell(all, day, type, 0, false);
+    if (!(Number(r.shares) > 0)) continue;
+    addCell(cells, day, type, Number(r.pnl), Number(r.pnl) > 0);
+    addCell(groups, day, g, Number(r.pnl), Number(r.pnl) > 0);
+  }
+  for (const r of raw.slow) {
+    const day = kstDay(Number(r?.t) + (Number(r?.heldMin) || 0) * 60_000);
+    addCell(all, day, "spot copy", 0, false);
+    if (r.buy === "landed") addCell(cells, day, "spot copy", Number(r.netSol) || 0, (Number(r.netSol) || 0) > 0);
+  }
+  for (const r of raw.rules) {
+    const day = kstDay(Number(r?.t));
+    addCell(all, day, "spot rules", 0, false);
+    if (r.buy === "landed") addCell(cells, day, "spot rules", Number(r.netSol) || 0, (Number(r.netSol) || 0) > 0);
+  }
+  for (const r of raw.perps) {
+    const day = kstDay(Number(r?.t));
+    addCell(all, day, "perps", 0, false);
+    if (r.filled) addCell(cells, day, "perps", Number(r.netUsd) || 0, (Number(r.netUsd) || 0) > 0);
+  }
+  return { cells, all, groups };
+}
+
+/**
+ * The overview's day lines as the page builds them from what the server serves (status.ts, the h-days panel): copy and
+ * tennis from realRec.days, spot copy from /api/solslow's days, spot rules from the status rows (landed, with minutes
+ * held, on the day of t + minutes held), perps from the status rows (filled, on the day of t). This mirrors the page's
+ * script: when that script changes, change this with it. Types it cannot read are listed in notRead.
+ */
+export function servedDayCells(s: ServedDays): { cells: DayTable; notRead: string[] } {
+  const cells: DayTable = {};
+  const notRead: string[] = [];
+  for (const [type, rows] of [["copy", s.copy], ["tennis", s.tennis]] as const) {
+    if (!rows) notRead.push(type);
+    else for (const d of rows) if (d && Number(d.settled)) addDay(cells, d.day, type, Number(d.settled), Number(d.won) || 0, Number(d.net) || 0);
+  }
+  if (!s.slow) notRead.push("spot copy");
+  else for (const d of s.slow) if (d && Number(d.n)) addDay(cells, d.day, "spot copy", Number(d.n), Number(d.won) || 0, Number(d.netSol) || 0);
+  if (!s.ruleRows) notRead.push("spot rules");
+  else for (const x of s.ruleRows) if (x?.buy === "landed" && x.heldMin != null && x.netSol != null) addCell(cells, kstDay(Number(x.t) + (Number(x.heldMin) || 0) * 60_000), "spot rules", Number(x.netSol) || 0, Number(x.netSol) > 0);
+  if (!s.perpRows) notRead.push("perps");
+  else for (const x of s.perpRows) if (x?.filled !== false && x?.netUsd != null) addCell(cells, kstDay(Number(x.t)), "perps", Number(x.netUsd) || 0, Number(x.netUsd) > 0);
+  return { cells, notRead };
+}
+
+export type DayRow = { day: string; type: string; served: DayCell; recount: DayCell; closedThatDay: number; countDiff: number; netDiff: number | null; ok: boolean; cumulative: boolean };
+/**
+ * The last `n` Korean days up to `now`, every line either side has: count difference and net difference (served minus
+ * recount; dollars, SOL lines at `solUsd`). ok when the counts are equal and the nets within $0.02. cumulative when a
+ * line shows more closed trades than rows of any kind closed that day: a running total, not that day's.
+ */
+export function compareDays(served: ReturnType<typeof servedDayCells>, rec: ReturnType<typeof recountDays>, now: number, solUsd: number | null, n = 8): { days: string[]; rows: DayRow[]; notRead: string[] } {
+  const days = Array.from({ length: n }, (_, i) => kstDay(now - i * 86_400_000));
+  const rows: DayRow[] = [];
+  const z: DayCell = { n: 0, won: 0, net: 0 };
+  for (const day of days) {
+    const types = new Set([...Object.keys(served.cells[day] ?? {}), ...Object.keys(rec.cells[day] ?? {})].filter((t) => !served.notRead.includes(t)));
+    for (const type of [...types].sort()) {
+      const sv = served.cells[day]?.[type] ?? z;
+      const rc = rec.cells[day]?.[type] ?? z;
+      const sol = SOL_TYPES.has(type);
+      const dNet = sv.net - rc.net;
+      const netDiff = sol ? (solUsd != null ? r2(dNet * solUsd) : null) : r2(dNet);
+      const netOk = netDiff != null ? Math.abs(netDiff) <= 0.02 : Math.abs(dNet) <= 0.0002;
+      const closedThatDay = rec.all[day]?.[type]?.n ?? 0;
+      const round = (c: DayCell): DayCell => ({ n: c.n, won: c.won, net: sol ? r6(c.net) : r2(c.net) });
+      rows.push({ day, type, served: round(sv), recount: round(rc), closedThatDay, countDiff: sv.n - rc.n, netDiff, ok: sv.n === rc.n && netOk, cumulative: sv.n > closedThatDay });
+    }
+  }
+  return { days, rows, notRead: served.notRead };
+}
+
+const arr = <T>(x: unknown): T[] => (Array.isArray(x) ? (x as T[]) : []);
+/** The raw trade files on this machine (data dir), read only. */
+export function readRawTrades(): RawTrades {
+  return {
+    events: arr<EvRaw>(loadJson<unknown>("eventlive.json", [])),
+    slow: arr<SlowRaw>(loadJson<{ rows?: unknown }>("solana-slowlive.json", {})?.rows),
+    rules: arr<RuleRaw>(loadJson<{ rows?: unknown }>("solana-bucketslive.json", {})?.rows),
+    perps: arr<PerpRaw>(loadJson<{ rows?: unknown }>("solana-perpslive.json", {})?.rows),
+  };
+}
+
 // ---- reads (the server) ------------------------------------------------------------------------------------------------
 type Deps = {
   dash: () => DashFigures | null;
@@ -164,6 +307,8 @@ type Deps = {
   quote: (mint: string, out: string, amount: string, bps: number) => Promise<{ outAmount?: string }>;
   tracked: () => { spot: Set<string>; rules: Set<string> };
   fetch: typeof fetch;
+  /** what the dashboard serves for its day by day, from the same server functions (16 Nov 2026); left out = not checked */
+  dayServed?: () => ServedDays;
 };
 let deps: Deps | null = null;
 let last: { at: number; items: Item[]; extra: Record<string, unknown> } | null = null;
@@ -435,6 +580,14 @@ export async function truthRun(now = Date.now()): Promise<typeof last> {
       windowDiff: kinds ? { today: windowFlowDiff(chain, flows, midnight), "24h": windowFlowDiff(chain, flows, now - 86_400_000), "7d": windowFlowDiff(chain, flows, now - 7 * 86_400_000) } : null,
     };
   }
+  // each Korean day's closed trades, as served, against a recount from the raw trade files
+  if (deps.dayServed) {
+    try {
+      extra.days = compareDays(servedDayCells(deps.dayServed()), recountDays(readRawTrades()), now, px);
+    } catch (e) {
+      errors.push(`days: ${(e as Error).message}`);
+    }
+  }
   extra.coins = coinsOut;
   extra.errors = errors;
   extra.dashAt = d?.at ?? null;
@@ -446,7 +599,7 @@ export async function truthRun(now = Date.now()): Promise<typeof last> {
 /** For the public status: the differences and counts only, never a balance or a deposit. */
 export function truthPublic() {
   if (!last) return null;
-  const ex = last.extra as { polymarketPnl?: { asOf: number; ageMin: number; comparedWithOursAt: number | null; fees: number | null; income: number | null }; polymarketCounts?: unknown; coins?: Record<string, { coins: number; noRoute: number; unpriced: number; untracked: number; untrackedUsd: number }>; flows?: { chainTransfers: number; matched: number; missing: unknown[]; notOnChain: unknown[]; perWallet?: unknown; counterpartKinds?: unknown; windowDiff?: unknown }; errors?: string[] };
+  const ex = last.extra as { polymarketPnl?: { asOf: number; ageMin: number; comparedWithOursAt: number | null; fees: number | null; income: number | null }; polymarketCounts?: unknown; coins?: Record<string, { coins: number; noRoute: number; unpriced: number; untracked: number; untrackedUsd: number }>; flows?: { chainTransfers: number; matched: number; missing: unknown[]; notOnChain: unknown[]; perWallet?: unknown; counterpartKinds?: unknown; windowDiff?: unknown }; days?: { rows: DayRow[]; notRead: string[] }; errors?: string[] };
   return {
     at: last.at,
     note: "Dashboard minus an independent source (the chain, Polymarket's own position data). Within $1 or 1.5% = ok. Balances stay private.",
@@ -455,6 +608,8 @@ export function truthPublic() {
     polymarketPnl: ex.polymarketPnl ? { asOf: ex.polymarketPnl.asOf, ageMin: ex.polymarketPnl.ageMin, comparedWithOursAt: ex.polymarketPnl.comparedWithOursAt, fees: ex.polymarketPnl.fees, income: ex.polymarketPnl.income } : null,
     coins: Object.fromEntries(Object.entries(ex.coins ?? {}).map(([k, v]) => [k, { coins: v.coins, noRoute: v.noRoute, unpriced: v.unpriced, untracked: v.untracked, untrackedUsd: v.untrackedUsd }])),
     flows: ex.flows ? { chainTransfers: ex.flows.chainTransfers, matched: ex.flows.matched, missingFromChart: ex.flows.missing.length, chartFlowsNotOnChain: ex.flows.notOnChain.length, perWallet: ex.flows.perWallet ?? null, counterpartKinds: ex.flows.counterpartKinds ?? null, windowDiff: ex.flows.windowDiff ?? null } : null,
+    // day by day: how many lines were compared, and only the wrong ones, as differences (no day's own figures)
+    days: ex.days ? { checked: ex.days.rows.length, notRead: ex.days.notRead, wrong: ex.days.rows.filter((r) => !r.ok || r.cumulative).map((r) => ({ day: r.day, type: r.type, countDiff: r.countDiff, netDiff: r.netDiff, ...(r.cumulative ? { cumulative: true } : {}) })) } : null,
     errors: (ex.errors ?? []).map((e) => e.replace(/0x[0-9a-fA-F]{40}|[1-9A-HJ-NP-Za-km-z]{32,44}/g, "…")),
   };
 }

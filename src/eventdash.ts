@@ -378,6 +378,13 @@ function realRecord(group: string): unknown {
   };
 }
 
+/** The Korean-day lines a category's /api/events serves (realRec.days), for the truth check (16 Nov 2026): the same
+ *  function the tab and the overview's day by day read, called on the server instead of over HTTP. */
+export function realDaysOf(sec: string): { day: string; settled: number; won: number; net: number }[] | null {
+  const g = CATS[sec]?.group;
+  return g ? ((realRecord(g) as { days: { day: string; settled: number; won: number; net: number }[] }).days ?? null) : null;
+}
+
 // When an open real bet is expected to resolve: the match start for game markets (their end date sits days after the
 // match), otherwise the market's end date. Read from Gamma once an hour per market; a failed read leaves the row without a time.
 const endMemo = new Map<string, { at: number; end: number | null; game: boolean; px?: number[] | null; closed?: boolean }>();
