@@ -206,6 +206,67 @@ test("a price that never came is left out; a coin that cannot be sold is a total
   assert.equal(posRet(p, 300, 5), undefined);
 });
 
+test("a daily read judges a wallet's pace over its whole window: one busy day does not make a passing wallet a program", async () => {
+  _test.reset();
+  const now = Math.floor(Date.now() / 1000);
+  // 24 two-hour trips over the last 13 days: passes
+  const old: ReturnType<typeof txOf>[] = [];
+  for (let i = 0; i < 24; i++) {
+    const t0 = now - 14 * 86_400 + i * 40_000;
+    old.push(txOf(W, `m${i}`, true, 1, 1000, 1000 + i * 100, t0));
+    old.push(txOf(W, `m${i}`, false, i % 2 ? 1.4 : 0.9, 1000, 1050 + i * 100, t0 + 7200));
+  }
+  let data = old;
+  const fake = (async (_url: string, init: { body: string }) => {
+    const { params } = JSON.parse(init.body) as { params: [string, { filters: { blockTime?: { gt: number } } }] };
+    const gt = params[1].filters.blockTime?.gt ?? 0;
+    const out = params[0] === W ? data.filter((x) => (x.blockTime ?? 0) > gt).reverse() : [];
+    return new Response(JSON.stringify({ result: { data: out, paginationToken: null } }), { status: 200 });
+  }) as unknown as typeof fetch;
+  _test.setCfg({ rpcUrl: () => "https://rpc.test/?api-key=k", fetch: () => fake, listed: () => [], busy: () => [], quote: async () => null });
+  const st = _test.state();
+  st.candidates.push({ name: "Busy", address: W, source: "coin" });
+  assert.equal(await _test.readWallet({ name: "Busy", address: W }), true);
+  assert.equal(reportOf(W)!.pass, true, reportOf(W)!.why.join());
+  // a day later: 70 buys of one coin in that day (over the 60 a day that marks a program), sold two hours on
+  st.wallets[W].newest = now - 86_400;
+  st.wallets[W].doneAt -= 24 * 3_600_000;
+  const day: ReturnType<typeof txOf>[] = [];
+  for (let i = 0; i < 70; i++) day.push(txOf(W, "busy", true, 0.1, 100, 900_000 + i, now - 80_000 + i * 60));
+  day.push(txOf(W, "busy", false, 8, 7000, 901_000, now - 80_000 + 70 * 60 + 7200));
+  data = [...old, ...day];
+  assert.equal(await _test.readWallet({ name: "Busy", address: W }), true);
+  const w = st.wallets[W];
+  assert.equal(w.bot, undefined, "70 buys in one day of 30 is not a program");
+  assert.ok(w.buysPerDay < 10 && w.buysPerDay > 2, String(w.buysPerDay));
+  assert.ok(w.spanDays > 13, "the days read before still count");
+  assert.equal(w.swaps.length, 48 + 71);
+  assert.equal(reportOf(W)!.bot, false);
+  // a wallet that keeps that pace is still a program: 70 buys a day, every day, for a month
+  st.wallets[W] = { ...w, buysPerDay: 70, spanDays: 30, newest: now - 86_400 };
+  assert.equal(await _test.readWallet({ name: "Busy", address: W }), true);
+  assert.equal(st.wallets[W].bot, true);
+  assert.deepEqual(st.wallets[W].swaps, []);
+  // the wallets already filed that way: a program with late checks passed once, so it is read whole once more, first
+  st.wallets[W].late = { "m1|1100": { e30: "1", e300: null, x30: "1" } } as never;
+  st.wallets.Bot1 = { name: "bot", doneAt: Date.now(), newest: now, txPerDay: 900, buysPerDay: 0, spanDays: 1, bot: true, swaps: [], late: {} };
+  st.candidates.push({ name: "new", address: "New1111111", source: "coin" }, { name: "bot", address: "Bot1", source: "coin" });
+  assert.deepEqual(_test.dueWallets().map((c) => c.name), ["new"]);
+  _test.rereadBusy();
+  assert.deepEqual([st.wallets[W].redo, st.wallets.Bot1.redo, st.paceFix], [true, undefined, 1]);
+  assert.deepEqual(_test.dueWallets().map((c) => c.name), ["Busy", "new"]);
+  assert.equal(slowSummary().rereadBusy, 1);
+  // once: a later start marks nothing
+  st.wallets[W].redo = undefined;
+  _test.rereadBusy();
+  assert.equal(st.wallets[W].redo, undefined);
+  // read whole again, on a quiet day it passes again
+  data = old;
+  assert.equal(await _test.readWallet({ name: "Busy", address: W }), true);
+  assert.deepEqual([st.wallets[W].bot, reportOf(W)!.pass], [undefined, true]);
+  _test.reset();
+});
+
 test("screen from the chain: the wallet's own swaps read, others' left out; late prices read for a wallet that passes", async () => {
   _test.reset();
   const calls: { address: string; filters: Record<string, unknown> }[] = [];

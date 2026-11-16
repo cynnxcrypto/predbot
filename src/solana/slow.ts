@@ -369,7 +369,7 @@ interface WState {
   fast?: { trips: number; holdMin: number; sol: number; wonPct: number };
   /** read in full and far from the bar (see `kept`): its numbers only, no swaps; read again whole every two weeks */
   out?: { trips: number; tripsPerDay: number | null; sol: number | null; wonPct: number | null; holdMin: number | null; why: string[] };
-  /** read under a shorter window: read whole at its next turn */
+  /** read whole at its next turn: read under a shorter window, or filed as a program on one day's pace */
   redo?: boolean;
   swaps: Packed[];
   /** delay-check prices by `${mint}|${slot0}` */
@@ -380,6 +380,8 @@ interface State {
   credits: number;
   /** DAYS_BACK the wallets were read under */
   window?: number;
+  /** the programs filed on one day's pace have been marked for a whole read (once): how many */
+  paceFix?: number;
   candidates: Cand[];
   wallets: Record<string, WState>;
   coins: Record<string, Coin>;
@@ -699,9 +701,14 @@ async function readWallet(c: { name: string; address: string }) {
   const spanDays = Math.max(1 / 24, (now - (more && times.length ? Math.min(...times) : since)) / 86_400);
   const fresh = own(items);
   const swaps = [...(whole ? [] : prev.swaps.map(unpack)), ...fresh].filter((s) => s.t > cut).sort((a, b) => a.slot - b.slot).slice(-KEEP_SWAPS);
-  const firstPass = whole || spanDays >= 1;
-  const txPerDay = firstPass ? items.length / spanDays : prev.txPerDay;
-  const buysPerDay = firstPass ? fresh.filter((s) => s.buy).length / spanDays : prev.buysPerDay;
+  // Its pace is judged over the whole window, as at its first read. A daily read adds one day to the days read
+  // before (at least as far back as the swaps we keep): on that day alone, one busy day made a passing wallet a
+  // program, unread for a month.
+  const oldest = swaps.length ? (now - swaps[0].t) / 86_400 : 0;
+  const before = whole ? 0 : Math.max(0, Math.min(DAYS_BACK - spanDays, Math.max(prev.spanDays, oldest - spanDays)));
+  const span = spanDays + before;
+  const txPerDay = (items.length + (whole ? 0 : prev.txPerDay * before)) / span;
+  const buysPerDay = (fresh.filter((s) => s.buy).length + (whole ? 0 : prev.buysPerDay * before)) / span;
   const bot = early === "bot" || txPerDay > 400 || buysPerDay > 60;
   const fast = !bot && early && early !== "bot" ? early : undefined;
   state.wallets[c.address] = {
@@ -710,7 +717,7 @@ async function readWallet(c: { name: string; address: string }) {
     newest: times.length ? Math.max(...times) : (prev?.newest ?? since),
     txPerDay,
     buysPerDay,
-    spanDays: firstPass ? Math.min(DAYS_BACK, spanDays) : prev.spanDays,
+    spanDays: Math.min(DAYS_BACK, span),
     ...(bot ? { bot } : {}),
     ...(fast ? { fast } : {}),
     swaps: bot || fast ? [] : swaps.map(pack),
@@ -1007,7 +1014,7 @@ function dueWallets(max = WALLETS_PER_PASS): Cand[] {
   const now = Date.now();
   const rank = (c: Cand) => {
     const st = state.wallets[c.address];
-    return !st ? 1 : st.bot || st.fast || st.out ? 2 : 0;
+    return !st ? 1 : (st.bot || st.fast || st.out) && !st.redo ? 2 : 0;
   };
   return state.candidates
     .filter((c) => dueNow(state.wallets[c.address], now))
@@ -1158,6 +1165,18 @@ function toWindow() {
   state.window = DAYS_BACK;
 }
 
+/**
+ * Until 16 Nov 2026 a daily read judged a wallet's pace on that one day: a passing wallet with one busy day was filed
+ * as a program and left unread for a month. A program with late checks passed the screen once (only a passing wallet
+ * gets them): each is read whole once more, first in the queue. Once.
+ */
+function rereadBusy() {
+  if (state.paceFix !== undefined) return;
+  const was = Object.values(state.wallets).filter((w) => w.bot && Object.keys(w.late ?? {}).length);
+  for (const w of was) w.redo = true;
+  state.paceFix = was.length;
+}
+
 export function startSlow(c: NonNullable<typeof cfg>) {
   if (process.env.SOLANA_SLOW === "off" || !stopped) return;
   stopped = false;
@@ -1170,6 +1189,7 @@ export function startSlow(c: NonNullable<typeof cfg>) {
     }
   }
   toWindow();
+  rereadBusy();
   health.state = "starting";
   refreshFollow();
   // copies never sold are closed at MAX_HOLD_H even while the screen is busy reading
@@ -1200,6 +1220,7 @@ export function slowSummary() {
     state: health.state,
     working: health.working,
     windowDays: DAYS_BACK,
+    rereadBusy: state.paceFix ?? null,
     candidates: state.candidates.length,
     read: reps.length,
     unread: state.candidates.length - reps.length,
@@ -1291,6 +1312,7 @@ export const _test = {
   promote,
   dueWallets,
   toWindow,
+  rereadBusy,
   catchUp,
   onSell,
 };
