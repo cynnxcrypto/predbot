@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { flowsBetween, repairClaims, unclaimedAt, kstMidnight, walletsToday, winSpans, worthToday, worthWindows, type Comp, type Flow, type WalletPoint } from "./worthdash.js";
+import { flowsBetween, repairClaims, unclaimedAt, kstMidnight, walletDays, walletsToday, worthDays, winSpans, worthToday, worthWindows, type Comp, type Flow, type WalletPoint } from "./worthdash.js";
 
 test("worth: a won bet waiting for its claim is counted, and its claim is not a deposit", () => {
   const H = 3_600_000;
@@ -121,4 +121,32 @@ test("worth: each wallet's today is its worth since 00:00 KST, its own deposits 
   const late = walletsToday(wh.slice(1), [], [96, 47, null, 88], now);
   assert.deepEqual(late.poly, { usd: -14, at: mid + 3e5 });
   assert.equal(late.sr, null);
+});
+
+test("worth: each KST day's real change, whole account and per wallet", () => {
+  const H = 3_600_000;
+  const now = Date.UTC(2026, 10, 16, 8, 0, 0);
+  const mid = kstMidnight(now);
+  const h: [number, number][] = [[mid - 30 * H, 500], [mid - 24 * H - 60_000, 510], [mid - 12 * H, 520], [mid - 60_000, 490], [mid + 2 * H, 480], [now - 60_000, 470]];
+  const d = worthDays(h, null, now);
+  assert.deepEqual(d.map((x) => [x.day, x.usd, x.part]), [["2026-11-16", -20, false], ["2026-11-15", -20, false], ["2026-11-14", 10, true]]);
+  const wh: WalletPoint[] = [[mid - 12 * H, 100, 50, null, 90], [mid - 60_000, 110, 48, null, 90], [mid + H, 105, 47, 30, 90]];
+  const w = walletDays(wh, [[mid + 2 * H, 20, "Polymarket"]], [130, 46, 31, 91], now);
+  assert.deepEqual(w["2026-11-16"].poly, { usd: 0, part: false });
+  assert.deepEqual(w["2026-11-16"].sr, { usd: 1, part: true });
+  assert.deepEqual(w["2026-11-15"].sc, { usd: -2, part: true });
+});
+
+test("wallet seed fills readings before the first sample, never over one", async () => {
+  const { withSeed, walletsToday } = await import("./worthdash.js");
+  const mid = Date.UTC(2026, 10, 15, 15, 0); // 16 Nov 00:00 KST
+  const wh: import("./worthdash.js").WalletPoint[] = [[mid + 18 * 36e5, 300, 95, 100, 99]];
+  const now = mid + 19 * 36e5;
+  assert.equal(walletsToday(wh, [], [290, 94, 100, 99], now).poly, null);
+  const seeded = withSeed(wh, [[mid - 60e3, 320, 100, null, 100], [mid + 20 * 36e5, 1, 1, 1, 1], ["x"]]);
+  assert.equal(seeded.length, 2);
+  const t = walletsToday(seeded, [], [290, 94, 100, 99], now);
+  assert.equal(t.poly?.usd, -30);
+  assert.equal(t.sc?.usd, -6);
+  assert.equal(t.sr, null);
 });

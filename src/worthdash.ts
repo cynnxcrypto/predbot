@@ -46,7 +46,9 @@ export function walletsToday(wh: WalletPoint[], fl: Flow[], now: (number | null)
       if (p[0] <= T || !b) b = p;
       if (p[0] > T) break;
     }
-    if (v == null || !b) return void (out[k] = null);
+    // no reading from near midnight: no "today" for this wallet (16 Nov 2026, enrique: "since 18:03, how is that a
+    // thing"); the page shows the settled figure, labelled so
+    if (v == null || !b || b[0] > T + 30 * 60e3) return void (out[k] = null);
     const put = fl.reduce((a, f) => a + (f[2] === label && f[0] > b![0] && f[0] <= t ? f[1] : 0), 0);
     out[k] = { usd: Math.round((v - (b[i + 1] as number) - put) * 100) / 100, at: b[0] };
   });
@@ -194,6 +196,66 @@ export function worthToday(h: Point[], total: number, now: number): { usd: numbe
   }
   return { usd: Math.round((total - b[1]) * 100) / 100, est: b[2] === 1, from: T, at: b[0] };
 }
+/**
+ * THE REAL WORTH CHANGE OF EACH KST DAY (16 Nov 2026, enrique on the day-by-day panel: "do u realise u still have
+ * this", the settled +$17 beside a real -$19). A day = its last point at or before the next 00:00 KST (now for today)
+ * against its last point at or before its own 00:00; with no point before the day began, its first point, and the day
+ * is `part` (it covers less than the whole day). The series is net of deposits; est = an hourly estimate was used.
+ * Newest first, `n` days at most. Pure.
+ */
+export function worthDays(h: Point[], total: number | null, now: number, n = 30): { day: string; usd: number; est: boolean; part: boolean }[] {
+  const out: { day: string; usd: number; est: boolean; part: boolean }[] = [];
+  if (!h.length) return out;
+  const dayOf = (ms: number) => new Date(ms + 9 * 3_600_000).toISOString().slice(0, 10);
+  for (let m = kstMidnight(now), i = 0; i < n && m + 86_400_000 > h[0][0]; m -= 86_400_000, i++) {
+    let a: Point | null = null;
+    let b: Point | null = null;
+    for (const p of h) {
+      if (p[0] <= m) a = p;
+      else if (!a && p[0] < m + 86_400_000) a = p;
+      if (p[0] <= m + 86_400_000) b = p;
+    }
+    if (!a || !b || a[0] >= m + 86_400_000) continue;
+    const end = i === 0 && total != null ? total : b[1];
+    out.push({ day: dayOf(m), usd: Math.round((end - a[1]) * 100) / 100, est: a[2] === 1 || (i > 0 && b[2] === 1), part: a[0] > m + 30 * 60_000 });
+  }
+  return out;
+}
+/** The same for each wallet, from its own samples and its own deposits. now = the wallets' worth now. Pure. */
+export function walletDays(wh: WalletPoint[], fl: Flow[], now: (number | null)[], t: number, n = 30): Record<string, Record<string, { usd: number; part: boolean }>> {
+  const out: Record<string, Record<string, { usd: number; part: boolean }>> = {};
+  if (!wh.length) return out;
+  const dayOf = (ms: number) => new Date(ms + 9 * 3_600_000).toISOString().slice(0, 10);
+  for (let m = kstMidnight(t), d = 0; d < n && m + 86_400_000 > wh[0][0]; m -= 86_400_000, d++) {
+    const row: Record<string, { usd: number; part: boolean }> = {};
+    WALLETS.forEach(([k, label], i) => {
+      let a: WalletPoint | null = null;
+      let b: WalletPoint | null = null;
+      for (const p of wh) {
+        if (p[i + 1] == null) continue;
+        if (p[0] <= m) a = p;
+        else if (!a && p[0] < m + 86_400_000) a = p;
+        if (p[0] <= m + 86_400_000) b = p;
+      }
+      if (!a || !b || a[0] >= m + 86_400_000) return;
+      const endT = d === 0 ? t : b[0];
+      const end = d === 0 && now[i] != null ? (now[i] as number) : (b[i + 1] as number);
+      const put = fl.reduce((x, f) => x + (f[2] === label && f[0] > a![0] && f[0] <= endT ? f[1] : 0), 0);
+      row[k] = { usd: Math.round((end - (a[i + 1] as number) - put) * 100) / 100, part: a[0] > m + 30 * 60_000 };
+    });
+    if (Object.keys(row).length) out[dayOf(m)] = row;
+  }
+  return out;
+}
+/** The day-by-day panel's real figures, from the last full reading (the "today" rule). */
+let dayMemo: { at: number; v: { worthDays: ReturnType<typeof worthDays>; walletDays: ReturnType<typeof walletDays> } } | null = null;
+function dayView() {
+  if (dayMemo && Date.now() - dayMemo.at < 60_000) return dayMemo.v;
+  const w = wallHist[wallHist.length - 1];
+  const v = { worthDays: worthDays(fullSeries(), null, Date.now()), walletDays: w ? walletDays(wallHist, flows, w.slice(1) as (number | null)[], Date.now()) : {} };
+  dayMemo = { at: Date.now(), v };
+  return v;
+}
 /** Every sample, spikes taken out as the page does, deposits and withdrawals left out. */
 function fullSeries(): Point[] {
   if (!hist) return [];
@@ -219,6 +281,9 @@ export function worthCheck() {
   return { todayByWallet, claimStepsTakenForDeposits: fix?.removed ?? null, thatWasUsd: fix?.removedUsd ?? null, wonWaitingForClaimUsd: unclaimedAt(loadSpans(), Date.now()), change24hUsd: base && now != null ? Math.round((now - base[1]) * 100) / 100 : null, flows24h: flows.filter((f) => f[0] > T).length, windows, worthAt: full?.at ?? null };
 }
 let memo: { at: number; v: Worth } | null = null;
+/** The dashboard's last worth reading and the deposits and withdrawals it takes out of its windows (src/truthcheck.ts). */
+export const worthLast = () => memo?.v ?? null;
+export const worthFlows = () => flows.slice();
 /** The last full reading's total (see worthCheck). */
 let full: { at: number; total: number } | null = null;
 let solPx: { at: number; v: number | null } = { at: 0, v: null };
@@ -282,6 +347,21 @@ export function despike(h: [number, number][]): [number, number][] {
 }
 
 const r2w = (v: number | null) => (v == null ? null : Math.round(v * 100) / 100);
+/**
+ * data/wallet-seed.json (server only): wallet readings rebuilt by hand for times before the wallet samples began, as
+ * [time ms, Polymarket, spot copy, spot rules, perps] in dollars (null = not known). Only points earlier than the first
+ * real sample are taken, so a seed never overrides a reading.
+ */
+const SEED = "wallet-seed.json";
+export function withSeed(wh: WalletPoint[], seed: unknown): WalletPoint[] {
+  if (!Array.isArray(seed)) return wh;
+  const first = wh.length ? wh[0][0] : Infinity;
+  const ok = (x: unknown) => x == null || (typeof x === "number" && Number.isFinite(x));
+  const add = seed.filter((p): p is WalletPoint => Array.isArray(p) && p.length === 5 && typeof p[0] === "number" && Number.isFinite(p[0]) && p[0] < first && p.slice(1).every(ok))
+    .map((p) => [p[0], p[1] ?? null, p[2] ?? null, p[3] ?? null, p[4] ?? null] as WalletPoint)
+    .sort((a, b) => a[0] - b[0]);
+  return add.length ? [...add, ...wh] : wh;
+}
 /** Each wallet's worth in WalletPoint order. */
 function wallNow(cash: number | null, claim: number, bets: number, sol: number | null, rules: number | null, perps: number | null): [number | null, number | null, number | null, number | null] {
   return [cash == null ? null : r2w(cash + claim + bets), r2w(sol), r2w(rules), r2w(perps)];
@@ -291,6 +371,7 @@ export async function worthView(cash: number | null, claim: number, solBal: numb
   if (!hist) {
     const f = loadJson<[number, number][] | { hist?: [number, number][]; back?: [number, number, 1][]; flows?: Flow[]; comp?: Comp | null; v?: number; fix?: { removed: number; removedUsd: number } | null; wall?: WalletPoint[] }>(FILE, []);
     wallHist = Array.isArray(f) ? [] : (f.wall ?? []).filter((p) => Array.isArray(p) && Number.isFinite(p[0]));
+    wallHist = withSeed(wallHist, loadJson<unknown>(SEED, []));
     flows = Array.isArray(f) ? [] : (f.flows ?? []);
     comp = Array.isArray(f) ? null : (f.comp ?? null);
     const needJumps = Array.isArray(f) || (f.v ?? 0) < 2;
@@ -374,5 +455,5 @@ export async function worthView(cash: number | null, claim: number, solBal: numb
       saveJson(FILE, { hist, back, flows, comp, fix, wall: wallHist, v: 3 });
     }
   }
-  return { ...memo.v, age: Date.now() - memo.at, hist: pageSeries(), flows };
+  return { ...memo.v, age: Date.now() - memo.at, hist: pageSeries(), flows, ...dayView() };
 }

@@ -87,6 +87,8 @@
       "adaptStop": 10,
       "adaptBoost": 1.5,
       "maxAsk": 0.97,
+      "maxAbove": 0.05,
+      "maxAboveNote": "16 Nov 2026 19:25 KST, enrique chose 'Yes, skip over 5c' on the card 'Skip real Polymarket copies priced more than 5c above the wallet's price?' (real record since 14 Nov 01:28: over 5c 26 bets -$18.81, within 5c 36 bets +$49.81). A real copy is skipped when our ask is more than 5c above the price the copied wallet paid; it stays on paper (copy-any keeps scoring it). Reverses the 14 Nov 16:45 'only maxAsk limits it'. src/eventpaper.ts copyAboveNote.",
       "minDepth": 3,
       "dayLosses": 99,
       "maxOpen": 999,
