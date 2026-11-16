@@ -93,7 +93,10 @@ test("off unless switched on, and the hard limits hold", () => {
   assert.equal(P.parsePerpsLive("not json").on, false);
   assert.equal(P.parsePerpsLive('{"solanaPerps":{"on":true}}').on, false); // no loss cap = off
   const c = P.parsePerpsLive('{"solanaPerps":{"on":true,"maxLossUsd":999,"leverage":50,"collateralUsd":5000,"ruleStopUsd":500}}');
-  assert.deepEqual(c, { on: true, maxLossUsd: 50, collateralUsd: 25, leverage: 2, ruleStopUsd: 10, maxOpen: 6 });
+  assert.deepEqual(c, { on: true, maxLossUsd: 50, collateralUsd: 25, leverage: 2, ruleStopUsd: 10, maxOpen: 6, traderMinOurs: 0 });
+  // review 63 (16 Nov 2026): a copied trader may be asked for paper copies on the coins traded for real
+  assert.equal(P.parsePerpsLive('{"solanaPerps":{"on":true,"maxLossUsd":50,"traderMinOurs":3}}').traderMinOurs, 3);
+  assert.equal(P.parsePerpsLive('{"solanaPerps":{"on":true,"maxLossUsd":50,"traderMinOurs":-2}}').traderMinOurs, 0);
   assert.equal(P.parsePerpsLive('{"solanaPerps":{"on":true,"maxLossUsd":50,"maxOpen":99}}').maxOpen, 6);
   assert.equal(P.parsePerpsLive('{"solanaPerps":{"on":true,"maxLossUsd":50,"maxOpen":2}}').maxOpen, 2);
 });

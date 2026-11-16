@@ -25,6 +25,8 @@
  *              while it is ahead. 0 / 1 = off. See ruleAdapt().
  *   perWallet  copies only: real bets open at once per copied wallet (0 = no own limit)
  *   maxAsk     no order when the favourite asks more than this
+ *   maxAbove   copy group: no real copy when the ask is more than this above the price the copied wallet paid (0 = off)
+ *   autoReal   copy group: false keeps the daily rescan's wallets on paper (no promotion, the real ones go back)
  *   minDepth   dollars that must rest within 2c of the ask (the paper "fillable" test)
  *   dayLosses  after this many settled losses in one KST day the group stops until the next KST day
  *   maxOpen    unsettled real bets allowed at once
@@ -85,7 +87,7 @@ export type EventLiveRow = {
  *  Polymarket does) until it is finished; only the filled shares are paid for. */
 export const spentOf = (r: { status: string | null; shares: number; ask: number; cost: number }) => (r.status === "resting" ? Math.round(r.shares * r.ask * 1e6) / 1e6 : r.cost);
 const held = (r: EventLiveRow) => r.shares > 0 || r.status === "unknown" || r.status === "resting" || (r.status === "delayed" && r.pnl == null);
-export type EventLiveGroup = { rules: string[]; size: number; maxAsk: number; minDepth: number; dayLosses: number; maxOpen: number; maxLoss: number; negRisk: boolean; maxSize: number; maxDays: number; perWallet: number; stopNet: number; openUsd: number; walletUsd: number; adaptN: number; adaptStop: number; adaptBoost: number; steps: "" | "wallet" | "rule"; cutN: number; cutLoss: number; probationN: number; houseUsd: number; ladder: [number, number, number][] };
+export type EventLiveGroup = { rules: string[]; size: number; maxAsk: number; minDepth: number; dayLosses: number; maxOpen: number; maxLoss: number; negRisk: boolean; maxSize: number; maxDays: number; perWallet: number; stopNet: number; openUsd: number; walletUsd: number; adaptN: number; adaptStop: number; adaptBoost: number; steps: "" | "wallet" | "rule"; cutN: number; cutLoss: number; probationN: number; houseUsd: number; ladder: [number, number, number][]; maxAbove?: number; autoReal?: boolean };
 export type EventLiveConfig = { mode: string; minBalance: number; lossCap?: LossCap; groups: Record<string, EventLiveGroup> };
 
 /** No single real event bet is ever larger than this (13 Nov 2026, enrique: "Min $3 max $10"). */
@@ -110,7 +112,7 @@ export function parseEventLive(repoText: string, local: { mode?: string; funder?
     const size = Math.min(MAX_STAKE, num(v.size, 0));
     if (!rules.length || !(size >= 1)) continue;
     const maxSize = Math.min(MAX_STAKE, Math.max(size, num(v.maxSize, size)));
-    groups[g] = { rules, size, maxAsk: Math.min(0.99, num(v.maxAsk, 0.96)), minDepth: Math.max(0, num(v.minDepth, 25)), dayLosses: Math.max(1, Math.floor(num(v.dayLosses, 2))), maxOpen: Math.max(1, Math.floor(num(v.maxOpen, 4))), maxLoss: Math.max(0, num(v.maxLoss, 12)), negRisk: v.negRisk === true, maxSize, maxDays: Math.max(0, num(v.maxDays, 0)), perWallet: Math.max(0, Math.floor(num(v.perWallet, 0))), stopNet: Math.max(0, num(v.stopNet, 0)), openUsd: Math.max(0, num(v.openUsd, 0)), walletUsd: Math.max(0, num(v.walletUsd, 0)), adaptN: Math.max(0, Math.floor(num(v.adaptN, 0))), adaptStop: Math.max(0, num(v.adaptStop, 0)), adaptBoost: Math.min(3, Math.max(1, num(v.adaptBoost, 1))), steps: v.steps === "wallet" || v.steps === "rule" ? v.steps : "", cutN: Math.max(0, Math.floor(num(v.cutN, 0))), cutLoss: Math.max(0, num(v.cutLoss, 0)), probationN: Math.max(0, Math.floor(num(v.probationN, 0))), houseUsd: Math.max(0, num(v.houseUsd, 0)), ladder: (Array.isArray(v.ladder) ? (v.ladder as unknown[]) : []).filter((x): x is number[] => Array.isArray(x) && x.length === 3 && x.every((y) => typeof y === "number" && Number.isFinite(y) && y >= 0)).map((x) => [Math.floor(x[0]), x[1], Math.min(MAX_STAKE, Math.max(size, x[2]))] as [number, number, number]) };
+    groups[g] = { rules, size, maxAsk: Math.min(0.99, num(v.maxAsk, 0.96)), minDepth: Math.max(0, num(v.minDepth, 25)), dayLosses: Math.max(1, Math.floor(num(v.dayLosses, 2))), maxOpen: Math.max(1, Math.floor(num(v.maxOpen, 4))), maxLoss: Math.max(0, num(v.maxLoss, 12)), negRisk: v.negRisk === true, maxSize, maxDays: Math.max(0, num(v.maxDays, 0)), perWallet: Math.max(0, Math.floor(num(v.perWallet, 0))), stopNet: Math.max(0, num(v.stopNet, 0)), openUsd: Math.max(0, num(v.openUsd, 0)), walletUsd: Math.max(0, num(v.walletUsd, 0)), adaptN: Math.max(0, Math.floor(num(v.adaptN, 0))), adaptStop: Math.max(0, num(v.adaptStop, 0)), adaptBoost: Math.min(3, Math.max(1, num(v.adaptBoost, 1))), steps: v.steps === "wallet" || v.steps === "rule" ? v.steps : "", cutN: Math.max(0, Math.floor(num(v.cutN, 0))), cutLoss: Math.max(0, num(v.cutLoss, 0)), probationN: Math.max(0, Math.floor(num(v.probationN, 0))), houseUsd: Math.max(0, num(v.houseUsd, 0)), ladder: (Array.isArray(v.ladder) ? (v.ladder as unknown[]) : []).filter((x): x is number[] => Array.isArray(x) && x.length === 3 && x.every((y) => typeof y === "number" && Number.isFinite(y) && y >= 0)).map((x) => [Math.floor(x[0]), x[1], Math.min(MAX_STAKE, Math.max(size, x[2]))] as [number, number, number]), maxAbove: Math.min(0.5, Math.max(0, num(v.maxAbove, 0))), autoReal: v.autoReal !== false };
   }
   const since = typeof repo.lossCap?.since === "number" ? repo.lossCap.since : Date.parse(String(repo.lossCap?.since ?? ""));
   const maxLoss = Number(repo.lossCap?.maxLoss);
@@ -125,9 +127,10 @@ export function eventLiveConfig(): EventLiveConfig {
     return { mode: "off", minBalance: 0, groups: {} };
   }
   const cfg = parseEventLive(text, loadJson<{ mode?: string; funder?: string }>("live.json", {}));
-  // wallets the daily rescan promoted to real (src/copyscan.ts, 14 Nov 2026) join the copy group's rules
+  // wallets the daily rescan promoted to real (src/copyscan.ts, 14 Nov 2026) join the copy group's rules, unless the
+  // live rules keep the rescan on paper (events.copy.autoReal false, review 63 of 16 Nov 2026)
   const copy = cfg.groups.copy;
-  if (copy) for (const r of autoRealRules()) if (!copy.rules.includes(r)) copy.rules.push(r);
+  if (copy && copy.autoReal !== false) for (const r of autoRealRules()) if (!copy.rules.includes(r)) copy.rules.push(r);
   return cfg;
 }
 
