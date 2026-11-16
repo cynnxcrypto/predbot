@@ -155,8 +155,9 @@ export interface SlowLiveConfig {
   /** "proven" = the wallets the paper copy proves (the default); "fixed" = the first three */
   follow: "proven" | "fixed";
   /**
-   * Sell the open copies of a wallet as soon as it is cut on its real record (rested), instead of leaving them to the
-   * 6 h dropped-wallet clock. Off unless the file says "sellCut": true: a real sale rule, enrique's word only.
+   * Sell the open copies of a wallet as soon as it is cut on its real record (at two sweeps, see cutClearly), instead of
+   * leaving them to the 6 h dropped-wallet clock. Off unless the file says "sellCut": true: a real sale rule, enrique's
+   * word only (given 16 Nov 2026).
    */
   sellCut?: boolean;
 }
@@ -498,8 +499,27 @@ export function realWinner(who: Who, now = Date.now()) {
   const x = realOf(who, now);
   return x.n >= REAL_MIN && x.netSol > level(who, now) && !losingRun(who, now);
 }
+/**
+ * When the switch sells a cut wallet's open copies (sellCut; enrique, 16 Nov 2026: sell at once when a wallet is cut):
+ * rested at two sweeps in a row (CUT_HOLD_MS), not on one look. A wallet's record moves with every copy that finishes,
+ * and a coin given up for a while counts as its whole stake lost until it sells: one look sold copies of a wallet that
+ * was back on the list minutes later (review of 16 Nov 2026).
+ */
+export const CUT_HOLD_MS = 4 * 60_000;
+/** Since when each wallet (by address, else name) has been cut; cleared the moment it is not. */
+const cutSince = new Map<string, number>();
+export function cutClearly(who: { name: string; address?: string }, now = Date.now()) {
+  const key = who.address ?? who.name;
+  if (!rested(who, now)) {
+    cutSince.delete(key);
+    return false;
+  }
+  const since = cutSince.get(key) ?? now;
+  cutSince.set(key, since);
+  return now - since >= CUT_HOLD_MS;
+}
 /** by: "real" = kept on its real record though paper does not list it; "paper" = on the paper-proven list. */
-type Listed = { name: string; address: string; by: "paper" | "real" };
+type Listed ={ name: string; address: string; by: "paper" | "real" };
 let list: { at: number; v: Listed[]; unsafe: string[]; unsafeAddr: string[]; unknown: string[]; paper: number } | null = null;
 /** The key of a wallet in the status lists: its address when known (never published), else its name. */
 const keyOf = (w: { name: string; address?: string }) => w.address ?? w.name;
@@ -635,7 +655,8 @@ function onBuy(s: SlowSwap) {
     miss(nameOf(s.wallet), s.mint, s.seenMs, "cap");
     return void state.missedCap++;
   }
-  const p: Pos = { wallet: s.wallet, name: nameOf(s.wallet), mint: s.mint, leaderSol: r6(s.sol), seenMs: s.seenMs, stage: "waiting", sigs: [], sellRounds: 0 };
+  // failRounds from the start: a round cut off by a restart is then not taken for a failed sale (see failedRounds)
+  const p: Pos = { wallet: s.wallet, name: nameOf(s.wallet), mint: s.mint, leaderSol: r6(s.sol), seenMs: s.seenMs, stage: "waiting", sigs: [], sellRounds: 0, failRounds: 0 };
   state.opens.push(p);
   save();
   later(c.entrySec * 1000 - (Date.now() - s.seenMs), () => void buy(p));
@@ -689,6 +710,11 @@ async function buy(p: Pos) {
     if (!q.outAmount || q.outAmount === "0") return drop(() => state.notSent++);
     p.tokens = String(q.outAmount);
     const tx = signTransaction(await kit.swapTx(q, w.address, c.maxFeeLamports), w);
+    // The copy can be let go while its quote is asked (again, after a 429) or its order is built: its wallet sold
+    // before our entry, and onSwap took it off and counted it. Nothing is sent then (review of 16 Nov 2026: such a buy
+    // went out and its coin landed with no copy keeping track of it). Nothing between here and the send waits.
+    if (!state.opens.includes(p)) return;
+    if (p.soldSeenMs) return drop(() => state.skippedSold++);
     // written down before it is sent: a restart must know of every transaction of a copy
     p.sigs.push(kit.sigOf(tx));
     p.stage = "buying";
@@ -925,6 +951,10 @@ export async function recover() {
       // the list was taken at the start: a copy sold and counted since, or being sold right now, is no longer ours here
       if (!state.opens.includes(p) || sellingNow.has(p)) continue;
       if (!(await settle(w, p))) continue;
+      // A sale that already failed is tried again by the sweep at its own time, and not after UNSOLD_DAYS: a restart is
+      // not one more round (review of 16 Nov 2026: a few deploys in an hour gave a coin up in minutes, which rested its
+      // wallet, and a given-up coin was tried at every deploy for good).
+      if (p.exit && (Date.now() < (p.nextTryMs ?? 0) || (p.unsoldMs && Date.now() - p.unsoldMs > UNSOLD_DAYS * 86_400_000))) continue;
       if (p.soldSeenMs || (await soldSince(p.wallet, p.mint, p.seenMs))) void sell(p, p.exit === "max hold" ? "max hold" : "sold while we were down");
     } catch (e) {
       state.lastError = fixed(e);
@@ -969,8 +999,8 @@ export function sweep(now = Date.now()) {
       // A copy given up before 16 Nov 2026 carries no such time: its first try here starts that clock.
       if (now >= (p.nextTryMs ?? 0) && !(p.unsoldMs && now - p.unsoldMs > UNSOLD_DAYS * 86_400_000)) void sell(p, p.exit);
     } else if (now - (p.boughtMs ?? p.seenMs) > c.maxHoldH * 3_600_000) void sell(p, "max hold");
-    // its wallet was cut on its real record: sold now, not after the 6 h clock (only when switched on; a few a sweep)
-    else if (c.sellCut && !p.soldSeenMs && rested({ name: p.name, address: p.wallet }, now) && drops++ < DROP_SELLS_PER_SWEEP) void sell(p, "wallet cut");
+    // its wallet was cut on its real record (at two sweeps): sold now, not after the 6 h clock (only when switched on; a few a sweep)
+    else if (c.sellCut && !p.soldSeenMs && cutClearly({ name: p.name, address: p.wallet }, now) && drops++ < DROP_SELLS_PER_SWEEP) void sell(p, "wallet cut");
     else if (paperSays) {
       // its wallet's place on the list: off it for DROP_SELL_MS, the copy is sold (a few a sweep); back on it, the clock is cleared
       if (on.has(p.wallet)) p.offMs = undefined;
@@ -1225,6 +1255,7 @@ export const _test = {
     state = fresh();
     loaded = true;
     list = null;
+    cutSince.clear();
     for (const t of timers) clearTimeout(t);
     timers.clear();
   },

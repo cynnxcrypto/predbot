@@ -7,6 +7,8 @@
     "stopLossSol": 0.7,
     "note3": "15 Nov 2026 17:51 KST, enrique: 'the solana spot copy is not still limited by extremely small trades and a tiny balance'. Stake 0.01 -> 0.035 SOL a copy (about $2.50; he agreed to $2-3 a copy, 17:52 KST 'okay sounds good' / 'lets get it all into the bot'): the wallet fits about 36 coins out.",
     "note4": "16 Nov 2026 06:40 KST review (MAIN, standing authority on sizing; enrique 15 Nov: 'adapt'). Stake 0.035 -> 0.02 SOL a copy: at 0.035 the 1.4 SOL fills at 40 copies and 226 buys were let go for no room; those let-go buys did as well on paper as the ones taken (24 priced: +2.7% a copy vs -0.3%). Same SOL out, about 70 copies at once, so fewer of the rare big winners are missed. Still twice the old 0.01.",
+    "note5": "16 Nov 2026 15:41 KST, enrique tapped \"sell at once when a wallet is cut\" (relayed 06:41 UTC, and again 08:30 UTC with 13 copies of cut wallets still open). sellCut on: an open copy of a wallet cut on its real record (rested) is sold when the wallet is still cut at the next sweep (5 min), not after the 6 h dropped-wallet clock; up to 3 a sweep, shared with the 6 h sales. Two looks, not one: a record moves with every copy that finishes (review of 16 Nov 2026).",
+    "sellCut": true,
     "stakeSol": 0.02
   },
   "solanaBuckets": {
@@ -100,9 +102,9 @@
       "dayLosses": 99,
       "maxOpen": 999,
       "steps": "rule",
-      "openUsd": 40,
+      "capNote": "16 Nov 2026 14:35 KST review (MAIN; enrique 14:24 KST: 'please figure out everything that can help us trade better and make more money', and 15 Nov 17:38 KST: each wallet may use its whole balance). openUsd 40 -> 75, maxLoss 55 -> 90 (stop 15 + open 75; the stop itself is unchanged). Why: the $40 cap was refusing bids (4 at 14:02 KST: $38.63 in resting and open bids) while this is the one Polymarket rule ahead on its REAL record (23 settled, 13 won, +$2.12; today +$9.94). A resting bid costs nothing until it fills, and the cap counts every unfilled bid in full. Back to 40 if its real record turns behind.", "openUsd": 75,
       "stopNet": 15,
-      "maxLoss": 55
+      "maxLoss": 90
     },
     "tennis": {
       "note": "10 Nov 2026 17:28 KST, enrique: start tennis. Real copy of the paper tennis favourite rules (mid 90-95c, 10 min before the start, ask within 2c of mid). $3 a bet, Jev sizing off, only when $25+ rests within 2c of the ask. Guards: 2 losses in a KST day stop it until the next day, 4 bets open at most, its own budget of $10 (enrique 17:56 KST: 10usd for tennis is totally fine, outside of what i said for crypto; lost + open stakes), separate from the crypto $70 cap (enrique 17:45 KST: tennis should have its own little budget). 11 Nov 2026 19:46 KST, enrique: extend tennis budget risk to 30 so there can be 10 different bets online instead of just 3: budget $10 -> $30, bets open at most 4 -> 10; $3 a bet and the 2-losses-a-day stop unchanged. 13 Nov 2026 14:06 KST, enrique: 'it makes literal no sense to just do trades until we lose twice and stop until next day, u have to either decide to stop for good or continue': the 2-losses-a-day pause is gone (dayLosses 99 = not a stop); the $30 budget is the only stop and ends it for good. 13 Nov 2026 17:10 KST, enrique: 'okay if tennis goes -10 then stop it': stopNet 10 = no new tennis bet once the settled real result is -$10 or worse, for good until his word; open bets settle. maxLoss 30 -> 45 only so that 10 open bets still fit next to that stop (it is no longer the stop). Code src/eventlive.ts.",

@@ -977,20 +977,29 @@ export async function recover() {
 //    copies that may be out shrinks as the loss grows. With nothing out the rule is the same as before.
 //  - One copy of a coin at a time: a sale sells all of that coin the wallet holds.
 type TxRead = { meta: { fee?: number; preBalances: number[]; postBalances: number[] } | null; transaction: { message: { accountKeys: (string | { pubkey: string })[] } } };
+/** The most signatures the RPC reads in one getSignatureStatuses. */
+const STATUS_MAX = 256;
 /** What these transactions of ours did to the wallet's SOL (fees and rent included), and how many that landed could not be read. */
 async function booked(w: Wallet, sigs: string[]): Promise<{ sol: number; unread: string[] }> {
   const list = [...new Set(sigs)];
   if (!list.length) return { sol: 0, unread: [] };
-  let st: { value: (unknown | null)[] } | null = null;
-  for (let k = 0; k < 4 && !st; k++) {
-    st = await rpc<{ value: (unknown | null)[] }>("getSignatureStatuses", [list, { searchTransactionHistory: true }]).catch(() => null);
-    if (!st) await sleep(400);
+  // The RPC answers getSignatureStatuses for at most 256 signatures at once (16 Nov 2026 review: a copy whose sale
+  // tries piled up past 256 could never be read back; its row said 0 SOL and the real copy stopped), so in groups.
+  const landed: (unknown | null)[] = [];
+  for (let from = 0; from < list.length; from += STATUS_MAX) {
+    const part = list.slice(from, from + STATUS_MAX);
+    let st: { value: (unknown | null)[] } | null = null;
+    for (let k = 0; k < 4 && !st; k++) {
+      st = await rpc<{ value: (unknown | null)[] }>("getSignatureStatuses", [part, { searchTransactionHistory: true }]).catch(() => null);
+      if (!st) await sleep(400);
+    }
+    if (!st) return { sol: 0, unread: list };
+    for (let i = 0; i < part.length; i++) landed.push(st.value[i] ?? null);
   }
-  if (!st) return { sol: 0, unread: list };
   let lamports = 0;
   const unread: string[] = [];
   for (let i = 0; i < list.length; i++) {
-    if (!st.value[i]) continue; // never landed: it cost nothing
+    if (!landed[i]) continue; // never landed: it cost nothing
     let d: number | null = null;
     for (let k = 0; k < 8 && d === null; k++) {
       const tx = await rpc<TxRead | null>("getTransaction", [list[i], { encoding: "json", maxSupportedTransactionVersion: 1, commitment: "confirmed" }]).catch(() => null);

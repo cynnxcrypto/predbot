@@ -13,13 +13,45 @@ import { loadJson, readAll, saveJson } from "./store.js";
 const SOL = "So11111111111111111111111111111111111111112";
 const USDC = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
 const FILE = "worth-history.json";
-type Worth = { at: number; total: number | null; cash: number | null; claim: number; bets: number; betsN: number; betsStake: number; days: Record<string, { n: number; stake: number; value: number; win: number; lose: number }>; solBal: number | null; coinsSol: number; coinsN: number; solUsd: number | null; rulesUsd: number | null; perpsUsd: number | null; rulesPos: number; perpsPos: number; parts?: Record<string, { sol: number | null; usdc: number | null; pos: number }> };
+type Today = { usd: number; at: number; from?: number; est?: boolean } | null;
+type Worth = { today?: Record<string, Today>; at: number; total: number | null; cash: number | null; claim: number; bets: number; betsN: number; betsStake: number; days: Record<string, { n: number; stake: number; value: number; win: number; lose: number }>; solBal: number | null; coinsSol: number; coinsN: number; solUsd: number | null; rulesUsd: number | null; perpsUsd: number | null; rulesPos: number; perpsPos: number; parts?: Record<string, { sol: number | null; usdc: number | null; pos: number }> };
 /** Money put in or taken out: [time, dollars (+ in, - out), which wallet]. Not a gain or a loss. */
 export type Flow = [number, number, string];
 /** What each wallet held at the last sample, to tell a deposit from a result. */
 export type Comp = { pc: number | null; pk: number; pst: number; sol: number | null; coins: number; rules: number | null; perps: number | null; pkh?: number[] };
 let flows: Flow[] = [];
 let comp: Comp | null = null;
+/**
+ * Each wallet's own worth at every sample (16 Nov 2026, MAIN for enrique: every card's "today" is that wallet's real
+ * worth change since 00:00 KST): [time, Polymarket (cash + claims + open bets), Solana spot copy (SOL + coins),
+ * Solana spot rules, Solana perps], dollars, null = not read.
+ */
+export type WalletPoint = [number, number | null, number | null, number | null, number | null];
+let wallHist: WalletPoint[] = [];
+/** The wallets in WalletPoint order, with the label their deposits and withdrawals carry. */
+export const WALLETS = [["poly", "Polymarket"], ["sc", "Solana spot copy"], ["sr", "Solana spot rules"], ["pp", "Solana perps"]] as const;
+/**
+ * TODAY FOR EACH WALLET: its worth now against its last sample at or before 00:00 KST (the first sample of the day when
+ * none is older, as just after this began), less what was put in or taken out of that wallet since. at = the sample
+ * compared with. Pure.
+ */
+export function walletsToday(wh: WalletPoint[], fl: Flow[], now: (number | null)[], t: number): Record<string, { usd: number; at: number } | null> {
+  const T = kstMidnight(t);
+  const out: Record<string, { usd: number; at: number } | null> = {};
+  WALLETS.forEach(([k, label], i) => {
+    const v = now[i];
+    let b: WalletPoint | null = null;
+    for (const p of wh) {
+      if (p[i + 1] == null) continue;
+      if (p[0] <= T || !b) b = p;
+      if (p[0] > T) break;
+    }
+    if (v == null || !b) return void (out[k] = null);
+    const put = fl.reduce((a, f) => a + (f[2] === label && f[0] > b![0] && f[0] <= t ? f[1] : 0), 0);
+    out[k] = { usd: Math.round((v - (b[i + 1] as number) - put) * 100) / 100, at: b[0] };
+  });
+  return out;
+}
 
 /**
  * Deposits and withdrawals between two samples (15 Nov 2026, enrique's deposits showed as "+$111 in 1 h"). Polymarket:
@@ -108,13 +140,79 @@ export function repairClaims(h: [number, number][], fl: Flow[], spans: WinSpan[]
   return { hist, flows: keep, removed: gone.length, removedUsd: Math.round(gone.reduce((a, f) => a + f[1], 0) * 100) / 100 };
 }
 let fix: { removed: number; removedUsd: number } | null = null;
-/** For the public status: no balance and no deposit in it, only what the repair took off and the 24 h result. */
+type Point = [number, number] | [number, number, 1];
+/** The series the page draws: the hourly estimates before the live samples, then the live samples thinned to about
+ * 300 points, deposits and withdrawals left out. */
+function pageSeries(): Point[] {
+  if (!hist) return [];
+  const step = Math.max(1, Math.ceil(hist.length / 300));
+  const first = hist.length ? hist[0][0] : Infinity;
+  const series: Point[] = [...back.filter((p) => p[0] < first), ...despike(hist).filter((_, i, a) => i % step === 0 || i === a.length - 1)];
+  return netOfFlows(series, flows);
+}
+/**
+ * The windows of the page's "estimated total worth" panel (1 h, 24 h, 7 d, then "since" its first point), worked out
+ * exactly as the page does: the worth now against the last point at or before the window's start. est = that point is
+ * an hourly estimate (the page shows "≈"). 16 Nov 2026, enrique: "how do u go from telling me polymarket +20 to
+ * polymarket -10": every review quotes these windows only, so they must be the page's own numbers. Pure.
+ */
+export function worthWindows(h: Point[], total: number, now: number): { k: string; usd: number; est: boolean; from: number }[] {
+  if (h.length < 2) return [];
+  const out: { k: string; usd: number; est: boolean; from: number; b: Point }[] = [];
+  for (const [k, w] of [["1h", 3_600_000], ["24h", 86_400_000], ["7d", 604_800_000]] as const) {
+    const T = now - w;
+    if (h[0][0] > T + w * 0.1) continue;
+    let b = h[0];
+    for (const p of h) {
+      if (p[0] <= T) b = p;
+      else break;
+    }
+    out.push({ k, usd: Math.round((total - b[1]) * 100) / 100, est: b[2] === 1, from: T, b });
+  }
+  if (!out.length || out[out.length - 1].b !== h[0]) out.push({ k: "since", usd: Math.round((total - h[0][1]) * 100) / 100, est: h[0][2] === 1, from: h[0][0], b: h[0] });
+  return out.map(({ k, usd, est, from }) => ({ k, usd, est, from }));
+}
+/** 00:00 KST (UTC+9) of the day that holds `now`. */
+export function kstMidnight(now: number): number {
+  return Math.floor((now + 9 * 3_600_000) / 86_400_000) * 86_400_000 - 9 * 3_600_000;
+}
+/**
+ * TODAY = the real worth change since 00:00 KST (16 Nov 2026, enrique: "and whats the real since midnight? like the
+ * today ... im just wondering if that is correct"). The cards' "today" counts bets settled today at their full profit,
+ * so a bet that had already risen before midnight shows its whole win today; at 17:15 KST they said +$14.66 while the
+ * worth had fallen about $19.50. This is the worth now against the last sample at or before midnight, deposits and
+ * withdrawals left out, every sample kept (not the page's thinned series). at = that sample's time: later than `from`
+ * only when no sample before midnight exists, and then the change covers less than the day. Pure.
+ */
+export function worthToday(h: Point[], total: number, now: number): { usd: number; est: boolean; from: number; at: number } | null {
+  if (!h.length) return null;
+  const T = kstMidnight(now);
+  let b = h[0];
+  for (const p of h) {
+    if (p[0] <= T) b = p;
+    else break;
+  }
+  return { usd: Math.round((total - b[1]) * 100) / 100, est: b[2] === 1, from: T, at: b[0] };
+}
+/** Every sample, spikes taken out as the page does, deposits and withdrawals left out. */
+function fullSeries(): Point[] {
+  if (!hist) return [];
+  const first = hist.length ? hist[0][0] : Infinity;
+  return netOfFlows<Point>([...back.filter((p) => p[0] < first), ...despike(hist)], flows);
+}
+/** For the public status: no balance and no deposit in it, only what the repair took off and the results (changes in
+ * dollars, never the worth itself and never a percentage, which would give the worth away). */
 export function worthCheck() {
   if (!hist || !memo?.v.total) return null;
   const series = netOfFlows([...back.filter((p) => p[0] < (hist![0]?.[0] ?? Infinity)), ...hist] as [number, number][], flows);
   const T = Date.now() - 86_400_000;
   const base = [...series].reverse().find((p) => p[0] <= T);
-  return { claimStepsTakenForDeposits: fix?.removed ?? null, thatWasUsd: fix?.removedUsd ?? null, wonWaitingForClaimUsd: unclaimedAt(loadSpans(), Date.now()), change24hUsd: base ? Math.round((memo.v.total - base[1]) * 100) / 100 : null, flows24h: flows.filter((f) => f[0] > T).length };
+  const windows: Record<string, { usd: number; est: boolean; from: number; at?: number }> = Object.fromEntries(worthWindows(pageSeries(), memo.v.total, Date.now()).map((w) => [w.k, { usd: w.usd, est: w.est, from: w.from }]));
+  const today = worthToday(fullSeries(), memo.v.total, Date.now());
+  if (today) windows.today = today;
+  const tw = memo.v.today ?? {};
+  const todayByWallet = Object.fromEntries(WALLETS.map(([k, label]) => [label, tw[k] ? { usd: tw[k]!.usd, at: tw[k]!.at } : null]));
+  return { todayByWallet, claimStepsTakenForDeposits: fix?.removed ?? null, thatWasUsd: fix?.removedUsd ?? null, wonWaitingForClaimUsd: unclaimedAt(loadSpans(), Date.now()), change24hUsd: base ? Math.round((memo.v.total - base[1]) * 100) / 100 : null, flows24h: flows.filter((f) => f[0] > T).length, windows, worthAt: memo.at };
 }
 let memo: { at: number; v: Worth } | null = null;
 let solPx: { at: number; v: number | null } = { at: 0, v: null };
@@ -177,10 +275,16 @@ export function despike(h: [number, number][]): [number, number][] {
   return out;
 }
 
+const r2w = (v: number | null) => (v == null ? null : Math.round(v * 100) / 100);
+/** Each wallet's worth in WalletPoint order. */
+function wallNow(cash: number | null, claim: number, bets: number, sol: number | null, rules: number | null, perps: number | null): [number | null, number | null, number | null, number | null] {
+  return [cash == null ? null : r2w(cash + claim + bets), r2w(sol), r2w(rules), r2w(perps)];
+}
 /** rules / perps = what the two strategy wallets hold in dollars (null = not read). */
 export async function worthView(cash: number | null, claim: number, solBal: number | null, extra: { rulesSol?: number | null; rulesUsdc?: number | null; perpsSol?: number | null; perpsUsdc?: number | null; rulesHeldSol?: number; perpsPosUsd?: number } = {}): Promise<Worth & { age: number; hist: ([number, number] | [number, number, 1])[]; flows: Flow[] }> {
   if (!hist) {
-    const f = loadJson<[number, number][] | { hist?: [number, number][]; back?: [number, number, 1][]; flows?: Flow[]; comp?: Comp | null; v?: number; fix?: { removed: number; removedUsd: number } | null }>(FILE, []);
+    const f = loadJson<[number, number][] | { hist?: [number, number][]; back?: [number, number, 1][]; flows?: Flow[]; comp?: Comp | null; v?: number; fix?: { removed: number; removedUsd: number } | null; wall?: WalletPoint[] }>(FILE, []);
+    wallHist = Array.isArray(f) ? [] : (f.wall ?? []).filter((p) => Array.isArray(p) && Number.isFinite(p[0]));
     flows = Array.isArray(f) ? [] : (f.flows ?? []);
     comp = Array.isArray(f) ? null : (f.comp ?? null);
     const needJumps = Array.isArray(f) || (f.v ?? 0) < 2;
@@ -220,7 +324,10 @@ export async function worthView(cash: number | null, claim: number, solBal: numb
       perps: { sol: d2(extra.perpsSol == null || px == null ? null : extra.perpsSol * px), usdc: d2(extra.perpsUsdc), pos: perpsPos },
     };
     const total = cash != null ? Math.round((cash + claim + bets.value + solPart + (rulesUsd ?? 0) + (perpsUsd ?? 0)) * 100) / 100 : null;
-    memo = { at: Date.now(), v: { at: Date.now(), total, cash, claim, bets: bets.value, betsN: bets.n, betsStake: bets.stake, days: bets.days, solBal, coinsSol: Math.round(coinsSol * 1e4) / 1e4, coinsN: open.length, solUsd: px, rulesUsd, perpsUsd, parts, rulesPos, perpsPos } };
+    const wn = wallNow(cash, claim, bets.value, px != null ? solPart : null, rulesUsd, perpsUsd);
+    const all = total != null ? worthToday(fullSeries(), total, Date.now()) : null;
+    const today = { all, ...walletsToday(wallHist, flows, wn, Date.now()) };
+    memo = { at: Date.now(), v: { at: Date.now(), total, cash, claim, bets: bets.value, betsN: bets.n, betsStake: bets.stake, days: bets.days, solBal, coinsSol: Math.round(coinsSol * 1e4) / 1e4, coinsN: open.length, solUsd: px, rulesUsd, perpsUsd, parts, rulesPos, perpsPos, today } };
     const last = hist[hist.length - 1];
     if (total != null && priced && (!last || Date.now() - last[0] >= 120_000)) {
       // rules / perps are kept in dollars here, so their px is 1; the SOL wallet is kept in SOL
@@ -232,6 +339,8 @@ export async function worthView(cash: number | null, claim: number, solBal: numb
       comp = nowC;
       hist.push([Date.now(), total]);
       if (hist.length > 5040) hist = hist.slice(-5040); // a week at one sample every two minutes
+      wallHist.push([Date.now(), ...wallNow(cash, claim, bets.value, px != null ? solPart : null, rulesUsd, perpsUsd)]);
+      if (wallHist.length > 1500) wallHist = wallHist.slice(-1500); // two days
       if (!back.length) {
         try {
           back = backfill(hist[0][0], solBal, px);
@@ -239,11 +348,8 @@ export async function worthView(cash: number | null, claim: number, solBal: numb
           back = [];
         }
       }
-      saveJson(FILE, { hist, back, flows, comp, fix, v: 3 });
+      saveJson(FILE, { hist, back, flows, comp, fix, wall: wallHist, v: 3 });
     }
   }
-  const step = Math.max(1, Math.ceil(hist.length / 300));
-  const first = hist.length ? hist[0][0] : Infinity;
-  const series: ([number, number] | [number, number, 1])[] = [...back.filter((p) => p[0] < first), ...despike(hist).filter((_, i, a) => i % step === 0 || i === a.length - 1)];
-  return { ...memo.v, age: Date.now() - memo.at, hist: netOfFlows(series, flows), flows };
+  return { ...memo.v, age: Date.now() - memo.at, hist: pageSeries(), flows };
 }
