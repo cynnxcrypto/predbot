@@ -32,6 +32,7 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { DATA, ROOT } from "../config.js";
+import { saleRefused } from "./refused.js";
 import { CUT_MIN_TRADES, cutReason, realRecord, standing } from "./realfirst.js";
 import { meetsBar, paperOpens, paperRecord, setBucketsRealSummary, spotRuleIds, REAL_MIN_TRADES, type Bucket } from "./buckets.js";
 import { namedWallet, signTransaction, type Wallet } from "./keys.js";
@@ -147,6 +148,11 @@ interface State {
   lastError: string;
   /** the one-time test trade that was made (its name in the live rules, and when): a name is used once, for good */
   test?: { id: string; at: number };
+  /**
+   * the stop for a finished trade whose transactions could not be read back (the books may be short): kept apart from
+   * `halted`, so that nothing else (the undo of a write-off's stop) can lift it; only a person, by editing the file
+   */
+  unread?: string;
   /** coins written off as unsellable: out of `opens` and in their rule's record, still tried once an hour */
   stuck?: Pos[];
   /** rent that sits in coin accounts not closed yet (ours, not lost): kept out of every result (see rentOf) */
@@ -176,6 +182,8 @@ function save() {
   renameSync(STATE() + ".tmp", STATE());
 }
 const loss = () => Math.max(0, -state.netSol);
+/** Why nothing new is bought: a limit (halted), or books that may be short (unread). */
+const stopped = () => state.halted || state.unread || "";
 const skip = (why: string) => void (state.skipped[why] = (state.skipped[why] ?? 0) + 1);
 
 /** What this module needs from the chain and from Jupiter: copylive's kit in production, fakes in tests. */
@@ -371,7 +379,9 @@ async function sell(d: LiveDeps, p: Pos, c: BucketsLiveConfig) {
     }
     if ((await d.kit.held(w.address, p.mint)).amount === 0n) return void (await closeAndFinish(d, w, p));
   } catch (e) {
-    state.lastError = d.fixed(e); // the network, a refused request, a time-out: not a sign the coin cannot be sold
+    state.lastError = d.fixed(e);
+    // Jupiter's "no route" comes as a thrown 4xx (copylive's jup); the network, 429s and time-outs are not counted
+    if (saleRefused(e)) dead = true;
   }
   // could not sell: still held, tried again in 10 minutes
   p.stage = "held";
@@ -423,15 +433,21 @@ async function sellStuck(d: LiveDeps, p: Pos, c: BucketsLiveConfig) {
     if (h.amount > 0n && !p.gaveUp) {
       if ((p.tries ?? 0) >= MAX_STUCK_TRIES) p.gaveUp = true;
       else {
-        const q = await d.kit.quote(p.mint, SOL, h.amount.toString(), Math.min(5000, Math.max(SLIPPAGE_BPS[p.bucket], 300) + 600 * (p.tries ?? 0)));
-        if (q.outAmount && q.outAmount !== "0") {
-          const tx = signTransaction(await d.kit.swapTx(q, w.address, c.maxFeeLamports), w);
-          p.sigs.push(d.kit.sigOf(tx));
-          p.tries = (p.tries ?? 0) + 1;
-          save();
-          await sendUntil(d, tx, 30_000);
-          h = await d.kit.held(w.address, p.mint);
+        // only the sale is in its own try: no route (a thrown 4xx), a 429 or a time-out must not skip the re-read below,
+        // which books the fee of a try that was sent
+        try {
+          const q = await d.kit.quote(p.mint, SOL, h.amount.toString(), Math.min(5000, Math.max(SLIPPAGE_BPS[p.bucket], 300) + 600 * (p.tries ?? 0)));
+          if (q.outAmount && q.outAmount !== "0") {
+            const tx = signTransaction(await d.kit.swapTx(q, w.address, c.maxFeeLamports), w);
+            p.sigs.push(d.kit.sigOf(tx));
+            p.tries = (p.tries ?? 0) + 1;
+            save();
+            await sendUntil(d, tx, 30_000);
+          }
+        } catch (e) {
+          state.lastError = d.fixed(e);
         }
+        h = await d.kit.held(w.address, p.mint);
       }
     }
     const sold = h.amount === 0n;
@@ -506,7 +522,7 @@ async function finish(d: LiveDeps, w: Wallet, p: Pos, buyState: Row["buy"]) {
     await d.sleep(5000);
     r = await d.kit.booked(w, p.sigs);
   }
-  if (r.unread.length) state.halted = state.halted || "a transaction of a finished trade could not be read back: the books may be short, so nothing new is bought";
+  if (r.unread.length) state.unread = "a transaction of a finished trade could not be read back: the books may be short, so nothing new is bought";
   const rent = rentKept(await rentOf(d, w, p));
   book(d, p, buyState, n9(r.sol + rent), rent, false);
 }
@@ -566,7 +582,7 @@ export async function bucketsLiveTick(d: LiveDeps, now = Date.now()): Promise<vo
     }
     for (const p of [...(state.stuck ?? [])]) if ((p.nextTryMs ?? 0) <= now) await sellStuck(d, p, c);
     const tid = d.testId?.() ?? "";
-    if (tid && c.on && !state.halted && state.test?.id !== tid && !state.opens.length) {
+    if (tid && c.on && !stopped() && state.test?.id !== tid && !state.opens.length) {
       // the name is written down before anything is sent: whatever happens next, this test is never made twice
       state.test = { id: tid, at: now };
       save();
@@ -576,7 +592,7 @@ export async function bucketsLiveTick(d: LiveDeps, now = Date.now()): Promise<vo
       const key = `${o.rule}:${o.mint}:${o.at}`;
       if (state.seen.includes(key)) continue;
       state.seen = [...state.seen, key].slice(-500);
-      if (!c.on || state.halted) continue;
+      if (!c.on || stopped()) continue;
       // a cut missed when its trade finished (the switch was off then, or the stop was lowered since) is made now
       const late = cutReason(realOf(o.rule), c.ruleStopSol);
       if (late) cutNow(o.rule, late);
@@ -608,13 +624,13 @@ export function bucketsLiveSummary() {
     const mine = done.filter((x) => x.rule === id);
     const st = standingOf(id);
     const live = realOf(id);
-    return { id, real: c.on && !state.halted && st.real, why: !c.on ? "paper: real trading is switched off" : state.halted ? "paper: real trading is stopped" : st.why, realTrades: live.trades, realWon: live.won, realNetSol: r6(live.net), paperTrades: paper.trades, paperWon: paper.won, paperNetUsd: Math.round(paper.netUsd * 100) / 100, demotedAt: since || null, trades: mine.length, won: mine.filter((x) => x.netSol > 0).length, netSol: r6(mine.reduce((a, x) => a + x.netSol, 0)) };
+    return { id, real: c.on && !stopped() && st.real, why: !c.on ? "paper: real trading is switched off" : stopped() ? "paper: real trading is stopped" : st.why, realTrades: live.trades, realWon: live.won, realNetSol: r6(live.net), paperTrades: paper.trades, paperWon: paper.won, paperNetUsd: Math.round(paper.netUsd * 100) / 100, demotedAt: since || null, trades: mine.length, won: mine.filter((x) => x.netSol > 0).length, netSol: r6(mine.reduce((a, x) => a + x.netSol, 0)) };
   });
   return {
     note: `REAL, off unless the live rules switch it on. A spot bucket rule gets its first real trades when its paper record meets the bar (${REAL_MIN_TRADES}+ paper trades at real quotes, half or more won, ahead after costs): then each of its paper buys is also bought with ${c.stakeSol || 0.01} SOL and sold when the paper trade is sold. Real results come first (enrique, 16 Nov 2026: "cut loser and bring winners", "real is more important"): once it has real trades it stays real while its real net is zero or better, even under the paper bar, and goes back to paper when its real trades are behind after ${CUT_MIN_TRADES} or more, or have lost ${c.ruleStopSol || 0.03} SOL; it returns when its paper trades made after that meet the bar again. In rules: why = the reason in words; realTrades, realWon, realNetSol = its real trades bought since it was last cut; trades, won, netSol = all its real trades ever. A coin that Jupiter or the chain refused to sell ${DEAD_SALES} times over ${WRITE_OFF_MS / 3_600_000} hours or more is written off: it counts in its rule's record as it stands (stuck), a sale is tried hourly (at most ${MAX_STUCK_TRIES}), and what a later sale brings is added, undoing a cut or stop the write-off made. The rent of a coin account is in no trade's result. Total loss is capped; the perps side has its own wallet and block.`,
-    on: c.on && !state.halted,
+    on: c.on && !stopped(),
     switch: c.on ? "on" : "off",
-    halted: state.halted,
+    halted: stopped(),
     stateNote: state.note,
     stakeSol: c.stakeSol,
     capSol: c.maxLossSol,

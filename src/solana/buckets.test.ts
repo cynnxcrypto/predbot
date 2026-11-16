@@ -399,3 +399,42 @@ test("buckets: a trader the real side names as a winner stays followed when the 
     B.setKeptTraders(() => []);
   }
 });
+
+test("buckets: a trader's close seen in a look whose prices fail is not lost: no trader is looked at without prices", async () => {
+  _bucketsTest.reset();
+  const A = "0x" + "e".repeat(40);
+  const rowOf = (a: string) => ({ ethAddress: a, accountValue: "500000", windowPerformances: [["week", { pnl: "1", roi: "1", vlm: "1" }], ["month", { pnl: "9", roi: "0.5", vlm: "5000000" }], ["allTime", { pnl: "1", roi: "1", vlm: "1" }]] });
+  let posA: unknown[] = [];
+  let midsFail = false;
+  const deps = {
+    quote: async () => 0n,
+    jup: async () => [],
+    fetch: () =>
+      (async (url: string, init?: { body?: string }) => {
+        const json = (x: unknown, status = 200) => ({ ok: status === 200, status, json: async () => x }) as unknown as Response;
+        if (url.includes("binance")) return json([]);
+        if (url.includes("leaderboard")) return json({ leaderboardRows: [rowOf(A)] });
+        const body = JSON.parse(init!.body!) as { type: string; user?: string };
+        if (body.type === "allMids") return midsFail ? json({}, 429) : json({ SOL: "150", BTC: "90000" });
+        return json({ assetPositions: body.user === A ? posA : [] });
+      }) as unknown as typeof fetch,
+  };
+  let now = NOW + 2 * 86_400_000;
+  const tick = async () => bucketsTick(deps as never, (now += 60_000));
+  const st = () => _bucketsTest.state();
+  await tick();
+  posA = [{ position: { coin: "SOL", szi: "-1000", positionValue: "150000" } }];
+  await tick();
+  assert.equal(st().hlOpen.length, 1);
+  // the trader closes in a look where the prices answer 429
+  posA = [];
+  midsFail = true;
+  await tick();
+  assert.equal(st().hlOpen.length, 1);
+  assert.deepEqual(Object.keys(st().hlSeen[A] ?? {}), ["SOL"], "what it held is not overwritten without prices");
+  assert.equal(st().errors.traders !== undefined, true);
+  midsFail = false;
+  await tick();
+  assert.equal(st().hlOpen.length, 0, "the close is seen at the next look and booked");
+  assert.equal(st().hlTrades.length, 1);
+});

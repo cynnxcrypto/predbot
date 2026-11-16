@@ -814,6 +814,12 @@ async function hlTick(deps: BucketDeps, now: number) {
     state.hlTrades.push({ trader: o.trader, coin: o.coin, dir: o.dir, at: o.at, exitAt: now, net: r(net, 6)!, why, lev: o.lev, worst });
     state.hlOpen = state.hlOpen.filter((x) => x !== o);
   };
+  // the prices first (MAIN's review, 16 Nov 2026): what a trader holds is written down as it is read, so a close seen in
+  // a look whose prices then failed would be lost for good, and a real position copied from it would stay open.
+  // Without prices no trader is looked at in this look; all of them are compared again at the next
+  await mid("BTC").catch(() => {
+    throw new Error("traders: no prices");
+  });
   // who is looked at this minute: traders with an open copy first, then those copied before (most copies first), then the rest in turns
   const copies = new Map<string, number>();
   for (const t of state.hlTrades) copies.set(t.trader, (copies.get(t.trader) ?? 0) + 1);

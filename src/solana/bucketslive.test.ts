@@ -184,7 +184,8 @@ test("buckets real: a transaction that cannot be read back stops new buys; the s
   c.unreadable = true;
   st.open = [];
   await L.bucketsLiveTick(deps, T0 + 40_000);
-  assert.match(L._test.state().halted, /could not be read back/);
+  assert.match(L._test.state().unread ?? "", /could not be read back/, "its own stop, apart from halted");
+  assert.match(L.bucketsLiveSummary().halted, /could not be read back/);
   st.open = [paperOpen(T0 + 100_000)];
   const before = c.sends;
   await L.bucketsLiveTick(deps, T0 + 105_000);
@@ -355,8 +356,10 @@ function stuckWorld(back: number, cfg: Partial<Cfg> = {}) {
   const { deps, c } = w0;
   const quote0 = deps.kit.quote;
   deps.kit.quote = async (i, o, a, s) => {
-    if (c2.down && i !== SOL) throw new Error("429");
-    return i === SOL || c2.route ? quote0(i, o, a, s) : {};
+    // what copylive's jup() does in production: a 429 when asked too fast, a 400 with Jupiter's code for no route
+    if (c2.down && i !== SOL) throw new Error("jupiter /swap/v1/quote http 429");
+    if (i !== SOL && !c2.route) throw new Error("jupiter /swap/v1/quote http 400 COULD_NOT_FIND_ANY_ROUTE");
+    return quote0(i, o, a, s);
   };
   const send0 = deps.kit.send;
   deps.kit.send = async (tx) => {
