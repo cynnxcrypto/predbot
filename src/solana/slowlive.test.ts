@@ -1057,3 +1057,31 @@ test("real day-holder copy: after a sale on our own clock the copied wallet's sa
   slow._test.setCfg(null);
   _test.reset();
 });
+
+test("real day-holder copy: with sellCut on, the open copies of a wallet cut on its real record are sold at the next sweep; off, they wait", async () => {
+  assert.deepEqual([parseSlowLive(JSON.stringify({ solanaSlow: { on: true, maxLossSol: 0.1 } })).sellCut, parseSlowLive(JSON.stringify({ solanaSlow: { on: true, maxLossSol: 0.1, sellCut: true } })).sellCut, parseSlowLive(JSON.stringify({ solanaSlow: { on: true, maxLossSol: 0.1, sellCut: "yes" } })).sellCut], [false, true, false]);
+  const name = WALLETS[0].name;
+  const row = (i: number, netSol: number) => ({ t: Date.now() - i * 60_000, name, wallet: L1, mint: "x", leaderSol: 1, buy: "landed" as const, exit: "sold" as const, heldMin: 60, netSol, sigs: [] as string[] });
+  const out = (wallet: string, n: string, mint: string, seenMs: number) => ({ wallet, name: n, mint, leaderSol: 0.3, seenMs, boughtMs: seenMs, stakeSol: 0.01, tokens: "1000", stage: "held" as const, sigs: [] as string[], sellRounds: 0 });
+  for (const sellCut of [false, true]) {
+    fresh({ ...CFG, sellCut });
+    const c = chain(() => 0.009);
+    c.held.set(A, 1000n);
+    c.held.set(B, 1000n);
+    const t = Date.now() - 3_600_000;
+    // L1 is behind on five real copies (cut); L2 has no record. One copy of each is out
+    for (let i = 0; i < 5; i++) _test.state().rows.push(row(i + 1, -0.002));
+    _test.state().opens.push(out(L1, name, A, t), out(L2, WALLETS[1].name, B, t + 1));
+    assert.equal(rested({ name, address: L1 }), true);
+    sweep();
+    for (let i = 0; i < 60 && _test.state().opens.length > 1; i++) await wait(100);
+    const s = slowLiveSummary();
+    if (!sellCut) {
+      assert.deepEqual([_test.state().opens.length, s.sellCut, s.soldCut], [2, false, 0], "off: both wait");
+    } else {
+      assert.deepEqual([_test.state().opens.map((p) => p.mint), _test.state().rows.at(-1)!.exit, s.sellCut, s.soldCut], [[B], "wallet cut", true, 1], "on: the cut wallet's copy is sold, the other is kept");
+      assert.equal(afterOf(A, t), "holds", "and the paper sale study follows it until the copied wallet sells");
+    }
+    _test.reset();
+  }
+});

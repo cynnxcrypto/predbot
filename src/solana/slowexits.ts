@@ -18,7 +18,7 @@
  * sides carry the same costs. Nothing is bought, sold or signed here, and no real copy is touched: it reads
  * slowlive's list of held copies and its result rows through the two functions it is handed.
  *
- * After our own sale (MAIN, 16 Nov 2026). A copy we sell on our own clock (its wallet dropped for 6 h, or held 72 h)
+ * After our own sale (MAIN, 16 Nov 2026). A copy we sell on our own clock (its wallet dropped for 6 h or cut, or held 72 h)
  * is sold while the copied wallet still holds. Such a copy is followed on: polled as before until that wallet is heard
  * selling the coin (72 h at most), the rules still watching. That gives, for those copies, what our own sale made
  * against what holding until the wallet's sale would have brought, alone and with each rule on top (`afterOwn`).
@@ -226,7 +226,7 @@ function sync(now: number): Track[] {
     const r = source!.resultOf(t.mint, t.seenMs);
     if (r === undefined && now - gone < WAIT_ROW_MS) continue;
     changed = true;
-    const own = !!r && (r.exit === "max hold" || r.exit === "wallet dropped");
+    const own = !!r && (r.exit === "max hold" || r.exit === "wallet dropped" || r.exit === "wallet cut");
     // scored as every copy is, on what the rules saw until our sale
     if (r) state.done.push({ name: t.name, stakeSol: r.stakeSol, netSol: r.netSol, heldMin: r.heldMin, polls: t.polls, lastV: t.v, near: !r.unsold && t.polls > 0 && gone - t.lastMs <= 2 * POLL_MS, ...(own ? { own: true } : {}), fired: { ...t.fired } });
     if (state.done.length > KEEP_DONE) state.done = state.done.slice(-KEEP_DONE);

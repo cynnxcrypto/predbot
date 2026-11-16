@@ -154,6 +154,11 @@ export interface SlowLiveConfig {
   maxFeeLamports: number;
   /** "proven" = the wallets the paper copy proves (the default); "fixed" = the first three */
   follow: "proven" | "fixed";
+  /**
+   * Sell the open copies of a wallet as soon as it is cut on its real record (rested), instead of leaving them to the
+   * 6 h dropped-wallet clock. Off unless the file says "sellCut": true: a real sale rule, enrique's word only.
+   */
+  sellCut?: boolean;
 }
 const OFF: SlowLiveConfig = { on: false, stakeSol: 0, maxLossSol: 0, stopLossSol: 0, maxOpen: 1, entrySec: 5, exitSec: 5, maxHoldH: 72, slippageBps: 1500, maxFeeLamports: 20_000, follow: "proven" };
 const num = (v: unknown, d: number) => (typeof v === "number" && Number.isFinite(v) ? v : d);
@@ -177,6 +182,7 @@ export function parseSlowLive(text: string): SlowLiveConfig {
       slippageBps: clamp(Math.floor(num(p.slippageBps, 1500)), 100, 3000),
       maxFeeLamports: clamp(Math.floor(num(p.maxFeeLamports, 20_000)), 5_000, 200_000),
       follow: p.wallets === "fixed" ? "fixed" : "proven",
+      sellCut: p.sellCut === true,
     };
   } catch {
     return OFF;
@@ -224,7 +230,7 @@ export interface Pos {
   offMs?: number;
   exit?: Exit;
 }
-type Exit = "sold" | "sold, seen late" | "max hold" | "wallet dropped" | "sold while we were down" | "buy did not land" | "buy failed";
+type Exit = "sold" | "sold, seen late" | "max hold" | "wallet dropped" | "wallet cut" | "sold while we were down" | "buy did not land" | "buy failed";
 export interface SRow {
   t: number;
   name: string;
@@ -823,7 +829,7 @@ async function finish(w: Wallet, p: Pos, exit: Exit) {
   state.opens = state.opens.filter((x) => x !== p);
   state.rows = [...state.rows, row].slice(-5000);
   // sold on our own clock while the copied wallet still holds: its sale is listened for (the paper sale study)
-  if ((exit === "wallet dropped" || exit === "max hold") && !p.soldSeenMs && p.tokens && row.buy === "landed") {
+  if ((exit === "wallet dropped" || exit === "wallet cut" || exit === "max hold") && !p.soldSeenMs && p.tokens && row.buy === "landed") {
     state.after = [...(state.after ?? []).filter((a) => Date.now() - a.ms < AFTER_MAX_MS), { wallet: p.wallet, mint: p.mint, seenMs: p.seenMs, ms: Date.now() }].slice(-300);
   }
   // a new row changes its wallet's real record: the list is worked out again at the next question, so a wallet that
@@ -963,6 +969,8 @@ export function sweep(now = Date.now()) {
       // A copy given up before 16 Nov 2026 carries no such time: its first try here starts that clock.
       if (now >= (p.nextTryMs ?? 0) && !(p.unsoldMs && now - p.unsoldMs > UNSOLD_DAYS * 86_400_000)) void sell(p, p.exit);
     } else if (now - (p.boughtMs ?? p.seenMs) > c.maxHoldH * 3_600_000) void sell(p, "max hold");
+    // its wallet was cut on its real record: sold now, not after the 6 h clock (only when switched on; a few a sweep)
+    else if (c.sellCut && !p.soldSeenMs && rested({ name: p.name, address: p.wallet }, now) && drops++ < DROP_SELLS_PER_SWEEP) void sell(p, "wallet cut");
     else if (paperSays) {
       // its wallet's place on the list: off it for DROP_SELL_MS, the copy is sold (a few a sweep); back on it, the clock is cleared
       if (on.has(p.wallet)) p.offMs = undefined;
@@ -1161,6 +1169,9 @@ export function slowLiveSummary() {
     /** open copies whose wallet is off the list (sold DROP_SELL_MS after the sweep first saw that), and copies sold for that reason */
     openOffList: state.opens.filter((p) => p.offMs).length,
     soldDropped: done.filter((x) => x.exit === "wallet dropped").length,
+    /** is a cut wallet's open copy sold at once (see sellCut), and the copies sold for that reason */
+    sellCut: c.sellCut === true,
+    soldCut: done.filter((x) => x.exit === "wallet cut").length,
     /** the real results by size, by time held and by kind of sale; and the paper study of other sale rules beside the real copies */
     spread: spread(done),
     // the paper study must never hold back the real numbers: a fault in its own file leaves this block empty
