@@ -9,11 +9,12 @@ process.env.DATA_DIR = mkdtempSync(join(tmpdir(), "slowlive-"));
 // made-up keys: every network call here is faked
 process.env.HELIUS_API_KEY = "test-helius";
 process.env.JUPITER_API_KEY = "test-jupiter";
-const { parseSlowLive, slowLiveSummary, onSwap, sweep, recover, startSlowLive, wallets, rested, realWinner, losingRun, realOf, oneStake, resultOf, takenVsSkipped, openNow, HARD_MAX_LOSS_SOL, HARD_STAKE_SOL, HARD_MAX_OPEN, WALLETS, stepOf, _test } = await import("./slowlive.js");
+const { parseSlowLive, slowLiveSummary, onSwap, sweep, recover, startSlowLive, wallets, rested, realWinner, losingRun, realOf, oneStake, resultOf, heldCopies, saleRefused, GIVE_UP_ROUNDS, RETRY_MS, RETRY_UNSOLD_MS, UNSOLD_DAYS, LEVEL_STAKES, takenVsSkipped, openNow, HARD_MAX_LOSS_SOL, HARD_STAKE_SOL, HARD_MAX_OPEN, WALLETS, stepOf, _test } = await import("./slowlive.js");
 const { _test: run } = await import("./copyrun.js");
 const { buildSigned, wallet } = await import("./keys.js");
 const { base58 } = await import("./whirlpool.js");
 const slow = await import("./slow.js");
+const exits = await import("./slowexits.js");
 type Cfg = import("./slowlive.js").SlowLiveConfig;
 
 const SYSTEM = "11111111111111111111111111111111";
@@ -39,6 +40,10 @@ function chain(worth: (mint: string) => number, lamports = 0.08e9) {
     txs: new Map<string, { pre: number; post: number; ok: boolean }>(),
     /** buys that never land */
     lost: false,
+    /** set by a test: the price service answers a quote with this HTTP status (and its own error code) */
+    refuse: null as null | ((kind: "buy" | "sell") => { status: number; code?: string } | null),
+    /** sales that land but fail on the chain (the coin stays in the wallet) */
+    failSell: false,
     /** the leader's own transactions, as the history reader returns them */
     leaderTxs: [] as unknown[],
     apply(sig: string, delta: number, ok: boolean) {
@@ -53,6 +58,8 @@ function chain(worth: (mint: string) => number, lamports = 0.08e9) {
       c.quotes++;
       const u = new URL(url).searchParams;
       const [i, o] = [u.get("inputMint")!, u.get("outputMint")!];
+      const no = c.refuse?.(i === SOLMINT ? "buy" : "sell");
+      if (no) return new Response(JSON.stringify({ errorCode: no.code ?? "" }), { status: no.status });
       return json(i === SOLMINT ? { outAmount: "1000", inputMint: i, outputMint: o } : { outAmount: String(Math.round(worth(i) * 1e9)), inputMint: i, outputMint: o });
     }
     if (url.includes("/swap/v1/swap")) {
@@ -77,7 +84,7 @@ function chain(worth: (mint: string) => number, lamports = 0.08e9) {
         c.held.set(b.mint, 1000n);
         c.apply(sig, -(0.01e9 + FEE + RENT), true);
       } else if (b?.kind === "sell") {
-        const ok = (c.held.get(b.mint) ?? 0n) > 0n;
+        const ok = !c.failSell && (c.held.get(b.mint) ?? 0n) > 0n;
         if (ok) c.held.set(b.mint, 0n);
         c.apply(sig, ok ? b.out - FEE : -FEE, ok);
       } else {
@@ -175,7 +182,7 @@ test("real day-holder copy: copies the wallets proven on paper, adapts as the li
   // rested (cut the losers): 5+ real copies in the last 7 days and behind, however many won; older ones do not count
   const row = (name: string, t: number, netSol: number) => ({ t, name, mint: "x", leaderSol: 1, buy: "landed" as const, exit: "sold" as const, heldMin: 60, netSol, sigs: [] as string[] });
   const now = Date.now();
-  for (let i = 0; i < 4; i++) _test.state().rows.push(row("coin buyer Pro2", now - i * 60_000, i < 3 ? 0.001 : -0.004));
+  for (let i = 0; i < 4; i++) _test.state().rows.push(row("coin buyer Pro2", now - i * 60_000, i < 3 ? 0.001 : -0.005));
   assert.equal(rested("coin buyer Pro2"), false, "four copies: paper still decides");
   _test.state().rows.push(row("coin buyer Pro2", now, 0.0005));
   assert.equal(rested("coin buyer Pro2"), true, "five copies, four won, behind");
@@ -823,5 +830,191 @@ test("a copy counted twice is counted once at the next start, and only once", as
   _test.reload();
   assert.equal(_test.state().rows.length, 3);
   assert.equal(_test.state().netSol, 0.000208);
+  _test.reset();
+});
+
+// ---- 16 Nov 2026, after the review of the real-first rule: the follow-ups, each through the made-up chain -------------
+test("real day-holder copy: a buy quote refused for asking too fast is asked again, twice at most; any other refusal is not", async () => {
+  fresh();
+  const c = chain(() => 0.012);
+  const C1 = "W8it111111111111111111111111111111111111111";
+  const C2 = "Mint2222222222222222222222222222222222222222";
+  let no = 1;
+  c.refuse = (kind) => (kind === "buy" && no-- > 0 ? { status: 429 } : null);
+  onSwap(swap(L1, A, true));
+  await wait(2200);
+  assert.deepEqual([_test.state().opens[0]?.stage, _test.state().buyRefused, _test.state().notSent], ["held", 1, 0], "refused once, asked again, bought");
+  assert.equal(_test.state().opens[0].tokens, "1000", "the amount the paper sale study asks its quotes for");
+  // refused three times in a row: let go, and every refusal counted
+  no = 3;
+  onSwap(swap(L1, C1, true));
+  await wait(2500);
+  assert.deepEqual([_test.state().opens.length, _test.state().buyRefused, _test.state().notSent, no], [1, 4, 1, 0]);
+  // a coin with no route: asked once, let go
+  const q0 = c.quotes;
+  c.refuse = (kind) => (kind === "buy" ? { status: 400, code: "COULD_NOT_FIND_ANY_ROUTE" } : null);
+  onSwap(swap(L1, C2, true));
+  await wait(1800);
+  assert.deepEqual([_test.state().opens.length, c.quotes - q0, _test.state().buyRefused, _test.state().notSent], [1, 1, 4, 2]);
+  const s = slowLiveSummary();
+  assert.deepEqual([s.buyRefused, s.notSent, s.unsold], [4, 2, 0]);
+  _test.reset();
+});
+
+test("real day-holder copy: a sale round lost to the network is not a failed sale; a coin given up as unsellable is still tried, and sold when a route comes back", async () => {
+  // which errors say the SALE was refused, and which only that a request did not get through
+  assert.deepEqual(
+    ["no sell quote", "sale failed on the chain", "jupiter /swap/v1/quote http 400 COULD_NOT_FIND_ANY_ROUTE", "jupiter /swap/v1/swap http 400", "jupiter /swap/v1/swap http 422"].map((m) => saleRefused(new Error(m))),
+    [true, true, true, true, true],
+  );
+  assert.deepEqual(
+    ["jupiter /swap/v1/quote http 429", "jupiter /swap/v1/quote http 401", "jupiter /swap/v1/quote http 403", "jupiter /swap/v1/quote http 502", "rpc getTokenAccountsByOwner http 400", "The operation was aborted due to timeout", "fetch failed"].map((m) => saleRefused(new Error(m))),
+    [false, false, false, false, false, false, false],
+  );
+  fresh();
+  const c = chain(() => 0.012);
+  const name = WALLETS[0].name;
+  c.held.set(B, 1000n);
+  _test.state().opens.push({ wallet: L1, name, mint: B, leaderSol: 0.3, seenMs: Date.now() - 600_000, boughtMs: Date.now() - 590_000, soldSeenMs: Date.now() - 1000, stakeSol: 0.01, stage: "held", sigs: [], sellRounds: 0 });
+  const p = _test.state().opens[0];
+  const who = { name, address: L1 };
+  // 1. the price service refuses every ask of a round for asking too fast: nothing is learned about the coin
+  c.refuse = (kind) => (kind === "sell" ? { status: 429 } : null);
+  await _test.sell(p, "sold");
+  assert.deepEqual([p.stage, p.sellRounds, p.failRounds], ["held", 1, 0]);
+  assert.ok(Math.abs(p.nextTryMs! - Date.now() - RETRY_MS) < 5000, "tried again ten minutes later");
+  // however many rounds the network eats, the coin is not counted as lost
+  p.sellRounds = 40;
+  assert.deepEqual([realOf(who).n, slowLiveSummary().unsold, resultOf(B, p.seenMs)], [0, 0, undefined]);
+  // 2. the sale lands and fails on the chain: that is the sale itself
+  c.refuse = null;
+  c.failSell = true;
+  await _test.sell(p, "sold");
+  assert.deepEqual([p.stage, p.sellRounds, p.failRounds, c.held.get(B)], ["held", 41, 1, 1000n]);
+  c.failSell = false;
+  // 3. no route, for the round that makes it GIVE_UP_ROUNDS: now the coin counts as a lost stake, and is tried again hours later
+  p.failRounds = GIVE_UP_ROUNDS - 1;
+  c.refuse = (kind) => (kind === "sell" ? { status: 400, code: "COULD_NOT_FIND_ANY_ROUTE" } : null);
+  await _test.sell(p, "sold");
+  assert.deepEqual([p.stage, p.failRounds], ["held", GIVE_UP_ROUNDS]);
+  assert.ok(Math.abs(p.nextTryMs! - Date.now() - RETRY_UNSOLD_MS) < 5000, "tried again three hours later");
+  assert.ok(Math.abs(p.unsoldMs! - Date.now()) < 5000, "the clock of an unsellable coin starts");
+  const lost = realOf(who);
+  assert.deepEqual([lost.n, lost.won, Math.round(lost.netSol * 1e6), slowLiveSummary().unsold], [1, 0, -Math.round((0.01 + 0.00204) * 1e6), 1]);
+  assert.equal(resultOf(B, p.seenMs)?.unsold, true);
+  // not before its time; and a week after it was given up, not at all
+  const q0 = c.quotes;
+  sweep();
+  sweep(p.unsoldMs! + UNSOLD_DAYS * 86_400_000 + 1);
+  await wait(300);
+  assert.equal(c.quotes, q0);
+  // a round of an unsellable coin is two tries, not six: a sale that lands and fails costs a fee each try
+  c.refuse = null;
+  c.failSell = true;
+  const s0 = c.sends;
+  await _test.sell(p, "sold");
+  assert.deepEqual([c.txs.size, p.failRounds, c.sends > s0], [6 + 2, GIVE_UP_ROUNDS + 1, true]);
+  c.failSell = false;
+  // 4. hours later a route is back: the sweep's try sells it, and the record takes the real result in place of the lost stake
+  c.refuse = null;
+  p.nextTryMs = Date.now() - 1;
+  sweep();
+  for (let i = 0; i < 80 && _test.state().opens.length; i++) await wait(100);
+  const row = _test.state().rows.at(-1)!;
+  const after = realOf(who);
+  assert.deepEqual([_test.state().opens.length, row.exit, row.buy, c.held.has(B)], [0, "sold", "landed", false]);
+  assert.deepEqual([after.n, after.netSol, slowLiveSummary().unsold, resultOf(B, row.t)?.unsold], [1, row.netSol, 0, undefined]);
+  _test.reset();
+});
+
+test("real day-holder copy: a margin around the zero line; two wallets under one screen name are kept apart; a winner a screen holds back stays on the watch", async () => {
+  fresh({ ...CFG, follow: "proven" });
+  chain(() => 0.012);
+  slow._test.reset();
+  const st = slow._test.state();
+  const ws = (bot?: boolean) => ({ name: "w", doneAt: Date.now(), newest: 0, txPerDay: 10, buysPerDay: 2, spanDays: 30, ...(bot ? { bot } : {}), swaps: [], late: {} });
+  const row = (name: string, i: number, netSol: number, wallet?: string) => ({ t: Date.now() - i * 60_000, name, ...(wallet ? { wallet } : {}), mint: "x", leaderSol: 1, buy: "landed" as const, exit: "sold" as const, heldMin: 60, netSol, sigs: [] as string[] });
+  const rows = _test.state().rows;
+  // 1. the margin: LEVEL_STAKES of a stake (0.001 SOL at the first stake, 0.01) either side of level is neither behind nor ahead
+  const set = (net: number) => {
+    rows.length = 0;
+    for (let i = 0; i < 5; i++) rows.push(row("coin buyer Edge", i, i === 0 ? net : 0));
+    return [rested("coin buyer Edge"), realWinner("coin buyer Edge")];
+  };
+  assert.deepEqual([set(-0.0012), set(-0.0008), set(0), set(0.0008), set(0.0012)], [[true, false], [false, false], [false, false], [false, false], [false, true]]);
+  assert.equal(LEVEL_STAKES * oneStake("coin buyer Edge"), 0.001);
+  rows.length = 0;
+  // 2. two wallets the scan gave the same four letters: each has its own record, its own state and its own place on the list
+  const S1 = "Same1111111111111111111111111111111111111111";
+  const S2 = "Same2222222222222222222222222222222222222222";
+  const H1 = "Hold1111111111111111111111111111111111111111";
+  st.wallets[S1] = ws() as never;
+  st.wallets[S2] = ws() as never;
+  st.wallets[H1] = ws(true) as never; // filed as a program by the scan
+  for (let i = 0; i < 6; i++) rows.push(row("coin buyer Same", i, 0.002, S1), row("coin buyer Same", i, -0.003, S2), row("coin buyer Hold", i, 0.004, H1));
+  const [a, b] = [realOf({ name: "coin buyer Same", address: S1 }), realOf({ name: "coin buyer Same", address: S2 })];
+  assert.deepEqual([a.n, a.won, b.n, b.won], [6, 6, 6, 0]);
+  assert.deepEqual([realWinner({ name: "coin buyer Same", address: S1 }), rested({ name: "coin buyer Same", address: S1 }), realWinner({ name: "coin buyer Same", address: S2 }), rested({ name: "coin buyer Same", address: S2 })], [true, false, false, true]);
+  _test.relist();
+  assert.deepEqual(wallets().map((w) => [w.address, w.by]), [[S1, "real"]], "the winner of the two is kept; the loser and the program are not");
+  const s = slowLiveSummary();
+  assert.deepEqual(s.byWallet.map((x) => [x.name, x.state, x.copies, x.won]).sort(), [["coin buyer Hold", "held back", 6, 6], ["coin buyer Same", "kept on real", 6, 6], ["coin buyer Same", "rested on real", 6, 0]]);
+  assert.ok(![S1, S2, H1].some((x) => JSON.stringify(s).includes(x)), "names only in the public summary");
+  // the winner's buy is copied, the loser's is not, though both carry the same name
+  onSwap(swap(S2, B, true));
+  onSwap(swap(H1, B, true));
+  assert.equal(_test.state().opens.length, 0, "the loser of the two, and the winner a screen holds back: not copied");
+  onSwap(swap(S1, A, true));
+  assert.equal(_test.state().opens.length, 1);
+  // 3. the held-back winner is not copied, but the scan keeps reading it daily: the day its screen clears it is copied at once
+  startSlowLive();
+  slow._test.setCfg({ rpcUrl: () => null, fetch: () => fetch, listed: () => [], busy: () => [], quote: async () => null });
+  assert.deepEqual([S1, H1, S2].map((x) => slow.slowWatch().includes(x)), [true, true, false]);
+  st.wallets[H1] = ws() as never;
+  _test.relist();
+  assert.deepEqual(wallets().map((w) => w.address).sort(), [H1, S1].sort());
+  await wait(1500);
+  slow._test.reset();
+  slow._test.setCfg(null);
+  _test.reset();
+});
+
+test("real day-holder copy and the paper sale study, end to end: bought, polled, sold, and every rule scored against what the copy really made", async () => {
+  fresh();
+  const c = chain(() => 0.012);
+  exits._test.reset();
+  exits.setExitSource({ held: heldCopies, resultOf });
+  // what the study's sell quote says at each poll, SOL for the 1000 tokens bought with 0.01: +60%, then +25%
+  const polls = [0.016, 0.0125];
+  const asked: string[] = [];
+  exits._test.setQuote(async (mint, _out, amount) => {
+    asked.push(`${mint}|${amount}`);
+    return BigInt(Math.round(polls.shift()! * 1e9));
+  });
+  onSwap(swap(L1, A, true));
+  await wait(1500);
+  assert.deepEqual(heldCopies().map((h) => [h.mint, h.stakeSol, h.tokens]), [[A, 0.01, "1000"]]);
+  const now = Date.now();
+  await exits.tick(now);
+  await exits.tick(now + exits.POLL_MS);
+  assert.deepEqual(asked, [`${A}|1000`, `${A}|1000`]);
+  assert.deepEqual([exits.slowExitsSummary().open.n, exits.slowExitsSummary().copies], [1, 0]);
+  // the copied wallet sells: ours is sold for 0.012 (+20% before fees) and its row is written
+  onSwap(swap(L1, A, false));
+  await wait(3000);
+  const row = _test.state().rows[0];
+  assert.deepEqual([_test.state().opens.length, row.exit, heldCopies().length], [0, "sold", 0]);
+  assert.deepEqual(resultOf(A, row.t), { netSol: row.netSol, stakeSol: 0.01, heldMin: row.heldMin, exit: "sold" });
+  await exits.tick(now + 2 * exits.POLL_MS);
+  const s = exits.slowExitsSummary();
+  assert.deepEqual([s.copies, s.open.n, s.real.won, s.real.netSol], [1, 0, 1, row.netSol]);
+  const by = Object.fromEntries(s.rules.map((r) => [r.id, r]));
+  // sold at +50% would have kept the +60% of the first poll; the +100% line was never reached
+  assert.deepEqual([by["take-50"].fired, by["take-100"].fired, by["stop-30"].fired], [1, 0, 0]);
+  assert.ok(by["take-50"].vsRealSol > 0.003, "the take-profit beats the real sale here");
+  // the summary slowlive publishes carries the same study
+  assert.equal(slowLiveSummary().exits?.copies, 1);
+  exits.setExitSource(null);
+  exits._test.reset();
   _test.reset();
 });
