@@ -1049,7 +1049,9 @@ async function loop() {
  * as a flipper or as far from the bar: real money follows it, perhaps on its real record alone (slowlive.ts), and the
  * safety screens (copySafe) must not be judged on a read two weeks old.
  */
-const dueNow = (st: WState | undefined, nowMs: number, real = false) => !st || !!st.redo || nowMs - st.doneAt >= (st.bot ? BOT_REFRESH_MS : (st.fast || st.out) && !real ? OUT_REFRESH_MS : REFRESH_MS);
+// a wallet on the real watch is re-read daily whatever it was filed as: a real winner held back as a bot (or as fast,
+// or out) is judged again on a fresh read, so it comes back the day that screen clears (review of 16 Nov 2026)
+const dueNow = (st: WState | undefined, nowMs: number, real = false) => !st || !!st.redo || nowMs - st.doneAt >= (real ? REFRESH_MS : st.bot ? BOT_REFRESH_MS : st.fast || st.out ? OUT_REFRESH_MS : REFRESH_MS);
 /** One pass's wallets: those whose swaps we keep (passing or near) and the real copy's first, then the never read, then the stale rest. */
 function dueWallets(max = WALLETS_PER_PASS): Cand[] {
   const now = Date.now();
