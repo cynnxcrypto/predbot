@@ -66,9 +66,9 @@ def _kst_day(ms):
 def public_solana(sc):
     """16 Nov 2026 (privacy): on this public file the moment of a real trade of the two strategy wallets (spot rules,
     perps), with its coin, would be enough to find the wallet on the chain. Their results and counts stay; the trade
-    times go, a perp's entry price is cut to 3 figures, and the gas swap and top-ups keep only what they were. Each
-    side's "today" (the dashboard card's figure: rows by the KST day of their time) is worked out here first. A copy:
-    the bot's own data is not touched. The spot copy's own summary was public-safe from the start (no coin with a time)."""
+    times go, an open perp keeps only its rule, coin, side and stage, and the gas swap and top-ups keep only what
+    they were. Each side's "today" (the dashboard card's figure: rows by the KST day of their time) is worked out here
+    first. A copy: the bot's own data is not touched. The spot copy's own summary was public-safe from the start (no coin with a time)."""
     if not isinstance(sc, dict):
         return sc
     sc = json.loads(json.dumps(sc))
@@ -85,8 +85,17 @@ def public_solana(sc):
         opens = [o for o in real.get("opens") or [] if isinstance(o, dict)] + ([real["open"]] if isinstance(real.get("open"), dict) else [])
         for o in opens:
             o.pop("since", None)
-            if isinstance(o.get("entryPrice"), (int, float)) and o["entryPrice"]:
-                o["entryPrice"] = float(f"{o['entryPrice']:.3g}")
+            # review of 16 Nov 2026: an open perp's size (to the cent, as Jupiter stores it on the position), or its
+            # leverage with the published collateral, finds the position on the chain in one search, and its owner is
+            # the wallet; the unrealised result with its time and the public price give the entry back however it is
+            # rounded. An open position here keeps only its rule, coin, side and stage.
+            for k in ("sizeUsd", "collateralUsd", "leverage", "entryPrice", "unrealisedUsd", "pricedAt"):
+                o.pop(k, None)
+        if key == "netUsd":
+            # the totals over the open perps are one position's figures when one is open: whole dollars only
+            for k in ("inPositionsUsd", "unrealisedUsd"):
+                if isinstance(real.get(k), (int, float)):
+                    real[k] = round(real[k])
         for k in ("test", "testLong"):
             t = real.get(k)
             if isinstance(t, dict):
