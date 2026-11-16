@@ -115,10 +115,8 @@
     "tennis": {
       "note": "10 Nov 2026 17:28 KST, enrique: start tennis. Real copy of the paper tennis favourite rules (mid 90-95c, 10 min before the start, ask within 2c of mid). $3 a bet, Jev sizing off, only when $25+ rests within 2c of the ask. Guards: 2 losses in a KST day stop it until the next day, 4 bets open at most, its own budget of $10 (enrique 17:56 KST: 10usd for tennis is totally fine, outside of what i said for crypto; lost + open stakes), separate from the crypto $70 cap (enrique 17:45 KST: tennis should have its own little budget). 11 Nov 2026 19:46 KST, enrique: extend tennis budget risk to 30 so there can be 10 different bets online instead of just 3: budget $10 -> $30, bets open at most 4 -> 10; $3 a bet and the 2-losses-a-day stop unchanged. 13 Nov 2026 14:06 KST, enrique: 'it makes literal no sense to just do trades until we lose twice and stop until next day, u have to either decide to stop for good or continue': the 2-losses-a-day pause is gone (dayLosses 99 = not a stop); the $30 budget is the only stop and ends it for good. 13 Nov 2026 17:10 KST, enrique: 'okay if tennis goes -10 then stop it': stopNet 10 = no new tennis bet once the settled real result is -$10 or worse, for good until his word; open bets settle. maxLoss 30 -> 45 only so that 10 open bets still fit next to that stop (it is no longer the stop). Code src/eventlive.ts.",
       "itfNote": "16 Nov 2026 11:30 KST review (MAIN), on enrique's rule of 11:04 KST 'real is more important' / 'cut loser': tennis-itf-fav90 is BACK ON PAPER. Its real record is 51 settled, 47 won, -$3.81: the wins at 90-96c do not pay for the losses, and 51 real bets are enough to say so. ATP (7 real bets, -$0.20) and WTA (2, +$0.37) stay at $3: too few real bets to judge. To bring ITF back, add it to rules again.",
-      "rules": [
-        "tennis-wta-fav90",
-        "tennis-atp-fav90"
-      ],
+      "cutNote": "17 Nov 2026 04:20 KST review (MAIN), on enrique's word of 16 Nov 19:48 KST 'when something in particular loses, it's cut': tennis favourites (WTA and ATP 90c) are BACK ON PAPER, so no real tennis favourite is left. Real record 70 settled, 64 won, -$4.94 (ITF -$3.81 on 51, cut 16 Nov; WTA and ATP about -$1.13 on 19). Wins at 90-96c do not pay for the losses. Open bets settle. The tennis resting bids (tennisrest, +$9.36 on 29) stay real. To bring a rule back, add it to rules again.",
+      "rules": [],
       "size": 3,
       "maxAsk": 0.96,
       "minDepth": 25,
