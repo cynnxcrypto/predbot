@@ -237,7 +237,9 @@ export function walletDays(wh: WalletPoint[], fl: Flow[], now: (number | null)[]
         else if (!a && p[0] < m + 86_400_000) a = p;
         if (p[0] <= m + 86_400_000) b = p;
       }
-      if (!a || !b || a[0] >= m + 86_400_000) return;
+      // no reading from near that midnight: no worth change for this wallet that day (a part day would pass a few
+      // hours off as the day; 16 Nov 2026: today's lines read +$8 against a day of -$20)
+      if (!a || !b || a[0] > m + 30 * 60_000) return;
       const endT = d === 0 ? t : b[0];
       const end = d === 0 && now[i] != null ? (now[i] as number) : (b[i + 1] as number);
       const put = fl.reduce((x, f) => x + (f[2] === label && f[0] > a![0] && f[0] <= endT ? f[1] : 0), 0);
@@ -249,10 +251,23 @@ export function walletDays(wh: WalletPoint[], fl: Flow[], now: (number | null)[]
 }
 /** The day-by-day panel's real figures, from the last full reading (the "today" rule). */
 let dayMemo: { at: number; v: { worthDays: ReturnType<typeof worthDays>; walletDays: ReturnType<typeof walletDays> } } | null = null;
+/**
+ * When every wallet has its own change for the day, the day's change is their sum, so the overview and the four
+ * wallet cards agree to the cent (16 Nov 2026, enrique: "not even this sums up properly"). Pure.
+ */
+export function sumOfWallets<T extends { usd: number }>(all: T | null, w: Record<string, { usd: number } | null>): T | null {
+  if (!all || !WALLETS.every(([k]) => w[k] != null)) return all;
+  return { ...all, usd: Math.round(WALLETS.reduce((a, [k]) => a + (w[k] as { usd: number }).usd, 0) * 100) / 100 };
+}
+export function daySum<T extends { usd: number }>(d: T, w: Record<string, { usd: number }> | undefined): T & { summed?: boolean } {
+  const s = sumOfWallets(d, w ?? {});
+  return s === d ? d : { ...(s as T), summed: true };
+}
 function dayView() {
   if (dayMemo && Date.now() - dayMemo.at < 60_000) return dayMemo.v;
   const w = wallHist[wallHist.length - 1];
-  const v = { worthDays: worthDays(fullSeries(), null, Date.now()), walletDays: w ? walletDays(wallHist, flows, w.slice(1) as (number | null)[], Date.now()) : {} };
+  const wd = w ? walletDays(wallHist, flows, w.slice(1) as (number | null)[], Date.now()) : {};
+  const v = { worthDays: worthDays(fullSeries(), null, Date.now()).map((d) => daySum(d, wd[d.day])), walletDays: wd };
   dayMemo = { at: Date.now(), v };
   return v;
 }
@@ -429,7 +444,8 @@ export async function worthView(cash: number | null, claim: number, solBal: numb
     const all = total != null ? worthToday(fullSeries(), total, Date.now()) : null;
     // a partial reading (bets or coins not priced, the SOL balance not read) gives no new "today": the last full one is
     // kept, as the chart keeps no sample from it (16 Nov 2026: after a restart unpriced coins read as -$84 today)
-    const today = priced ? { all, ...walletsToday(wallHist, flows, wn, Date.now()) } : (memo?.v.today ?? undefined);
+    const wt = priced ? walletsToday(wallHist, flows, wn, Date.now()) : null;
+    const today = wt ? { all: sumOfWallets(all, wt), ...wt } : (memo?.v.today ?? undefined);
     memo = { at: Date.now(), v: { at: Date.now(), total, cash, claim, bets: bets.value, betsN: bets.n, betsStake: bets.stake, days: bets.days, solBal, coinsSol: Math.round(coinsSol * 1e4) / 1e4, coinsN: open.length, solUsd: px, rulesUsd, perpsUsd, parts, rulesPos, perpsPos, today } };
     if (total != null && priced) full = { at: Date.now(), total };
     const last = hist[hist.length - 1];

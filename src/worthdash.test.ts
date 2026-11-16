@@ -133,8 +133,8 @@ test("worth: each KST day's real change, whole account and per wallet", () => {
   const wh: WalletPoint[] = [[mid - 12 * H, 100, 50, null, 90], [mid - 60_000, 110, 48, null, 90], [mid + H, 105, 47, 30, 90]];
   const w = walletDays(wh, [[mid + 2 * H, 20, "Polymarket"]], [130, 46, 31, 91], now);
   assert.deepEqual(w["2026-11-16"].poly, { usd: 0, part: false });
-  assert.deepEqual(w["2026-11-16"].sr, { usd: 1, part: true });
-  assert.deepEqual(w["2026-11-15"].sc, { usd: -2, part: true });
+  assert.equal(w["2026-11-16"].sr, undefined); // no reading near midnight: no change for that wallet
+  assert.equal(w["2026-11-15"]?.sc, undefined);
 });
 
 test("wallet seed fills readings before the first sample, never over one", async () => {
@@ -149,4 +149,13 @@ test("wallet seed fills readings before the first sample, never over one", async
   assert.equal(t.poly?.usd, -30);
   assert.equal(t.sc?.usd, -6);
   assert.equal(t.sr, null);
+});
+
+test("a day's change is the sum of the wallets' changes once all four have one", async () => {
+  const { sumOfWallets, daySum } = await import("./worthdash.js");
+  const all = { usd: -18.12, at: 1 };
+  assert.equal(sumOfWallets(all, { poly: { usd: -10 }, sc: { usd: -4.11 }, sr: null, pp: { usd: 0 } }), all);
+  assert.equal(sumOfWallets(all, { poly: { usd: -10 }, sc: { usd: -4.11 }, sr: { usd: 0.5 }, pp: { usd: -0.02 } })?.usd, -13.63);
+  assert.equal(daySum({ day: "x", usd: 5 }, undefined).usd, 5);
+  assert.equal(daySum({ day: "x", usd: 5 }, { poly: { usd: 1 }, sc: { usd: 1 }, sr: { usd: 1 }, pp: { usd: 1 } }).summed, true);
 });
