@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { streamRow } from "./pmstream.js";
-import { copyBuys, copyGapSummary, copySells, type PaperTrade } from "./eventpaper.js";
+import { copyBuys, copyGapSummary, copySells, gapC, type PaperTrade } from "./eventpaper.js";
 
 const COND = "0x" + "ab".repeat(32);
 const W = "0x" + "12".repeat(20);
@@ -40,11 +40,43 @@ test("gap summary: buckets by cents above the wallet, real twins and sold-with-t
   const g = copyGapSummary(trades, real as never, { "copy-take-a|m0.6|0|1010": { t: 2, bid: 0.55, their: 0.56 } });
   assert.equal(g.paper.n, 3);
   assert.equal(g.paper.byGap[0].n, 1); // at or under the wallet's price
-  assert.equal(g.paper.byGap[3].n, 1); // 10c above: 5-10 bucket is [5,10), 10 goes to the last one
+  assert.equal(g.paper.byGap[3].n, 1); // exactly 10c above: the (5, 10] bucket
   assert.equal(g.paper.byGap[3].fromC, 5);
+  assert.equal(g.paper.byGap[4].n, 0);
   assert.equal(g.paper.byLag[0].n, 1);
   assert.equal(g.realCopies.matched, 1);
   assert.equal(g.sells.paper.n, 1);
   assert.equal(g.sells.paper.sellNet, -0.25); // 5 shares at 0.55 = 2.75 back on 3
   assert.equal(g.sells.real.sellNet, -0.25);
+});
+
+test("gaps are whole tenths of a cent: exact 2c / 5c / 10c land in the same bucket every time", () => {
+  assert.equal(gapC(0.6, 0.5), 10);
+  assert.equal(gapC(0.55, 0.45), 10);
+  assert.equal(gapC(0.07, 0.02), 5);
+  assert.equal(gapC(0.5, 0.52), -2);
+});
+
+test("orders_matched is not read as a trade; the traded token is kept for the side check", () => {
+  const pay = { proxyWallet: W, conditionId: COND, outcomeIndex: 0, price: 0.5, size: 2, side: "BUY", timestamp: 1794800000, asset: "123" };
+  assert.equal(streamRow({ topic: "activity", type: "orders_matched", payload: pay }), null);
+  const got = streamRow({ topic: "activity", type: "trades", payload: pay });
+  assert.equal(got?.row.asset, "123");
+  assert.equal(copyBuys([got!.row as never], 0)[0].asset, "123");
+});
+
+test("real copy orders wait their turn instead of meeting each other in flight", async () => {
+  const { copyOrderTurn } = await import("./eventpaper.js");
+  let inFlight = 0;
+  let most = 0;
+  const order = (tag: string) => async () => {
+    inFlight++;
+    most = Math.max(most, inFlight);
+    await new Promise((r) => setTimeout(r, 20));
+    inFlight--;
+    return tag;
+  };
+  const got = await Promise.all([copyOrderTurn(order("a")), copyOrderTurn(order("b")), copyOrderTurn(async () => { throw new Error("x"); }).catch(() => "err"), copyOrderTurn(order("c"))]);
+  assert.deepEqual(got, ["a", "b", "err", "c"]);
+  assert.equal(most, 1);
 });
