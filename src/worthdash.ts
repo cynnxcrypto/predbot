@@ -291,6 +291,13 @@ export async function worthView(cash: number | null, claim: number, solBal: numb
     hist = (Array.isArray(f) ? f : (f.hist ?? [])).filter((p) => Array.isArray(p) && Number.isFinite(p[0]) && Number.isFinite(p[1]));
     back = Array.isArray(f) ? [] : (f.back ?? []);
     hist = despike(hist);
+    // 16 Nov 2026 17:24-18:00 KST: after two restarts the spot copy's coins went unpriced and counted as nothing (fixed
+    // in 235fa6ad), so those samples read up to $58 low with about $3 really lost. Taken out, so that no window (1 h,
+    // today, a card's today) is measured from them. Done at every load; nothing else falls in that half hour.
+    const badFrom = Date.UTC(2026, 10, 16, 8, 24);
+    const badTo = Date.UTC(2026, 10, 16, 9, 0);
+    hist = hist.filter((p) => p[0] < badFrom || p[0] > badTo);
+    wallHist = wallHist.filter((p) => p[0] < badFrom || p[0] > badTo);
     if (needJumps) flows = flowsFromJumps(hist);
     if (Array.isArray(f) || (f.v ?? 0) < 3) {
       const rep = repairClaims(hist, flows, loadSpans());
