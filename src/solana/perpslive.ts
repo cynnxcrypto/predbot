@@ -37,6 +37,7 @@
  *  - State is written before a transaction is sent and after every step, so a restart picks up where it stood.
  *  - The public status gets rule names and numbers only.
  */
+import { closeDays } from "./bucketslive.js";
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { DATA, ROOT } from "../config.js";
@@ -874,6 +875,8 @@ export function perpsLiveSummary() {
     gas: gasSummary(),
     // the real trades for the page, newest first
     rows: state.rows.slice(-40).reverse(),
+    // every day's closed real positions in dollars, the test trade left out
+    days: closeDays(state.rows.filter((x) => x.rule !== TEST_RULE), (x) => x.netUsd, (x) => x.filled !== false),
     // the one-time test trade: its name, when, and what it did to the wallet's USDC
     testLong: state.testLong ?? null,
     test: state.test ? { ...state.test, rows: state.rows.filter((x) => x.rule === TEST_RULE).map((x) => ({ t: x.t, filled: x.filled, netUsd: x.netUsd, heldH: x.heldH })) } : null,

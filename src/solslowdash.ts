@@ -135,16 +135,19 @@ function settledToday(st: { rows?: Row[]; netSol?: number }, kstDayOf: (ms: numb
   return r6(net - (k.startSol as number));
 }
 
-/** Every finished copy that landed, by the Korean day it closed (bought time plus minutes held), newest 30 days: what
- *  /api/solslow serves as days. Shared with the truth check (16 Nov 2026), which compares it with its own count. */
+/** Every finished copy, by the Korean day it closed (bought time plus minutes held), newest 30 days: what /api/solslow
+ *  serves as days. Counts and wins are landed copies only; the net also has the fees of buys that never landed, as the
+ *  books and the day's headline do (16 Nov 2026). Shared with the truth check (16 Nov 2026), which compares it with its own count. */
 export function slowDays(allRows: Row[]): { day: string; n: number; won: number; netSol: number }[] {
   const kstDayOf = (ms: number) => new Date(ms + 9 * 3600_000).toISOString().slice(0, 10);
   const m: Record<string, { n: number; won: number; netSol: number }> = {};
   for (const r of allRows) {
+    if (!Number.isFinite(r.t)) continue;
     const d = (m[kstDayOf(r.heldMin != null ? r.t + r.heldMin * 60_000 : r.t)] ??= { n: 0, won: 0, netSol: 0 });
+    d.netSol += Number(r.netSol) || 0;
+    if (r.buy !== "landed") continue;
     d.n++;
     if ((r.netSol || 0) > 0) d.won++;
-    d.netSol += r.netSol || 0;
   }
   return Object.keys(m).sort().reverse().slice(0, 30).map((day) => ({ day, n: m[day].n, won: m[day].won, netSol: Math.round(m[day].netSol * 1e6) / 1e6 }));
 }
@@ -154,7 +157,7 @@ export function slowDaysServed(): { day: string; n: number; won: number; netSol:
     const f = join(DATA, "solana-slowlive.json");
     if (!existsSync(f)) return null;
     const st = JSON.parse(readFileSync(f, "utf8")) as { rows?: Row[] };
-    return slowDays((Array.isArray(st.rows) ? st.rows : []).filter((r) => r.buy === "landed"));
+    return slowDays(Array.isArray(st.rows) ? st.rows : []);
   } catch {
     return null;
   }
@@ -205,7 +208,7 @@ export async function solSlowView(): Promise<unknown> {
     todayNetSol: settledToday(st, kstDayOf),
     todayNetSolRows: Math.round(rowsAll.filter((r) => kstDayOf(r.heldMin != null ? r.t + r.heldMin * 60_000 : r.t) === kstDayOf(Date.now())).reduce((x, r) => x + (Number(r.netSol) || 0), 0) * 1e6) / 1e6,
     // every finished copy by the Korean day it closed, newest 30 days (for the overview's day by day)
-    days: slowDays(allRows),
+    days: slowDays(rowsAll),
     todayN: allRows.filter((r) => kstDayOf(r.heldMin != null ? r.t + r.heldMin * 60_000 : r.t) === kstDayOf(Date.now())).length,
     closed: rows.slice().reverse().map((r) => ({ name: short(r.name), sym: sym(r.mint), ms: ms(r.mint), stakeSol: (r as { stakeSol?: number }).stakeSol ?? (r.t < STAKE_RAISED_MS ? 0.01 : null), t: r.t, closedAt: r.heldMin != null ? r.t + r.heldMin * 60_000 : null, exit: r.exit, heldMin: r.heldMin, netSol: r.netSol })),
   };

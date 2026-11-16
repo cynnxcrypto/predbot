@@ -333,13 +333,14 @@ function realRecord(group: string): unknown {
   const today = kstDay(Date.now());
   const r2 = (x: number) => Math.round(x * 100) / 100;
   type Agg = { trades: number; open: number; settled: number; won: number; net: number };
+  const rn = <A extends { net: number }>(a: A): A => ({ ...a, net: r2(a.net) });
   const z = (): Agg => ({ trades: 0, open: 0, settled: 0, won: 0, net: 0 });
   const add = (a: Agg, r: RealRow) => {
     a.trades++;
     if (r.pnl == null) a.open++;
     else {
       a.settled++;
-      a.net = r2(a.net + r.pnl);
+      a.net += r.pnl; // rounded once, when served (rounding every bet drifted the day's sum)
       if (r.pnl > 0) a.won++;
     }
   };
@@ -365,9 +366,9 @@ function realRecord(group: string): unknown {
     add((d.by[r.rule] ??= z()), r);
   }
   return {
-    byRule,
-    tot,
-    days: Object.keys(days).sort().reverse().slice(0, 30).map((day) => ({ day, ...days[day] })),
+    byRule: Object.fromEntries(Object.entries(byRule).map(([k, v]) => [k, { ...v, today: rn(v.today), all: rn(v.all) }])),
+    tot: { today: rn(tot.today), all: rn(tot.all) },
+    days: Object.keys(days).sort().reverse().slice(0, 30).map((day) => ({ day, ...rn(days[day]), by: Object.fromEntries(Object.entries(days[day].by).map(([k, v]) => [k, rn(v)])) })),
     // every settled bet, newest first by when it settled (the log above is by order time and mostly open bets)
     settled: rows
       .filter((r) => r.pnl != null)

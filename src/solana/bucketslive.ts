@@ -608,6 +608,22 @@ async function finish(d: LiveDeps, w: Wallet, p: Pos, buyState: Row["buy"]) {
   book(d, p, buyState, n9(r.sol + keepRent(rentMap(r))), false);
   await sweep(d); // empty accounts its swaps left (route coins; its own coin's, if that close did not go through), if no other trade is out
 }
+/** Closed real trades by the Korean day they closed (t is written at the close), newest 30 days: count, won and the
+ * net with every fee in (a buy that never landed counts its fees, not a trade). For the overview's day by day. */
+export function closeDays<R extends { t: number }>(rows: R[], net: (r: R) => number, counted: (r: R) => boolean) {
+  const m: Record<string, { n: number; won: number; net: number }> = {};
+  for (const r of rows) {
+    if (!Number.isFinite(r.t)) continue;
+    const d = (m[new Date(r.t + 9 * 3_600_000).toISOString().slice(0, 10)] ??= { n: 0, won: 0, net: 0 });
+    const v = Number(net(r)) || 0;
+    d.net += v;
+    if (counted(r)) {
+      d.n++;
+      if (v > 0) d.won++;
+    }
+  }
+  return Object.keys(m).sort().reverse().slice(0, 30).map((day) => ({ day, n: m[day].n, won: m[day].won, net: Math.round(m[day].net * 1e6) / 1e6 }));
+}
 /** Put a finished (or written-off) trade in the books and its rule's record; judge the rule and the loss cap. */
 function book(d: LiveDeps, p: Pos, buyState: Row["buy"], net: number, stuck: boolean) {
   state.netSol = n9(state.netSol + net);
@@ -740,6 +756,8 @@ export function bucketsLiveSummary() {
     // the real trades for the page: newest 40 closed and what is out now (rule and bucket only: no coin, no transaction,
     // and not the buy time a row keeps for its rule's record: beside the paper list that time would name the coin)
     rows: state.rows.slice(-40).reverse().map(({ at: _at, ...x }) => x),
+    // every day's closed real trades in SOL, the test trade left out
+    days: closeDays(state.rows.filter((x) => x.rule !== TEST_RULE), (x) => x.netSol, (x) => x.buy === "landed"),
     opens: state.opens.map((p) => ({ rule: p.rule, bucket: p.bucket, stage: p.stage, since: p.paperAt })),
     // the one-time test trade: its name, when, where it stands and what it did to the wallet (every fee in)
     test: state.test ? { ...state.test, open: state.opens.filter((p) => p.rule === TEST_RULE).map((p) => p.stage), rows: state.rows.filter((x) => x.rule === TEST_RULE).map((x) => ({ t: x.t, buy: x.buy, netSol: r6(x.netSol), heldMin: x.heldMin })) } : null,
