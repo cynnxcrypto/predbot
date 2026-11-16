@@ -346,45 +346,188 @@ test("buckets real: the rent of a coin account that could not be closed is in no
   assert.equal(L.bucketsLiveSummary().rentOutSol, 0);
 });
 
-test("buckets real: a coin that cannot be sold is written off into its rule's record, and a later sale is added to it", async () => {
+/** A world whose coin cannot be sold: Jupiter has no route (or the network fails) until `c2.route` is set. */
+function stuckWorld(back: number, cfg: Partial<Cfg> = {}) {
   const st = setup(paperTrades(120, 80), [paperOpen(T0)]);
-  const { c, deps } = world(0.004);
-  let route = false;
+  const w0 = world(back);
+  w0.c.cfg = { ...CFG, ...cfg };
+  const c2 = { route: false, down: false, failSells: false };
+  const { deps, c } = w0;
   const quote0 = deps.kit.quote;
-  deps.kit.quote = async (i, o, a, s) => (i === SOL || route ? quote0(i, o, a, s) : {});
+  deps.kit.quote = async (i, o, a, s) => {
+    if (c2.down && i !== SOL) throw new Error("429");
+    return i === SOL || c2.route ? quote0(i, o, a, s) : {};
+  };
+  const send0 = deps.kit.send;
+  deps.kit.send = async (tx) => {
+    const sig = deps.kit.sigOf(tx);
+    if (c2.failSells && c.built.get(sig) === "sell" && !c.delta.has(sig)) {
+      // a sale that lands and fails: it costs its fee, the coin stays
+      c.delta.set(sig, -0.00001);
+      c.sol -= 0.00001;
+      return;
+    }
+    return send0(tx);
+  };
+  const landed0 = deps.kit.landed;
+  deps.kit.landed = async (sig, ms) => (c2.failSells && c.built.get(sig) === "sell" && c.delta.has(sig) ? { slot: 1, err: "failed" } : landed0(sig, ms));
+  return { st, c, c2, deps };
+}
+/** Sale tries, ten minutes apart in the state's clock (the module reads Date.now(): the times are moved back instead). */
+async function tries(deps: LiveDeps, n: number, spanMs: number) {
+  for (let i = 0; i < n; i++) {
+    const p = L._test.state().opens[0];
+    if (!p) return;
+    if (p.firstDeadMs) p.firstDeadMs -= spanMs / n;
+    p.nextTryMs = 0;
+    await L.bucketsLiveTick(deps, T0 + 70_000 + i);
+  }
+}
+type LiveDeps = import("./bucketslive.js").LiveDeps;
+const STAKE_COST = 0.01 + 0.00204 + 0.00001;
+
+test("write-off: an outage or the bot being down never writes a coin off; only refusals over six hours, read back in full", async () => {
+  const { st, c, c2, deps } = stuckWorld(0.0112);
+  await L.bucketsLiveTick(deps, T0 + 5000);
+  st.open = [];
+  // seven hours of 429s: nothing counts
+  c2.down = true;
+  await tries(deps, 40, 7 * 3_600_000);
+  assert.equal(L._test.state().opens.length, 1);
+  assert.equal(L._test.state().opens[0].deadSales ?? 0, 0);
+  // no route, 11 times over seven hours: not yet
+  c2.down = false;
+  await tries(deps, 11, 7 * 3_600_000);
+  assert.equal(L._test.state().opens[0].deadSales, 11);
+  assert.equal(L._test.state().rows.length, 0);
+  // the 12th, but a transaction cannot be read back: not booked from a guess
+  c.unreadable = true;
+  await tries(deps, 1, 0);
+  assert.equal(L._test.state().opens.length, 1);
+  assert.equal(L._test.state().rows.length, 0);
+  c.unreadable = false;
+  await tries(deps, 1, 0);
+  const s = L._test.state();
+  assert.equal(s.opens.length, 0);
+  assert.equal(s.stuck?.length, 1);
+  assert.equal(s.rows[0].stuck, true);
+  assert.ok(Math.abs(s.rows[0].netSol + STAKE_COST) < 1e-9);
+  assert.ok(Math.abs(s.netSol + STAKE_COST) < 1e-9);
+});
+
+test("write-off: every hourly try's fee is booked, tries are capped, a read that fails books nothing, and a sale books the true total", async () => {
+  const { st, c, c2, deps } = stuckWorld(0.0112);
+  await L.bucketsLiveTick(deps, T0 + 5000);
+  st.open = [];
+  c2.failSells = true;
+  c2.route = true; // a route exists, but every sale lands and fails
+  await tries(deps, 12, 7 * 3_600_000);
+  let s = L._test.state();
+  assert.equal(s.stuck?.length, 1, "sales that landed and failed count");
+  const failedFees = c.delta.size - 1; // every transaction but the buy was a failed sale
+  assert.ok(Math.abs(s.rows[0].netSol - (-STAKE_COST - failedFees * 0.00001)) < 1e-9, "the failed sales' fees are in the write-off");
+  // three hourly tries that land and fail: each fee is booked, in the books and in the row
+  const tick = async () => {
+    L._test.state().stuck![0].nextTryMs = 0;
+    await L.bucketsLiveTick(deps, T0 + 90_000);
+  };
+  for (let i = 0; i < 3; i++) await tick();
+  s = L._test.state();
+  assert.equal(s.stuck![0].tries, 3);
+  assert.ok(Math.abs(s.rows[0].netSol - (-STAKE_COST - (failedFees + 3) * 0.00001)) < 1e-9);
+  assert.ok(Math.abs(s.netSol - s.rows[0].netSol) < 1e-9);
+  // a try whose transactions cannot be read: nothing is booked, and nothing is lost: the next read books it
+  c.unreadable = true;
+  await tick();
+  const mid = L._test.state().rows[0].netSol;
+  assert.ok(Math.abs(mid - (-STAKE_COST - (failedFees + 3) * 0.00001)) < 1e-9);
+  c.unreadable = false;
+  // it sells at last: the row and the books are what the wallet did, every fee in
+  c2.failSells = false;
+  await tick();
+  s = L._test.state();
+  assert.equal(s.stuck?.length, 0);
+  assert.equal(s.rows[0].recovered, true);
+  const truth = [...c.delta.values()].reduce((a, x) => a + x, 0);
+  assert.ok(Math.abs(s.rows[0].netSol - truth) < 1e-9, "the row equals the sum of every transaction of the coin");
+  assert.ok(Math.abs(s.netSol - truth) < 1e-9);
+});
+
+test("write-off: the tries stop at the cap", async () => {
+  const { st, c, c2, deps } = stuckWorld(0.0112);
+  await L.bucketsLiveTick(deps, T0 + 5000);
+  st.open = [];
+  await tries(deps, 12, 7 * 3_600_000);
+  c2.route = true;
+  c2.failSells = true;
+  for (let i = 0; i < L.MAX_STUCK_TRIES + 3; i++) {
+    L._test.state().stuck![0].nextTryMs = 0;
+    await L.bucketsLiveTick(deps, T0 + 90_000);
+  }
+  assert.equal(L._test.state().stuck![0].tries, L.MAX_STUCK_TRIES);
+  assert.equal(L._test.state().stuck![0].gaveUp, true);
+  assert.equal(L.bucketsLiveSummary().stuckGaveUp, 1);
+  assert.equal(c.delta.size, 1 + L.MAX_STUCK_TRIES);
+});
+
+test("write-off: a cut and a stop it caused are undone when the coin sells after all", async () => {
+  const { st, c2, deps } = stuckWorld(0.0112, { ruleStopSol: 0.01, maxLossSol: 0.02 });
+  await L.bucketsLiveTick(deps, T0 + 5000);
+  st.open = [];
+  await tries(deps, 12, 7 * 3_600_000);
+  let s = L._test.state();
+  assert.ok(s.demoted[RULE] > 0, "the write-off reached the rule's stop");
+  assert.match(s.halted, /loss cap/);
+  c2.route = true;
+  s.stuck![0].nextTryMs = 0;
+  await L.bucketsLiveTick(deps, T0 + 90_000);
+  s = L._test.state();
+  assert.equal(s.stuck?.length, 0);
+  assert.ok(Math.abs(s.netSol - (0.0112 - 0.01 - 0.00002)) < 1e-9);
+  assert.equal(s.demoted[RULE], undefined, "the cut is taken back: the real result is a small gain");
+  assert.equal(s.halted, "", "and so is the stop");
+});
+
+test("rent: rentOutSol never goes below zero", async () => {
+  const st = setup(paperTrades(120, 80), [paperOpen(T0)]);
+  const { c, deps } = world(0.0112);
+  // an account left from before (its rent was booked as a loss then): this trade buys into it and closes it
+  let accts = 1;
+  deps.kit.held = async () => ({ amount: c.held, accounts: Array.from({ length: accts }) });
+  const close0 = deps.kit.closeEmpty;
+  deps.kit.closeEmpty = async (w, m, row) => {
+    await close0(w, m, row);
+    accts = 0;
+  };
   await L.bucketsLiveTick(deps, T0 + 5000);
   st.open = [];
   await L.bucketsLiveTick(deps, T0 + 65_000);
-  assert.deepEqual(L._test.state().opens.map((p) => p.stage), ["held"], "no route: still held, tried again later");
-  assert.equal(L._test.state().rows.length, 0);
-  // six hours of failed sales later
-  const p = L._test.state().opens[0];
-  p.sellFailMs = Date.now() - L.WRITE_OFF_MS - 1;
-  p.nextTryMs = 0;
-  await L.bucketsLiveTick(deps, T0 + 95_000);
-  let s = L._test.state();
-  assert.equal(s.opens.length, 0, "its place is free");
-  assert.equal(s.stuck?.length, 1);
-  assert.equal(s.rows.length, 1);
-  assert.equal(s.rows[0].stuck, true);
-  assert.ok(Math.abs(s.rows[0].netSol + (0.01 + 0.00204 + 0.00001)) < 1e-9, "the stake, the rent and the fee: all of it is in the rule's record");
-  assert.ok(Math.abs(s.netSol - s.rows[0].netSol) < 1e-9);
-  assert.equal(L.bucketsLiveSummary().stuck, 1);
-  assert.equal(L.bucketsLiveSummary().rules.find((x) => x.id === RULE)!.realTrades, 1);
-  // the same coin is not bought again while it is stuck
-  st.open = [paperOpen(T0 + 100_000)];
-  await L.bucketsLiveTick(deps, T0 + 105_000);
-  assert.equal(L._test.state().opens.length, 0);
+  const s = L._test.state();
+  assert.equal(s.rentOutSol ?? 0, 0);
+});
+
+test("rent: an account the swap routed through is closed at the end of the trade, inside its own transactions", async () => {
+  const st = setup(paperTrades(120, 80), [paperOpen(T0)]);
+  const { c, deps } = world(0.0112);
+  const send0 = deps.kit.send;
+  let route = 0;
+  deps.kit.send = async (tx) => {
+    const sig = deps.kit.sigOf(tx);
+    const fresh = !c.delta.has(sig) && c.built.get(sig) === "buy";
+    await send0(tx);
+    if (fresh) (c.delta.set(sig, c.delta.get(sig)! - 0.00204), (c.sol -= 0.00204), (route = 1)); // the buy also opened a route account
+  };
+  let kept: string[] = [];
+  deps.kit.closeSpare = async (_w, keep, sigs) => {
+    kept = keep;
+    if (!route) return;
+    route = 0;
+    c.delta.set("spare", 0.00204);
+    sigs.push("spare");
+  };
+  await L.bucketsLiveTick(deps, T0 + 5000);
   st.open = [];
-  // a route appears: sold at the hourly try, and what it brings is added to the same row
-  route = true;
-  L._test.state().stuck![0].nextTryMs = 0;
-  await L.bucketsLiveTick(deps, T0 + 135_000);
-  s = L._test.state();
-  assert.equal(s.stuck?.length, 0);
-  assert.equal(c.held, 0n);
-  assert.equal(s.rows.length, 1);
-  assert.equal(s.rows[0].recovered, true);
-  assert.ok(Math.abs(s.rows[0].netSol - (0.004 - 0.01 - 0.00002)) < 1e-9);
-  assert.ok(Math.abs(s.netSol - s.rows[0].netSol) < 1e-9, "the books and the row agree");
+  await L.bucketsLiveTick(deps, T0 + 65_000);
+  assert.deepEqual(kept, []);
+  assert.ok(Math.abs(L._test.state().rows[0].netSol - (0.0112 - 0.01 - 0.00002)) < 1e-9, "the route account's rent is back inside the trade");
 });

@@ -625,11 +625,11 @@ async function closeSpare(w: Wallet, sigs: string[]): Promise<number> {
     sweeping = false;
   }
 }
-async function closeSpareNow(w: Wallet, sigs: string[]): Promise<number> {
+async function closeSpareNow(w: Wallet, sigs: string[], keep?: string[]): Promise<number> {
   type Acc = { pubkey: string; account: { owner: string; data: { parsed: { info: { mint?: string; state?: string; tokenAmount: { amount: string } } } } } };
   const empty: { pubkey: string; program: string }[] = [];
   // never the account of a coin that is out or being bought at this moment: its buy may be built on that account
-  const inUse = (mint?: string) => !!mint && (state.open?.mint === mint || enteringMints.has(mint) || state.opens.some((o) => o.mint === mint));
+  const inUse = (mint?: string) => !!mint && (keep ? keep.includes(mint) : state.open?.mint === mint || enteringMints.has(mint) || state.opens.some((o) => o.mint === mint));
   for (const programId of TOKEN_PROGRAMS) {
     const r = await rpc<{ value: Acc[] }>("getTokenAccountsByOwner", [w.address, { programId }, { encoding: "jsonParsed", commitment: "confirmed" }]).catch(() => null);
     for (const a of r?.value ?? []) {
@@ -1653,7 +1653,9 @@ export function startSolanaCopyLive() {
  * The chain and price calls of this test, for the real day-holder copy (slowlive.ts), which uses the same wallet and
  * the same guards on what is signed. Nothing here changes how this test trades.
  */
-export const kit = { quote, swapTx, send, landed, held, sigOf, balance, booked, sellAll, closeEmpty };
+/** For the other Solana sides (their own wallets): close the wallet's empty coin accounts, except the coins in `keep`. */
+const closeSpareFor = (w: Wallet, keep: string[], sigs: string[]) => closeSpareNow(w, sigs, keep);
+export const kit = { quote, swapTx, send, landed, held, sigOf, balance, booked, sellAll, closeEmpty, closeSpare: closeSpareFor };
 
 /** Test hooks. */
 export const _test = {
