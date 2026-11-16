@@ -189,6 +189,35 @@ async function solRpc<T>(method: string, params: unknown[]): Promise<T> {
   return j.result;
 }
 const sleep = (ms: number) => new Promise((ok) => setTimeout(ok, ms));
+let dataWaits = [3_000, 10_000, 30_000];
+/** Polymarket's data API answers 429 when asked too often (16 Nov 2026 19:19 KST the positions read was refused that
+ *  way): wait and ask again, three times. Any other refusal is final. */
+async function getDataApi(url: string): Promise<unknown> {
+  for (let i = 0; ; i++) {
+    try {
+      return await getJson(url);
+    } catch (e) {
+      if (i >= dataWaits.length || !/http (429|5\d\d)/.test((e as Error).message)) throw e;
+      await sleep(dataWaits[i]);
+    }
+  }
+}
+/** One point of Polymarket's profit and loss series (data API v2 user-pnl); amounts cumulative, null = unavailable. */
+type PnlPoint = { timestamp?: number; economic_pnl?: number | null; position_pnl?: number | null; wallet_income?: number | null; unrealized_pnl?: number | null; fees?: number | null };
+const fin = (x: unknown): number | null => (x != null && Number.isFinite(Number(x)) ? Number(x) : null);
+/** Polymarket's all-in figure. Its docs: economic_pnl = position_pnl + wallet_income, position_pnl = realised +
+ *  unrealized_pnl, so the open bets at Polymarket's marks are already inside it (until 16 Nov 2026 19:45 KST this check
+ *  added unrealized_pnl a second time). */
+export function pnlOf(p: PnlPoint): number | null {
+  const e = fin(p.economic_pnl);
+  if (e != null) return e;
+  const pos = fin(p.position_pnl);
+  const inc = fin(p.wallet_income);
+  return pos != null && inc != null ? pos + inc : null;
+}
+/** Our "Polymarket all time" as each run saw it, so that a Polymarket point from hours ago is compared with ours from
+ *  the same time, not with ours now. Three days kept, in data/truth-alltime.json. */
+const SAMPLES = "truth-alltime.json";
 
 /** A Solana wallet as the chain has it: SOL, USD coins, and every other coin at a Jupiter sale quote (in SOL). */
 async function solWallet(address: string, tracked: Set<string>) {
@@ -286,7 +315,8 @@ export async function truthRun(now = Date.now()): Promise<typeof last> {
       const rows: Parameters<typeof splitPositions>[0] = [];
       let cursor = "";
       for (let page = 0; page < 15; page++) {
-        const j = (await getJson(`${DATA_API}/v2/positions?user=${funder}&limit=200${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`)) as { data?: Parameters<typeof splitPositions>[0]; pagination?: { next_cursor?: string | null } };
+        if (page) await sleep(500);
+        const j = (await getDataApi(`${DATA_API}/v2/positions?user=${funder}&limit=200${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`)) as { data?: Parameters<typeof splitPositions>[0]; pagination?: { next_cursor?: string | null } };
         if (!Array.isArray(j?.data)) throw new Error("positions not a list");
         rows.push(...j.data);
         cursor = j.pagination?.next_cursor ?? "";
@@ -296,20 +326,34 @@ export async function truthRun(now = Date.now()): Promise<typeof last> {
     } catch (e) {
       errors.push(`positions: ${(e as Error).message}`);
     }
-    // Polymarket's own profit and loss for the wallet (the profile page's chart): the newest point, realised plus open
+    // Polymarket's own profit and loss for the wallet (the profile page's chart): its newest point. Its source data is
+    // daily, so that point can be hours old: it is then compared with our own figure from that time (kept by each run),
+    // and when we have none from then, the difference with ours now is shown but counts as no check.
     try {
-      let amt = NaN;
-      for (const interval of ["all", "max"]) {
-        const j = (await getJson(`${DATA_API}/v2/user-pnl?user=${funder}&interval=${interval}&fidelity=1d`).catch(() => null)) as { data?: { points?: { timestamp?: number; economic_pnl?: number; unrealized_pnl?: number }[] } } | null;
-        const pts = j?.data?.points ?? [];
-        const lastPt = pts.length ? pts.reduce((a, p) => (Number(p.timestamp) > Number(a.timestamp) ? p : a)) : null;
-        if (lastPt) {
-          amt = Number(lastPt.economic_pnl ?? 0) + Number(lastPt.unrealized_pnl ?? 0);
+      const mine = deps.allTime();
+      const samples = loadJson<[number, number][]>(SAMPLES, []).filter((x) => Array.isArray(x) && x[0] >= now - 3 * 86_400_000 && x[0] < now);
+      if (mine != null) saveJson(SAMPLES, [...samples, [now, mine]]);
+      let pt: PnlPoint | null = null;
+      for (const q of ["interval=1d&fidelity=1h", "interval=all&fidelity=1d", "interval=max&fidelity=1d"]) {
+        const j = (await getDataApi(`${DATA_API}/v2/user-pnl?user=${funder}&${q}`).catch(() => null)) as { data?: { points?: PnlPoint[] } } | null;
+        const pts = (j?.data?.points ?? []).filter((p) => fin(p.timestamp) != null && pnlOf(p) != null);
+        if (pts.length) {
+          pt = pts.reduce((a, p) => (Number(p.timestamp) > Number(a.timestamp) ? p : a));
           break;
         }
       }
-      if (Number.isFinite(amt)) items.push(compare("Polymarket all time", deps.allTime(), amt, 2, 0.01, "against Polymarket's own profit and loss for the wallet"));
-      else errors.push("profit: not read");
+      if (pt) {
+        const ptMs = Number(pt.timestamp) * 1000;
+        const ageMin = Math.round((now - ptMs) / 60_000);
+        const at = new Date(ptMs).toISOString().slice(11, 16) + " UTC";
+        const near = (Math.abs(now - ptMs) <= 20 * 60_000 && mine != null ? [[now, mine] as [number, number]] : samples.filter((x) => Math.abs(x[0] - ptMs) <= 20 * 60_000)).sort((a, b) => Math.abs(a[0] - ptMs) - Math.abs(b[0] - ptMs))[0];
+        const it = near
+          ? compare("Polymarket all time", near[1], pnlOf(pt), 2, 0.01, near[0] === now ? "against Polymarket's own profit and loss for the wallet (settled, open bets at its marks, and income)" : `against Polymarket's own profit and loss at ${at}, with ours from then`)
+          : compare("Polymarket all time", mine, pnlOf(pt), 2, 0.01, `Polymarket's own figure is from ${at} (${ageMin} min before this check) and ours from then is not kept yet: a difference, not a check`);
+        if (!near) it.ok = null;
+        items.push(it);
+        extra.polymarketPnl = { asOf: ptMs, ageMin, comparedWithOursAt: near ? near[0] : null, fees: fin(pt.fees), income: fin(pt.wallet_income), point: pt };
+      } else errors.push("profit: not read");
     } catch (e) {
       errors.push(`profit: ${(e as Error).message}`);
     }
@@ -402,12 +446,13 @@ export async function truthRun(now = Date.now()): Promise<typeof last> {
 /** For the public status: the differences and counts only, never a balance or a deposit. */
 export function truthPublic() {
   if (!last) return null;
-  const ex = last.extra as { polymarketCounts?: unknown; coins?: Record<string, { coins: number; noRoute: number; unpriced: number; untracked: number; untrackedUsd: number }>; flows?: { chainTransfers: number; matched: number; missing: unknown[]; notOnChain: unknown[]; perWallet?: unknown; counterpartKinds?: unknown; windowDiff?: unknown }; errors?: string[] };
+  const ex = last.extra as { polymarketPnl?: { asOf: number; ageMin: number; comparedWithOursAt: number | null; fees: number | null; income: number | null }; polymarketCounts?: unknown; coins?: Record<string, { coins: number; noRoute: number; unpriced: number; untracked: number; untrackedUsd: number }>; flows?: { chainTransfers: number; matched: number; missing: unknown[]; notOnChain: unknown[]; perWallet?: unknown; counterpartKinds?: unknown; windowDiff?: unknown }; errors?: string[] };
   return {
     at: last.at,
     note: "Dashboard minus an independent source (the chain, Polymarket's own position data). Within $1 or 1.5% = ok. Balances stay private.",
     items: last.items.map((i) => ({ k: i.k, diff: i.diff, ok: i.ok, ...(i.why ? { why: i.why } : {}) })),
     polymarketCounts: ex.polymarketCounts ?? null,
+    polymarketPnl: ex.polymarketPnl ? { asOf: ex.polymarketPnl.asOf, ageMin: ex.polymarketPnl.ageMin, comparedWithOursAt: ex.polymarketPnl.comparedWithOursAt, fees: ex.polymarketPnl.fees, income: ex.polymarketPnl.income } : null,
     coins: Object.fromEntries(Object.entries(ex.coins ?? {}).map(([k, v]) => [k, { coins: v.coins, noRoute: v.noRoute, unpriced: v.unpriced, untracked: v.untracked, untrackedUsd: v.untrackedUsd }])),
     flows: ex.flows ? { chainTransfers: ex.flows.chainTransfers, matched: ex.flows.matched, missingFromChart: ex.flows.missing.length, chartFlowsNotOnChain: ex.flows.notOnChain.length, perWallet: ex.flows.perWallet ?? null, counterpartKinds: ex.flows.counterpartKinds ?? null, windowDiff: ex.flows.windowDiff ?? null } : null,
     errors: (ex.errors ?? []).map((e) => e.replace(/0x[0-9a-fA-F]{40}|[1-9A-HJ-NP-Za-km-z]{32,44}/g, "…")),
@@ -424,4 +469,4 @@ export function startTruthCheck(d: Deps) {
   setTimeout(run, 4 * 60_000).unref();
   setInterval(run, 30 * 60_000).unref();
 }
-export const _truthTest = { setDeps: (d: Deps | null) => void (deps = d), reset: () => void (last = null) };
+export const _truthTest = { setDeps: (d: Deps | null) => void (deps = d), reset: () => void (last = null), setWaits: (w: number[]) => void (dataWaits = w) };
