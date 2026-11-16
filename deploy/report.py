@@ -59,6 +59,50 @@ def _tunnel_url():
     return None
 
 
+def _kst_day(ms):
+    return time.strftime("%Y-%m-%d", time.gmtime(ms / 1000 + 9 * 3600)) if isinstance(ms, (int, float)) else None
+
+
+def public_solana(sc):
+    """16 Nov 2026 (privacy): on this public file the moment of a real trade of the two strategy wallets (spot rules,
+    perps), with its coin, would be enough to find the wallet on the chain. Their results and counts stay; the trade
+    times go, a perp's entry price is cut to 3 figures, and the gas swap and top-ups keep only what they were. Each
+    side's "today" (the dashboard card's figure: rows by the KST day of their time) is worked out here first. A copy:
+    the bot's own data is not touched. The spot copy's own summary was public-safe from the start (no coin with a time)."""
+    if not isinstance(sc, dict):
+        return sc
+    sc = json.loads(json.dumps(sc))
+    bk = sc.get("buckets") if isinstance(sc.get("buckets"), dict) else {}
+    perps = bk.get("perps") if isinstance(bk.get("perps"), dict) else {}
+    today = _kst_day(time.time() * 1000)
+    for real, key in ((bk.get("real"), "netSol"), (perps.get("real"), "netUsd"), (bk.get("perpsReal"), "netUsd")):
+        if not isinstance(real, dict):
+            continue
+        rows = [r for r in real.get("rows") or [] if isinstance(r, dict)]
+        real["today" + key[0].upper() + key[1:]] = round(sum(r.get(key) or 0 for r in rows if _kst_day(r.get("t")) == today), 6)
+        for r in rows:
+            r.pop("t", None)
+        opens = [o for o in real.get("opens") or [] if isinstance(o, dict)] + ([real["open"]] if isinstance(real.get("open"), dict) else [])
+        for o in opens:
+            o.pop("since", None)
+            if isinstance(o.get("entryPrice"), (int, float)) and o["entryPrice"]:
+                o["entryPrice"] = float(f"{o['entryPrice']:.3g}")
+        for k in ("test", "testLong"):
+            t = real.get(k)
+            if isinstance(t, dict):
+                t.pop("at", None)
+                for r in t.get("rows") or []:
+                    if isinstance(r, dict):
+                        r.pop("t", None)
+        g = real.get("gas")
+        if isinstance(g, dict):
+            if isinstance(g.get("swapOnce"), dict):
+                g["swapOnce"] = {k: g["swapOnce"].get(k) for k in ("id", "result")}
+            if isinstance(g.get("topups"), list):
+                g["topups"] = len(g["topups"])
+    return sc
+
+
 def summary():
     req = urllib.request.Request("http://127.0.0.1:8790/api/status")
     try:  # the dashboard has a password since 31 Oct 2026 23:15 KST (deploy/dashboard-setup.sh)
@@ -109,7 +153,7 @@ def summary():
     out["walletHistory"] = {k: wh.get(k) for k in ("at", "source", "error", "rows", "truncated", "firstAt", "lastAt", "serverStart", "beforeNet", "sinceNet", "allTimeNet", "kinds", "unknown", "months")} if wh else None
     # the worth check: counts and results only, no balance and no deposit (src/worthdash.ts worthCheck)
     out["worthCheck"] = s.get("worthCheck")
-    out["solanaCopy"] = s.get("solanaCopy")  # 11 Nov 2026: paper wallet-copy speed test on Solana (src/solana/copyrun.ts), read-only; keys are scrubbed there
+    out["solanaCopy"] = public_solana(s.get("solanaCopy"))  # 11 Nov 2026: paper wallet-copy speed test on Solana (src/solana/copyrun.ts), read-only; keys are scrubbed there
     out["withdraw"] = s.get("withdraw")  # one-off withdrawal: stage, tries, confirmed, amounts; never an address or a transaction id
     # numbers only: never an address, token, signature or key; the wallet's balance stays off the public file too
     scl = {k: v for k, v in (s.get("solanaCopyLive") or {}).items() if k != "balanceSol"}
