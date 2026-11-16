@@ -109,10 +109,16 @@ interface Pos {
    */
   deadSales?: number;
   firstDeadMs?: number;
-  /** a written-off coin: what is in the books for it so far (rent apart), the raw SOL and rent of its transactions read so far, and sale transactions tried since */
+  /**
+   * a written-off coin: what is in the books for it so far (rent apart), the raw SOL and the rent by account of its
+   * transactions read so far, and sale transactions tried since. Coins written off by an earlier build have rentIn
+   * (their rent, one sum) and rentOld (that rent, set aside for them alone; see load) instead of rentByIn
+   */
   bookedSol?: number;
   solIn?: number;
+  rentByIn?: Record<string, number>;
   rentIn?: number;
+  rentOld?: number;
   tries?: number;
   /** no more sale tries (MAX_STUCK_TRIES reached): it stays in the books as it stands */
   gaveUp?: boolean;
@@ -156,6 +162,10 @@ interface State {
   stuck?: Pos[];
   /** rent that sits in coin accounts not closed yet (ours, not lost): kept out of every result (see keepRent) */
   rentOutSol?: number;
+  /** rent by coin account (address) that our booked transactions opened and that is not closed yet, SOL (see keepRent) */
+  rentAt?: Record<string, number>;
+  /** rent kept out by an earlier build that did not know accounts (one sum): taken back by closes of accounts not in rentAt */
+  rentOld?: number;
   /** what the sweeps of empty coin accounts brought back that was in no rentOutSol (old accounts' rent, less the fees); their transactions until read back */
   rentBackSol?: number;
   sweepSigs?: string[];
@@ -173,9 +183,30 @@ function load() {
   }
   try {
     state = { ...fresh(), ...(JSON.parse(text) as State) };
+    migrate();
   } catch {
     // a file that is there but unreadable must never restart the loss count from zero
     state.halted = "the state file could not be read: the loss count is unknown, so nothing is bought";
+  }
+}
+/**
+ * State written by an earlier build (MAIN's review, 16 Nov 2026). Its written-off coins have bookedSol and rentIn but
+ * no solIn: without one, the next re-read would book every transaction of the coin a second time. Under that build
+ * bookedSol = SOL of its transactions + rent kept out, so solIn = bookedSol - rentIn. Its rent kept out was one sum
+ * (rentOutSol): it becomes rentOld, less each such coin's own rent, which is set aside for that coin (so that the sweep
+ * of an old account never takes it).
+ */
+function migrate() {
+  if (!state.rentAt) {
+    state.rentAt = {};
+    state.rentOld = state.rentOutSol ?? 0;
+  }
+  for (const p of state.stuck ?? []) {
+    p.solIn ??= n9((p.bookedSol ?? 0) - (p.rentIn ?? 0));
+    if (!p.rentByIn && p.rentOld === undefined) {
+      p.rentOld = Math.max(0, Math.min(p.rentIn ?? 0, state.rentOld ?? 0));
+      state.rentOld = n9((state.rentOld ?? 0) - p.rentOld);
+    }
   }
 }
 function save() {
@@ -198,7 +229,7 @@ export interface Kit {
   sigOf: (tx: string) => string;
   balance: (address: string) => Promise<number>;
   /** what these transactions did to the wallet's SOL, those that landed but could not be read, and the rent they moved into our coin accounts (less what they got back) */
-  booked: (w: Wallet, sigs: string[]) => Promise<{ sol: number; unread: string[]; rent?: number }>;
+  booked: (w: Wallet, sigs: string[]) => Promise<{ sol: number; unread: string[]; rent?: number; rentBy?: Record<string, number> }>;
   /** closes the emptied coin account (its rent comes back) and adds its transaction to row.sigs */
   closeEmpty: (w: Wallet, mint: string, row: CloseRow) => Promise<unknown>;
   /** closes every empty, unfrozen coin account of the wallet except those of `keep`, adding its transactions to `sigs` */
@@ -266,34 +297,72 @@ function cutNow(rule: string, why: string) {
 /**
  * RENT IS IN NO RESULT (MAIN's reviews, 16 Nov 2026). Opening a coin account puts about 0.002 SOL of rent in it and
  * closing it gives that back: ours all along, not won or lost, but a fifth of a 0.01 SOL stake. So every booking
- * takes the rent its transactions moved out of the result, read from the transactions themselves (booked().rent: the
- * accounts each one opened or closed, whichever coin, route coins too). Rent that went in is kept in rentOutSol; rent
- * that came back is first taken from rentOutSol, and only what is beyond it (an account from before this build, whose
- * rent was booked as a loss then) counts, as a gain. So no rent is counted twice, whoever closes the account and when.
- * Returns the part of `rent` kept out of the result.
+ * takes the rent its transactions moved out of the result, read from the transactions themselves, account by account
+ * (booked().rentBy: each coin account they opened or closed, whichever coin, route coins too).
+ * Rent that went into an account is kept in rentAt under that account. Rent that came back from an account comes off
+ * that account's own entry; for an account no booked transaction opened, off the coin's own set-aside rent (`own`, a
+ * coin written off by an earlier build), then off rentOld (an earlier build's sum); only what is beyond these counts,
+ * as a gain (an account from before 16 Nov, whose rent was booked as a loss then). So no rent is counted twice, and a
+ * close is set against its own account, whoever closes it and when.
+ * Returns the part of the rent kept out of the result.
  */
-function keepRent(rent = 0): number {
-  if (rent >= 0) {
-    state.rentOutSol = n9((state.rentOutSol ?? 0) + rent);
-    return rent;
+function keepRent(by: Record<string, number>, own?: Pos): number {
+  const at = (state.rentAt ??= {});
+  let kept = 0;
+  for (const [k, x] of Object.entries(by)) {
+    if (x >= 0) {
+      at[k] = n9((at[k] ?? 0) + x);
+      kept += x;
+      continue;
+    }
+    let back = -x;
+    const take = (have: number) => {
+      const t = Math.max(0, Math.min(back, have));
+      back = n9(back - t);
+      kept -= t;
+      return t;
+    };
+    at[k] = n9((at[k] ?? 0) - take(at[k] ?? 0));
+    if (at[k] <= 0) delete at[k];
+    if (own) own.rentOld = n9((own.rentOld ?? 0) - take(own.rentOld ?? 0));
+    state.rentOld = n9((state.rentOld ?? 0) - take(state.rentOld ?? 0));
   }
-  const back = Math.min(-rent, state.rentOutSol ?? 0);
-  state.rentOutSol = n9((state.rentOutSol ?? 0) - back);
-  return -back;
+  rentOutNow();
+  return n9(kept);
+}
+/** Rent that sits in our coin accounts not closed yet: by account, an earlier build's sum, and its coins' set-aside rent. */
+function rentOutNow() {
+  const sum = (xs: number[]) => xs.reduce((a, x) => a + x, 0);
+  state.rentOutSol = n9(sum(Object.values(state.rentAt ?? {})) + (state.rentOld ?? 0) + sum((state.stuck ?? []).map((p) => p.rentOld ?? 0)));
+}
+/** What these transactions moved into (+) or out of (-) each coin account. A kit that gives one sum: one account "?". */
+const rentMap = (r: { rent?: number; rentBy?: Record<string, number> }): Record<string, number> => r.rentBy ?? (r.rent ? { "?": r.rent } : {});
+/** a less b, account by account (what is new since the last reading). */
+function minus(a: Record<string, number>, b: Record<string, number>): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const k of new Set([...Object.keys(a), ...Object.keys(b)])) {
+    const x = n9((a[k] ?? 0) - (b[k] ?? 0));
+    if (x) out[k] = x;
+  }
+  return out;
 }
 const n9 = (x: number) => Math.round(x * 1e9) / 1e9;
 /**
- * The wallet's empty coin accounts (the coin of a trade that is out or stuck excepted) are closed once after each
- * start and after every finished trade: rent sitting in them comes back to the wallet. Booked apart, in no trade's row,
- * when the transactions read back (until then they wait in sweepSigs); by keepRent, it moves no result.
+ * The wallet's empty coin accounts (the coin of a stuck trade excepted) are closed once after each start and after
+ * every finished trade: rent sitting in them comes back to the wallet. Booked apart, in no trade's row, when the
+ * transactions read back (until then they wait in sweepSigs); by keepRent, it moves no result.
+ * ONLY WHEN NO TRADE IS OUT (MAIN's review, 16 Nov 2026): a trade's transactions are booked when it finishes, so an
+ * account its buy opened (a route coin's) and the sweep closed would be counted as old rent come back (a gain) and
+ * then, at its booking, as rent still out. With nothing out, every account the sweep can close was opened by a
+ * booked transaction (in rentAt) or is older than this build.
  */
 let swept = false;
 async function sweep(d: LiveDeps) {
   const w = d.wallet();
-  if (d.kit.closeSpare) {
+  if (d.kit.closeSpare && !state.opens.length) {
     const sigs: string[] = [];
     try {
-      await d.kit.closeSpare(w, [...state.opens.map((x) => x.mint), ...(state.stuck ?? []).map((x) => x.mint)], sigs);
+      await d.kit.closeSpare(w, (state.stuck ?? []).map((x) => x.mint), sigs);
     } catch (e) {
       state.lastError = d.fixed(e);
     }
@@ -306,7 +375,7 @@ async function bookSweeps(d: LiveDeps) {
   if (!state.sweepSigs?.length) return;
   const r = await d.kit.booked(d.wallet(), state.sweepSigs);
   if (r.unread.length) return; // read again at the next look
-  const net = n9(r.sol + keepRent(r.rent));
+  const net = n9(r.sol + keepRent(rentMap(r)));
   state.netSol = n9(state.netSol + net);
   state.rentBackSol = n9((state.rentBackSol ?? 0) + net);
   state.sweepSigs = [];
@@ -422,12 +491,12 @@ async function writeOff(d: LiveDeps, w: Wallet, p: Pos) {
   const r = await d.kit.booked(w, p.sigs);
   if (r.unread.length) return; // not booked from a guess: tried at a later look
   const before = { demoted: state.demoted[p.rule], why: state.demotedWhy?.[p.rule], halt: state.halted };
-  const net = n9(r.sol + keepRent(r.rent));
+  const net = n9(r.sol + keepRent(rentMap(r)));
   book(d, p, "landed", net, true);
   const undo: NonNullable<Pos["undo"]> = {};
   if (state.demoted[p.rule] !== before.demoted) Object.assign(undo, { cutAt: state.demoted[p.rule], prevDemoted: before.demoted, prevWhy: before.why });
   if (state.halted && state.halted !== before.halt) undo.halt = state.halted;
-  state.stuck = [...(state.stuck ?? []), { ...p, stage: "held", bookedSol: net, solIn: r.sol, rentIn: r.rent ?? 0, tries: 0, undo, nextTryMs: Date.now() + STUCK_RETRY_MS }];
+  state.stuck = [...(state.stuck ?? []), { ...p, stage: "held", bookedSol: net, solIn: r.sol, rentByIn: rentMap(r), tries: 0, undo, nextTryMs: Date.now() + STUCK_RETRY_MS }];
   save();
 }
 /** One more try to sell a written-off coin; then its books are read again in full and the difference is booked. */
@@ -467,17 +536,26 @@ async function sellStuck(d: LiveDeps, p: Pos, c: BucketsLiveConfig) {
     // the whole coin read again, every transaction from its buy: what changed since the last booking is booked now
     const r = await d.kit.booked(w, p.sigs);
     if (r.unread.length) return save(); // read again at the next try; nothing is booked from a guess
-    // only what is new since the last booking: its SOL, less the rent it moved (see keepRent)
-    const diff = n9(r.sol - (p.solIn ?? 0) + keepRent(n9((r.rent ?? 0) - (p.rentIn ?? 0))));
+    // only what is new since the last booking: its SOL, less the rent it moved (see keepRent). A coin written off by an
+    // earlier build knows its rent as one sum: what changed in it is set against its own set-aside rent first
+    const now = rentMap(r);
+    const legacy = !p.rentByIn;
+    const kept = legacy ? keepRent({ [`old:${p.mint}`]: n9((r.rent ?? 0) - (p.rentIn ?? 0)) }, p) : keepRent(minus(now, p.rentByIn!), p);
+    const diff = n9(r.sol - (p.solIn ?? 0) + kept);
     state.netSol = n9(state.netSol + diff);
     const mine = state.rows.find((x) => x.stuck && !x.recovered && x.rule === p.rule && x.at === p.paperAt);
     if (mine) mine.netSol = n9(mine.netSol + diff);
     p.bookedSol = n9((p.bookedSol ?? 0) + diff);
     p.solIn = r.sol;
-    p.rentIn = r.rent ?? 0;
+    if (legacy) p.rentIn = r.rent ?? 0;
+    else p.rentByIn = now;
     if (sold) {
       if (mine) mine.recovered = true;
       state.stuck = (state.stuck ?? []).filter((x) => x !== p);
+      // what is left of its set-aside rent (an account of it the sweep closed) goes back to the earlier build's sum
+      state.rentOld = n9((state.rentOld ?? 0) + (p.rentOld ?? 0));
+      p.rentOld = 0;
+      rentOutNow();
       undoWriteOff(d, p);
     }
     save();
@@ -527,8 +605,8 @@ async function finish(d: LiveDeps, w: Wallet, p: Pos, buyState: Row["buy"]) {
     r = await d.kit.booked(w, p.sigs);
   }
   if (r.unread.length) state.unread = "a transaction of a finished trade could not be read back: the books may be short, so nothing new is bought";
-  book(d, p, buyState, n9(r.sol + keepRent(r.rent)), false);
-  await sweep(d); // empty accounts its swaps left (route coins; its own coin's, if that close did not go through)
+  book(d, p, buyState, n9(r.sol + keepRent(rentMap(r))), false);
+  await sweep(d); // empty accounts its swaps left (route coins; its own coin's, if that close did not go through), if no other trade is out
 }
 /** Put a finished (or written-off) trade in the books and its rule's record; judge the rule and the loss cap. */
 function book(d: LiveDeps, p: Pos, buyState: Row["buy"], net: number, stuck: boolean) {
@@ -584,7 +662,7 @@ export async function bucketsLiveTick(d: LiveDeps, now = Date.now()): Promise<vo
       }
     }
     for (const p of [...(state.stuck ?? [])]) if ((p.nextTryMs ?? 0) <= now) await sellStuck(d, p, c);
-    if (!swept) {
+    if (!swept && !state.opens.length) {
       swept = true;
       await sweep(d);
     } else await bookSweeps(d);

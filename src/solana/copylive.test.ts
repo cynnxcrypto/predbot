@@ -1220,9 +1220,9 @@ test("copy kit: a copy with more than 256 transactions is read back in groups (t
     sigs.push(`try-${i}`);
   }
   sigs.push("never-landed");
-  assert.deepEqual(await _test.booked(wallet(), sigs), { sol: -(300 * FEE) / 1e9, unread: [], rent: 0 });
+  assert.deepEqual(await _test.booked(wallet(), sigs), { sol: -(300 * FEE) / 1e9, unread: [], rent: 0, rentBy: {} });
   // the boundary: exactly 256, and one more
-  assert.deepEqual(await _test.booked(wallet(), sigs.slice(0, 256)), { sol: -(256 * FEE) / 1e9, unread: [], rent: 0 });
-  assert.deepEqual(await _test.booked(wallet(), sigs.slice(0, 257)), { sol: -(257 * FEE) / 1e9, unread: [], rent: 0 });
+  assert.deepEqual(await _test.booked(wallet(), sigs.slice(0, 256)), { sol: -(256 * FEE) / 1e9, unread: [], rent: 0, rentBy: {} });
+  assert.deepEqual(await _test.booked(wallet(), sigs.slice(0, 257)), { sol: -(257 * FEE) / 1e9, unread: [], rent: 0, rentBy: {} });
   _test.reset();
 });

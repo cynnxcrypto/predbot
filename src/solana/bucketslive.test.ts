@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -31,7 +31,13 @@ function world(back: number, sol = 0.08) {
   const w = wallet();
   // acct: the coin's account is there; old: empty accounts from before this build (their rent booked as a loss then);
   // route: each buy also opens an account for a coin it routes through, left empty; rent: what each transaction moved into our coin accounts
-  const c = { sol, held: 0n, n: 0, sends: 0, closed: 0, built: new Map<string, "buy" | "sell">(), delta: new Map<string, number>(), rent: new Map<string, number>(), other: [] as string[], cfg: CFG, unreadable: false, acct: false, dropClose: false, old: 0, routes: 0, route: false, swept: 0 };
+  const c = { sol, held: 0n, n: 0, sends: 0, closed: 0, built: new Map<string, "buy" | "sell">(), delta: new Map<string, number>(), rent: new Map<string, number>(), rentBy: new Map<string, Record<string, number>>(), noBy: false, other: [] as string[], cfg: CFG, unreadable: false, acct: false, dropClose: false, old: 0, routes: 0, route: false, swept: 0, routeAccts: [] as string[], oldN: 0, routeN: 0 };
+  // rent by account address, as production's booked() gives it (noBy: a kit that gives one sum)
+  const by = (sigs: string[]) => {
+    const out: Record<string, number> = {};
+    for (const s of new Set(sigs)) for (const [k, x] of Object.entries(c.rentBy.get(s) ?? {})) out[k] = Math.round(((out[k] ?? 0) + x) * 1e9) / 1e9;
+    return Object.fromEntries(Object.entries(out).filter(([, x]) => x !== 0));
+  };
   const deps: import("./bucketslive.js").LiveDeps = {
     cfg: () => c.cfg,
     wallet: () => w,
@@ -53,6 +59,14 @@ function world(back: number, sol = 0.08) {
         const buy = c.built.get(sig) === "buy";
         // a buy pays the rent of the coin's account if there is none yet, and of a route account if it routes
         const rent = buy ? (c.acct ? 0 : 0.00204) + (c.route ? 0.00204 : 0) : 0;
+        const m: Record<string, number> = {};
+        if (buy && !c.acct) m.C = 0.00204;
+        if (buy && c.route) {
+          const r = "route" + ++c.routeN;
+          c.routeAccts.push(r);
+          m[r] = 0.00204;
+        }
+        if (rent) c.rentBy.set(sig, m);
         if (buy) (c.acct = true), (c.routes += c.route ? 1 : 0);
         const d = buy ? -(c.cfg.stakeSol + rent + 0.00001) : back - 0.00001;
         c.held = buy ? 1000n : 0n;
@@ -63,7 +77,10 @@ function world(back: number, sol = 0.08) {
       landed: async (sig) => (c.delta.has(sig) ? { slot: 1, err: null } : null),
       held: async () => ({ amount: c.held }),
       balance: async () => c.sol,
-      booked: async (_w, sigs) => (c.unreadable ? { sol: 0, unread: sigs, rent: 0 } : { sol: [...new Set(sigs)].reduce((a, s) => a + (c.delta.get(s) ?? 0), 0), unread: [], rent: [...new Set(sigs)].reduce((a, s) => a + (c.rent.get(s) ?? 0), 0) }),
+      booked: async (_w, sigs) =>
+        c.unreadable
+          ? { sol: 0, unread: sigs, rent: 0 }
+          : { sol: [...new Set(sigs)].reduce((a, s) => a + (c.delta.get(s) ?? 0), 0), unread: [], rent: [...new Set(sigs)].reduce((a, s) => a + (c.rent.get(s) ?? 0), 0), ...(c.noBy ? {} : { rentBy: by(sigs) }) },
       // production's closeEmpty: the close's signature goes in the row even when it is dropped (then it never lands)
       closeEmpty: async (_w, _m, row) => {
         c.closed++;
@@ -73,16 +90,23 @@ function world(back: number, sol = 0.08) {
         c.acct = false;
         c.delta.set(sig, 0.00204);
         c.rent.set(sig, -0.00204);
+        c.rentBy.set(sig, { C: -0.00204 });
         c.sol += 0.00204;
       },
       // the sweep: every empty account but those of `keep` (the one coin of this world is "C")
       closeSpare: async (_w, keep, sigs) => {
-        const n = c.old + c.routes + (c.acct && c.held === 0n && !keep.length ? 1 : 0);
+        const coin = c.acct && c.held === 0n && !keep.length;
+        const n = c.old + c.routes + (coin ? 1 : 0);
         if (!n) return;
-        if (c.acct && c.held === 0n && !keep.length) c.acct = false;
+        const m: Record<string, number> = {};
+        for (let i = 0; i < c.old; i++) m["old" + ++c.oldN] = -0.00204;
+        for (const r of c.routeAccts) m[r] = -0.00204;
+        if (coin) (m.C = -0.00204), (c.acct = false);
         c.old = 0;
         c.routes = 0;
+        c.routeAccts = [];
         const sig = "sweep" + ++c.swept;
+        c.rentBy.set(sig, m);
         c.delta.set(sig, n * (0.00204));
         c.rent.set(sig, -n * 0.00204);
         c.sol += n * (0.00204);
@@ -549,4 +573,97 @@ test("rent read from a transaction: accounts it opened or closed for our wallet,
   // a close of our coin account, and of a wSOL account that held 0.5 SOL of its own (only its rent is rent)
   const close = { preBalances: [1e9, 2039280, 2039280 + 5e8], postBalances: [1e9 + 2039280 * 2 + 5e8, 0, 0], preTokenBalances: [tb(1, "COIN", "0"), tb(2, WSOL, String(5e8))], postTokenBalances: [] };
   assert.equal(rentMoved(close, me), -2 * 2039280);
+});
+
+/** Ticks while the stuck coin's next try is due now. */
+async function stuckTick(deps: LiveDeps, at = T0 + 90_000) {
+  for (const p of L._test.state().stuck ?? []) p.nextTryMs = 0;
+  await L.bucketsLiveTick(deps, at);
+}
+const truthOf = (c: { delta: Map<string, number> }) => [...c.delta.values()].reduce((a, x) => a + x, 0);
+const FILE = () => join(dir, "solana-bucketslive.json");
+
+test("upgrade: a coin written off by the earlier build (no solIn, rent as one sum) is not booked a second time", async () => {
+  const { st, c, deps } = stuckWorld(0.0112);
+  await L.bucketsLiveTick(deps, T0 + 5000);
+  st.open = [];
+  await tries(deps, 12, 7 * 3_600_000);
+  // the state as the earlier build wrote it: bookedSol = SOL + rent kept, rentIn = rent kept, one rentOutSol, no rentAt
+  const s0 = JSON.parse(readFileSync(FILE(), "utf8"));
+  const p0 = s0.stuck[0];
+  assert.ok(p0, "written off");
+  const booked0 = p0.bookedSol;
+  delete p0.solIn;
+  delete p0.rentByIn;
+  p0.rentIn = 0.00204;
+  delete s0.rentAt;
+  delete s0.rentOld;
+  s0.rentOutSol = 0.00204 + 0.00204; // its coin's account, and an old route account of an earlier trade
+  writeFileSync(FILE(), JSON.stringify(s0));
+  L._test.reload();
+  let s = L._test.state();
+  assert.ok(Math.abs((s.stuck![0].solIn ?? NaN) - (booked0 - 0.00204)) < 1e-9, "solIn = bookedSol - rentIn");
+  assert.ok(Math.abs((s.stuck![0].rentOld ?? 0) - 0.00204) < 1e-9, "its rent is set aside for it");
+  assert.ok(Math.abs((s.rentOld ?? 0) - 0.00204) < 1e-9);
+  // an hourly re-read with nothing new on chain books nothing
+  await stuckTick(deps);
+  s = L._test.state();
+  assert.ok(Math.abs(s.stuck![0].bookedSol! - booked0) < 1e-9, "nothing booked again");
+  assert.ok(Math.abs(s.rows[0].netSol - booked0) < 1e-9);
+  // the sweep of two old accounts takes the earlier build's route rent and counts the other as a gain, never the coin's rent
+  c.old = 2;
+  L._test.forgetSweep();
+  await L.bucketsLiveTick(deps, T0 + 95_000);
+  s = L._test.state();
+  assert.ok(Math.abs((s.rentBackSol ?? 0) - 0.00204) < 1e-9, "one old rent was the earlier build's, kept out; the other is a gain");
+  assert.ok(Math.abs((s.stuck![0].rentOld ?? 0) - 0.00204) < 1e-9, "the coin's rent is untouched");
+});
+
+test("rent: an old account swept while a written-off coin's rent is out is not set against that coin; its sale books its own result", async () => {
+  const { st, c, c2, deps } = stuckWorld(0.0112);
+  await L.bucketsLiveTick(deps, T0 + 5000);
+  st.open = [];
+  await tries(deps, 12, 7 * 3_600_000);
+  let s = L._test.state();
+  assert.equal(s.stuck?.length, 1);
+  assert.ok(Math.abs((s.rentAt?.C ?? 0) - 0.00204) < 1e-9, "the coin's rent is kept under its own account");
+  // a restart sweeps two empty accounts from before this build: both are a gain, the coin's rent stays
+  c.old = 2;
+  L._test.forgetSweep();
+  await L.bucketsLiveTick(deps, T0 + 80_000);
+  s = L._test.state();
+  assert.ok(Math.abs((s.rentBackSol ?? 0) - 2 * 0.00204) < 1e-9);
+  assert.ok(Math.abs((s.rentAt?.C ?? 0) - 0.00204) < 1e-9);
+  // the coin sells after all and its account closes: its row is what its own transactions did, rent apart
+  const rowBefore = s.rows[0].netSol;
+  c2.route = true;
+  await stuckTick(deps);
+  s = L._test.state();
+  assert.equal(s.stuck?.length, 0);
+  const own = [...c.delta.entries()].filter(([k]) => !k.startsWith("sweep")).reduce((a, [, x]) => a + x, 0);
+  assert.ok(Math.abs(s.rows[0].netSol - own) < 1e-9, `the row is the coin's own transactions (${s.rows[0].netSol} vs ${own})`);
+  assert.ok(s.rows[0].netSol > rowBefore);
+  assert.ok(Math.abs(s.rentOutSol ?? 0) < 1e-9);
+  assert.ok(Math.abs(s.netSol - truthOf(c)) < 1e-9, "the books are what the wallet did");
+});
+
+test("rent: no sweep while a trade is out (its route account is not counted as old rent); the sweep after it books nothing twice", async () => {
+  const st = setup(paperTrades(120, 80), [paperOpen(T0)]);
+  const { c, deps } = world(0.0112);
+  c.route = true;
+  await L.bucketsLiveTick(deps, T0 + 5000);
+  assert.equal(L._test.state().opens.length, 1);
+  // a restart while it is out: the start's sweep waits
+  L._test.reload();
+  L._test.forgetSweep();
+  await L.bucketsLiveTick(deps, T0 + 6000);
+  assert.equal(c.routes, 1, "the route account of the trade still out is not closed");
+  st.open = [];
+  await L.bucketsLiveTick(deps, T0 + 65_000);
+  const s = L._test.state();
+  assert.equal(s.opens.length, 0);
+  assert.equal(c.routes, 0, "swept once nothing is out");
+  assert.ok(Math.abs(s.rentBackSol ?? 0) < 1e-9, "no gain");
+  assert.ok(Math.abs(s.rentOutSol ?? 0) < 1e-9, "no rent out");
+  assert.ok(Math.abs(s.netSol - truthOf(c)) < 1e-9, "the books are what the wallet did");
 });

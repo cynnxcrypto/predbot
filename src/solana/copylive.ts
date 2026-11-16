@@ -977,7 +977,10 @@ export async function recover() {
 //    copies that may be out shrinks as the loss grows. With nothing out the rule is the same as before.
 //  - One copy of a coin at a time: a sale sells all of that coin the wallet holds.
 type TokenBal = { accountIndex: number; mint: string; owner?: string; uiTokenAmount: { amount: string } };
-type TxRead = { meta: { fee?: number; preBalances: number[]; postBalances: number[]; preTokenBalances?: TokenBal[]; postTokenBalances?: TokenBal[] } | null; transaction: { message: { accountKeys: (string | { pubkey: string })[] } } };
+type TxRead = {
+  meta: { fee?: number; preBalances: number[]; postBalances: number[]; preTokenBalances?: TokenBal[]; postTokenBalances?: TokenBal[]; loadedAddresses?: { writable?: string[]; readonly?: string[] } } | null;
+  transaction: { message: { accountKeys: (string | { pubkey: string })[] } };
+};
 const WSOL = "So11111111111111111111111111111111111111112";
 /**
  * Lamports a transaction moved into coin accounts of `owner` that it opened, less those it got back from coin accounts
@@ -986,20 +989,39 @@ const WSOL = "So11111111111111111111111111111111111111112";
  * wrapped-SOL account's own SOL is not rent. An account opened and closed inside one transaction is in neither list.
  */
 export function rentMoved(meta: NonNullable<TxRead["meta"]>, owner: string): number {
+  return Object.values(rentByAccount(meta, owner)).reduce((a, x) => a + x, 0);
+}
+/**
+ * The same, account by account (MAIN's review, 16 Nov 2026: rent is matched to the account it sits in, so that the
+ * close of an account is set against that account's own opening and against nothing else): lamports into each coin
+ * account this transaction opened (+), out of each one it closed (-). Keyed by the account's address when the
+ * transaction gives it (its own keys, then the loaded ones, as the RPC numbers them), else by "#<index>".
+ */
+export function rentByAccount(meta: NonNullable<TxRead["meta"]>, owner: string, keys: string[] = []): Record<string, number> {
   const pre = (meta.preTokenBalances ?? []).filter((b) => b.owner === owner);
   const post = (meta.postTokenBalances ?? []).filter((b) => b.owner === owner);
   const rentIn = (b: TokenBal, lamports: number) => lamports - (b.mint === WSOL ? Number(b.uiTokenAmount.amount) : 0);
-  let rent = 0;
-  for (const b of post) if (!pre.some((x) => x.accountIndex === b.accountIndex)) rent += rentIn(b, meta.postBalances[b.accountIndex] ?? 0);
-  for (const b of pre) if (!post.some((x) => x.accountIndex === b.accountIndex)) rent -= rentIn(b, meta.preBalances[b.accountIndex] ?? 0);
-  return rent;
+  const out: Record<string, number> = {};
+  const add = (i: number, x: number) => {
+    const k = keys[i] ?? `#${i}`;
+    out[k] = (out[k] ?? 0) + x;
+  };
+  for (const b of post) if (!pre.some((x) => x.accountIndex === b.accountIndex)) add(b.accountIndex, rentIn(b, meta.postBalances[b.accountIndex] ?? 0));
+  for (const b of pre) if (!post.some((x) => x.accountIndex === b.accountIndex)) add(b.accountIndex, -rentIn(b, meta.preBalances[b.accountIndex] ?? 0));
+  return out;
 }
+/** Every account of a transaction, in the order its balances are numbered: its own keys, then the loaded writable and read-only ones. */
+const keysOf = (tx: TxRead) => [
+  ...tx.transaction.message.accountKeys.map((x) => (typeof x === "string" ? x : x.pubkey)),
+  ...(tx.meta?.loadedAddresses?.writable ?? []),
+  ...(tx.meta?.loadedAddresses?.readonly ?? []),
+];
 /** The most signatures the RPC reads in one getSignatureStatuses. */
 const STATUS_MAX = 256;
 /** What these transactions of ours did to the wallet's SOL (fees and rent included), and how many that landed could not be read. */
-async function booked(w: Wallet, sigs: string[]): Promise<{ sol: number; unread: string[]; rent: number }> {
+async function booked(w: Wallet, sigs: string[]): Promise<{ sol: number; unread: string[]; rent: number; rentBy: Record<string, number> }> {
   const list = [...new Set(sigs)];
-  if (!list.length) return { sol: 0, unread: [], rent: 0 };
+  if (!list.length) return { sol: 0, unread: [], rent: 0, rentBy: {} };
   // The RPC answers getSignatureStatuses for at most 256 signatures at once (16 Nov 2026 review: a copy whose sale
   // tries piled up past 256 could never be read back; its row said 0 SOL and the real copy stopped), so in groups.
   const landed: (unknown | null)[] = [];
@@ -1010,11 +1032,12 @@ async function booked(w: Wallet, sigs: string[]): Promise<{ sol: number; unread:
       st = await rpc<{ value: (unknown | null)[] }>("getSignatureStatuses", [part, { searchTransactionHistory: true }]).catch(() => null);
       if (!st) await sleep(400);
     }
-    if (!st) return { sol: 0, unread: list, rent: 0 };
+    if (!st) return { sol: 0, unread: list, rent: 0, rentBy: {} };
     for (let i = 0; i < part.length; i++) landed.push(st.value[i] ?? null);
   }
   let lamports = 0;
   let rent = 0;
+  const by: Record<string, number> = {};
   const unread: string[] = [];
   for (let i = 0; i < list.length; i++) {
     if (!landed[i]) continue; // never landed: it cost nothing
@@ -1024,14 +1047,19 @@ async function booked(w: Wallet, sigs: string[]): Promise<{ sol: number; unread:
       const at = tx?.meta ? tx.transaction.message.accountKeys.map((x) => (typeof x === "string" ? x : x.pubkey)).indexOf(w.address) : -1;
       if (tx?.meta && at >= 0) {
         d = tx.meta.postBalances[at] - tx.meta.preBalances[at];
-        rent += rentMoved(tx.meta, w.address);
+        for (const [k, x] of Object.entries(rentByAccount(tx.meta, w.address, keysOf(tx)))) {
+          rent += x;
+          by[k] = (by[k] ?? 0) + x;
+        }
       } else await sleep(400);
     }
     if (d === null) unread.push(list[i]);
     else lamports += d;
   }
   // to the lamport: these books are checked against the wallet. `rent`: SOL that went into coin accounts (less what came back)
-  return { sol: Math.round(lamports) / 1e9, unread, rent: Math.round(rent) / 1e9 };
+  // rentBy: the same, account by account (accounts opened and closed again within these transactions left out)
+  const rentBy = Object.fromEntries(Object.entries(by).filter(([, x]) => x !== 0).map(([k, x]) => [k, Math.round(x) / 1e9]));
+  return { sol: Math.round(lamports) / 1e9, unread, rent: Math.round(rent) / 1e9, rentBy };
 }
 
 /**
