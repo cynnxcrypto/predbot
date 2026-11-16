@@ -776,6 +776,15 @@ async function hlPost(deps: BucketDeps, body: unknown): Promise<unknown> {
     throw new Error("traders: not json");
   });
 }
+/**
+ * Copied traders that stay followed when the daily list leaves them out. The real side names them (perpslive.ts
+ * keptTraders): those whose real copies are ahead, or that have a real position open. The list ranks a trader's own
+ * account; our real record of copying it is the better evidence (enrique, 16 Nov 2026: "real is more important",
+ * "cut loser and bring winners"), so a real winner is not dropped for sliding down that ranking. It leaves when its
+ * real record is no longer ahead (the real side cuts it), like any other.
+ */
+let keptTraders: () => string[] = () => [];
+export const setKeptTraders = (f: () => string[]) => void (keptTraders = f);
 async function hlTick(deps: BucketDeps, now: number) {
   if (now - state.hlAt > HL_REFRESH_MS || !state.hlTraders.length) {
     const res = await deps.fetch()("https://stats-data.hyperliquid.xyz/Mainnet/leaderboard", { signal: AbortSignal.timeout(90_000) }).catch(() => null);
@@ -785,8 +794,9 @@ async function hlTick(deps: BucketDeps, now: number) {
     const picked = hlPick(await res.json().catch(() => null));
     if (!picked.length) throw new Error("traders: nothing usable");
     state.hlAt = now;
-    state.hlTraders = picked;
-    const keep = new Set([...picked.map((t) => t.address), ...state.hlOpen.map((o) => o.trader)]);
+    const kept = new Set(keptTraders());
+    state.hlTraders = [...picked, ...state.hlTraders.filter((t) => kept.has(traderRule(t.address)) && !picked.some((x) => x.address === t.address))];
+    const keep = new Set([...state.hlTraders.map((t) => t.address), ...state.hlOpen.map((o) => o.trader)]);
     for (const a of Object.keys(state.hlSeen)) if (!keep.has(a)) delete state.hlSeen[a];
   }
   const watch = [...new Set([...state.hlTraders.map((t) => t.address), ...state.hlOpen.map((o) => o.trader)])];

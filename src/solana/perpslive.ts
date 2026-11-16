@@ -40,7 +40,7 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { DATA, ROOT } from "../config.js";
-import { perpMeetsBar, perpPaperOpens, perpPaperRecord, perpRuleIds, setPerpsRealSummary, traderListed, REAL_MIN_TRADES, TRADER_MIN_COPIES } from "./buckets.js";
+import { perpMeetsBar, perpPaperOpens, perpPaperRecord, perpRuleIds, setKeptTraders, setPerpsRealSummary, traderListed, REAL_MIN_TRADES, TRADER_MIN_COPIES } from "./buckets.js";
 import { CUT_MIN_TRADES, cutReason, realRecord, standing } from "./realfirst.js";
 import { base58decode, namedWallet, signTransaction, type Wallet } from "./keys.js";
 import { USDC } from "./pools.js";
@@ -340,6 +340,12 @@ const realOf = (rule: string) => realRecord(state.rows.filter((x) => x.rule === 
 /** Real results first (realfirst.ts): real record ahead or level = real; no real trades yet, or behind on fewer than three = the paper bar decides. */
 export const standingOf = (rule: string) => standing(realOf(rule), perpMeetsBar(rule, state.demoted[rule] ?? 0), state.demotedWhy?.[rule]);
 export const promoted = (rule: string) => standingOf(rule).real;
+/** The copied traders the paper side must keep following even off the daily list: a real position open, or real copies ahead. */
+export const keptTraders = () => {
+  if (!loaded) load();
+  const ids = [...new Set([...state.opens.map((x) => x.rule), ...state.rows.map((x) => x.rule)])].filter((id) => id.startsWith("copy-"));
+  return ids.filter((id) => state.opens.some((x) => x.rule === id) || (realOf(id).trades > 0 && realOf(id).net > 0));
+};
 /** Send a rule or trader back to paper: its real record starts again and only paper trades made from now on count. */
 function cutNow(rule: string, why: string) {
   state.demotedWhy = { ...(state.demotedWhy ?? {}), [rule]: why };
@@ -874,6 +880,7 @@ export async function startPerpsLive() {
     fixed: (e) => whyNotSent(String((e as Error)?.message ?? e)),
   };
   setPerpsRealSummary(perpsLiveSummary);
+  setKeptTraders(keptTraders);
   // SOL for fees (src/solana/gas.ts): the top-up and the one swap in this wallet, and the low flags of all three
   const addrOf = (f: string) => {
     try {

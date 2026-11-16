@@ -756,3 +756,14 @@ test("the summary: a rule the paper side no longer has is not listed as real", a
   assert.match(row.why, /no longer has this rule/);
   assert.equal(row.realNetUsd, 2, "its record is kept");
 });
+
+test("kept traders: a real position open, or real copies ahead; not one that is level, behind or cut", async () => {
+  const { traderRule } = await import("./buckets.js");
+  await traders(0);
+  const t = Date.now();
+  const row = (k: number, netUsd: number) => ({ t, rule: traderRule(T(k)), coin: "SOL", filled: true, netUsd, heldH: 1 });
+  P._test.state().rows = [row(1, 2), row(2, -1), row(3, 1), row(3, -1), row(4, 5), { ...row(5, 0), rule: "SOL-break-24h", netUsd: 3 }];
+  P._test.state().demoted[traderRule(T(4))] = t + 1; // cut after its winner: its real record starts again
+  P._test.state().opens = [{ rule: traderRule(T(6)), coin: "ETH", paperId: "x", stage: "open", usdcBefore: 0, sizeUsd: 50, position: "p", request: "r", sentMs: t, closeTries: 0 }];
+  assert.deepEqual(P.keptTraders().sort(), [traderRule(T(1)), traderRule(T(6))].sort());
+});
