@@ -194,6 +194,66 @@ export function worthToday(h: Point[], total: number, now: number): { usd: numbe
   }
   return { usd: Math.round((total - b[1]) * 100) / 100, est: b[2] === 1, from: T, at: b[0] };
 }
+/**
+ * THE REAL WORTH CHANGE OF EACH KST DAY (16 Nov 2026, enrique on the day-by-day panel: "do u realise u still have
+ * this", the settled +$17 beside a real -$19). A day = its last point at or before the next 00:00 KST (now for today)
+ * against its last point at or before its own 00:00; with no point before the day began, its first point, and the day
+ * is `part` (it covers less than the whole day). The series is net of deposits; est = an hourly estimate was used.
+ * Newest first, `n` days at most. Pure.
+ */
+export function worthDays(h: Point[], total: number | null, now: number, n = 30): { day: string; usd: number; est: boolean; part: boolean }[] {
+  const out: { day: string; usd: number; est: boolean; part: boolean }[] = [];
+  if (!h.length) return out;
+  const dayOf = (ms: number) => new Date(ms + 9 * 3_600_000).toISOString().slice(0, 10);
+  for (let m = kstMidnight(now), i = 0; i < n && m + 86_400_000 > h[0][0]; m -= 86_400_000, i++) {
+    let a: Point | null = null;
+    let b: Point | null = null;
+    for (const p of h) {
+      if (p[0] <= m) a = p;
+      else if (!a && p[0] < m + 86_400_000) a = p;
+      if (p[0] <= m + 86_400_000) b = p;
+    }
+    if (!a || !b || a[0] >= m + 86_400_000) continue;
+    const end = i === 0 && total != null ? total : b[1];
+    out.push({ day: dayOf(m), usd: Math.round((end - a[1]) * 100) / 100, est: a[2] === 1 || (i > 0 && b[2] === 1), part: a[0] > m + 30 * 60_000 });
+  }
+  return out;
+}
+/** The same for each wallet, from its own samples and its own deposits. now = the wallets' worth now. Pure. */
+export function walletDays(wh: WalletPoint[], fl: Flow[], now: (number | null)[], t: number, n = 30): Record<string, Record<string, { usd: number; part: boolean }>> {
+  const out: Record<string, Record<string, { usd: number; part: boolean }>> = {};
+  if (!wh.length) return out;
+  const dayOf = (ms: number) => new Date(ms + 9 * 3_600_000).toISOString().slice(0, 10);
+  for (let m = kstMidnight(t), d = 0; d < n && m + 86_400_000 > wh[0][0]; m -= 86_400_000, d++) {
+    const row: Record<string, { usd: number; part: boolean }> = {};
+    WALLETS.forEach(([k, label], i) => {
+      let a: WalletPoint | null = null;
+      let b: WalletPoint | null = null;
+      for (const p of wh) {
+        if (p[i + 1] == null) continue;
+        if (p[0] <= m) a = p;
+        else if (!a && p[0] < m + 86_400_000) a = p;
+        if (p[0] <= m + 86_400_000) b = p;
+      }
+      if (!a || !b || a[0] >= m + 86_400_000) return;
+      const endT = d === 0 ? t : b[0];
+      const end = d === 0 && now[i] != null ? (now[i] as number) : (b[i + 1] as number);
+      const put = fl.reduce((x, f) => x + (f[2] === label && f[0] > a![0] && f[0] <= endT ? f[1] : 0), 0);
+      row[k] = { usd: Math.round((end - (a[i + 1] as number) - put) * 100) / 100, part: a[0] > m + 30 * 60_000 };
+    });
+    if (Object.keys(row).length) out[dayOf(m)] = row;
+  }
+  return out;
+}
+/** The day-by-day panel's real figures, from the last full reading (the "today" rule). */
+let dayMemo: { at: number; v: { worthDays: ReturnType<typeof worthDays>; walletDays: ReturnType<typeof walletDays> } } | null = null;
+function dayView() {
+  if (dayMemo && Date.now() - dayMemo.at < 60_000) return dayMemo.v;
+  const w = wallHist[wallHist.length - 1];
+  const v = { worthDays: worthDays(fullSeries(), null, Date.now()), walletDays: w ? walletDays(wallHist, flows, w.slice(1) as (number | null)[], Date.now()) : {} };
+  dayMemo = { at: Date.now(), v };
+  return v;
+}
 /** Every sample, spikes taken out as the page does, deposits and withdrawals left out. */
 function fullSeries(): Point[] {
   if (!hist) return [];
@@ -374,5 +434,5 @@ export async function worthView(cash: number | null, claim: number, solBal: numb
       saveJson(FILE, { hist, back, flows, comp, fix, wall: wallHist, v: 3 });
     }
   }
-  return { ...memo.v, age: Date.now() - memo.at, hist: pageSeries(), flows };
+  return { ...memo.v, age: Date.now() - memo.at, hist: pageSeries(), flows, ...dayView() };
 }
