@@ -9,7 +9,7 @@ process.env.DATA_DIR = mkdtempSync(join(tmpdir(), "slowlive-"));
 // made-up keys: every network call here is faked
 process.env.HELIUS_API_KEY = "test-helius";
 process.env.JUPITER_API_KEY = "test-jupiter";
-const { parseSlowLive, slowLiveSummary, onSwap, sweep, recover, startSlowLive, wallets, rested, realWinner, losingRun, realOf, oneStake, takenVsSkipped, openNow, HARD_MAX_LOSS_SOL, HARD_STAKE_SOL, HARD_MAX_OPEN, WALLETS, stepOf, _test } = await import("./slowlive.js");
+const { parseSlowLive, slowLiveSummary, onSwap, sweep, recover, startSlowLive, wallets, rested, realWinner, losingRun, realOf, oneStake, resultOf, takenVsSkipped, openNow, HARD_MAX_LOSS_SOL, HARD_STAKE_SOL, HARD_MAX_OPEN, WALLETS, stepOf, _test } = await import("./slowlive.js");
 const { _test: run } = await import("./copyrun.js");
 const { buildSigned, wallet } = await import("./keys.js");
 const { base58 } = await import("./whirlpool.js");
@@ -392,7 +392,9 @@ test("real day-holder copy: real first, the gaps closed: a winner's address from
   assert.deepEqual(wallets().map((w) => [w.name, w.by]), [["coin buyer Win1", "real"]]);
   _test.state().opens.push(out(W1, "coin buyer Win1", B, { exit: "sold", soldSeenMs: Date.now() - 50_000, sellRounds: 5, nextTryMs: Date.now() + 600_000 }));
   assert.equal(realOf("coin buyer Win1").n, 6, "five failed rounds: still being tried");
+  assert.equal(resultOf(B, _test.state().opens[0].seenMs), undefined, "no result for the paper exit study yet");
   _test.state().opens[0].sellRounds = 6;
+  assert.deepEqual(resultOf(B, _test.state().opens[0].seenMs), { netSol: -(0.01 + 0.00204), stakeSol: 0.01, heldMin: null, unsold: true }, "for the paper exit study: the stake lost");
   const r4 = realOf("coin buyer Win1");
   assert.deepEqual([r4.n, r4.won, Math.round(r4.netSol * 1e6)], [7, 6, Math.round((0.006 - 0.01 - 0.00204) * 1e6)]);
   assert.equal(rested("coin buyer Win1"), true);
@@ -405,6 +407,7 @@ test("real day-holder copy: real first, the gaps closed: a winner's address from
   // a restart tries it again (round seven): six rounds had failed before, so it stays a lost stake while that try runs
   _test.state().opens[0].stage = "held";
   const again = _test.sell(_test.state().opens[0], "sold");
+  assert.equal(resultOf(B, _test.state().opens[0].seenMs), undefined, "a sale round under way: the study waits for how it ends");
   assert.deepEqual([_test.state().opens[0].sellRounds, realOf("coin buyer Win1").n, rested("coin buyer Win1")], [7, 7, true], "a later try under way: still a lost stake");
   await again;
 

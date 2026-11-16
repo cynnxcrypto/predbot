@@ -869,11 +869,17 @@ export function heldCopies() {
   if (!loaded) load();
   return state.opens.filter((p) => p.stage === "held" && !p.exit && !p.soldSeenMs).map((p) => ({ mint: p.mint, seenMs: p.seenMs, name: p.name, boughtMs: p.boughtMs ?? p.seenMs, stakeSol: p.stakeSol ?? 0, tokens: p.tokens }));
 }
-/** Read-only, for the paper exit study: a finished copy's result. null = its buy never landed; undefined = no row yet. */
-export function resultOf(mint: string, seenMs: number) {
+/**
+ * Read-only, for the paper exit study: a finished copy's result. null = its buy never landed; undefined = no row yet.
+ * A coin we could not sell (six sale rounds failed and none running) gets no row: it is given as its wallet's record
+ * counts it (realOf): the stake and the coin account's rent lost, marked unsold.
+ */
+export function resultOf(mint: string, seenMs: number): { netSol: number; stakeSol: number; heldMin: number | null; unsold?: boolean } | null | undefined {
   const x = state.rows.find((r) => r.mint === mint && r.t === seenMs);
-  if (!x) return undefined;
-  return x.buy === "landed" ? { netSol: x.netSol, stakeSol: x.stakeSol ?? 0.01, heldMin: x.heldMin } : null;
+  if (x) return x.buy === "landed" ? { netSol: x.netSol, stakeSol: x.stakeSol ?? 0.01, heldMin: x.heldMin } : null;
+  const p = state.opens.find((o) => o.mint === mint && o.seenMs === seenMs);
+  if (p && stuck(p) && p.stage === "held") return { netSol: -((p.stakeSol ?? 0.01) + RENT_SOL), stakeSol: p.stakeSol ?? 0.01, heldMin: null, unsold: true };
+  return undefined;
 }
 /**
  * The real results by size and by time held (enrique, 16 Nov 2026, on the sale rules: "maybe we should do more about
@@ -1004,7 +1010,15 @@ export function slowLiveSummary() {
     soldDropped: done.filter((x) => x.exit === "wallet dropped").length,
     /** the real results by size, by time held and by kind of sale; and the paper study of other sale rules beside the real copies */
     spread: spread(done),
-    exits: slowExitsSummary(),
+    // the paper study must never hold back the real numbers: a fault in its own file leaves this block empty
+    // (null, never the error's text: this file is public)
+    exits: (() => {
+      try {
+        return slowExitsSummary();
+      } catch {
+        return null;
+      }
+    })(),
     /** what fills the wallet, and whether the buys let go were as good as the ones taken (paper twin of each) */
     openNow: openNow(),
     takenVsSkipped: takenVsSkipped(),
