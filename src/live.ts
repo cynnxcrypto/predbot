@@ -882,8 +882,13 @@ export class LiveTrader {
         this.client = client;
         this.wallet = signer.address;
         // A resting cheap-rule order left behind by a restart would fill unseen; the BTC 5m trader (first to start,
-        // same signer for every market) cancels everything still open on the exchange. All other orders are fill-or-kill.
-        if (!this.series.key) await client.cancelAll().then(() => console.log("live: cancelled any resting orders from before the restart")).catch((e: unknown) => console.log(`live: cancelAll failed (${e instanceof Error ? e.message : String(e)})`));
+        // same signer for every market) cancels everything still open on the exchange. Only while a crypto rule is
+        // live: since 14 Nov the tennis resting bids and the event copies also rest (GTC), each tracked in its own
+        // state and cancelled on time by its own code, and cancelling everything at every start killed 90% of the real
+        // resting bids about 30 minutes after they were placed (review of 16 Nov 2026; 28 starts a day), so the real
+        // rule never ran as approved.
+        const cryptoLive = !this.series.key && [liveConfig(""), ...SERIES.filter((s) => s.key).map((s) => liveConfig(s.key))].some((c) => c.mode !== "off" && c.variants.length > 0);
+        if (cryptoLive) await client.cancelAll().then(() => console.log("live: cancelled any resting orders from before the restart")).catch((e: unknown) => console.log(`live: cancelAll failed (${e instanceof Error ? e.message : String(e)})`));
         this.ready = true;
         this.lastError = null;
         saveJson(`${this.prefix}live-state.json`, { at: Date.now(), ...this.status() });
