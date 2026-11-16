@@ -265,7 +265,26 @@ interface State {
   addr?: Record<string, string>;
   /** buy quotes refused for asking too fast (each refusal; a buy is asked again twice before it is let go) */
   buyRefused?: number;
+  /** copies we sold on our own clock while the copied wallet still held, for the paper sale study (see After) */
+  after?: After[];
 }
+/**
+ * A copy we sold on our own clock (wallet dropped, max hold) while the copied wallet still held the coin. Its wallet
+ * stays on the watch so its sale is heard, for the paper sale study only (MAIN, 16 Nov 2026: follow a copy after our
+ * sale until the copied wallet sells, so a later stop can be scored). Nothing is bought or sold on it.
+ */
+interface After {
+  wallet: string;
+  mint: string;
+  seenMs: number;
+  /** our sale, ms */
+  ms: number;
+  /** the copied wallet's own sale of the coin, when heard, ms */
+  soldMs?: number;
+}
+/** How long after our own sale the copied wallet's sale is listened for. */
+export const AFTER_MAX_MS = 72 * 3_600_000;
+const afterOpen = (now = Date.now()) => (state.after ?? []).filter((a) => !a.soldMs && now - a.ms < AFTER_MAX_MS);
 type Why = "same" | "open" | "cap" | "low";
 interface Missed {
   n: string;
@@ -543,11 +562,12 @@ export function wallets(now = Date.now()): Listed[] {
 /**
  * Every address whose swaps we must hear of: the copied wallets, and the wallet of every copy that is out (its sale).
  * And the real winners a safety screen holds back: nothing of theirs is copied (onBuy asks the list), but being on
- * this watch the scan reads them daily, so the screen is judged on a fresh read.
+ * this watch the scan reads them daily, so the screen is judged on a fresh read. And the wallet of a copy we sold on
+ * our own clock, until it sells that coin (see After): heard for the paper sale study, never copied because of it.
  */
 const watched = () => {
   const on = wallets().map((w) => w.address);
-  return [...new Set([...on, ...state.opens.map((p) => p.wallet), ...(list?.unsafeAddr ?? [])])];
+  return [...new Set([...on, ...state.opens.map((p) => p.wallet), ...(list?.unsafeAddr ?? []), ...afterOpen().map((a) => a.wallet)])];
 };
 const nameOf = (a: string) => wallets().find((w) => w.address === a)?.name ?? WALLETS.find((w) => w.address === a)?.name ?? `coin buyer ${a.slice(0, 4)}`;
 
@@ -556,6 +576,8 @@ const nameOf = (a: string) => wallets().find((w) => w.address === a)?.name ?? WA
 export function onSwap(s: SlowSwap) {
   if (!loaded) load();
   if (s.buy) return void onBuy(s);
+  // the copied wallet sells a coin we had already sold on our own clock: written down for the paper sale study
+  for (const a of state.after ?? []) if (a.wallet === s.wallet && a.mint === s.mint && !a.soldMs) a.soldMs = s.seenMs;
   for (const p of state.opens) {
     if (p.wallet !== s.wallet || p.mint !== s.mint || p.soldSeenMs) continue;
     p.soldSeenMs = s.seenMs;
@@ -800,6 +822,10 @@ async function finish(w: Wallet, p: Pos, exit: Exit) {
   state.netSol = Math.round((state.netSol + r.sol) * 1e9) / 1e9;
   state.opens = state.opens.filter((x) => x !== p);
   state.rows = [...state.rows, row].slice(-5000);
+  // sold on our own clock while the copied wallet still holds: its sale is listened for (the paper sale study)
+  if ((exit === "wallet dropped" || exit === "max hold") && !p.soldSeenMs && p.tokens && row.buy === "landed") {
+    state.after = [...(state.after ?? []).filter((a) => Date.now() - a.ms < AFTER_MAX_MS), { wallet: p.wallet, mint: p.mint, seenMs: p.seenMs, ms: Date.now() }].slice(-300);
+  }
   // a new row changes its wallet's real record: the list is worked out again at the next question, so a wallet that
   // has just turned loser is not copied for another minute
   list = null;
@@ -972,12 +998,20 @@ export function startSlowLive() {
   }
   onSlowSwap(() => (cfg().on || state.opens.length ? watched() : []), onSwap);
   // the paper exit study reads the held copies and their results; it never touches a copy
-  setExitSource({ held: heldCopies, resultOf });
+  setExitSource({ held: heldCopies, resultOf, after: afterOf });
   setSlowRealSummary(slowLiveSummary);
   if (walletReady && state.opens.length) setTimeout(() => void recover(), 15_000).unref();
   setInterval(() => sweep(), 5 * 60_000).unref();
 }
 
+/**
+ * Read-only, for the paper exit study: a copy we sold on our own clock. "holds" = the copied wallet has not been heard
+ * selling the coin yet; "sold" = it has; undefined = not followed (sold by the wallet's sale, or AFTER_MAX_MS are over).
+ */
+export function afterOf(mint: string, seenMs: number): "holds" | "sold" | undefined {
+  const a = (state.after ?? []).find((x) => x.mint === mint && x.seenMs === seenMs);
+  return !a ? undefined : a.soldMs ? "sold" : Date.now() - a.ms < AFTER_MAX_MS ? "holds" : undefined;
+}
 /** Read-only, for the paper exit study: the copies held now (bought, not yet being sold). */
 export function heldCopies() {
   if (!loaded) load();
