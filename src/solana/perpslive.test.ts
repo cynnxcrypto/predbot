@@ -93,7 +93,9 @@ test("off unless switched on, and the hard limits hold", () => {
   assert.equal(P.parsePerpsLive("not json").on, false);
   assert.equal(P.parsePerpsLive('{"solanaPerps":{"on":true}}').on, false); // no loss cap = off
   const c = P.parsePerpsLive('{"solanaPerps":{"on":true,"maxLossUsd":999,"leverage":50,"collateralUsd":5000,"ruleStopUsd":500}}');
-  assert.deepEqual(c, { on: true, maxLossUsd: 50, collateralUsd: 25, leverage: 2, ruleStopUsd: 10 });
+  assert.deepEqual(c, { on: true, maxLossUsd: 50, collateralUsd: 25, leverage: 2, ruleStopUsd: 10, maxOpen: 6 });
+  assert.equal(P.parsePerpsLive('{"solanaPerps":{"on":true,"maxLossUsd":50,"maxOpen":99}}').maxOpen, 6);
+  assert.equal(P.parsePerpsLive('{"solanaPerps":{"on":true,"maxLossUsd":50,"maxOpen":2}}').maxOpen, 2);
 });
 
 test("the orders have the shape of Jupiter's program interface", () => {
@@ -127,7 +129,7 @@ test("a rule below the bar stays on paper", async () => {
   _bucketsTest.state().perpOpen = [paperOpen(Date.now() - 1000)] as never;
   await P.perpsLiveTick(deps);
   assert.equal(c.sends, 0);
-  assert.equal(P._test.state().pos, null);
+  assert.equal(P._test.pos(), null);
 });
 
 test("switched off: nothing is sent even for a rule that meets the bar", async () => {
@@ -147,7 +149,7 @@ test("a failed simulation means nothing is sent", async () => {
   await P.perpsLiveTick(deps);
   assert.equal(c.sims, 1);
   assert.equal(c.sends, 0);
-  assert.equal(P._test.state().pos, null);
+  assert.equal(P._test.pos(), null);
   assert.equal(P._test.state().lastSim, "failed: instruction 2, custom error 6001 (InvalidArgument)");
   assert.equal(P._test.state().skipped["simulation failed"], 1);
 });
@@ -159,16 +161,16 @@ test("open, wait for the keeper, close with the paper trade, book what the USDC 
   _bucketsTest.state().perpOpen = [paperOpen(at)] as never;
   await P.perpsLiveTick(deps);
   assert.equal(c.sends, 1);
-  assert.equal(P._test.state().pos?.stage, "opening");
+  assert.equal(P._test.pos()?.stage, "opening");
   // the transaction is paid and signed by the perps wallet alone
   const raw = Buffer.from(c.lastTx, "base64");
   assert.equal(raw[0], 1); // one signature
   assert.ok(raw.includes(Buffer.from(base58decode(w.address)))); // its public key is in the message
   await P.perpsLiveTick(deps); // still waiting
-  assert.equal(P._test.state().pos?.stage, "opening");
+  assert.equal(P._test.pos()?.stage, "opening");
   keeper.fillOpen();
   await P.perpsLiveTick(deps);
-  assert.equal(P._test.state().pos?.stage, "open");
+  assert.equal(P._test.pos()?.stage, "open");
   assert.equal(c.sends, 1);
   P._test.setCfg(() => CFG);
   const open = P.perpsLiveSummary().open;
@@ -178,7 +180,7 @@ test("open, wait for the keeper, close with the paper trade, book what the USDC 
   _bucketsTest.state().perpOpen = []; // the paper short closed
   await P.perpsLiveTick(deps);
   assert.equal(c.sends, 2);
-  assert.equal(P._test.state().pos?.stage, "closing");
+  assert.equal(P._test.pos()?.stage, "closing");
   keeper.fillClose(11.4);
   await P.perpsLiveTick(deps);
   const s = P._test.state();
@@ -289,15 +291,15 @@ test("the one-time test short: opened with the switch off, closed at the next lo
   const d = { ...deps, testId: () => "t1" };
   await P.perpsLiveTick(d);
   assert.equal(c.sends, 1);
-  assert.equal(P._test.state().pos?.rule, P.TEST_RULE);
-  assert.equal(P._test.state().pos?.sizeUsd, 20);
+  assert.equal(P._test.pos()?.rule, P.TEST_RULE);
+  assert.equal(P._test.pos()?.sizeUsd, 20);
   keeper.fillOpen();
   await P.perpsLiveTick(d); // seen open, and with no paper position behind it the close is asked at once
-  assert.equal(P._test.state().pos?.stage, "closing");
+  assert.equal(P._test.pos()?.stage, "closing");
   assert.equal(c.sends, 2);
   keeper.fillClose(10.95);
   await P.perpsLiveTick(d);
-  assert.equal(P._test.state().pos, null);
+  assert.equal(P._test.pos(), null);
   assert.deepEqual(P._test.state().rows.map((x) => [x.rule, x.filled, x.netUsd]), [[P.TEST_RULE, true, -0.05]]);
   await P.perpsLiveTick(d);
   await P.perpsLiveTick(d);
@@ -309,7 +311,7 @@ test("the one-time test short: opened with the switch off, closed at the next lo
   await P.perpsLiveTick({ ...poor.deps, testId: () => "t2" });
   await P.perpsLiveTick({ ...poor.deps, testId: () => "t2" });
   assert.equal(poor.c.sends, 0);
-  assert.equal(P._test.state().pos, null);
+  assert.equal(P._test.pos(), null);
 });
 
 
@@ -356,7 +358,7 @@ test("a copied trader at the bar: its long is opened at its leverage and closed 
   const { c, deps, keeper, w } = world(40);
   _bucketsTest.state().hlOpen = [{ trader: A, coin: "SOL", dir: 1, at: now - 1000, entry: 100, lev: 25, worst: 0 }] as never;
   await P.perpsLiveTick(deps);
-  const p = P._test.state().pos;
+  const p = P._test.pos();
   assert.equal(p?.rule, traderRule(A));
   assert.equal(p?.dir, 1);
   assert.equal(p?.lev, 25);
@@ -365,13 +367,190 @@ test("a copied trader at the bar: its long is opened at its leverage and closed 
   assert.equal(c.sends, 1);
   keeper.fillOpen();
   await P.perpsLiveTick(deps);
-  assert.equal(P._test.state().pos?.stage, "open");
+  assert.equal(P._test.pos()?.stage, "open");
   _bucketsTest.state().hlOpen = [];
   await P.perpsLiveTick(deps);
-  assert.equal(P._test.state().pos?.stage, "closing");
+  assert.equal(P._test.pos()?.stage, "closing");
   keeper.fillClose(12.5);
   await P.perpsLiveTick(deps);
-  assert.equal(P._test.state().pos, null);
+  assert.equal(P._test.pos(), null);
   assert.equal(P._test.state().netUsd, 1.5);
   assert.equal(P._test.state().rows[0].rule, traderRule(A));
+});
+
+// ---- several positions at once ------------------------------------------------------------------------------------------
+/** A made-up chain that keeps a position per address: what a request does is decided when the keeper acts on it. */
+function multiWorld(usdc = 100) {
+  const w = namedWallet("perps");
+  const c = { usdc, sizes: new Map<string, number>(), requests: new Set<string>(), sends: 0, cfg: { ...CFG, collateralUsd: 10, maxLossUsd: 50, ruleStopUsd: 10 } as Cfg };
+  const deps: import("./perpslive.js").PerpDeps = {
+    cfg: () => c.cfg,
+    wallet: () => w,
+    rpc: (async (method: string, params: unknown[]) => {
+      if (method === "getLatestBlockhash") return { value: { blockhash: HASH } };
+      if (method === "simulateTransaction") return { value: { err: null, logs: [] } };
+      if (method === "getAccountInfo") {
+        const a = params[0] as string;
+        if ((params[1] as { dataSlice?: unknown }).dataSlice) return { value: c.requests.has(a) ? { data: ["", "base64"] } : null };
+        const size = c.sizes.get(a) ?? 0;
+        return { value: size > 0 ? { data: [posData(size), "base64"] } : null };
+      }
+      throw new Error("unexpected " + method);
+    }) as never,
+    send: async () => void c.sends++,
+    landed: async () => ({ slot: 1, err: null }),
+    sigOf: () => "sig",
+    usdc: async () => c.usdc,
+    sol: async () => 0.05,
+    price: async () => 100,
+    fixed: () => "other",
+  };
+  const moving = () => P._test.state().opens.find((x) => x.stage !== "open")!;
+  const keeper = {
+    /** the request on its way is filled: an open takes the collateral, a close pays `back` */
+    fill: (back = 0) => {
+      const p = moving();
+      if (p.stage === "opening") (c.sizes.set(p.position, p.sizeUsd), (c.usdc -= 10));
+      else (c.sizes.delete(p.position), (c.usdc += back));
+    },
+    liquidate: (position: string) => void c.sizes.delete(position),
+  };
+  // a request exists from the moment it is sent until the keeper acts
+  const send0 = deps.send;
+  deps.send = async (tx) => {
+    await send0(tx);
+    c.requests.add(moving().request);
+  };
+  const act = (back = 0) => {
+    const p = moving();
+    c.requests.delete(p.request);
+    keeper.fill(back);
+  };
+  return { c, deps, keeper, act, w };
+}
+const T = (n: number) => "0x" + n.toString(16).padStart(2, "0").repeat(20);
+async function traders(n: number) {
+  const { TRADER_MIN_COPIES } = await import("./buckets.js");
+  _bucketsTest.reset();
+  P._test.reset();
+  const now = Date.now();
+  Object.assign(P._test.state(), { dry: { at: now, result: "ok" }, dryClose: { at: now, result: "ok", tried: 1 }, dryLong: { at: now, result: "ok" }, dryCloseLong: { at: now, result: "ok", tried: 1 } });
+  _bucketsTest.state().hlTrades = Array.from({ length: n }, (_, k) => Array.from({ length: TRADER_MIN_COPIES }, (_, i) => ({ trader: T(k + 1), coin: "HYPE", dir: 1, at: now - 30 * 3_600_000 + i, exitAt: now - 29 * 3_600_000, net: i < 12 ? 0.02 : -0.01, why: "closed" }))).flat() as never;
+  return now;
+}
+const hl = (k: number, coin: string, dir: number, at: number, lev = 5) => ({ trader: T(k), coin, dir, at, entry: 100, lev, worst: 0 });
+
+test("several positions at once: one per trader, one per coin and side, one request on its way at a time", async () => {
+  const { traderRule } = await import("./buckets.js");
+  const now = await traders(4);
+  const { c, deps, act } = multiWorld(100);
+  // trader 1 shorts SOL, trader 2 goes long BTC, trader 3 shorts SOL too (same coin and side), trader 1 also shorts ETH
+  _bucketsTest.state().hlOpen = [hl(1, "SOL", -1, now - 4000), hl(2, "BTC", 1, now - 3000), hl(3, "SOL", -1, now - 2000), hl(1, "ETH", -1, now - 1000)] as never;
+  await P.perpsLiveTick(deps);
+  assert.equal(P._test.state().opens.length, 1, "the first request is on its way; the others wait");
+  assert.equal(c.sends, 1);
+  await P.perpsLiveTick(deps);
+  assert.equal(c.sends, 1, "nothing else is sent while it is on its way");
+  act(); // SOL short filled
+  await P.perpsLiveTick(deps); // sees the fill
+  assert.equal(P._test.state().opens[0].stage, "open");
+  assert.equal(P._test.state().opens[0].paidUsd, 10);
+  await P.perpsLiveTick(deps); // now the next signal
+  assert.equal(c.sends, 2);
+  assert.deepEqual(P._test.state().opens.map((x) => [x.rule, x.coin, x.dir, x.stage]), [[traderRule(T(1)), "SOL", -1, "open"], [traderRule(T(2)), "BTC", 1, "opening"]]);
+  act();
+  await P.perpsLiveTick(deps);
+  await P.perpsLiveTick(deps);
+  // trader 3's SOL short and trader 1's ETH short are refused: coin and side held, trader already has a position
+  assert.equal(c.sends, 2);
+  assert.equal(P._test.state().opens.length, 2);
+  assert.equal(P._test.state().skipped["coin and side already held"], 1);
+  assert.equal(P._test.state().skipped["this trader or rule already has a position"], 1);
+  P._test.setCfg(() => c.cfg);
+  const sum = P.perpsLiveSummary();
+  assert.equal(sum.openCount, 2);
+  assert.equal(sum.maxOpen, 6);
+  assert.equal(sum.opens.length, 2);
+  assert.equal(sum.open?.coin, "SOL");
+  assert.equal(c.usdc, 80);
+});
+
+test("several positions: each one's result is its own, and a liquidation costs its collateral", async () => {
+  const { traderRule } = await import("./buckets.js");
+  const now = await traders(3);
+  const { c, deps, act, keeper } = multiWorld(100);
+  const open = async (o: ReturnType<typeof hl>) => {
+    _bucketsTest.state().hlOpen = [..._bucketsTest.state().hlOpen, o] as never;
+    await P.perpsLiveTick(deps);
+    act();
+    await P.perpsLiveTick(deps);
+  };
+  await open(hl(1, "SOL", -1, now - 3000));
+  await open(hl(2, "BTC", 1, now - 2000));
+  await open(hl(3, "ETH", -1, now - 1000));
+  assert.equal(P._test.state().opens.length, 3);
+  assert.equal(c.usdc, 70);
+  // trader 2 closes: the BTC long is closed for $13 back (+$3); the other two stay
+  _bucketsTest.state().hlOpen = _bucketsTest.state().hlOpen.filter((o) => o.trader !== T(2)) as never;
+  await P.perpsLiveTick(deps);
+  assert.equal(P._test.state().opens.find((x) => x.coin === "BTC")?.stage, "closing");
+  act(13);
+  await P.perpsLiveTick(deps);
+  assert.deepEqual(P._test.state().rows.map((x) => [x.rule, x.netUsd, x.filled]), [[traderRule(T(2)), 3, true]]);
+  assert.equal(P._test.state().opens.length, 2);
+  // the SOL short is liquidated between two looks: nothing comes back, the $10 is the loss
+  keeper.liquidate(P._test.state().opens.find((x) => x.coin === "SOL")!.position);
+  await P.perpsLiveTick(deps);
+  assert.deepEqual(P._test.state().rows.map((x) => x.netUsd), [3, -10]);
+  assert.equal(P._test.state().netUsd, -7);
+  assert.equal(P._test.state().opens.length, 1);
+  assert.ok(P._test.state().demoted[traderRule(T(1))] > 0, "a trader that lost $10 goes back to paper");
+  // the ETH short closes for $9.50 back
+  _bucketsTest.state().hlOpen = [];
+  await P.perpsLiveTick(deps);
+  act(9.5);
+  await P.perpsLiveTick(deps);
+  assert.deepEqual(P._test.state().rows.map((x) => x.netUsd), [3, -10, -0.5]);
+  assert.equal(P._test.state().netUsd, -7.5);
+  assert.equal(P._test.state().opens.length, 0);
+  assert.equal(c.usdc, 100 - 7.5);
+});
+
+test("several positions: the loss cap counts every open collateral, and the wallet's USDC bounds the count", async () => {
+  const now = await traders(4);
+  const { c, deps, act } = multiWorld(100);
+  c.cfg = { ...c.cfg, maxLossUsd: 25 }; // room for two $10 positions, not three
+  const offer = async (o: ReturnType<typeof hl>) => {
+    _bucketsTest.state().hlOpen = [..._bucketsTest.state().hlOpen, o] as never;
+    await P.perpsLiveTick(deps);
+    if (P._test.state().opens.some((x) => x.stage !== "open")) {
+      act();
+      await P.perpsLiveTick(deps);
+    }
+  };
+  await offer(hl(1, "SOL", -1, now - 3000));
+  await offer(hl(2, "BTC", -1, now - 2000));
+  await offer(hl(3, "ETH", -1, now - 1000));
+  assert.equal(P._test.state().opens.length, 2);
+  assert.equal(P._test.state().skipped["no room under the cap"], 1);
+  // little USDC left: nothing more is opened
+  c.cfg = { ...c.cfg, maxLossUsd: 50 };
+  c.usdc = 8;
+  await offer(hl(4, "ETH", 1, now - 500));
+  assert.equal(P._test.state().opens.length, 2);
+  assert.equal(P._test.state().skipped["too little USDC"], 1);
+});
+
+test("a state file from the one-position days is carried over", async () => {
+  const { writeFileSync } = await import("node:fs");
+  await traders(1);
+  const w = namedWallet("perps");
+  const old = { netUsd: -1, pos: { rule: "x", coin: "SOL", paperId: "x:1", stage: "open", usdcBefore: 50, sizeUsd: 20, position: P.positionAddress(w.address, "SOL"), request: "r", sentMs: 1, closeTries: 0 } };
+  writeFileSync(join(dir, "solana-perpslive.json"), JSON.stringify(old));
+  P._test.reload();
+  assert.equal(P._test.state().pos, null);
+  assert.equal(P._test.state().opens.length, 1);
+  assert.equal(P._test.state().opens[0].coin, "SOL");
+  assert.equal(P._test.state().netUsd, -1);
+  P._test.reset();
 });

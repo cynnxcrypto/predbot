@@ -9,8 +9,10 @@
  *  - a copied perp trader (traderMeetsBar: 20+ closed copies, half won, ahead, a day on paper), at the leverage the
  *    trader set. enrique, 15 Nov 2026 18:33 KST: "yes build it, dont cap it, replicate leverage". What bounds the
  *    loss is the collateral of a position: a liquidation takes that and no more.
- * The real position is closed when the paper one closes, or after MAX_HOLD_H. ONE position at a time, so its result
- * is simply what it did to the wallet's USDC.
+ * The real position is closed when the paper one closes, or after MAX_HOLD_H. SEVERAL positions at once (enrique,
+ * 16 Nov 2026 09:33 KST: "yes do it"): one per trader or rule and one per coin and side (Jupiter keeps one position
+ * per coin and side for a wallet, so six at the most). ONE request of ours is on its way at a time, so what the
+ * wallet's USDC did while it was on its way is that position's result.
  * BACK TO PAPER: a rule whose real trades have lost `ruleStopUsd` is demoted until its paper trades made after that
  * meet the bar again. At `maxLossUsd` in all, nothing new is opened for good.
  *
@@ -92,8 +94,13 @@ export interface PerpsLiveConfig {
   leverage: number;
   maxLossUsd: number;
   ruleStopUsd: number;
+  /** positions held at once (absent = HARD_MAX_OPEN) */
+  maxOpen?: number;
 }
-const OFF: PerpsLiveConfig = { on: false, collateralUsd: 0, leverage: 1, maxLossUsd: 0, ruleStopUsd: 0 };
+const OFF: PerpsLiveConfig = { on: false, collateralUsd: 0, leverage: 1, maxLossUsd: 0, ruleStopUsd: 0, maxOpen: 0 };
+/** Jupiter keeps one position per coin and side for a wallet: three coins, two sides. */
+export const HARD_MAX_OPEN = 6;
+const maxOpenOf = (c: PerpsLiveConfig) => Math.min(HARD_MAX_OPEN, Math.max(1, Math.floor(c.maxOpen ?? HARD_MAX_OPEN)));
 const num = (v: unknown, d: number) => (typeof v === "number" && Number.isFinite(v) ? v : d);
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 /** Parse the "solanaPerps" block of deploy/live-rules.json. Hard limits are applied here; anything odd means off. */
@@ -108,6 +115,7 @@ export function parsePerpsLive(text: string): PerpsLiveConfig {
       collateralUsd: clamp(num(p.collateralUsd, MIN_COLLATERAL_USD), MIN_COLLATERAL_USD, HARD_COLLATERAL_USD),
       leverage: clamp(num(p.leverage, HARD_LEVERAGE), 1, HARD_LEVERAGE),
       ruleStopUsd: clamp(num(p.ruleStopUsd, 3), 1, HARD_RULE_STOP_USD),
+      maxOpen: Math.floor(clamp(num(p.maxOpen, HARD_MAX_OPEN), 1, HARD_MAX_OPEN)),
     };
   } catch {
     return OFF;
@@ -230,7 +238,11 @@ interface Pos {
   /** the paper position it follows */
   paperId: string;
   stage: "opening" | "open" | "closing";
+  /** the wallet's USDC when this position's request now on its way (to open, or to close) was made */
   usdcBefore: number;
+  /** the collateral asked for, and the USDC that really left the wallet when it was filled */
+  collUsd?: number;
+  paidUsd?: number;
   sizeUsd: number;
   position: string;
   request: string;
@@ -262,7 +274,12 @@ interface State {
   netUsd: number;
   halted: string;
   note: string;
+  /** before 16 Nov 2026 one position at a time was held here; a file that still has one is moved to `opens` when read */
   pos: Pos | null;
+  /** enrique, 16 Nov 2026 09:33 KST: "yes do it" (several positions at once: one per trader or rule, one per coin and side) */
+  opens: Pos[];
+  /** the wallet's USDC at the last look when no request of ours was on its way: what a position that vanished brought back is measured from it */
+  cash?: number;
   rows: Row[];
   demoted: Record<string, number>;
   seen: string[];
@@ -279,7 +296,7 @@ interface State {
   lastSim: string;
   lastError: string;
 }
-const fresh = (): State => ({ netUsd: 0, halted: "", note: "", pos: null, rows: [], demoted: {}, seen: [], skipped: {}, dry: null, lastSim: "", lastError: "" });
+const fresh = (): State => ({ netUsd: 0, halted: "", note: "", pos: null, opens: [], rows: [], demoted: {}, seen: [], skipped: {}, dry: null, lastSim: "", lastError: "" });
 let state: State = fresh();
 let loaded = false;
 function load() {
@@ -292,6 +309,11 @@ function load() {
   }
   try {
     state = { ...fresh(), ...(JSON.parse(text) as State) };
+    if (!Array.isArray(state.opens)) state.opens = [];
+    if (state.pos) {
+      state.opens.push(state.pos);
+      state.pos = null;
+    }
   } catch {
     state.halted = "the state file could not be read: the loss count is unknown, so nothing is opened";
   }
@@ -404,18 +426,33 @@ export async function dryClose(d: PerpDeps, dir = -1): Promise<{ result: string;
 }
 const counter = () => BigInt(Math.floor(Math.random() * 1_000_000_000));
 
-/** Book what the finished (or never filled) position did to the wallet's USDC; demote its rule or stop at a limit. */
-async function finish(d: PerpDeps, w: Wallet, p: Pos, filled: boolean) {
+/**
+ * Book what a finished (or never filled) position did to the wallet's USDC; demote its rule or stop at a limit.
+ * With several positions the wallet's balance is shared, so one request of ours at a time is on its way (to open or
+ * to close) and the change of the balance while it was on its way belongs to that position:
+ *  - never filled: the change since its open request (about nothing: the USDC came back);
+ *  - closed by us: what came back since its close request, less what it paid in when it was filled;
+ *  - vanished while open (liquidated, or closed by hand): what came in since the last quiet look, less what it paid in.
+ */
+async function finish(d: PerpDeps, w: Wallet, p: Pos, how: "not filled" | "closed" | "vanished") {
   const now = await d.usdc(w.address);
-  const net = r2(now - p.usdcBefore);
+  const paid = p.paidUsd ?? p.collUsd ?? p.collateralUsd ?? MIN_COLLATERAL_USD;
+  const net = r2(how === "not filled" ? now - p.usdcBefore : how === "closed" ? now - p.usdcBefore - paid : now - (state.cash ?? now) - paid);
   state.netUsd = r2(state.netUsd + net);
-  state.rows = [...state.rows, { t: Date.now(), rule: p.rule, coin: p.coin, side: (p.dir ?? -1) > 0 ? "long" : "short", leverage: p.lev ?? HARD_LEVERAGE, filled, netUsd: net, heldH: p.openedMs ? Math.round(((Date.now() - p.openedMs) / 3_600_000) * 10) / 10 : null }].slice(-2000);
-  state.pos = null;
+  state.rows = [...state.rows, { t: Date.now(), rule: p.rule, coin: p.coin, side: (p.dir ?? -1) > 0 ? "long" : "short", leverage: p.lev ?? HARD_LEVERAGE, filled: how !== "not filled", netUsd: net, heldH: p.openedMs ? Math.round(((Date.now() - p.openedMs) / 3_600_000) * 10) / 10 : null }].slice(-2000);
+  state.opens = state.opens.filter((x) => x !== p);
+  state.cash = now;
   const c = d.cfg();
   if (c.ruleStopUsd > 0 && ruleNet(p.rule) <= -c.ruleStopUsd) state.demoted[p.rule] = Date.now();
   if (!state.halted && c.maxLossUsd > 0 && loss() + c.collateralUsd > c.maxLossUsd + 1e-9) state.halted = `loss cap reached: $${r2(loss())} of $${c.maxLossUsd} (no room for another position)`;
   save();
 }
+/** Put a new position on the list, written down before its request is sent. */
+function begin(p: Pos) {
+  state.opens.push(p);
+  save();
+}
+const drop = (p: Pos) => void (state.opens = state.opens.filter((x) => x !== p));
 
 let busy = false;
 export async function perpsLiveTick(d: PerpDeps, now = Date.now()): Promise<void> {
@@ -426,7 +463,7 @@ export async function perpsLiveTick(d: PerpDeps, now = Date.now()): Promise<void
   try {
     const w = d.wallet();
     // the daily dry run: is an open order of ours still one the program accepts? Read-only, whatever the switch says.
-    if (!state.pos && now - (state.dry?.at ?? 0) > (state.dry?.result === "ok" ? DRY_MS : 3_600_000)) {
+    if (!state.opens.length && now - (state.dry?.at ?? 0) > (state.dry?.result === "ok" ? DRY_MS : 3_600_000)) {
       let result = "no answer";
       try {
         const px = await d.price("SOL");
@@ -441,7 +478,7 @@ export async function perpsLiveTick(d: PerpDeps, now = Date.now()): Promise<void
       save();
     }
     // the same for a close order, hourly until it passes, then daily
-    if (!state.pos && now - (state.dryClose?.at ?? 0) > (state.dryClose?.result === "ok" ? DRY_MS : 3_600_000)) {
+    if (!state.opens.length && now - (state.dryClose?.at ?? 0) > (state.dryClose?.result === "ok" ? DRY_MS : 3_600_000)) {
       let r = { result: "no answer", tried: 0 };
       try {
         r = await dryClose(d);
@@ -452,7 +489,7 @@ export async function perpsLiveTick(d: PerpDeps, now = Date.now()): Promise<void
       save();
     }
     // and for a long: an open order of ours, and a close order against a long that exists on the chain
-    if (!state.pos && now - (state.dryLong?.at ?? 0) > (state.dryLong?.result === "ok" ? DRY_MS : 3_600_000)) {
+    if (!state.opens.length && now - (state.dryLong?.at ?? 0) > (state.dryLong?.result === "ok" ? DRY_MS : 3_600_000)) {
       let result = "no answer";
       try {
         const px = await d.price("SOL");
@@ -465,7 +502,7 @@ export async function perpsLiveTick(d: PerpDeps, now = Date.now()): Promise<void
       state.dryLong = { at: now, result };
       save();
     }
-    if (!state.pos && now - (state.dryCloseLong?.at ?? 0) > (state.dryCloseLong?.result === "ok" ? DRY_MS : 3_600_000)) {
+    if (!state.opens.length && now - (state.dryCloseLong?.at ?? 0) > (state.dryCloseLong?.result === "ok" ? DRY_MS : 3_600_000)) {
       let r = { result: "no answer", tried: 0 };
       try {
         r = await dryClose(d, 1);
@@ -476,59 +513,78 @@ export async function perpsLiveTick(d: PerpDeps, now = Date.now()): Promise<void
       save();
     }
     const paper = perpPaperOpens();
-    const p = state.pos;
-    if (p) {
+    // 1. the one request of ours that is on its way, if any
+    const moving = state.opens.find((x) => x.stage !== "open");
+    if (moving) {
+      const p = moving;
       const onChain = await posOf(d, p.position);
       const size = onChain.sizeUsd;
-      if (size > 0) {
-        p.collateralUsd = onChain.collateralUsd;
-        p.entryPx = onChain.entryPx;
-        const px = await d.price(p.coin).catch(() => 0);
-        if (px > 0) {
-          p.unrealUsd = unrealUsd(p.dir ?? -1, size, onChain.entryPx, px);
-          p.markMs = now;
-        }
-      }
       const pending = await exists(d, p.request);
       if (p.stage === "opening") {
         if (size > 0) {
+          const usdc = await d.usdc(w.address);
+          const asked = p.collUsd ?? MIN_COLLATERAL_USD;
+          const paid = r2(p.usdcBefore - usdc);
+          p.paidUsd = paid > asked * 0.5 && paid < asked * 1.5 ? paid : asked; // what left the wallet; the asked amount if the balance says something odd
           p.stage = "open";
           p.openedMs = now;
+          p.collateralUsd = onChain.collateralUsd;
+          p.entryPx = onChain.entryPx;
+          state.cash = usdc;
           save();
-        } else if (!pending && now - p.sentMs > GONE_MS) await finish(d, w, p, false); // turned down or never landed: the USDC is back
+        } else if (!pending && now - p.sentMs > GONE_MS) await finish(d, w, p, "not filled"); // turned down or never landed: the USDC is back
         else if (pending && now - p.sentMs > CANCEL_MS && !p.cancelled) {
           p.cancelled = await sendChecked(d, w, [cancelRequestIx(w.address, p.position, p.request)], 200_000);
           save();
         }
-      } else if (p.stage === "closing") {
-        if (size === 0 && !pending) await finish(d, w, p, true);
+      } else {
+        if (size === 0 && !pending) await finish(d, w, p, "closed");
         else if (!pending && now - p.sentMs > GONE_MS) {
           p.stage = "open"; // turned down (the price ran past our bound): asked again below, with a wider bound
           save();
         }
       }
-      if (state.pos === p && p.stage === "open" && (!paper.some((o) => o.id === p.paperId) || now - (p.openedMs ?? now) >= MAX_HOLD_H * 3_600_000)) {
-        if (size === 0) await finish(d, w, p, true); // gone already (liquidated, or closed by hand)
-        else {
-          const px = await d.price(p.coin);
-          const made = closeIx(w.address, p.coin, p.dir ?? -1, boundPrice(p.dir ?? -1, px, CLOSE_SLIP[Math.min(p.closeTries, CLOSE_SLIP.length - 1)], true), counter());
-          p.request = made.request;
-          p.sentMs = now;
-          p.closeTries++;
-          save();
-          // "closing" even when it seemed not to land: it may still land, and a second request is made only after GONE_MS
-          if ((await sendChecked(d, w, [made.ix])) || state.lastSim === "ok") p.stage = "closing";
-          save();
-        }
-      }
+    }
+    // while a request is on its way nothing else is sent: the wallet's balance must tell one story at a time
+    if (state.opens.some((x) => x.stage !== "open")) {
+      save();
       return;
     }
+    // 2. the positions that are open: what they are worth, whether they are still there, whether it is time to close
+    for (const p of [...state.opens]) {
+      const onChain = await posOf(d, p.position);
+      const size = onChain.sizeUsd;
+      if (size === 0) {
+        await finish(d, w, p, "vanished"); // liquidated, or closed by hand
+        continue;
+      }
+      p.collateralUsd = onChain.collateralUsd;
+      p.entryPx = onChain.entryPx;
+      const px = await d.price(p.coin).catch(() => 0);
+      if (px > 0) {
+        p.unrealUsd = unrealUsd(p.dir ?? -1, size, onChain.entryPx, px);
+        p.markMs = now;
+      }
+      if (px > 0 && (!paper.some((o) => o.id === p.paperId) || now - (p.openedMs ?? now) >= MAX_HOLD_H * 3_600_000)) {
+        const made = closeIx(w.address, p.coin, p.dir ?? -1, boundPrice(p.dir ?? -1, px, CLOSE_SLIP[Math.min(p.closeTries, CLOSE_SLIP.length - 1)], true), counter());
+        p.usdcBefore = await d.usdc(w.address);
+        p.request = made.request;
+        p.sentMs = now;
+        p.closeTries++;
+        save();
+        // "closing" even when it seemed not to land: it may still land, and a second request is made only after GONE_MS
+        if ((await sendChecked(d, w, [made.ix])) || state.lastSim === "ok") p.stage = "closing";
+        save();
+        if (p.stage === "closing") return; // one request at a time
+      }
+    }
+    if (state.opens.length) state.cash = await d.usdc(w.address).catch(() => state.cash);
     // ONE TEST TRADE (enrique, 15 Nov 2026 12:28 KST: "feel free to do one test in each of the new things so we know
     // everything works, try to not lose money of course"): the smallest short on SOL (the size the dry run passes
     // with), through the very code a promoted rule uses. It follows no paper position, so the next look closes it.
     // One per name, whatever the switch says; the name is written down before anything is sent.
     const tid = d.testId?.() ?? "";
-    if (tid && !state.halted && state.test?.id !== tid) {
+    if (tid && !state.halted && !state.opens.length && state.test?.id !== tid) {
       state.test = { id: tid, at: now };
       save();
       const usdc = await d.usdc(w.address);
@@ -539,10 +595,10 @@ export async function perpsLiveTick(d: PerpDeps, now = Date.now()): Promise<void
         const px = await d.price("SOL");
         const sizeUsd = MIN_COLLATERAL_USD * HARD_LEVERAGE;
         const made = openShortIx(w.address, "SOL", sizeUsd, MIN_COLLATERAL_USD, px * (1 - OPEN_SLIP), counter());
-        state.pos = { rule: TEST_RULE, coin: "SOL", paperId: `test:${tid}`, stage: "opening", usdcBefore: usdc, sizeUsd, position: made.position, request: made.request, sentMs: now, closeTries: 0 };
-        save();
+        const tp: Pos = { rule: TEST_RULE, coin: "SOL", paperId: `test:${tid}`, stage: "opening", usdcBefore: usdc, sizeUsd, position: made.position, request: made.request, sentMs: now, closeTries: 0, collUsd: MIN_COLLATERAL_USD };
+        begin(tp);
         if (!(await sendChecked(d, w, [made.ix])) && state.lastSim !== "ok") {
-          state.pos = null; // the simulation said no: nothing was sent
+          drop(tp); // the simulation said no: nothing was sent
           state.note = `test trade not sent: simulation ${state.lastSim}`;
         }
         save();
@@ -553,7 +609,7 @@ export async function perpsLiveTick(d: PerpDeps, now = Date.now()): Promise<void
     // through the very code a promoted long uses, closed at the next look. It waits until the open and the close of a
     // long have passed their dry simulation; the name is written down before anything is sent, so it is made once.
     const lid = d.testLongId?.() ?? "";
-    if (lid && !state.halted && state.testLong?.id !== lid && state.dryLong?.result === "ok" && state.dryCloseLong?.result === "ok") {
+    if (lid && !state.halted && !state.opens.length && state.testLong?.id !== lid && state.dryLong?.result === "ok" && state.dryCloseLong?.result === "ok") {
       state.testLong = { id: lid, at: now };
       save();
       const usdc = await d.usdc(w.address);
@@ -564,10 +620,10 @@ export async function perpsLiveTick(d: PerpDeps, now = Date.now()): Promise<void
         const px = await d.price("SOL");
         const sizeUsd = MIN_COLLATERAL_USD * HARD_LEVERAGE;
         const made = openLongIx(w.address, "SOL", sizeUsd, MIN_COLLATERAL_USD, boundPrice(1, px, OPEN_SLIP, false), counter(), longMinOut("SOL", MIN_COLLATERAL_USD, px));
-        state.pos = { rule: TEST_RULE, coin: "SOL", paperId: `test-long:${lid}`, stage: "opening", usdcBefore: usdc, sizeUsd, position: made.position, request: made.request, sentMs: now, closeTries: 0, dir: 1, lev: HARD_LEVERAGE };
-        save();
+        const tp: Pos = { rule: TEST_RULE, coin: "SOL", paperId: `test-long:${lid}`, stage: "opening", usdcBefore: usdc, sizeUsd, position: made.position, request: made.request, sentMs: now, closeTries: 0, dir: 1, lev: HARD_LEVERAGE, collUsd: MIN_COLLATERAL_USD };
+        begin(tp);
         if (!(await sendChecked(d, w, [made.ix])) && state.lastSim !== "ok") {
-          state.pos = null; // the simulation said no: nothing was sent
+          drop(tp); // the simulation said no: nothing was sent
           state.note = `test long not sent: simulation ${state.lastSim}`;
         }
         save();
@@ -583,7 +639,11 @@ export async function perpsLiveTick(d: PerpDeps, now = Date.now()): Promise<void
       // simulation on the chain (MAIN, 15 Nov 2026)
       else if (o.dir > 0 && !(state.dryLong?.result === "ok" && state.dryCloseLong?.result === "ok")) skip("long: dry run not passed yet");
       else if (now - o.at > OPEN_WINDOW_MS) skip("paper position too old");
-      else if (loss() + c.collateralUsd > c.maxLossUsd + 1e-9) skip("no room under the cap");
+      else if (state.opens.some((x) => x.rule === o.rule)) skip("this trader or rule already has a position");
+      else if (state.opens.some((x) => x.coin === o.coin && (x.dir ?? -1) === (o.dir > 0 ? 1 : -1))) skip("coin and side already held");
+      else if (state.opens.length >= maxOpenOf(c)) skip("all positions in use");
+      // every open position can lose its collateral: the cap must hold even if all of them do
+      else if (loss() + (state.opens.length + 1) * c.collateralUsd > c.maxLossUsd + 1e-9) skip("no room under the cap");
       else {
         const usdc = await d.usdc(w.address);
         if (usdc < c.collateralUsd + 1) {
@@ -602,14 +662,14 @@ export async function perpsLiveTick(d: PerpDeps, now = Date.now()): Promise<void
           const sizeUsd = r2(c.collateralUsd * lev);
           const made = openIx(w.address, o.coin, dir, sizeUsd, c.collateralUsd, boundPrice(dir, px, OPEN_SLIP, false), counter(), dir > 0 ? longMinOut(o.coin, c.collateralUsd, px) : null);
           // written down before it is sent
-          state.pos = { rule: o.rule, coin: o.coin, paperId: o.id, stage: "opening", usdcBefore: usdc, sizeUsd, position: made.position, request: made.request, sentMs: now, closeTries: 0, dir, lev };
-          save();
+          const np: Pos = { rule: o.rule, coin: o.coin, paperId: o.id, stage: "opening", usdcBefore: usdc, sizeUsd, position: made.position, request: made.request, sentMs: now, closeTries: 0, dir, lev, collUsd: c.collateralUsd };
+          begin(np);
           if (!(await sendChecked(d, w, [made.ix])) && state.lastSim !== "ok") {
-            state.pos = null; // the simulation said no: nothing was sent
+            drop(np); // the simulation said no: nothing was sent
             skip("simulation failed");
           } // sent but not seen to land: kept as "opening", settled by what the chain shows after GONE_MS
           save();
-          break; // one position at a time
+          if (state.opens.includes(np)) break; // one request at a time: the next signal waits for this one to fill
         }
       }
     }
@@ -660,8 +720,9 @@ export function perpsLiveSummary() {
     const mine = done.filter((x) => x.rule === id);
     return { id, real: c.on && !state.halted && perpMeetsBar(id, since), paperTrades: paper.trades, paperWon: paper.won, paperNetUsd: r2(paper.netUsd), demotedAt: since || null, trades: mine.length, won: mine.filter((x) => x.netUsd > 0).length, netUsd: r2(mine.reduce((a, x) => a + x.netUsd, 0)) };
   });
+  const openRows = state.opens.map((x) => ({ rule: x.rule, coin: x.coin, side: (x.dir ?? -1) > 0 ? "long" : "short", leverage: x.lev ?? null, stage: x.stage, sizeUsd: x.sizeUsd, since: x.openedMs ?? x.sentMs, collateralUsd: r2(x.collateralUsd ?? x.collUsd ?? c.collateralUsd), entryPrice: x.entryPx ?? null, unrealisedUsd: x.unrealUsd ?? 0, pricedAt: x.markMs ?? null }));
   return {
-    note: `REAL, off unless the live rules switch it on. Longs and shorts on SOL, BTC or ETH on Jupiter Perps, in a wallet of its own, one position at a time, $${c.collateralUsd || MIN_COLLATERAL_USD} of collateral each (all that a liquidation can take; a short is backed by USDC, a long by the coin, bought with USDC inside the order). A perp paper rule is traded at ${c.leverage || HARD_LEVERAGE}x while its paper record meets the bar (${REAL_MIN_TRADES}+ paper trades, half or more won, ahead after costs). A copied perp trader ("copy-" and a short tag) is followed on these three coins, at the leverage the trader set (not capped by us; never above half of where Jupiter liquidates), while its own paper copies meet the trader bar (${TRADER_MIN_COPIES}+ closed copies of any coin and side, half or more won, ahead, a day or more on paper). A rule or trader whose real trades lose $${c.ruleStopUsd || 3} goes back to paper. Every transaction is simulated on the chain before it is sent. dryRun / dryRunLong: an open order of ours simulated, hourly until it passes and then daily; dryRunClose / dryRunCloseLong: a close order simulated against a position that exists on the chain. Results are what a position did to the wallet's USDC; network fees in SOL are small and not counted.`,
+    note: `REAL, off unless the live rules switch it on. Longs and shorts on SOL, BTC or ETH on Jupiter Perps, in a wallet of its own, up to ${maxOpenOf(c)} positions at once (one per trader or rule, one per coin and side), $${c.collateralUsd || MIN_COLLATERAL_USD} of collateral each (all that a liquidation can take; a short is backed by USDC, a long by the coin, bought with USDC inside the order). A perp paper rule is traded at ${c.leverage || HARD_LEVERAGE}x while its paper record meets the bar (${REAL_MIN_TRADES}+ paper trades, half or more won, ahead after costs). A copied perp trader ("copy-" and a short tag) is followed on these three coins, at the leverage the trader set (not capped by us; never above half of where Jupiter liquidates), while its own paper copies meet the trader bar (${TRADER_MIN_COPIES}+ closed copies of any coin and side, half or more won, ahead, a day or more on paper). A rule or trader whose real trades lose $${c.ruleStopUsd || 3} goes back to paper. Every transaction is simulated on the chain before it is sent. dryRun / dryRunLong: an open order of ours simulated, hourly until it passes and then daily; dryRunClose / dryRunCloseLong: a close order simulated against a position that exists on the chain. Results are what a position did to the wallet's USDC; network fees in SOL are small and not counted.`,
     on: c.on && !state.halted,
     switch: c.on ? "on" : "off",
     halted: state.halted,
@@ -676,7 +737,12 @@ export function perpsLiveSummary() {
     notFilled: state.rows.length - done.length,
     // collateralUsd is USDC that sits in the position (or in a request on its way), not spent and not withdrawn;
     // unrealisedUsd is what the short has made at the last price read, before the fees to close
-    open: state.pos ? { rule: state.pos.rule, coin: state.pos.coin, side: (state.pos.dir ?? -1) > 0 ? "long" : "short", leverage: state.pos.lev ?? null, stage: state.pos.stage, sizeUsd: state.pos.sizeUsd, since: state.pos.openedMs ?? state.pos.sentMs, collateralUsd: r2(state.pos.collateralUsd ?? c.collateralUsd), entryPrice: state.pos.entryPx ?? null, unrealisedUsd: state.pos.unrealUsd ?? 0, pricedAt: state.pos.markMs ?? null } : null,
+    open: openRows[0] ?? null, // the first of `opens`, kept for pages that show one
+    opens: openRows,
+    openCount: openRows.length,
+    maxOpen: maxOpenOf(c),
+    inPositionsUsd: r2(openRows.reduce((a, x) => a + x.collateralUsd, 0)),
+    unrealisedUsd: r2(openRows.reduce((a, x) => a + x.unrealisedUsd, 0)),
     dryRun: state.dry,
     // the close order simulated as the owner of a short that exists on the chain (nothing signed or sent); tried = owners tried
     dryRunClose: state.dryClose ?? null,
@@ -742,4 +808,4 @@ export async function startPerpsLive() {
 }
 
 /** Test hooks. */
-export const _test = { reset: () => ((state = fresh()), (loaded = true)), state: () => state, reload: () => load(), setCfg: (f: () => PerpsLiveConfig) => void (liveCfg = f) };
+export const _test = { reset: () => ((state = fresh()), (loaded = true)), state: () => state, pos: () => state.opens[0] ?? null, reload: () => load(), setCfg: (f: () => PerpsLiveConfig) => void (liveCfg = f) };
