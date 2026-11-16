@@ -87,8 +87,11 @@ export const PROVEN_LAST = 40;
 export const FOLLOW_MAX = 150;
 export const STAKE_SOL = 0.25;
 export const TX_SOL = 0.001;
-export const ENTRY_DELAYS = [5, 30, 300, 1800] as const;
-export const EXIT_DELAYS = [5, 30] as const;
+// 1 s added 16 Nov 2026 (enrique: "any way we can buy quicker after they do?", "we can definitely do faster"): we see
+// a followed wallet's swap about 0.7 s after it lands (Helius websocket, solanaCopy.speed), and the real copy then
+// waits 5 s on purpose. e1 / x1 price what buying / selling 1 s after we see it would have done, on the same copies.
+export const ENTRY_DELAYS = [1, 5, 30, 300, 1800] as const;
+export const EXIT_DELAYS = [1, 5, 30] as const;
 export const MAX_HOLD_H = 72;
 /** closed paper copies kept for the status (every one is also a line in slow-copies.jsonl) */
 const KEEP_COPIES = 6000;

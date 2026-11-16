@@ -16,8 +16,9 @@
  * Every rule is $5 at the real ask (walking the book), taker fee rate x p x (1-p) per share, held to settlement.
  */
 import { loadJson, saveJson } from "./store.js";
+import { startTradeStream, tradeStreamStatus } from "./pmstream.js";
 import { autoFollowed, autoState, autoSummary, copyPromote, copyScan, scanDue } from "./copyscan.js";
-import { NEG_READY_FILE, spentOf, eventLiveAdapt, paperGate, setPaperBehind, paperBehindStatus, realRecord, eventLiveBusy, eventLiveBuy, eventRestBid, eventRestSync, eventDelayedSync, eventLiveConfig, eventLiveRows, eventLiveSettle, eventLiveSummary, eventLiveStop, type NegRiskReady } from "./eventlive.js";
+import { NEG_READY_FILE, spentOf, eventLiveAdapt, paperGate, setPaperBehind, paperBehindStatus, realRecord, eventLiveBusy, eventLiveBuy, eventRestBid, eventRestSync, eventDelayedSync, eventLiveConfig, eventLiveRows, eventLiveSettle, eventLiveSummary, eventLiveStop, type EventLiveRow, type NegRiskReady } from "./eventlive.js";
 import { JEV_CONTEXT, headlines, jevKey, jevStake, type JevStake } from "./jev.js";
 
 const GAMMA = "https://gamma-api.polymarket.com";
@@ -167,6 +168,8 @@ type State = {
   usports: Record<string, UsMatch>;
   nomk: NoMaker[];
   rest: RestBid[];
+  /** Real copies whose wallet sold the side while we held it: when, the best bid then, its price (16 Nov 2026). */
+  copySold?: Record<string, { t: number; bid: number | null; their: number }>;
 };
 const state: State = { matches: {}, done: {}, nomk: [], rest: [], makers: [], trades: [], signals: [], fixtures: {}, wx: {}, tennis: {}, cricket: {}, usports: {}, ...loadJson<Partial<State>>(STATE_FILE, {}) };
 // 7 Nov 2026 20:15 KST fix: the first run counted matches whose map 1 had ended before the logger started (map-1 price
@@ -1186,6 +1189,49 @@ export function copyAboveNote(ask: number, paid: number, maxAbove: number): stri
 // so the copies skipped for price can be shown next to the ones taken.
 for (const w of COPY_WALLETS) RULE_TEXT[`copy-any-${w.name}`] = ["copy", `Paper only: every first buy of ${w.name} taken at the ask for $3 whatever the ask is, with no price limit. Next to copy-take-${w.name} it shows what the copies skipped for price would have earned or lost.`];
 const copyLags: Record<string, number[]> = {};
+/** Seconds from a copied wallet's buy to our seeing it, by who saw it first (16 Nov 2026: the live socket vs the 15 s reading). */
+const copySrcLags: Record<string, number[]> = {};
+/** Real copies: seconds from their buy to our seeing it, and ms from seeing it to our order's answer (all checks included). */
+const copyOrderMs: { src: string; lagSec: number; ms: number; sendMs: number }[] = [];
+/** The newest activity rows read for each copied wallet (lower-case address), so a socket trade can be sized like a read one. */
+const copyRowsOf = new Map<string, CopyRow[]>();
+/** A copied wallet's sales newer than `seen` (seconds): market, side sold and its price, oldest first. */
+export function copySells(rows: CopyRow[], seen: number): { ts: number; cond: string; idx: number; price: number }[] {
+  return rows
+    .map((r) => ({ type: r.type, side: String(r.side ?? "").toUpperCase(), ts: Number(r.timestamp) > 1e12 ? Math.floor(Number(r.timestamp) / 1000) : Math.floor(Number(r.timestamp)), cond: String(r.condition_id ?? ""), idx: r.outcome_index == null || r.outcome_index === "" ? NaN : Number(r.outcome_index), price: Number(r.price) }))
+    .filter((r) => r.type === "TRADE" && r.side === "SELL" && Number.isFinite(r.ts) && r.ts > seen && /^0x[0-9a-fA-F]{64}$/.test(r.cond) && (r.idx === 0 || r.idx === 1) && r.price > 0 && r.price < 1)
+    .sort((a, b) => a.ts - b.ts)
+    .map((r) => ({ ts: r.ts, cond: r.cond, idx: r.idx, price: r.price }));
+}
+/**
+ * PAPER, beside the real copies (16 Nov 2026): we hold every copy to the end, the wallets we copy often sell first.
+ * When a copied wallet sells a side we copied (paper copy-any / copy-take twin or a real copy still open), the best bid
+ * at that moment is written down, so "sell when they sell" can be scored against "hold to the end" on the same bets.
+ * Nothing is sold.
+ */
+async function copySales(wl: { name: string }, rows: CopyRow[], now: number) {
+  const seenKey = `copy:seenSell:${wl.name}`;
+  if (!state.done[seenKey]) state.done[seenKey] = Math.floor(now / 1000);
+  for (const s of copySells(rows, state.done[seenKey])) {
+    state.done[seenKey] = Math.max(state.done[seenKey], s.ts);
+    if (Math.floor(now / 1000) - s.ts > 1800) continue;
+    const mine = (t: PaperTrade) => t.pnl == null && (t.rule === `copy-any-${wl.name}` || t.rule === `copy-take-${wl.name}`);
+    const realOpen = eventLiveRows().some((r) => r.rule === `copy-take-${wl.name}` && r.pnl == null && r.conditionId === s.cond);
+    if (!copyMarkets.has(s.cond) && (realOpen || state.trades.some(mine))) copyMarkets.set(s.cond, (await getJson<GMarket[]>(`${GAMMA}/markets?condition_ids=${s.cond}`).catch(() => []))[0] ?? null);
+    const m = copyMarkets.get(s.cond);
+    if (!m?.id) continue; // a market we hold no copy in
+    const paper = state.trades.filter((t) => t.pnl == null && t.marketId === m.id && t.idx === s.idx && (t.rule === `copy-any-${wl.name}` || t.rule === `copy-take-${wl.name}`) && t.extra && t.extra.soldAt == null);
+    const realKey = (r: { rule: string; marketId: string; idx: number; t: number }) => `${r.rule}|${r.marketId}|${r.idx}|${r.t}`;
+    const sold = (state.copySold ??= {});
+    const real = eventLiveRows().filter((r) => r.group === "copy" && r.rule === `copy-take-${wl.name}` && r.pnl == null && r.shares > 0 && r.marketId === m.id && r.idx === s.idx && !sold[realKey(r)]);
+    if (!paper.length && !real.length) continue;
+    const tokens = jl<string[]>(m.clobTokenIds, []);
+    const bk = tokens[s.idx] ? await book(tokens[s.idx]).catch(() => null) : null;
+    const bid = bk?.bestBid ?? null;
+    for (const t of paper) Object.assign(t.extra!, { soldAt: now, sellBid: bid, theirSell: s.price, sellLagSec: Math.floor(now / 1000) - s.ts });
+    for (const r of real) sold[realKey(r)] = { t: now, bid, their: s.price };
+  }
+}
 /** A wallet's buys newer than `seen` (seconds), oldest first. */
 export function copyBuys(rows: CopyRow[], seen: number): { ts: number; cond: string; idx: number; price: number }[] {
   return rows
@@ -1228,8 +1274,6 @@ async function copyTick() {
   autoTurn += AUTO_PAPER_PER_TICK;
   for (const wl of [...COPY_WALLETS, ...autoReal, ...turn]) {
     const st = (copyStats[wl.name] ??= { buysSeen: 0, repeats: 0, noMarket: 0, restPlaced: 0, taken: 0, takeSkipped: 0, lastError: "", lastAt: 0 });
-    const seenKey = `copy:seen:${wl.name}`;
-    if (!state.done[seenKey]) state.done[seenKey] = Math.floor(now / 1000); // no backfill: only buys made from now on
     let rows: CopyRow[];
     try {
       rows = (await getJson<{ data?: CopyRow[] }>(`https://data-api.polymarket.com/v2/activity?user=${wl.address}&limit=200`)).data ?? [];
@@ -1239,85 +1283,106 @@ async function copyTick() {
       st.lastError = (e as Error).message.slice(0, 60);
       continue;
     }
-    for (const b of copyBuys(rows, state.done[seenKey])) {
-      state.done[seenKey] = Math.max(state.done[seenKey], b.ts);
-      st.buysSeen += 1;
-      if (Math.floor(now / 1000) - b.ts > 1800) continue; // read too late (the bot was down): not a copy any more
-      const key = `copy|${wl.name}|${b.cond}|${b.idx}`;
-      if (state.done[key]) {
-        st.repeats += 1;
-        continue;
-      }
-      state.done[key] = now;
-      if (!copyMarkets.has(b.cond)) copyMarkets.set(b.cond, (await getJson<GMarket[]>(`${GAMMA}/markets?condition_ids=${b.cond}`).catch(() => []))[0] ?? null);
-      const m = copyMarkets.get(b.cond);
-      const tokens = jl<string[]>(m?.clobTokenIds, []);
-      const outcomes = jl<string[]>(m?.outcomes, []);
-      if (!m?.id || m.closed || tokens.length !== 2) {
-        st.noMarket += 1;
-        continue;
-      }
-      const title = `${m.question ?? m.id}`;
-      const outcome = outcomes[b.idx] ?? String(b.idx);
-      const token = tokens[b.idx];
-      const bk = await book(token).catch(() => null);
-      if (!bk) continue;
-      const feeRate = Number(m.feeSchedule?.rate ?? 0);
-      const betUsd = copyBetUsd(rows, b.cond, (r) => Number(r.outcome_index) === b.idx);
-      const usualUsd = copyUsualBet(rows);
-      const extra = { wallet: b.price, lagSec: Math.floor(now / 1000) - b.ts, bid: bk.bestBid, ask: bk.bestAsk, negRisk: Boolean(m.negRisk), betUsd, usualUsd, small: copyLooksBait(betUsd, usualUsd) };
-      if (!(bk.bestAsk != null && bk.bestAsk <= b.price + 1e-9)) {
-        const ahead = bk.bids.filter((x) => Math.abs(x.price - b.price) < 1e-9).reduce((x, y) => x + y.size, 0);
-        state.rest.push({ rule: `copy-rest-${wl.name}`, marketId: m.id, cond: b.cond, title, outcome, idx: b.idx, token, other: tokens[1 - b.idx], bid: b.price, ahead, got: 0, shares: WX_COPY_STAKE / b.price, t: now, until: now + 6 * 3600_000, seen: Math.floor(now / 1000), start: 0 });
-        st.restPlaced += 1;
-      }
-      const lags = (copyLags[wl.name] ??= []);
-      lags.push(extra.lagSec);
-      if (lags.length > 200) lags.shift();
-      const rule = `copy-take-${wl.name}`;
-      const any = walk(bk.asks, WX_COPY_STAKE, 0.999);
-      if (bk.bestAsk != null && any.shares > 0 && any.avg != null) state.trades.push({ rule: `copy-any-${wl.name}`, marketId: m.id, title, outcome, idx: b.idx, token, t: now, ask: bk.bestAsk, avg: any.avg, shares: any.shares, cost: any.cost, fee: feeOf(feeRate, any.shares, any.avg), fillable: any.full, feeRate, extra });
-      const w0 = walk(bk.asks, WX_COPY_STAKE, b.price + COPY_SLIP);
-      if (bk.bestAsk == null || w0.shares <= 0 || w0.avg == null) {
-        st.takeSkipped += 1;
-        signal(rule, title, false, { ...extra, bucket: outcome, skip: "ask more than 5c above the price it paid" });
-      } else {
-        st.taken += 1;
-        state.trades.push({ rule, marketId: m.id, title, outcome, idx: b.idx, token, t: now, ask: bk.bestAsk, avg: w0.avg, shares: w0.shares, cost: w0.cost, fee: feeOf(feeRate, w0.shares, w0.avg), fillable: w0.full, feeRate, extra });
-      }
-      // REAL copy of every buy (14 Nov 2026 01:28 KST, enrique: "i want to copy all"): no 5c price check any more, only
-      // the group's maxAsk. The paper copy-any twins (no price limit) did no worse than copy-take (lex-tang +$33 vs +$16,
-      // betty4 -$10.55 vs -$12.82, maximus374 the same at 13 Nov 2026). Paper copy-take keeps the 5c check.
-      if (bk.bestAsk == null || any.shares <= 0 || any.avg == null) continue;
-      const w = any;
-      const above = eventLiveConfig().groups.copy?.rules.includes(rule) ? copyAboveNote(bk.bestAsk, b.price, eventLiveConfig().groups.copy?.maxAbove ?? 0) : null;
-      if (above) {
-        copyNotes.push({ t: now, title: `${wl.name}: ${title}`, why: above });
-        if (copyNotes.length > 50) copyNotes.splice(0, copyNotes.length - 50);
-        continue;
-      }
-      // Each copied wallet may hold at most COPY_OPEN_EACH real bets at once, so one busy wallet cannot fill the shared
-      // budget with open stakes and leave the others without a single copy to judge them by.
-      const openMine = eventLiveRows().filter((r) => r.group === "copy" && r.rule === rule && r.pnl == null && (r.shares > 0 || r.status === "unknown")).length;
-      const each = copyPerWallet();
-      if (eventLiveConfig().groups.copy?.rules.includes(rule) && openMine >= each) {
-        copyNotes.push({ t: now, title: `${wl.name}: ${title}`, why: `${openMine} real bets of this wallet open (its share is ${each})` });
-      } else if (eventLiveConfig().groups.copy?.rules.includes(rule)) {
-        try {
-          const depth = bk.asks.filter((a) => a.price <= bk.bestAsk! + 0.02 + 1e-9).reduce((x, a) => x + a.price * a.size, 0);
-          const bet = copyBetUsd(rows, b.cond, (r) => Number(r.outcome_index) === b.idx);
-          const usual = copyUsualBet(rows);
-          const stake = copyStake(bet, usual, await walletValue(wl.address, now));
-          if (!copyLooksBait(bet, usual)) noteSize(wl.name, stake);
-          const real = copyLooksBait(bet, usual) ? `small bet: $${bet.toFixed(2)} against its usual $${usual!.toFixed(2)} (paper only)` : await eventLiveBuy("copy", { rule, marketId: m.id, title, outcome, idx: b.idx, token, ask: bk.bestAsk, depth, fillable: w.full, feeRate, conditionId: b.cond, negRisk: Boolean(m.negRisk), stake, resolveAt: copyResolveAt(m), usual });
-          if (real) {
-            log(`copy ${wl.name} ${title} ${outcome}: ${real}`);
-            copyNotes.push({ t: now, title: `${wl.name}: ${title}`, why: real });
-            if (copyNotes.length > 50) copyNotes.splice(0, copyNotes.length - 50);
-          }
-        } catch (e) {
-          log(`copy real order failed: ${(e as Error).message}`);
+    copyRowsOf.set(wl.address.toLowerCase(), rows);
+    await copyWallet(wl, rows, Date.now(), "poll");
+  }
+}
+/**
+ * One copied wallet's new buys (and sales) in `rows`, newest activity first or in any order. `src` says who saw them:
+ * "poll" = the 15 s data API reading, "stream" = Polymarket's live trade socket (src/pmstream.ts). A buy is handled
+ * once, by whichever sees it first (state.done keys), so the two can run side by side.
+ */
+async function copyWallet(wl: { name: string; address: string }, rows: CopyRow[], now: number, src: "poll" | "stream") {
+  const st = (copyStats[wl.name] ??= { buysSeen: 0, repeats: 0, noMarket: 0, restPlaced: 0, taken: 0, takeSkipped: 0, lastError: "", lastAt: 0 });
+  const seenKey = `copy:seen:${wl.name}`;
+  if (!state.done[seenKey]) state.done[seenKey] = Math.floor(now / 1000); // no backfill: only buys made from now on
+  await copySales(wl, rows, now);
+  for (const b of copyBuys(rows, state.done[seenKey])) {
+    state.done[seenKey] = Math.max(state.done[seenKey], b.ts);
+    st.buysSeen += 1;
+    if (Math.floor(now / 1000) - b.ts > 1800) continue; // read too late (the bot was down): not a copy any more
+    const key = `copy|${wl.name}|${b.cond}|${b.idx}`;
+    if (state.done[key]) {
+      st.repeats += 1;
+      continue;
+    }
+    state.done[key] = now;
+    if (!copyMarkets.has(b.cond)) copyMarkets.set(b.cond, (await getJson<GMarket[]>(`${GAMMA}/markets?condition_ids=${b.cond}`).catch(() => []))[0] ?? null);
+    const m = copyMarkets.get(b.cond);
+    const tokens = jl<string[]>(m?.clobTokenIds, []);
+    const outcomes = jl<string[]>(m?.outcomes, []);
+    if (!m?.id || m.closed || tokens.length !== 2) {
+      st.noMarket += 1;
+      continue;
+    }
+    const title = `${m.question ?? m.id}`;
+    const outcome = outcomes[b.idx] ?? String(b.idx);
+    const token = tokens[b.idx];
+    const bk = await book(token).catch(() => null);
+    if (!bk) continue;
+    const feeRate = Number(m.feeSchedule?.rate ?? 0);
+    const betUsd = copyBetUsd(rows, b.cond, (r) => Number(r.outcome_index) === b.idx);
+    const usualUsd = copyUsualBet(rows);
+    const extra = { wallet: b.price, lagSec: Math.floor(now / 1000) - b.ts, src, bid: bk.bestBid, ask: bk.bestAsk, negRisk: Boolean(m.negRisk), betUsd, usualUsd, small: copyLooksBait(betUsd, usualUsd) };
+    if (!(bk.bestAsk != null && bk.bestAsk <= b.price + 1e-9)) {
+      const ahead = bk.bids.filter((x) => Math.abs(x.price - b.price) < 1e-9).reduce((x, y) => x + y.size, 0);
+      state.rest.push({ rule: `copy-rest-${wl.name}`, marketId: m.id, cond: b.cond, title, outcome, idx: b.idx, token, other: tokens[1 - b.idx], bid: b.price, ahead, got: 0, shares: WX_COPY_STAKE / b.price, t: now, until: now + 6 * 3600_000, seen: Math.floor(now / 1000), start: 0 });
+      st.restPlaced += 1;
+    }
+    const lags = (copyLags[wl.name] ??= []);
+    lags.push(extra.lagSec);
+    if (lags.length > 200) lags.shift();
+    const bySrc = (copySrcLags[src] ??= []);
+    bySrc.push(extra.lagSec);
+    if (bySrc.length > 500) bySrc.shift();
+    const rule = `copy-take-${wl.name}`;
+    const any = walk(bk.asks, WX_COPY_STAKE, 0.999);
+    if (bk.bestAsk != null && any.shares > 0 && any.avg != null) state.trades.push({ rule: `copy-any-${wl.name}`, marketId: m.id, title, outcome, idx: b.idx, token, t: now, ask: bk.bestAsk, avg: any.avg, shares: any.shares, cost: any.cost, fee: feeOf(feeRate, any.shares, any.avg), fillable: any.full, feeRate, extra });
+    const w0 = walk(bk.asks, WX_COPY_STAKE, b.price + COPY_SLIP);
+    if (bk.bestAsk == null || w0.shares <= 0 || w0.avg == null) {
+      st.takeSkipped += 1;
+      signal(rule, title, false, { ...extra, bucket: outcome, skip: "ask more than 5c above the price it paid" });
+    } else {
+      st.taken += 1;
+      state.trades.push({ rule, marketId: m.id, title, outcome, idx: b.idx, token, t: now, ask: bk.bestAsk, avg: w0.avg, shares: w0.shares, cost: w0.cost, fee: feeOf(feeRate, w0.shares, w0.avg), fillable: w0.full, feeRate, extra });
+    }
+    // REAL copy of every buy (14 Nov 2026 01:28 KST, enrique: "i want to copy all"): no 5c price check any more, only
+    // the group's maxAsk. The paper copy-any twins (no price limit) did no worse than copy-take (lex-tang +$33 vs +$16,
+    // betty4 -$10.55 vs -$12.82, maximus374 the same at 13 Nov 2026). Paper copy-take keeps the 5c check.
+    if (bk.bestAsk == null || any.shares <= 0 || any.avg == null) continue;
+    const w = any;
+    const above = eventLiveConfig().groups.copy?.rules.includes(rule) ? copyAboveNote(bk.bestAsk, b.price, eventLiveConfig().groups.copy?.maxAbove ?? 0) : null;
+    if (above) {
+      copyNotes.push({ t: now, title: `${wl.name}: ${title}`, why: above });
+      if (copyNotes.length > 50) copyNotes.splice(0, copyNotes.length - 50);
+      continue;
+    }
+    // Each copied wallet may hold at most COPY_OPEN_EACH real bets at once, so one busy wallet cannot fill the shared
+    // budget with open stakes and leave the others without a single copy to judge them by.
+    const openMine = eventLiveRows().filter((r) => r.group === "copy" && r.rule === rule && r.pnl == null && (r.shares > 0 || r.status === "unknown")).length;
+    const each = copyPerWallet();
+    if (eventLiveConfig().groups.copy?.rules.includes(rule) && openMine >= each) {
+      copyNotes.push({ t: now, title: `${wl.name}: ${title}`, why: `${openMine} real bets of this wallet open (its share is ${each})` });
+    } else if (eventLiveConfig().groups.copy?.rules.includes(rule)) {
+      try {
+        const depth = bk.asks.filter((a) => a.price <= bk.bestAsk! + 0.02 + 1e-9).reduce((x, a) => x + a.price * a.size, 0);
+        const bet = copyBetUsd(rows, b.cond, (r) => Number(r.outcome_index) === b.idx);
+        const usual = copyUsualBet(rows);
+        const stake = copyStake(bet, usual, await walletValue(wl.address, now));
+        if (!copyLooksBait(bet, usual)) noteSize(wl.name, stake);
+        const sentAt = Date.now();
+      const real = copyLooksBait(bet, usual) ? `small bet: $${bet.toFixed(2)} against its usual $${usual!.toFixed(2)} (paper only)` : await eventLiveBuy("copy", { rule, marketId: m.id, title, outcome, idx: b.idx, token, ask: bk.bestAsk, depth, fillable: w.full, feeRate, conditionId: b.cond, negRisk: Boolean(m.negRisk), stake, resolveAt: copyResolveAt(m), usual });
+        if (!copyLooksBait(bet, usual)) {
+          copyOrderMs.push({ src, lagSec: extra.lagSec, ms: Date.now() - now, sendMs: Date.now() - sentAt });
+          if (copyOrderMs.length > 300) copyOrderMs.shift();
         }
+        if (real) {
+          log(`copy ${wl.name} ${title} ${outcome}: ${real}`);
+          copyNotes.push({ t: now, title: `${wl.name}: ${title}`, why: real });
+          if (copyNotes.length > 50) copyNotes.splice(0, copyNotes.length - 50);
+        }
+      } catch (e) {
+        log(`copy real order failed: ${(e as Error).message}`);
       }
     }
   }
@@ -1926,11 +1991,74 @@ const GROUPS: Record<string, string[]> = {
   football: ["football-laliga-home", "football-portugal-home", "football-italy-away", "football-laliga-home55"],
   copy: COPY_WALLETS.flatMap((w) => [`copy-rest-${w.name}`, `copy-take-${w.name}`, `copy-any-${w.name}`]),
 };
+const pct = (v: number[], q: number) => {
+  const x = [...v].sort((a, b) => a - b);
+  return x.length ? x[Math.min(x.length - 1, Math.floor(q * x.length))] : null;
+};
+const r2 = (x: number) => Math.round(x * 100) / 100;
+/**
+ * Why the copies do worse than the wallets they copy, measured (16 Nov 2026, enrique: "you just told me we buy at a
+ * much worse price than them", "any way we can buy quicker after they do?"). From the paper copy-any twin, which takes
+ * EVERY first buy of every copied wallet at the ask we saw, with the wallet's own price and how late we saw it:
+ *  - byGap: the result by how far our ask was above the price the wallet paid (cents);
+ *  - byLag: the gap by how late we saw the buy: if later meant a bigger gap, being faster would close it;
+ *  - real: the real copies matched to their paper twin (same wallet, market, side, within 2 min) by the same gap;
+ *  - sells: the copies whose wallet sold the side before it settled: held to the end (what we do) against sold at
+ *    the best bid when we saw their sale (paper, no sale fee taken off).
+ */
+export function copyGapSummary(trades: PaperTrade[], real: EventLiveRow[], sold: Record<string, { t: number; bid: number | null; their: number }>) {
+  const any = trades.filter((t) => t.rule.startsWith("copy-any-") && t.extra && typeof t.extra.wallet === "number");
+  const gapOf = (t: PaperTrade) => (t.ask - Number(t.extra!.wallet)) * 100;
+  const GAPS: [number, number][] = [[-100, 0.01], [0.01, 2], [2, 5], [5, 10], [10, 100]];
+  const LAGS: [number, number][] = [[0, 5], [5, 15], [15, 30], [30, 60], [60, 1e9]];
+  const tally = (v: { pnl: number; cost: number; won: boolean }[]) => ({ n: v.length, won: v.filter((x) => x.won).length, net: r2(v.reduce((a, x) => a + x.pnl, 0)), perDollarPct: v.length ? Math.round((v.reduce((a, x) => a + x.pnl, 0) / v.reduce((a, x) => a + x.cost, 0)) * 1000) / 10 : null });
+  const settled = any.filter((t) => t.pnl != null);
+  const byGap = GAPS.map(([lo, hi]) => ({ fromC: lo, toC: hi, ...tally(settled.filter((t) => gapOf(t) >= lo && gapOf(t) < hi).map((t) => ({ pnl: t.pnl!, cost: t.cost, won: Boolean(t.won) }))) }));
+  const byLag = LAGS.map(([lo, hi]) => {
+    const v = any.filter((t) => Number(t.extra!.lagSec) >= lo && Number(t.extra!.lagSec) < hi);
+    const g = v.map(gapOf);
+    return { fromSec: lo, toSec: hi, n: v.length, gapCMedian: g.length ? r2(pct(g, 0.5)!) : null, gapCP75: g.length ? r2(pct(g, 0.75)!) : null, over5cPct: v.length ? Math.round((g.filter((x) => x > 5).length / v.length) * 100) : null, ...(() => { const st = v.filter((t) => t.pnl != null); return { settled: st.length, perDollarPct: tally(st.map((t) => ({ pnl: t.pnl!, cost: t.cost, won: Boolean(t.won) }))).perDollarPct }; })() };
+  });
+  const bySrc = Object.fromEntries(["poll", "stream"].map((k) => {
+    const v = any.filter((t) => (t.extra!.src ?? "poll") === k).map((t) => Number(t.extra!.lagSec));
+    return [k, { n: v.length, lagSecMedian: pct(v, 0.5), lagSecP90: pct(v, 0.9) }];
+  }));
+  // real copies and their paper twin
+  const twin = (r: EventLiveRow) => any.find((t) => t.rule === r.rule.replace(/^copy-take-/, "copy-any-") && t.marketId === r.marketId && t.idx === r.idx && Math.abs(t.t - r.t) < 120_000);
+  const realDone = real.filter((r) => r.group === "copy" && r.shares > 0 && r.pnl != null);
+  const matched = realDone.map((r) => ({ r, t: twin(r) })).filter((x) => x.t);
+  const realByGap = GAPS.map(([lo, hi]) => ({ fromC: lo, toC: hi, ...tally(matched.filter((x) => (x.r.ask - Number(x.t!.extra!.wallet)) * 100 >= lo && (x.r.ask - Number(x.t!.extra!.wallet)) * 100 < hi).map((x) => ({ pnl: x.r.pnl!, cost: x.r.cost, won: Boolean(x.r.won) }))) }));
+  const realLag = matched.map((x) => Number(x.t!.extra!.lagSec));
+  const realGap = matched.map((x) => (x.r.ask - Number(x.t!.extra!.wallet)) * 100);
+  // sells
+  const sp = settled.filter((t) => t.extra!.soldAt != null && t.extra!.sellBid != null);
+  const paperSells = { n: sp.length, holdNet: r2(sp.reduce((a, t) => a + t.pnl!, 0)), sellNet: r2(sp.reduce((a, t) => a + t.shares * Number(t.extra!.sellBid) - t.cost - t.fee, 0)), heldWon: sp.filter((t) => t.won).length, of: settled.length };
+  const rs = realDone.filter((r) => sold[`${r.rule}|${r.marketId}|${r.idx}|${r.t}`]?.bid != null);
+  const realSells = { n: rs.length, holdNet: r2(rs.reduce((a, r) => a + r.pnl!, 0)), sellNet: r2(rs.reduce((a, r) => a + r.shares * sold[`${r.rule}|${r.marketId}|${r.idx}|${r.t}`].bid! - r.cost - (r.fee ?? 0), 0)), heldWon: rs.filter((r) => r.won).length, of: realDone.length, open: real.filter((r) => r.group === "copy" && r.pnl == null && sold[`${r.rule}|${r.marketId}|${r.idx}|${r.t}`]).length };
+  return {
+    note: "Paper twin (copy-any) = every first buy of every copied wallet at the ask we saw. gap = our ask minus the price the wallet paid, cents. lag = their trade to our seeing it, s. sells = copies whose wallet sold the side before it settled: holdNet (what we do) vs sellNet (sold at the best bid when we saw their sale; paper, no sale fee).",
+    paper: { n: any.length, settled: settled.length, gapCMedian: any.length ? r2(pct(any.map(gapOf), 0.5)!) : null, byGap, byLag, bySrc },
+    realCopies: { settled: realDone.length, matched: matched.length, lagSecMedian: pct(realLag, 0.5), lagSecP90: pct(realLag, 0.9), gapCMedian: realGap.length ? r2(pct(realGap, 0.5)!) : null, byGap: realByGap },
+    sells: { paper: paperSells, real: realSells },
+  };
+}
 function summarize() {
   const out: Record<string, unknown> = { at: Date.now(), health, openMark, wxCopy: { ...wxCopyStats, resting: state.rest.filter((x) => x.rule === "wx-copy-rest").length }, copyWallets: Object.fromEntries(Object.entries(copyStats).map(([k, v]) => {
     const l = [...(copyLags[k] ?? [])].sort((a, b) => a - b);
     return [k, { ...v, lagSecMedian: l.length ? l[Math.floor(l.length / 2)] : null, lagSecMax: l.length ? l[l.length - 1] : null }];
   })) };
+  // How fast we see copied wallets' buys, by source, and how long a real order then takes (16 Nov 2026).
+  const om = copyOrderMs;
+  out.copyFeed = {
+    stream: tradeStreamStatus(),
+    lagSinceStart: Object.fromEntries(Object.entries(copySrcLags).map(([k, v]) => [k, { n: v.length, medianSec: pct(v, 0.5), p90Sec: pct(v, 0.9) }])),
+    realOrders: { n: om.length, lagSecMedian: pct(om.map((x) => x.lagSec), 0.5), seenToAnswerMsMedian: pct(om.map((x) => x.ms), 0.5), seenToAnswerMsP90: pct(om.map((x) => x.ms), 0.9), orderMsMedian: pct(om.map((x) => x.sendMs), 0.5), byStream: om.filter((x) => x.src === "stream").length },
+  };
+  try {
+    out.copyGap = copyGapSummary(state.trades, eventLiveRows(), state.copySold ?? {});
+  } catch (e) {
+    out.copyGap = { error: (e as Error).message.slice(0, 100) };
+  }
   for (const [g, rules] of Object.entries(GROUPS)) {
     out[g] = {
       rules: rules.map((r) => {
@@ -2038,6 +2166,29 @@ async function copyLoop() {
 async function main() {
   log("started (paper only)");
   void copyLoop();
+  // Polymarket's live trade socket (16 Nov 2026): a copied wallet's buy reaches the copy code within about 1-2 s of
+  // the trade instead of the next 15 s reading. The reading keeps running as the backstop.
+  // The wallet list is read from file, so it is kept in memory and read again every 30 s, not for every trade.
+  const byAddr = () => new Map([...COPY_WALLETS, ...autoFollowed()].map((w) => [w.address.toLowerCase(), w] as const));
+  let copyByAddr = byAddr();
+  let copyAddrs = new Set(copyByAddr.keys());
+  setInterval(() => {
+    try {
+      copyByAddr = byAddr();
+      copyAddrs = new Set(copyByAddr.keys());
+    } catch {
+      /* keep the last list */
+    }
+  }, 30_000).unref();
+  startTradeStream(
+    () => copyAddrs,
+    (addr, rows, seenMs) => {
+      const wl = copyByAddr.get(addr);
+      if (!wl) return;
+      for (const w of autoFollowed()) copyRulesFor(w);
+      void copyWallet(wl, [...(rows as unknown as CopyRow[]), ...(copyRowsOf.get(addr) ?? [])], seenMs, "stream").catch((e) => log(`copy from the live socket failed: ${(e as Error).message}`));
+    },
+  );
   let last = { esList: 0, idx: 0, pol: 0, mk: 0, nomk: 0, settle: 0, fb: 0, wx: 0, tn: 0, ck: 0, us: 0, wxc: 0 };
   for (;;) {
     const now = Date.now();
