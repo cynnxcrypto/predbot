@@ -6,7 +6,7 @@ import { mock, test } from "node:test";
 
 process.env.DATA_DIR = mkdtempSync(join(tmpdir(), "solslow-"));
 
-const { tripsOf, screen, lateRet, ownRet, priceAfter, posRet, paperRules, slowTx, slowSummary, reportOf, followed, slowWatch, jupCoins, coinOld, creditsDay, copyableOf, provenWallets, crowdStudy, crowdOnePerCoin, top5Sol, provenThen, _test, STAKE_SOL, TX_SOL, DELAY_COST, MIN_TRIPS } = await import("./slow.js");
+const { tripsOf, screen, lateRet, ownRet, priceAfter, posRet, paperRules, slowTx, slowSummary, reportOf, followed, copySafe, slowWatch, jupCoins, coinOld, creditsDay, copyableOf, provenWallets, crowdStudy, crowdOnePerCoin, top5Sol, provenThen, _test, STAKE_SOL, TX_SOL, DELAY_COST, MIN_TRIPS } = await import("./slow.js");
 
 const W = "Wa11et1111111111111111111111111111111111111";
 const M = "M1nt11111111111111111111111111111111111111";
@@ -301,6 +301,8 @@ test("screen from the chain: the wallet's own swaps read, others' left out; late
   assert.equal(_test.state().credits, 10 + 24 * 3 * 10);
   // every late copy here buys at the others' price and sells 2% under it: none of 24 wins, so it passes but is not followed
   assert.deepEqual([late.in30s.won, reportOf(W)!.copyable], [0, false]);
+  // for the real copy's own-record override: a wallet that cannot be copied fails the safety screens
+  assert.equal(copySafe(W), false);
   assert.deepEqual(followed(), []);
   const sum = slowSummary();
   assert.deepEqual([sum.passing, sum.notCopyable], [1, 1]);
