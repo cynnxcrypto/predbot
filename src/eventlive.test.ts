@@ -159,7 +159,8 @@ test("deploy/live-rules.json: wallet copies stay inside enrique's 13 Nov limits"
   const g = cfg.groups.copy;
   if (!g) return;
   assert.ok(g.size >= 3 && g.maxSize <= 10 && g.maxDays > 0 && g.maxDays <= 14);
-  assert.ok(g.openUsd > 0 && g.openUsd <= 200 && g.walletUsd > 0 && g.walletUsd <= g.openUsd, "a stake cap keeps cash for tennis");
+  // 16 Nov 2026 19:48 KST, enrique: "all wallets can use the whole wallet": no group cap (0); each copied wallet keeps its own
+  assert.ok(g.openUsd >= 0 && g.walletUsd > 0 && (g.openUsd === 0 || g.walletUsd <= g.openUsd), "each copied wallet keeps its own stake cap");
 });
 
 test("stopNet: no new bet once the settled result is that far down; open bets do not count", () => {
