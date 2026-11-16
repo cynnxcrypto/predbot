@@ -83,6 +83,9 @@ export const MAX_HOLD_H = 24 * 8;
 /** how far the oracle price may be from the one we read when the keeper fills: 1% to open; to close 2%, then wider */
 export const OPEN_SLIP = 0.01;
 export const CLOSE_SLIP = [0.02, 0.05, 0.1] as const;
+/** with no price from any source: how long a close that is due waits for one, and how far from the entry price its bound is */
+export const NO_PRICE_CLOSE_MS = 30 * 60_000;
+export const NO_PRICE_SLIP = 0.5;
 /** a request the keeper has neither filled nor turned down after this long is taken back by us */
 export const CANCEL_MS = 180_000;
 /** a request that is not on the chain is taken as turned down only after this long: a transaction of ours that
@@ -269,6 +272,8 @@ interface Pos {
   entryPx?: number;
   unrealUsd?: number;
   markMs?: number;
+  /** since when no price could be read for it (while it lasts): a close that is due goes out on a wide bound after NO_PRICE_CLOSE_MS */
+  noPriceMs?: number;
 }
 interface Row {
   t: number;
@@ -308,6 +313,8 @@ interface State {
   dryCloseLong?: { at: number; result: string; tried: number } | null;
   lastSim: string;
   lastError: string;
+  /** the last look at which no price could be read for an open position (Binance, then Hyperliquid), and why */
+  priceError?: { at: number; coin: string; why: string } | null;
 }
 const fresh = (): State => ({ netUsd: 0, halted: "", note: "", pos: null, opens: [], rows: [], demoted: {}, seen: [], skipped: {}, dry: null, lastSim: "", lastError: "" });
 let state: State = fresh();
@@ -461,21 +468,26 @@ const counter = () => BigInt(Math.floor(Math.random() * 1_000_000_000));
  *  - closed by us: what came back since its close request, less what it paid in when it was filled;
  *  - vanished while open (liquidated, or closed by hand): what came in since the last quiet look, less what it paid in.
  */
-async function finish(d: PerpDeps, w: Wallet, p: Pos, how: "not filled" | "closed" | "vanished", back?: number) {
+async function finish(d: PerpDeps, w: Wallet, p: Pos, how: "not filled" | "closed" | "vanished") {
   const now = await d.usdc(w.address);
-  const paid = p.paidUsd ?? p.collUsd ?? p.collateralUsd ?? MIN_COLLATERAL_USD;
-  // `back`: this position's share of what came in, when several vanished together (see finishGone)
-  const net = r2(how === "not filled" ? now - p.usdcBefore : how === "closed" ? now - p.usdcBefore - paid : (back ?? now - (state.cash ?? now)) - paid);
+  const paid = paidOf(p);
+  const net = r2(how === "not filled" ? now - p.usdcBefore : how === "closed" ? now - p.usdcBefore - paid : now - (state.cash ?? now) - paid);
+  bookOne(d, p, net, how !== "not filled");
+  state.cash = now;
+  save();
+}
+const paidOf = (p: Pos) => p.paidUsd ?? p.collUsd ?? p.collateralUsd ?? MIN_COLLATERAL_USD;
+/** One finished position into the books and its rule's record; its rule judged, the loss cap checked. Not saved here. */
+function bookOne(d: PerpDeps, p: Pos, net: number, filled: boolean) {
+  const how = filled ? "filled" : "not filled";
   state.netUsd = r2(state.netUsd + net);
   state.rows = [...state.rows, { t: Date.now(), rule: p.rule, coin: p.coin, side: (p.dir ?? -1) > 0 ? "long" : "short", leverage: p.lev ?? HARD_LEVERAGE, filled: how !== "not filled", netUsd: net, heldH: p.openedMs ? Math.round(((Date.now() - p.openedMs) / 3_600_000) * 10) / 10 : null }].slice(-2000);
   state.opens = state.opens.filter((x) => x !== p);
-  state.cash = now;
   const c = d.cfg();
   // (the one-time test trades follow no rule: they are never "cut" and never listed as one)
   const cut = p.rule === TEST_RULE ? "" : cutReason(realOf(p.rule), c.ruleStopUsd);
   if (cut) cutNow(p.rule, cut);
   if (!state.halted && c.maxLossUsd > 0 && loss() + c.collateralUsd > c.maxLossUsd + 1e-9) state.halted = `loss cap reached: $${r2(loss())} of $${c.maxLossUsd} (no room for another position)`;
-  save();
 }
 /**
  * Book the positions that are gone from the chain. One: all that came into the wallet since the last quiet look is
@@ -487,7 +499,9 @@ async function finish(d: PerpDeps, w: Wallet, p: Pos, how: "not filled" | "close
  */
 async function finishGone(d: PerpDeps, w: Wallet, gone: Pos[]) {
   if (gone.length === 1) return finish(d, w, gone[0], "vanished");
-  const cameIn = (await d.usdc(w.address)) - (state.cash ?? 0);
+  // one balance read, every share worked out from it, one save: a restart cannot fall between two bookings
+  const now = await d.usdc(w.address);
+  const cameIn = now - (state.cash ?? 0);
   const worth = gone.map((p) => Math.max(0, (p.collateralUsd ?? 0) + (p.unrealUsd ?? 0)));
   const paid = gone.map((p) => p.paidUsd ?? p.collUsd ?? p.collateralUsd ?? MIN_COLLATERAL_USD);
   const by = worth.some((x) => x > 0) ? worth : paid;
@@ -496,8 +510,10 @@ async function finishGone(d: PerpDeps, w: Wallet, gone: Pos[]) {
     const rest = by.slice(i).reduce((a, x) => a + x, 0);
     const share = i === gone.length - 1 || !(rest > 0) ? left : r2((left * by[i]) / rest);
     left = r2(left - share);
-    await finish(d, w, gone[i], "vanished", share);
+    bookOne(d, gone[i], r2(share - paidOf(gone[i])), true);
   }
+  state.cash = now;
+  save();
 }
 /** Put a new position on the list, written down before its request is sent. */
 function begin(p: Pos) {
@@ -620,11 +636,15 @@ export async function perpsLiveTick(d: PerpDeps, now = Date.now()): Promise<void
       p.goneLooks = 0;
       p.collateralUsd = onChain.collateralUsd;
       p.entryPx = onChain.entryPx;
-      const px = await d.price(p.coin).catch(() => 0);
+      const px = await d.price(p.coin).catch((e) => {
+        state.priceError = { at: now, coin: p.coin, why: d.fixed(e) };
+        return 0;
+      });
       if (px > 0) {
         p.unrealUsd = unrealUsd(p.dir ?? -1, size, onChain.entryPx, px);
         p.markMs = now;
-      }
+        delete p.noPriceMs;
+      } else p.noPriceMs ??= now;
       seenNow.set(p, { size, px });
     }
     // gone for good (liquidated, or closed by hand): booked together, and only once no other position is still in
@@ -638,8 +658,15 @@ export async function perpsLiveTick(d: PerpDeps, now = Date.now()): Promise<void
     if (state.opens.some((x) => x.goneLooks)) return;
     for (const p of [...state.opens]) {
       const { px } = seenNow.get(p) ?? { px: 0 };
-      if (px > 0 && (!paper.some((o) => o.id === p.paperId) || now - (p.openedMs ?? now) >= MAX_HOLD_H * 3_600_000)) {
-        const made = closeIx(w.address, p.coin, p.dir ?? -1, boundPrice(p.dir ?? -1, px, CLOSE_SLIP[Math.min(p.closeTries, CLOSE_SLIP.length - 1)], true), counter());
+      const old = now - (p.openedMs ?? now) >= MAX_HOLD_H * 3_600_000;
+      const due = old || !paper.some((o) => o.id === p.paperId);
+      // no price from either source: a close that is due still goes out when the position is at its max hold, or when
+      // the prices have been gone NO_PRICE_CLOSE_MS. Its bound is then NO_PRICE_SLIP away from the entry price: the
+      // keeper fills it at the market price whenever that is inside the bound (MAIN's review, 16 Nov 2026)
+      const blind = px <= 0 && due && (p.entryPx ?? 0) > 0 && (old || now - (p.noPriceMs ?? now) >= NO_PRICE_CLOSE_MS);
+      if ((px > 0 && due) || blind) {
+        const bound = blind ? boundPrice(p.dir ?? -1, p.entryPx!, NO_PRICE_SLIP, true) : boundPrice(p.dir ?? -1, px, CLOSE_SLIP[Math.min(p.closeTries, CLOSE_SLIP.length - 1)], true);
+        const made = closeIx(w.address, p.coin, p.dir ?? -1, bound, counter());
         p.usdcBefore = await d.usdc(w.address);
         p.request = made.request;
         p.sentMs = now;
@@ -844,6 +871,8 @@ export function perpsLiveSummary() {
     testLong: state.testLong ?? null,
     test: state.test ? { ...state.test, rows: state.rows.filter((x) => x.rule === TEST_RULE).map((x) => ({ t: x.t, filled: x.filled, netUsd: x.netUsd, heldH: x.heldH })) } : null,
     lastSimulation: state.lastSim,
+    // the last look at which no price could be read for an open position (the coin and when; no position detail)
+    priceError: state.priceError ?? null,
     skipped: state.skipped,
     lastError: state.lastError,
     rulesReal: rules.filter((x) => x.real).length,
@@ -874,11 +903,19 @@ export async function startPerpsLive() {
     sigOf: (tx) => kit.sigOf(tx),
     usdc: async (a) => Number((await kit.held(a, USDC)).amount) / 1e6,
     sol: (a) => kit.balance(a),
+    // Binance first, Hyperliquid's mid price when Binance does not answer (MAIN's review, 16 Nov 2026)
     price: async (coin) => {
-      const res = await shared.fetch()(`https://api.binance.com/api/v3/ticker/price?symbol=${coin}USDT`, { signal: AbortSignal.timeout(8000) });
-      const px = Number(((await res.json()) as { price?: string }).price);
-      if (!(px > 0)) throw new Error("no price");
-      return px;
+      const binance = await shared
+        .fetch()(`https://api.binance.com/api/v3/ticker/price?symbol=${coin}USDT`, { signal: AbortSignal.timeout(8000) })
+        .then(async (res) => Number(((await res.json()) as { price?: string }).price))
+        .catch(() => 0);
+      if (binance > 0) return binance;
+      const hl = await shared
+        .fetch()("https://api.hyperliquid.xyz/info", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ type: "allMids" }), signal: AbortSignal.timeout(8000) })
+        .then(async (res) => Number(((await res.json()) as Record<string, string>)[coin]))
+        .catch(() => 0);
+      if (hl > 0) return hl;
+      throw new Error("no price from Binance or Hyperliquid");
     },
     fixed: (e) => whyNotSent(String((e as Error)?.message ?? e)),
   };

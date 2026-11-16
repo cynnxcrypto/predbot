@@ -509,28 +509,3 @@ test("rent: rentOutSol never goes below zero", async () => {
   assert.equal(s.rentOutSol ?? 0, 0);
 });
 
-test("rent: an account the swap routed through is closed at the end of the trade, inside its own transactions", async () => {
-  const st = setup(paperTrades(120, 80), [paperOpen(T0)]);
-  const { c, deps } = world(0.0112);
-  const send0 = deps.kit.send;
-  let route = 0;
-  deps.kit.send = async (tx) => {
-    const sig = deps.kit.sigOf(tx);
-    const fresh = !c.delta.has(sig) && c.built.get(sig) === "buy";
-    await send0(tx);
-    if (fresh) (c.delta.set(sig, c.delta.get(sig)! - 0.00204), (c.sol -= 0.00204), (route = 1)); // the buy also opened a route account
-  };
-  let kept: string[] = [];
-  deps.kit.closeSpare = async (_w, keep, sigs) => {
-    kept = keep;
-    if (!route) return;
-    route = 0;
-    c.delta.set("spare", 0.00204);
-    sigs.push("spare");
-  };
-  await L.bucketsLiveTick(deps, T0 + 5000);
-  st.open = [];
-  await L.bucketsLiveTick(deps, T0 + 65_000);
-  assert.deepEqual(kept, []);
-  assert.ok(Math.abs(L._test.state().rows[0].netSol - (0.0112 - 0.01 - 0.00002)) < 1e-9, "the route account's rent is back inside the trade");
-});

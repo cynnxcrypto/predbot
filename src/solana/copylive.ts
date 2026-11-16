@@ -625,7 +625,7 @@ async function closeSpare(w: Wallet, sigs: string[]): Promise<number> {
     sweeping = false;
   }
 }
-async function closeSpareNow(w: Wallet, sigs: string[], keep?: string[]): Promise<number> {
+async function closeSpareNow(w: Wallet, sigs: string[], keep?: string[], only?: string[]): Promise<number> {
   type Acc = { pubkey: string; account: { owner: string; data: { parsed: { info: { mint?: string; state?: string; tokenAmount: { amount: string } } } } } };
   const empty: { pubkey: string; program: string }[] = [];
   // never the account of a coin that is out or being bought at this moment: its buy may be built on that account
@@ -634,7 +634,7 @@ async function closeSpareNow(w: Wallet, sigs: string[], keep?: string[]): Promis
     const r = await rpc<{ value: Acc[] }>("getTokenAccountsByOwner", [w.address, { programId }, { encoding: "jsonParsed", commitment: "confirmed" }]).catch(() => null);
     for (const a of r?.value ?? []) {
       const info = a.account.data.parsed.info;
-      if (info.tokenAmount.amount === "0" && info.state !== "frozen" && !noClose.has(a.pubkey) && !inUse(info.mint)) empty.push({ pubkey: a.pubkey, program: a.account.owner });
+      if (info.tokenAmount.amount === "0" && info.state !== "frozen" && !noClose.has(a.pubkey) && !inUse(info.mint) && (!only || (!!info.mint && only.includes(info.mint)))) empty.push({ pubkey: a.pubkey, program: a.account.owner });
     }
   }
   if (!empty.length) return 0;
@@ -1654,8 +1654,17 @@ export function startSolanaCopyLive() {
  * the same guards on what is signed. Nothing here changes how this test trades.
  */
 /** For the other Solana sides (their own wallets): close the wallet's empty coin accounts, except the coins in `keep`. */
-const closeSpareFor = (w: Wallet, keep: string[], sigs: string[]) => closeSpareNow(w, sigs, keep);
-export const kit = { quote, swapTx, send, landed, held, sigOf, balance, booked, sellAll, closeEmpty, closeSpare: closeSpareFor };
+const closeSpareFor = (w: Wallet, keep: string[], sigs: string[], only?: string[]) => closeSpareNow(w, sigs, keep, only);
+/** The coins the wallet holds an EMPTY account for (both token programs). Throws when the chain does not answer. */
+async function emptyMints(w: Wallet): Promise<string[]> {
+  const out: string[] = [];
+  for (const programId of TOKEN_PROGRAMS) {
+    const r = await rpc<{ value: { account: { data: { parsed: { info: { mint?: string; tokenAmount: { amount: string } } } } } }[] }>("getTokenAccountsByOwner", [w.address, { programId }, { encoding: "jsonParsed", commitment: "confirmed" }]);
+    for (const a of r.value) if (a.account.data.parsed.info.tokenAmount.amount === "0" && a.account.data.parsed.info.mint) out.push(a.account.data.parsed.info.mint);
+  }
+  return out;
+}
+export const kit = { quote, swapTx, send, landed, held, sigOf, balance, booked, sellAll, closeEmpty, closeSpare: closeSpareFor, emptyMints };
 
 /** Test hooks. */
 export const _test = {

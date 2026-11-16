@@ -770,3 +770,42 @@ test("kept traders: a real position open, or real copies ahead; not one that is 
   P._test.state().opens = [{ rule: traderRule(T(6)), coin: "ETH", paperId: "x", stage: "open", usdcBefore: 0, sizeUsd: 50, position: "p", request: "r", sentMs: t, closeTries: 0 }];
   assert.deepEqual(P.keptTraders().sort(), [traderRule(T(1)), traderRule(T(6))].sort());
 });
+
+test("no price from any source: a close at the max hold still goes out on a wide bound, one due on paper after half an hour, and the error shows", async () => {
+  const now = await traders(1);
+  const { deps, act } = multiWorld(100);
+  _bucketsTest.state().hlOpen = [hl(1, "SOL", -1, now - 1000)] as never;
+  await P.perpsLiveTick(deps);
+  act();
+  await P.perpsLiveTick(deps);
+  const p = P._test.state().opens[0];
+  assert.equal(p.stage, "open");
+  // the prices go: the trader closes on paper; nothing is sent yet
+  deps.price = async () => {
+    throw new Error("no price from Binance or Hyperliquid");
+  };
+  _bucketsTest.state().hlOpen = [];
+  await P.perpsLiveTick(deps);
+  assert.equal(p.stage, "open");
+  assert.equal(P.perpsLiveSummary().priceError?.coin, "SOL");
+  // half an hour without a price: the close goes out, bound half the entry price away
+  p.noPriceMs = Date.now() - P.NO_PRICE_CLOSE_MS - 1;
+  await P.perpsLiveTick(deps);
+  assert.equal(p.stage, "closing");
+  act(10);
+  await P.perpsLiveTick(deps);
+  assert.equal(P._test.state().opens.length, 0);
+  // at the max hold it goes out at once, without waiting for a price
+  _bucketsTest.state().hlOpen = [hl(1, "BTC", 1, Date.now() - 500)] as never;
+  deps.price = async () => 100;
+  await P.perpsLiveTick(deps);
+  act();
+  await P.perpsLiveTick(deps);
+  const q = P._test.state().opens[0];
+  q.openedMs = Date.now() - P.MAX_HOLD_H * 3_600_000 - 1;
+  deps.price = async () => {
+    throw new Error("no price");
+  };
+  await P.perpsLiveTick(deps);
+  assert.equal(q.stage, "closing", "the max hold closes whatever the price feed does");
+});
