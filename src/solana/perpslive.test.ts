@@ -558,3 +558,36 @@ test("a state file from the one-position days is carried over", async () => {
   assert.equal(P._test.state().netUsd, -1);
   P._test.reset();
 });
+
+test("real results first: a trader ahead for real stays real under the paper bar; behind after three real trades it is cut", async () => {
+  const { traderRule } = await import("./buckets.js");
+  const now = await traders(1);
+  const rule = traderRule(T(1));
+  const { c, deps, act } = multiWorld(100);
+  const row = (netUsd: number, t: number) => ({ t, rule, coin: "SOL", side: "short", leverage: 5, filled: true, netUsd, heldH: 1 });
+  // two real trades, ahead; then its paper record is gone (under the bar)
+  P._test.state().rows = [row(1, now - 3000), row(-0.5, now - 2000)] as never;
+  _bucketsTest.state().hlTrades = [];
+  assert.equal(P.promoted(rule), true);
+  assert.match(P.standingOf(rule).why, /^real: its real record is ahead \(1 of 2 won\); paper record is under the bar/);
+  // so its next position is still opened for real, and it loses $1: three trades, net -$0.50, far from the $10 stop
+  _bucketsTest.state().hlOpen = [hl(1, "SOL", -1, now - 1000)] as never;
+  await P.perpsLiveTick(deps);
+  assert.equal(c.sends, 1);
+  act();
+  await P.perpsLiveTick(deps);
+  _bucketsTest.state().hlOpen = [];
+  await P.perpsLiveTick(deps);
+  act(9);
+  await P.perpsLiveTick(deps);
+  assert.equal(P._test.state().rows.length, 3);
+  assert.ok(P._test.state().demoted[rule] > 0);
+  assert.equal(P._test.state().demotedWhy?.[rule], "cut: real record behind after 3 trades");
+  assert.equal(P.promoted(rule), false);
+  P._test.setCfg(() => c.cfg);
+  const line = P.perpsLiveSummary().rules.find((x) => x.id === rule);
+  assert.equal(line?.real, false);
+  assert.equal(line?.why, "paper: cut: real record behind after 3 trades; returns on new paper trades at the bar");
+  assert.equal(line?.trades, 3);
+  assert.equal(line?.realTrades, 0, "the real record starts again after a cut");
+});
