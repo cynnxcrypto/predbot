@@ -43,7 +43,10 @@ const KEEP_DONE = 5000;
  */
 const WAIT_ROW_MS = 2 * 3_600_000;
 
-/** A sharp drop is a fall between two polls that are this close: a poll missed or without a route in between makes the older value stale. */
+/**
+ * A sharp drop is a fall between two polls that are this close, with no poll missed in between: a poll that got no
+ * answer or no route (prevMissed) makes the older value stale whatever the time (review of 16 Nov 2026).
+ */
 export const DROP_GAP_MS = 2 * POLL_MS;
 /** The gap is taken from our own market sales (no sale of the copied wallet just before) once this many are in. */
 export const GAP_OWN_MIN = 10;
@@ -55,6 +58,8 @@ export interface Seen {
   v: number;
   prev: number | null;
   prevAgeMs: number;
+  /** a poll since `prev` got no answer or no route: prev is not the poll just before */
+  prevMissed?: boolean;
   peak: number;
   heldH: number;
 }
@@ -72,7 +77,7 @@ export const RULES: readonly { id: string; text: string; half?: boolean; hit: (x
   { id: "time-2h", text: "sell 2 h after our buy if the wallet has not sold", hit: (x) => x.heldH >= 2 },
   { id: "time-4h", text: "sell 4 h after our buy if the wallet has not sold", hit: (x) => x.heldH >= 4 },
   { id: "time-8h", text: "sell 8 h after our buy if the wallet has not sold", hit: (x) => x.heldH >= 8 },
-  { id: "drop-30", text: "sell when the value falls 30% between two polls (sharp drop)", hit: (x) => x.prev !== null && x.prevAgeMs <= DROP_GAP_MS && x.v <= x.prev * 0.7 },
+  { id: "drop-30", text: "sell when the value falls 30% between two polls (sharp drop)", hit: (x) => x.prev !== null && !x.prevMissed && x.prevAgeMs <= DROP_GAP_MS && x.v <= x.prev * 0.7 },
 ];
 
 /** A real copy that is held, as slowlive hands it over. tokens = the raw token amount its buy was quoted. */
@@ -104,6 +109,8 @@ interface Track {
   goneMs?: number;
   /** rule id -> v at the first poll it would have sold */
   fired: Record<string, number>;
+  /** a poll since the last one seen got no answer or no route */
+  miss?: boolean;
   /** we sold it on our own clock and it is followed on until the copied wallet sells: what our sale made */
   own?: { netSol: number; stakeSol: number };
 }
@@ -113,8 +120,10 @@ interface After {
   stakeSol: number;
   /** what our own sale really made */
   netSol: number;
-  /** v at the last poll while the copied wallet still held: what holding until its sale would have brought */
+  /** v at the last poll while the copied wallet still held; holding until its sale = this moved by the sale gap (gapSoldPct) */
   holdV: number;
+  /** was that poll within two polls of the moment the wallet's sale was seen */
+  near?: boolean;
   ended: "sold" | "limit";
   /** rule id -> v at the first poll it would have sold, before or after our own sale */
   fired: Record<string, number>;
@@ -130,6 +139,8 @@ interface Done {
   near: boolean;
   /** sold by our own clock (max hold, wallet dropped), not after a sale of the copied wallet (from 16 Nov 2026) */
   own?: boolean;
+  /** the real copy's exit ("sold" = after the copied wallet's sale) */
+  exit?: string;
   fired: Record<string, number>;
 }
 interface State {
@@ -179,7 +190,8 @@ export const setExitSource = (s: Source | null) => (source = s);
 
 /** One poll's value for a copy: every rule that has not fired yet is asked. Pure over the track. */
 export function see(t: Track, v: number, now: number) {
-  const x: Seen = { v, prev: t.v, prevAgeMs: now - t.lastMs, peak: Math.max(1, t.peak, v), heldH: (now - t.boughtMs) / 3_600_000 };
+  const x: Seen = { v, prev: t.v, prevAgeMs: now - t.lastMs, prevMissed: !!t.miss, peak: Math.max(1, t.peak, v), heldH: (now - t.boughtMs) / 3_600_000 };
+  t.miss = false;
   for (const r of RULES) if (t.fired[r.id] === undefined && r.hit(x)) t.fired[r.id] = v;
   t.prev = t.v;
   t.v = v;
@@ -217,7 +229,7 @@ function sync(now: number): Track[] {
       }
       state.tracks = state.tracks.filter((x) => x !== t);
       changed = true;
-      if (t.v !== null) state.after.push({ name: t.name, stakeSol: t.own.stakeSol, netSol: t.own.netSol, holdV: t.v, ended: a === "sold" ? "sold" : "limit", fired: t.fired });
+      if (t.v !== null) state.after.push({ name: t.name, stakeSol: t.own.stakeSol, netSol: t.own.netSol, holdV: t.v, near: now - t.lastMs <= 2 * POLL_MS, ended: a === "sold" ? "sold" : "limit", fired: t.fired });
       if (state.after.length > KEEP_DONE) state.after = state.after.slice(-KEEP_DONE);
       continue;
     }
@@ -228,7 +240,7 @@ function sync(now: number): Track[] {
     changed = true;
     const own = !!r && (r.exit === "max hold" || r.exit === "wallet dropped" || r.exit === "wallet cut");
     // scored as every copy is, on what the rules saw until our sale
-    if (r) state.done.push({ name: t.name, stakeSol: r.stakeSol, netSol: r.netSol, heldMin: r.heldMin, polls: t.polls, lastV: t.v, near: !r.unsold && r.exit !== "written off" && t.polls > 0 && gone - t.lastMs <= 2 * POLL_MS, ...(own ? { own: true } : {}), fired: { ...t.fired } });
+    if (r) state.done.push({ name: t.name, stakeSol: r.stakeSol, netSol: r.netSol, heldMin: r.heldMin, polls: t.polls, lastV: t.v, near: !r.unsold && r.exit !== "written off" && t.polls > 0 && gone - t.lastMs <= 2 * POLL_MS, ...(own ? { own: true } : {}), ...(r.exit ? { exit: r.exit } : {}), fired: { ...t.fired } });
     if (state.done.length > KEEP_DONE) state.done = state.done.slice(-KEEP_DONE);
     // our own sale, the copied wallet still holding: the copy is followed on (see After)
     if (r && own && !r.unsold && t.polls > 0 && source!.after?.(t.mint, t.seenMs) === "holds") {
@@ -258,8 +270,16 @@ async function ask(t: Track, now: number) {
     health.errors++;
   }
   health.quotes++;
-  if (out === undefined) return void health.missed++; // nothing measured: no conclusion
-  if (out === null) return void health.noRoute++; // no route now: not counted as zero, a route can come back
+  // nothing measured: no conclusion, but the next poll's fall is not "between two polls" (drop-30)
+  if (out === undefined) {
+    t.miss = true;
+    return void health.missed++;
+  }
+  // no route now: not counted as zero, a route can come back
+  if (out === null) {
+    t.miss = true;
+    return void health.noRoute++;
+  }
   if (t.own ? source?.after?.(t.mint, t.seenMs) !== "holds" : !source?.held().some((h) => h.mint === t.mint && h.seenMs === t.seenMs)) return void health.late++;
   see(t, Number(out) / LAMPORTS / t.stakeSol, now + (Date.now() - t0));
 }
@@ -275,7 +295,8 @@ export async function step(now = Date.now()) {
     if (!loaded) load();
     const due = sync(now)
       .filter((t) => now - t.askMs >= POLL_MS)
-      .sort((a, b) => a.askMs - b.askMs)[0];
+      // the held copies first: a copy followed after our own sale (t.own) takes a turn only when none of them is due
+      .sort((a, b) => Number(!!a.own) - Number(!!b.own) || a.askMs - b.askMs)[0];
     if (due) await ask(due, now);
     if (now - savedAt > 60_000) {
       savedAt = now;
@@ -363,13 +384,25 @@ export function slowExitsSummary() {
   // the copies we sold on our own clock, followed until the copied wallet sold: our sale against holding on, alone
   // and with each rule on top (a rule that fired at any poll, before or after our sale = its poll; else the hold)
   const aft = state.after;
-  const hold = (a: After) => a.holdV - 1 + gap;
+  // Holding until the copied wallet sold is priced at the last poll before its sale moved by the SALE gap: how far
+  // our real copies sold 5 s after a wallet's sale ended from their last poll (the wallet's own push on the price,
+  // fees and all). The general gap is taken from our own sales once there are enough, which leaves that push out and
+  // made holding look about 4% of stake better than it is (review of 16 Nov 2026). Where the time ran out instead
+  // (no sale seen), holding means our own sale at that end: the general gap.
+  const sold = done.filter((d) => d.near && d.lastV !== null && d.exit === "sold");
+  const gapSold = sold.length ? sold.reduce((a, d) => a + (ret(d) - (d.lastV! - 1)), 0) / sold.length : gap;
+  const hold = (a: After) => a.holdV - 1 + (a.ended === "sold" ? gapSold : gap);
   const aftReal = aft.reduce((x, a) => x + a.netSol, 0);
   const aftHold = aft.reduce((x, a) => x + hold(a) * a.stakeSol, 0);
   const afterOwn = {
-    note: "PAPER. Real copies we sold on our own clock (wallet dropped for 6 h, or held 72 h) while the copied wallet still held, polled on until that wallet sold the coin (72 h at most; notSeenSelling = the time ran out, counted at the last poll). realNetSol = what our own sale made. holdNetSol = what holding until the wallet's sale would have brought. Each rule = holding on with that rule: its poll's value where it fired (before or after our sale), else the hold. Moved by gapPct like the rules above.",
+    note: "PAPER. Real copies we sold on our own clock (wallet dropped for 6 h, or held 72 h) while the copied wallet still held, polled on until that wallet sold the coin (72 h at most; notSeenSelling = the time ran out, counted at the last poll). realNetSol = what our own sale made. holdNetSol = what holding until the wallet's sale would have brought: its last poll before that sale moved by gapSoldPct (how far real copies sold right after their wallet's sale ended from their last poll), or by gapPct where the time ran out. Each rule = holding on with that rule: its poll's value where it fired (before or after our sale), moved by gapPct, else the hold.",
     copies: aft.length,
     notSeenSelling: aft.filter((a) => a.ended === "limit").length,
+    /** the sale gap the hold is moved by, and from how many real copies sold after their wallet's sale */
+    gapSoldPct: r1(gapSold * 100),
+    gapSoldCopies: sold.length,
+    /** holds whose last poll was more than two polls before the wallet's sale was seen (a staler price) */
+    holdFar: aft.filter((a) => a.ended === "sold" && a.near === false).length,
     /** followed now: sold by us, the copied wallet still holding */
     following: state.tracks.filter((t) => t.own).length,
     realNetSol: r6(aftReal),
