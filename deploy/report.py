@@ -63,6 +63,34 @@ def _kst_day(ms):
     return time.strftime("%Y-%m-%d", time.gmtime(ms / 1000 + 9 * 3600)) if isinstance(ms, (int, float)) else None
 
 
+
+def public_events(ep):
+    """16 Nov 2026 review: a real Polymarket bet's exact time with its market and share count is enough to find our
+    wallet in the market's public trades. Real rows and notes keep the KST day only; shares and cost are rounded."""
+    if not isinstance(ep, dict):
+        return ep
+    ep = json.loads(json.dumps(ep))
+    for g in ep.values():
+        if not isinstance(g, dict):
+            continue
+        reals = [g.get("real")] + ([g["real"].get("rest")] if isinstance(g.get("real"), dict) else [])
+        for real in reals:
+            if not isinstance(real, dict):
+                continue
+            for key in ("recent", "notes"):
+                for r in real.get(key) or []:
+                    if not isinstance(r, dict):
+                        continue
+                    t = r.pop("t", None)
+                    if isinstance(t, (int, float)):
+                        r["day"] = time.strftime("%Y-%m-%d", time.gmtime(t / 1000 + 9 * 3600))
+                    for k in ("shares", "cost"):
+                        if isinstance(r.get(k), (int, float)):
+                            r[k] = round(r[k])
+                    if isinstance(r.get("why"), str) and "REAL" in r["why"]:
+                        r["why"] = "REAL bought"
+    return ep
+
 def public_solana(sc):
     """16 Nov 2026 (privacy): on this public file the moment of a real trade of the two strategy wallets (spot rules,
     perps), with its coin, would be enough to find the wallet on the chain. Their results and counts stay; the trade
@@ -155,7 +183,7 @@ def summary():
             except Exception:
                 continue
             rows.append({"series": "btc5m" if series == "live" else series} | {k: t.get(k) for k in ("t", "window", "left", "variant", "side", "ask", "limit", "freshAsk", "dry", "ok", "status", "error", "cost", "shares", "fee", "ms", "won", "pnl")})
-    out["eventPaper"] = s.get("eventPaper")  # 7 Nov 2026: esports/indices/politics paper loggers (src/eventpaper.ts)
+    out["eventPaper"] = public_events(s.get("eventPaper"))  # 7 Nov 2026: esports/indices/politics paper loggers (src/eventpaper.ts)
     out["budgets"] = s.get("budgets")
     out["preopen"] = s.get("preopen")
     out["pairlock"] = s.get("pairlock")

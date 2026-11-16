@@ -148,7 +148,9 @@ export function eventLiveBlock(cfg: EventLiveConfig, group: string, rule: string
     if (days > g.maxDays) return `resolves in ${Math.round(days)} days (limit ${g.maxDays})`;
   }
   if (depth < g.minDepth - 1e-9) return `only $${depth.toFixed(0)} within 2c of the ask (needs $${g.minDepth})`;
-  const mine = rows.filter((r) => r.group === group && (r.shares > 0 || !r.ok || r.status === "resting"));
+  // held(): a "delayed" order (taken, fill not yet confirmed) counts too, as its stake may already be spent (review of
+  // 16 Nov 2026: a delayed copy escaped every cap and the one-bet-per-match check until the 10-minute sync)
+  const mine = rows.filter((r) => r.group === group && (held(r) || !r.ok));
   // A resting-bid rule bids on both players of a match: then one bet per player (side), not per match.
   if (mine.some((r) => r.marketId === marketId && (side == null || r.idx === side))) return "already bet on this match";
   // One real bet per market across ALL groups (12 Nov 2026: a copied tennis wallet and the tennis rule could otherwise
