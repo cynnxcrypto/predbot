@@ -10,6 +10,7 @@ const { spread } = await import("./slowlive.js");
 
 type Held = { mint: string; seenMs: number; name: string; boughtMs: number; stakeSol: number; tokens?: string };
 const rule = (id: string) => RULES.find((r) => r.id === id)!;
+const r6 = (x: number) => Math.round(x * 1e6) / 1e6;
 
 test("each sale rule fires on what it says", () => {
   const x = (v: number, prev: number | null = null, peak = Math.max(1, v), heldH = 0.5, prevAgeMs = POLL_MS) => ({ v, prev, prevAgeMs, peak, heldH });
@@ -213,6 +214,60 @@ test("study gaps: a stale poll is no sharp drop, an answer after the wallet's sa
   rows.set("P|4", { netSol: -0.001, stakeSol: 0.02, heldMin: 40, exit: "sold" });
   await tick(now + POLL_MS);
   assert.deepEqual(_test.state().done.map((x) => x.own ?? false), [true, false]);
+  setExitSource(null);
+  _test.reset();
+});
+
+test("a copy we sold on our own clock is followed until the copied wallet sells: our sale against holding on, with each rule on top", async () => {
+  _test.reset();
+  const now = Date.now();
+  let held: Held[] = [
+    { mint: "A", seenMs: 1, name: "coin buyer Aaaa", boughtMs: now - 60_000, stakeSol: 0.02, tokens: "1000" },
+    { mint: "B", seenMs: 2, name: "coin buyer Bbbb", boughtMs: now - 60_000, stakeSol: 0.02, tokens: "1000" },
+    { mint: "C", seenMs: 3, name: "coin buyer Cccc", boughtMs: now - 60_000, stakeSol: 0.02, tokens: "1000" },
+  ];
+  const rows = new Map<string, { netSol: number; stakeSol: number; heldMin: number | null; exit?: string }>();
+  const after = new Map<string, "holds" | "sold" | undefined>();
+  setExitSource({ held: () => held, resultOf: (m, t) => rows.get(`${m}|${t}`), after: (m, t) => after.get(`${m}|${t}`) });
+  // what a sale would bring at each poll, SOL
+  const price: Record<string, number[]> = { A: [0.018, 0.013, 0.024, 0.03], B: [0.018, 0.017, 0.016, 0.03], C: [0.018, 0.019] };
+  const asked: string[] = [];
+  _test.setQuote(async (mint) => {
+    asked.push(mint);
+    return BigInt(Math.round(price[mint].shift()! * 1e9));
+  });
+  await tick(now);
+  // all three are sold at -12.5%: A and B on our own clock (their wallets still hold), C after its wallet's sale
+  held = [];
+  rows.set("A|1", { netSol: -0.0025, stakeSol: 0.02, heldMin: 400, exit: "wallet dropped" });
+  rows.set("B|2", { netSol: -0.0025, stakeSol: 0.02, heldMin: 4320, exit: "max hold" });
+  rows.set("C|3", { netSol: -0.0025, stakeSol: 0.02, heldMin: 30, exit: "sold" });
+  after.set("A|1", "holds");
+  after.set("B|2", "holds");
+  await tick(now + POLL_MS);
+  const s1 = slowExitsSummary();
+  // scored as every copy is; C is done with; A and B are polled on
+  assert.deepEqual([s1.copies, s1.open.n, s1.afterOwn.copies, s1.afterOwn.following, _test.state().tracks.map((t) => t.mint)], [3, 0, 0, 2, ["A", "B"]]);
+  assert.deepEqual(asked, ["A", "B", "C", "A", "B"]);
+  // A fell to -35% right after our sale (a stop at -30% would have sold there), then comes back to +20% when its wallet sells
+  await tick(now + 2 * POLL_MS);
+  after.set("A|1", "sold");
+  // B's wallet is never heard selling: the time runs out
+  after.set("B|2", undefined);
+  await tick(now + 3 * POLL_MS);
+  assert.equal(asked.length, 7, "no poll after the wallet sold or the time ran out");
+  const s = slowExitsSummary();
+  assert.deepEqual([s.copies, _test.state().tracks.length, s.afterOwn.copies, s.afterOwn.notSeenSelling, s.afterOwn.following], [3, 0, 2, 1, 0]);
+  // the rules' score on the real copies is as it was: what they saw until our sale
+  assert.equal(_test.state().done.every((d) => d.fired["stop-30"] === undefined), true);
+  // the gap: every copy really made -12.5% where its last poll said -10%
+  assert.equal(s.gapPct, -2.5);
+  // our sales made -0.005; holding on: A +20% and B -20% (its last poll), each less the gap = -0.001
+  assert.deepEqual([s.afterOwn.realNetSol, s.afterOwn.holdNetSol, s.afterOwn.holdVsRealSol], [-0.005, -0.001, 0.004]);
+  const by = Object.fromEntries(s.afterOwn.rules.map((r) => [r.id, r]));
+  // holding with a stop at -30%: A sold at -35% (less the gap) instead of +20%; B as held
+  assert.deepEqual([by["stop-30"].fired, by["stop-30"].netSol, by["stop-30"].vsHoldSol], [1, r6((0.65 - 1 - 0.025 + (0.8 - 1 - 0.025)) * 0.02), r6((0.65 - 1.2) * 0.02)]);
+  assert.deepEqual([by["stop-50"].fired, by["stop-50"].vsHoldSol], [0, 0]);
   setExitSource(null);
   _test.reset();
 });

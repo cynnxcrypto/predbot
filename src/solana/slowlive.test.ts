@@ -9,7 +9,7 @@ process.env.DATA_DIR = mkdtempSync(join(tmpdir(), "slowlive-"));
 // made-up keys: every network call here is faked
 process.env.HELIUS_API_KEY = "test-helius";
 process.env.JUPITER_API_KEY = "test-jupiter";
-const { parseSlowLive, slowLiveSummary, onSwap, sweep, recover, startSlowLive, wallets, rested, realWinner, losingRun, realOf, oneStake, resultOf, heldCopies, saleRefused, GIVE_UP_ROUNDS, RETRY_MS, RETRY_UNSOLD_MS, UNSOLD_DAYS, LEVEL_STAKES, takenVsSkipped, openNow, HARD_MAX_LOSS_SOL, HARD_STAKE_SOL, HARD_MAX_OPEN, WALLETS, stepOf, _test } = await import("./slowlive.js");
+const { parseSlowLive, slowLiveSummary, onSwap, sweep, recover, startSlowLive, wallets, rested, realWinner, losingRun, realOf, oneStake, resultOf, heldCopies, afterOf, AFTER_MAX_MS, saleRefused, GIVE_UP_ROUNDS, RETRY_MS, RETRY_UNSOLD_MS, UNSOLD_DAYS, LEVEL_STAKES, takenVsSkipped, openNow, HARD_MAX_LOSS_SOL, HARD_STAKE_SOL, HARD_MAX_OPEN, WALLETS, stepOf, _test } = await import("./slowlive.js");
 const { _test: run } = await import("./copyrun.js");
 const { buildSigned, wallet } = await import("./keys.js");
 const { base58 } = await import("./whirlpool.js");
@@ -1016,5 +1016,44 @@ test("real day-holder copy and the paper sale study, end to end: bought, polled,
   assert.equal(slowLiveSummary().exits?.copies, 1);
   exits.setExitSource(null);
   exits._test.reset();
+  _test.reset();
+});
+
+test("real day-holder copy: after a sale on our own clock the copied wallet's sale is still listened for, for the paper sale study, and nothing is copied because of it", async () => {
+  fresh();
+  const c = chain(() => 0.011);
+  const X = "Drop1111111111111111111111111111111111111111";
+  c.held.set(B, 1000n);
+  const seenMs = Date.now() - 73 * 3_600_000;
+  _test.state().opens.push({ wallet: X, name: "coin buyer Drop", mint: B, leaderSol: 0.3, seenMs, boughtMs: seenMs, stakeSol: 0.01, tokens: "1000", stage: "held", sigs: [], sellRounds: 0 });
+  assert.equal(afterOf(B, seenMs), undefined, "held: not followed after anything");
+  sweep();
+  for (let i = 0; i < 80 && _test.state().opens.length; i++) await wait(100);
+  assert.deepEqual([_test.state().opens.length, _test.state().rows.at(-1)!.exit, resultOf(B, seenMs)?.exit], [0, "max hold", "max hold"]);
+  // sold by us, the copied wallet still holding: its sale is listened for
+  assert.equal(afterOf(B, seenMs), "holds");
+  startSlowLive();
+  slow._test.setCfg({ rpcUrl: () => null, fetch: () => fetch, listed: () => [], busy: () => [], quote: async () => null });
+  assert.equal(slow.slowWatch().includes(X), true, "its wallet stays on the watch though no copy of it is out");
+  // a buy of that wallet is not copied: it is not on the list
+  onSwap(swap(X, A, true));
+  assert.equal(_test.state().opens.length, 0);
+  // it sells another coin: not the one; then the coin
+  onSwap(swap(X, A, false));
+  assert.equal(afterOf(B, seenMs), "holds");
+  onSwap(swap(X, B, false));
+  assert.deepEqual([afterOf(B, seenMs), slow.slowWatch().includes(X), _test.state().opens.length, _test.state().rows.length], ["sold", false, 0, 1]);
+  // never heard selling: after AFTER_MAX_MS it is no longer followed, nor watched
+  _test.state().after = [{ wallet: X, mint: B, seenMs, ms: Date.now() - AFTER_MAX_MS - 1 }];
+  assert.deepEqual([afterOf(B, seenMs), slow.slowWatch().includes(X)], [undefined, false]);
+  // a copy sold after the wallet's own sale is not followed
+  c.held.set(A, 1000n);
+  _test.state().opens.push({ wallet: L1, name: WALLETS[0].name, mint: A, leaderSol: 0.3, seenMs: seenMs + 1, boughtMs: Date.now() - 60_000, stakeSol: 0.01, tokens: "1000", stage: "held", sigs: [], sellRounds: 0 });
+  onSwap(swap(L1, A, false));
+  await wait(3000);
+  assert.deepEqual([_test.state().rows.at(-1)!.exit, afterOf(A, seenMs + 1)], ["sold", undefined]);
+  assert.ok(!JSON.stringify(slowLiveSummary()).includes(X), "nothing of it in the public summary");
+  slow._test.reset();
+  slow._test.setCfg(null);
   _test.reset();
 });
