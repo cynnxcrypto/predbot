@@ -38,10 +38,18 @@ const KEEP_DONE = 5000;
  */
 const WAIT_ROW_MS = 2 * 3_600_000;
 
-/** What a rule sees at a poll: v = SOL a sale would bring now / SOL paid; prev = the poll before; peak = highest v so far (1 at least); heldH = hours since our buy. */
+/** A sharp drop is a fall between two polls that are this close: a poll missed or without a route in between makes the older value stale. */
+export const DROP_GAP_MS = 2 * POLL_MS;
+/** The gap is taken from our own market sales (no sale of the copied wallet just before) once this many are in. */
+export const GAP_OWN_MIN = 10;
+/**
+ * What a rule sees at a poll: v = SOL a sale would bring now / SOL paid; prev = the poll before, and prevAgeMs how
+ * long ago that was; peak = highest v so far (1 at least); heldH = hours since our buy.
+ */
 export interface Seen {
   v: number;
   prev: number | null;
+  prevAgeMs: number;
   peak: number;
   heldH: number;
 }
@@ -59,7 +67,7 @@ export const RULES: readonly { id: string; text: string; half?: boolean; hit: (x
   { id: "time-2h", text: "sell 2 h after our buy if the wallet has not sold", hit: (x) => x.heldH >= 2 },
   { id: "time-4h", text: "sell 4 h after our buy if the wallet has not sold", hit: (x) => x.heldH >= 4 },
   { id: "time-8h", text: "sell 8 h after our buy if the wallet has not sold", hit: (x) => x.heldH >= 8 },
-  { id: "drop-30", text: "sell when the value falls 30% between two polls (sharp drop)", hit: (x) => x.prev !== null && x.v <= x.prev * 0.7 },
+  { id: "drop-30", text: "sell when the value falls 30% between two polls (sharp drop)", hit: (x) => x.prev !== null && x.prevAgeMs <= DROP_GAP_MS && x.v <= x.prev * 0.7 },
 ];
 
 /** A real copy that is held, as slowlive hands it over. tokens = the raw token amount its buy was quoted. */
@@ -72,7 +80,7 @@ export interface Held {
   tokens?: string;
 }
 /** A finished copy's result: null = its buy never landed; undefined = no row yet; unsold = its coin could not be sold (the stake counted as lost). */
-export type Result = { netSol: number; stakeSol: number; heldMin: number | null; unsold?: boolean } | null | undefined;
+export type Result = { netSol: number; stakeSol: number; heldMin: number | null; unsold?: boolean; exit?: string } | null | undefined;
 interface Track {
   mint: string;
   seenMs: number;
@@ -101,6 +109,8 @@ interface Done {
   lastV: number | null;
   /** was the last poll close enough to the sale to compare the two (within 2 polls) */
   near: boolean;
+  /** sold by our own clock (max hold, wallet dropped), not after a sale of the copied wallet (from 16 Nov 2026) */
+  own?: boolean;
   fired: Record<string, number>;
 }
 interface State {
@@ -122,7 +132,7 @@ let quote: Quote | null = null;
 let timer: NodeJS.Timeout | null = null;
 let busy = false;
 let savedAt = 0;
-const health = { quotes: 0, noRoute: 0, missed: 0, errors: 0 };
+const health = { quotes: 0, noRoute: 0, missed: 0, late: 0, errors: 0 };
 
 function load() {
   loaded = true;
@@ -147,7 +157,7 @@ export const setExitSource = (s: Source | null) => (source = s);
 
 /** One poll's value for a copy: every rule that has not fired yet is asked. Pure over the track. */
 export function see(t: Track, v: number, now: number) {
-  const x: Seen = { v, prev: t.v, peak: Math.max(1, t.peak, v), heldH: (now - t.boughtMs) / 3_600_000 };
+  const x: Seen = { v, prev: t.v, prevAgeMs: now - t.lastMs, peak: Math.max(1, t.peak, v), heldH: (now - t.boughtMs) / 3_600_000 };
   for (const r of RULES) if (t.fired[r.id] === undefined && r.hit(x)) t.fired[r.id] = v;
   t.prev = t.v;
   t.v = v;
@@ -183,15 +193,21 @@ function sync(now: number): Track[] {
     state.tracks = state.tracks.filter((x) => x !== t);
     changed = true;
     if (!r) continue;
-    state.done.push({ name: t.name, stakeSol: r.stakeSol, netSol: r.netSol, heldMin: r.heldMin, polls: t.polls, lastV: t.v, near: !r.unsold && t.polls > 0 && gone - t.lastMs <= 2 * POLL_MS, fired: t.fired });
+    state.done.push({ name: t.name, stakeSol: r.stakeSol, netSol: r.netSol, heldMin: r.heldMin, polls: t.polls, lastV: t.v, near: !r.unsold && t.polls > 0 && gone - t.lastMs <= 2 * POLL_MS, ...(r.exit === "max hold" || r.exit === "wallet dropped" ? { own: true } : {}), fired: t.fired });
     if (state.done.length > KEEP_DONE) state.done = state.done.slice(-KEEP_DONE);
   }
   if (changed) save();
   return out;
 }
-/** One sell quote for one copy. */
+/**
+ * One sell quote for one copy. The answer can take up to two minutes (the request waits its turn in the paper line),
+ * and the copied wallet may sell in that time: an answer that comes when the copy is no longer held is thrown away
+ * (its price is from after the wallet's sale, which no rule could have acted on), and a poll is timed when its answer
+ * comes, not when it was asked.
+ */
 async function ask(t: Track, now: number) {
   t.askMs = now;
+  const t0 = Date.now();
   let out: bigint | null | undefined;
   try {
     out = await quote!(t.mint, SOL, t.tokens);
@@ -200,9 +216,10 @@ async function ask(t: Track, now: number) {
     health.errors++;
   }
   health.quotes++;
-  if (out === undefined) health.missed++; // nothing measured: no conclusion
-  else if (out === null) health.noRoute++; // no route now: not counted as zero, a route can come back
-  else see(t, Number(out) / LAMPORTS / t.stakeSol, now);
+  if (out === undefined) return void health.missed++; // nothing measured: no conclusion
+  if (out === null) return void health.noRoute++; // no route now: not counted as zero, a route can come back
+  if (!source?.held().some((h) => h.mint === t.mint && h.seenMs === t.seenMs)) return void health.late++;
+  see(t, Number(out) / LAMPORTS / t.stakeSol, now + (Date.now() - t0));
 }
 /**
  * Every STEP_MS: the housekeeping, then ONE quote, for the held copy asked longest ago, if that is POLL_MS or more.
@@ -258,8 +275,13 @@ export function slowExitsSummary() {
   if (!loaded) load();
   const done = state.done;
   const ret = (d: Done) => d.netSol / d.stakeSol;
-  // how far the real result was from the last poll's quote, on the copies whose last poll was close to the sale
-  const near = done.filter((d) => d.near && d.lastV !== null);
+  // How far the real result was from the last poll's quote, on the copies whose last poll was close to the sale.
+  // Taken from our OWN market sales (max hold, wallet dropped) once there are GAP_OWN_MIN of them: there the last
+  // poll and our sale see the same market. After a sale of the copied wallet the difference also holds that sale's
+  // own push on the price, which a rule that had sold earlier would not have met.
+  const all = done.filter((d) => d.near && d.lastV !== null);
+  const own = all.filter((d) => d.own);
+  const near = own.length >= GAP_OWN_MIN ? own : all;
   const gap = near.length ? near.reduce((a, d) => a + (ret(d) - (d.lastV! - 1)), 0) / near.length : 0;
   const realNet = done.reduce((a, d) => a + d.netSol, 0);
   const rules = RULES.map((r) => {
@@ -303,12 +325,16 @@ export function slowExitsSummary() {
     real: { won: done.filter((d) => d.netSol > 0).length, netSol: r6(realNet), avgRetPct: done.length ? r1((done.reduce((a, d) => a + ret(d), 0) / done.length) * 100) : null },
     gapPct: near.length ? r1(gap * 100) : null,
     gapCopies: near.length,
+    /** "own sales" = from copies we sold on our own clock (the cleaner measure); "all sales" until there are enough of those */
+    gapFrom: own.length >= GAP_OWN_MIN ? "own sales" : "all sales",
     rules,
     /** the copies out now, as a sale would bring: how many, their average, how many 30%+ under what we paid */
     open: { n: open.length, avgRetPct: open.length ? r1((open.reduce((a, t) => a + t.v! - 1, 0) / open.length) * 100) : null, under30: open.filter((t) => t.v! <= 0.7).length },
     quotes: health.quotes,
     noRoute: health.noRoute,
     missed: health.missed,
+    /** answers that came after the copy was no longer held: thrown away */
+    late: health.late,
     errors: health.errors,
   };
 }
@@ -319,7 +345,7 @@ export const _test = {
     state = fresh();
     loaded = true;
     busy = false;
-    health.quotes = health.noRoute = health.missed = health.errors = 0;
+    health.quotes = health.noRoute = health.missed = health.late = health.errors = 0;
   },
   state: () => state,
   setQuote: (q: Quote | null) => (quote = q),
