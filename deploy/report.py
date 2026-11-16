@@ -66,8 +66,8 @@ def _kst_day(ms):
 def public_solana(sc):
     """16 Nov 2026 (privacy): on this public file the moment of a real trade of the two strategy wallets (spot rules,
     perps), with its coin, would be enough to find the wallet on the chain. Their results and counts stay; the trade
-    times go, an open perp keeps only its rule, coin, side and stage, and the gas swap and top-ups keep only what
-    they were. Each side's "today" (the dashboard card's figure: rows by the KST day of their time) is worked out here
+    times go, no open real perp is shown (a closed one keeps no leverage or time held), and the gas swap and top-ups
+    keep only what they were. Each side's "today" (the dashboard card's figure: rows by the KST day of their time) is worked out here
     first. A copy: the bot's own data is not touched. The spot copy's own summary was public-safe from the start (no coin with a time)."""
     if not isinstance(sc, dict):
         return sc
@@ -92,10 +92,15 @@ def public_solana(sc):
             for k in ("sizeUsd", "collateralUsd", "leverage", "entryPrice", "unrealisedUsd", "pricedAt"):
                 o.pop(k, None)
         if key == "netUsd":
-            # the totals over the open perps are one position's figures when one is open: whole dollars only
-            for k in ("inPositionsUsd", "unrealisedUsd"):
-                if isinstance(real.get(k), (int, float)):
-                    real[k] = round(real[k])
+            # second reader of the same review: an open perp's rule gives the trader's leverage in perpCopy.traderRecords,
+            # so its exact size again, and even its coin and side, the 15 minutes in which it first shows here and the
+            # $10 collateral of the live rules narrow a scan of Jupiter's positions to ours. So no open real perp is in
+            # this file at all (the dashboard has them), and a closed one keeps no leverage or time held.
+            for k in ("open", "opens", "openCount", "inPositionsUsd", "unrealisedUsd"):
+                real.pop(k, None)
+            for r in rows:
+                r.pop("leverage", None)
+                r.pop("heldH", None)
         for k in ("test", "testLong"):
             t = real.get(k)
             if isinstance(t, dict):
