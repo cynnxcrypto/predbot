@@ -11,7 +11,7 @@ import { join } from "node:path";
 import { DATA, ROOT } from "./config.js";
 import { execSync } from "node:child_process";
 let chMemo: { at: number; rows: { t: number; tx: string }[] } | null = null;
-import { solSlowView } from "./solslowdash.js";
+import { solSlowView, slowDaysServed } from "./solslowdash.js";
 import { worthView, worthCheck, worthLast, worthFlows } from "./worthdash.js";
 import { startTruthCheck, truthPrivate, truthPublic } from "./truthcheck.js";
 import { kit as solKit } from "./solana/copylive.js";
@@ -22,7 +22,7 @@ import { loadJson } from "./store.js";
 import { STATUS_PORT } from "./config.js";
 import type { Recorder } from "./recorder.js";
 import { LOGOS } from "./logos.js";
-import { CATS, EV_CSS, EV_JS, eventsStatus, evSectionHtml } from "./eventdash.js";
+import { CATS, EV_CSS, EV_JS, eventsStatus, evSectionHtml, realDaysOf } from "./eventdash.js";
 import { VARIANTS, discarded, setDiscarded } from "./paperlive.js";
 import { addLiveRule, budgets, liveConfig, MIN_SIZE, removeLiveRule, setLiveMaxLoss, setLiveRuleSize, setLiveRuleHalt } from "./live.js";
 
@@ -127,6 +127,17 @@ export function serveStatus(recorder: Recorder, build: string, others: Recorder[
     quote: (mint, out, amount, bps) => solKit.quote(mint, out, amount, bps) as Promise<{ outAmount?: string }>,
     tracked: () => ({ spot: mintsOf("solana-slowlive.json", ["opens"]), rules: mintsOf("solana-bucketslive.json", ["opens", "stuck"]) }),
     fetch: (...a) => fetch(...a),
+    // the day by day's sources, from the functions behind /api/events, /api/solslow and the status (16 Nov 2026)
+    dayServed: () => {
+      const bk = (solanaCopySummary() as { buckets?: { real?: { rows?: unknown } | null; perps?: { real?: { rows?: unknown } | null } } } | null)?.buckets;
+      return {
+        copy: realDaysOf("copy"),
+        tennis: realDaysOf("tennis"),
+        slow: slowDaysServed(),
+        ruleRows: Array.isArray(bk?.real?.rows) ? (bk!.real!.rows as { t: number }[]) : null,
+        perpRows: Array.isArray(bk?.perps?.real?.rows) ? (bk!.perps!.real!.rows as { t: number }[]) : null,
+      };
+    },
   });
   // data/dashboard.json { "password": "..." } (the AWS server, 31 Oct 2026): the page is reached through a Cloudflare tunnel,
   // so every request needs that password (browser login, any user name). Without the file the page stays open as on the Mac.

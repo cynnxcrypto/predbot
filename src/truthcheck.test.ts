@@ -159,3 +159,110 @@ test("a run with made-up sources; the public copy has differences and counts onl
   assert.equal(T.truthPublic()!.polymarketPnl!.comparedWithOursAt, 5_000_000);
   T._truthTest.setDeps(null);
 });
+
+test("day by day: served lines against a recount from the raw rows, with a running-total bug and a shifted day", () => {
+  // 16 Nov 2026 12:00 KST
+  const now = Date.UTC(2026, 10, 16, 3, 0, 0);
+  const at = (day: string, hhmm: string) => Date.parse(`${day}T${hhmm}:00+09:00`);
+  const raw = {
+    events: [
+      { t: at("2026-11-14", "10:00"), group: "copy", shares: 5, pnl: 2, settledAt: at("2026-11-15", "09:00") },
+      { t: at("2026-11-15", "10:00"), group: "copy", shares: 5, pnl: -1.5, settledAt: at("2026-11-15", "20:00") },
+      { t: at("2026-11-16", "01:00"), group: "copy", shares: 4, pnl: 1.25, settledAt: at("2026-11-16", "08:00") },
+      { t: at("2026-11-16", "02:00"), group: "copy", shares: 0, pnl: 0, settledAt: at("2026-11-16", "03:00") }, // unfilled: not a trade
+      { t: at("2026-11-16", "02:00"), group: "copy", shares: 3, pnl: null }, // still open
+      { t: at("2026-11-15", "05:00"), group: "tennis", shares: 6, pnl: 3, settledAt: at("2026-11-15", "07:00") },
+      { t: at("2026-11-16", "05:00"), group: "tennisrest", shares: 2, pnl: -1, settledAt: at("2026-11-16", "07:00") },
+    ],
+    slow: [
+      { t: at("2026-11-15", "23:00"), buy: "landed", heldMin: 90, netSol: 0.002 }, // sold 00:30 on the 16th
+      { t: at("2026-11-16", "09:00"), buy: "failed", heldMin: null, netSol: -0.0001 },
+    ],
+    rules: [
+      // t is when the trade closed (23:50 on the 15th); the page adds the minutes held again and puts it on the 16th
+      { t: at("2026-11-15", "23:50"), buy: "landed", heldMin: 30, netSol: -0.001 },
+      { t: at("2026-11-16", "10:00"), buy: "landed", heldMin: 5, netSol: 0.003 },
+    ],
+    perps: [
+      { t: at("2026-11-12", "10:00"), filled: true, netUsd: 1.1 },
+      { t: at("2026-11-16", "11:00"), filled: true, netUsd: -0.4 },
+      { t: at("2026-11-16", "11:30"), filled: false, netUsd: -0.01 },
+    ],
+  };
+  const rec = T.recountDays(raw);
+  assert.deepEqual(rec.cells["2026-11-15"].copy, { n: 2, won: 1, net: 0.5 });
+  assert.deepEqual(rec.cells["2026-11-16"].copy, { n: 1, won: 1, net: 1.25 }, "the unfilled bid and the open bet are not closed trades");
+  assert.equal(rec.all["2026-11-16"].copy.n, 2, "every row with a result that day, filled or not");
+  assert.deepEqual(rec.cells["2026-11-16"].tennis, { n: 1, won: 0, net: -1 }, "resting bids count with tennis");
+  assert.deepEqual(rec.groups["2026-11-16"].tennisrest, { n: 1, won: 0, net: -1 });
+  assert.equal(rec.cells["2026-11-16"]["spot copy"].n, 1);
+  const served = T.servedDayCells({
+    copy: [{ day: "2026-11-16", settled: 1, won: 1, net: 1.25 }, { day: "2026-11-15", settled: 2, won: 1, net: 0.5 }],
+    // the bug the owner saw: each day's count is the running total
+    tennis: [{ day: "2026-11-16", settled: 2, won: 1, net: 2 }, { day: "2026-11-15", settled: 1, won: 1, net: 3 }],
+    slow: [{ day: "2026-11-16", n: 1, won: 1, netSol: 0.002 }],
+    ruleRows: raw.rules,
+    // the status keeps only the newest rows: the perp of the 12th is gone
+    perpRows: raw.perps.slice(1),
+  });
+  const c = T.compareDays(served, rec, now, 150);
+  assert.equal(c.days.length, 8);
+  assert.equal(c.days[0], "2026-11-16");
+  const by = (day: string, type: string) => c.rows.find((r) => r.day === day && r.type === type)!;
+  assert.equal(by("2026-11-16", "copy").ok, true);
+  assert.equal(by("2026-11-15", "copy").ok, true);
+  const ten = by("2026-11-16", "tennis");
+  assert.deepEqual([ten.countDiff, ten.netDiff, ten.ok, ten.cumulative], [1, 3, false, true], "2 shown where 1 row closed that day");
+  assert.equal(by("2026-11-16", "spot copy").ok, true);
+  const r15 = by("2026-11-15", "spot rules");
+  assert.deepEqual([r15.countDiff, r15.netDiff, r15.ok, r15.cumulative], [-1, 0.15, false, false], "-0.001 SOL at $150 missing from the 15th");
+  const r16 = by("2026-11-16", "spot rules");
+  assert.deepEqual([r16.countDiff, r16.netDiff, r16.ok], [1, -0.15, false]);
+  const p12 = by("2026-11-12", "perps");
+  assert.deepEqual([p12.countDiff, p12.netDiff, p12.ok], [-1, -1.1, false]);
+  assert.equal(by("2026-11-16", "perps").ok, true, "the unfilled perp is not a trade on either side");
+  assert.equal(c.rows.find((r) => r.day === "2026-11-08"), undefined, "older than 8 days: not compared");
+  // a part the server could not read is listed, not compared
+  const none = T.compareDays(T.servedDayCells({ copy: null, tennis: [], slow: [], ruleRows: [], perpRows: [] }), rec, now, 150);
+  assert.deepEqual(none.notRead, ["copy"]);
+  assert.equal(none.rows.some((r) => r.type === "copy"), false);
+});
+
+test("day by day in a run: the public copy lists only wrong lines, as differences", async () => {
+  const now = Date.UTC(2026, 10, 16, 3, 0, 0);
+  const at = (day: string, hhmm: string) => Date.parse(`${day}T${hhmm}:00+09:00`);
+  writeFileSync(join(dir, "eventlive.json"), JSON.stringify([
+    { t: at("2026-11-16", "01:00"), group: "copy", shares: 4, pnl: 1.25, settledAt: at("2026-11-16", "08:00") },
+    { t: at("2026-11-15", "01:00"), group: "copy", shares: 4, pnl: -2, settledAt: at("2026-11-15", "08:00") },
+  ]));
+  writeFileSync(join(dir, "solana-perpslive.json"), JSON.stringify({ rows: [{ t: at("2026-11-16", "11:00"), filled: true, netUsd: -0.4 }] }));
+  const raw = T.readRawTrades();
+  assert.equal(raw.events.length, 2);
+  assert.equal(raw.slow.length, 0, "no file: no rows");
+  T._truthTest.setWaits([]);
+  T._truthTest.setDeps({
+    dash: () => null,
+    flows: () => [],
+    allTime: () => null,
+    rpcUrl: () => "https://rpc.example/",
+    helius: () => "",
+    quote: async () => ({}),
+    tracked: () => ({ spot: new Set(), rules: new Set() }),
+    fetch: (async () => new Response("?", { status: 500 })) as typeof fetch,
+    dayServed: () => ({
+      // the 16th shows both days' bets: a running total
+      copy: [{ day: "2026-11-16", settled: 2, won: 1, net: -0.75 }, { day: "2026-11-15", settled: 1, won: 0, net: -2 }],
+      tennis: [],
+      slow: [],
+      ruleRows: [],
+      perpRows: [{ t: at("2026-11-16", "11:00"), filled: true, netUsd: -0.4 }],
+    }),
+  });
+  await T.truthRun(now);
+  const pub = T.truthPublic()!;
+  assert.deepEqual(pub.days, { checked: 3, notRead: [], wrong: [{ day: "2026-11-16", type: "copy", countDiff: 1, netDiff: -2, cumulative: true }] });
+  const priv = T.truthPrivate()!.extra.days as { rows: { served: { net: number } }[] };
+  assert.equal(priv.rows.length, 3, "the private copy keeps every line with both sides' figures");
+  assert.ok(!/"served"|"recount"|1\.25/.test(JSON.stringify(pub.days)));
+  T._truthTest.setDeps(null);
+});
