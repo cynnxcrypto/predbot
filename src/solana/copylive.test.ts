@@ -457,7 +457,11 @@ function chain(worth: (mint: string) => number) {
       }
       return res(sig);
     }
-    if (method === "getSignatureStatuses") return res({ value: (params[0] as string[]).map((s) => (c.txs.has(s) ? { slot: 500, err: c.txs.get(s)!.ok ? null : { InstructionError: [0, "Custom"] } } : null)) });
+    if (method === "getSignatureStatuses") {
+      // the real RPC's limit: 256 signatures at most in one ask
+      if ((params[0] as string[]).length > 256) return json({ jsonrpc: "2.0", id: 1, error: { code: -32602, message: "Too many inputs provided; max 256" } });
+      return res({ value: (params[0] as string[]).map((s) => (c.txs.has(s) ? { slot: 500, err: c.txs.get(s)!.ok ? null : { InstructionError: [0, "Custom"] } } : null)) });
+    }
     if (method === "getTransaction") {
       const t = c.txs.get(params[0] as string);
       return res(t && !c.hidden.has(params[0] as string) ? { meta: { preBalances: [t.pre, 1], postBalances: [t.post, 1] }, transaction: { message: { accountKeys: [w.address, SYSTEM] } } } : null);
@@ -1204,4 +1208,21 @@ test("upper entry bar: off unless set; a buy already too far above the wallet's 
     _test.setConfig(null);
     _test.reset();
   }
+});
+
+test("copy kit: a copy with more than 256 transactions is read back in groups (the RPC reads 256 at most at once)", async () => {
+  _test.reset();
+  const c = chain(() => 0.05);
+  const sigs: string[] = [];
+  // 300 sale tries that landed and failed, a fee each, and one that never landed
+  for (let i = 0; i < 300; i++) {
+    c.apply(`try-${i}`, -FEE, false);
+    sigs.push(`try-${i}`);
+  }
+  sigs.push("never-landed");
+  assert.deepEqual(await _test.booked(wallet(), sigs), { sol: -(300 * FEE) / 1e9, unread: [] });
+  // the boundary: exactly 256, and one more
+  assert.deepEqual(await _test.booked(wallet(), sigs.slice(0, 256)), { sol: -(256 * FEE) / 1e9, unread: [] });
+  assert.deepEqual(await _test.booked(wallet(), sigs.slice(0, 257)), { sol: -(257 * FEE) / 1e9, unread: [] });
+  _test.reset();
 });

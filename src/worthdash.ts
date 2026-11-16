@@ -108,13 +108,77 @@ export function repairClaims(h: [number, number][], fl: Flow[], spans: WinSpan[]
   return { hist, flows: keep, removed: gone.length, removedUsd: Math.round(gone.reduce((a, f) => a + f[1], 0) * 100) / 100 };
 }
 let fix: { removed: number; removedUsd: number } | null = null;
-/** For the public status: no balance and no deposit in it, only what the repair took off and the 24 h result. */
+type Point = [number, number] | [number, number, 1];
+/** The series the page draws: the hourly estimates before the live samples, then the live samples thinned to about
+ * 300 points, deposits and withdrawals left out. */
+function pageSeries(): Point[] {
+  if (!hist) return [];
+  const step = Math.max(1, Math.ceil(hist.length / 300));
+  const first = hist.length ? hist[0][0] : Infinity;
+  const series: Point[] = [...back.filter((p) => p[0] < first), ...despike(hist).filter((_, i, a) => i % step === 0 || i === a.length - 1)];
+  return netOfFlows(series, flows);
+}
+/**
+ * The windows of the page's "estimated total worth" panel (1 h, 24 h, 7 d, then "since" its first point), worked out
+ * exactly as the page does: the worth now against the last point at or before the window's start. est = that point is
+ * an hourly estimate (the page shows "≈"). 16 Nov 2026, enrique: "how do u go from telling me polymarket +20 to
+ * polymarket -10": every review quotes these windows only, so they must be the page's own numbers. Pure.
+ */
+export function worthWindows(h: Point[], total: number, now: number): { k: string; usd: number; est: boolean; from: number }[] {
+  if (h.length < 2) return [];
+  const out: { k: string; usd: number; est: boolean; from: number; b: Point }[] = [];
+  for (const [k, w] of [["1h", 3_600_000], ["24h", 86_400_000], ["7d", 604_800_000]] as const) {
+    const T = now - w;
+    if (h[0][0] > T + w * 0.1) continue;
+    let b = h[0];
+    for (const p of h) {
+      if (p[0] <= T) b = p;
+      else break;
+    }
+    out.push({ k, usd: Math.round((total - b[1]) * 100) / 100, est: b[2] === 1, from: T, b });
+  }
+  if (!out.length || out[out.length - 1].b !== h[0]) out.push({ k: "since", usd: Math.round((total - h[0][1]) * 100) / 100, est: h[0][2] === 1, from: h[0][0], b: h[0] });
+  return out.map(({ k, usd, est, from }) => ({ k, usd, est, from }));
+}
+/** 00:00 KST (UTC+9) of the day that holds `now`. */
+export function kstMidnight(now: number): number {
+  return Math.floor((now + 9 * 3_600_000) / 86_400_000) * 86_400_000 - 9 * 3_600_000;
+}
+/**
+ * TODAY = the real worth change since 00:00 KST (16 Nov 2026, enrique: "and whats the real since midnight? like the
+ * today ... im just wondering if that is correct"). The cards' "today" counts bets settled today at their full profit,
+ * so a bet that had already risen before midnight shows its whole win today; at 17:15 KST they said +$14.66 while the
+ * worth had fallen about $19.50. This is the worth now against the last sample at or before midnight, deposits and
+ * withdrawals left out, every sample kept (not the page's thinned series). at = that sample's time: later than `from`
+ * only when no sample before midnight exists, and then the change covers less than the day. Pure.
+ */
+export function worthToday(h: Point[], total: number, now: number): { usd: number; est: boolean; from: number; at: number } | null {
+  if (!h.length) return null;
+  const T = kstMidnight(now);
+  let b = h[0];
+  for (const p of h) {
+    if (p[0] <= T) b = p;
+    else break;
+  }
+  return { usd: Math.round((total - b[1]) * 100) / 100, est: b[2] === 1, from: T, at: b[0] };
+}
+/** Every sample, spikes taken out as the page does, deposits and withdrawals left out. */
+function fullSeries(): Point[] {
+  if (!hist) return [];
+  const first = hist.length ? hist[0][0] : Infinity;
+  return netOfFlows<Point>([...back.filter((p) => p[0] < first), ...despike(hist)], flows);
+}
+/** For the public status: no balance and no deposit in it, only what the repair took off and the results (changes in
+ * dollars, never the worth itself and never a percentage, which would give the worth away). */
 export function worthCheck() {
   if (!hist || !memo?.v.total) return null;
   const series = netOfFlows([...back.filter((p) => p[0] < (hist![0]?.[0] ?? Infinity)), ...hist] as [number, number][], flows);
   const T = Date.now() - 86_400_000;
   const base = [...series].reverse().find((p) => p[0] <= T);
-  return { claimStepsTakenForDeposits: fix?.removed ?? null, thatWasUsd: fix?.removedUsd ?? null, wonWaitingForClaimUsd: unclaimedAt(loadSpans(), Date.now()), change24hUsd: base ? Math.round((memo.v.total - base[1]) * 100) / 100 : null, flows24h: flows.filter((f) => f[0] > T).length };
+  const windows: Record<string, { usd: number; est: boolean; from: number; at?: number }> = Object.fromEntries(worthWindows(pageSeries(), memo.v.total, Date.now()).map((w) => [w.k, { usd: w.usd, est: w.est, from: w.from }]));
+  const today = worthToday(fullSeries(), memo.v.total, Date.now());
+  if (today) windows.today = today;
+  return { claimStepsTakenForDeposits: fix?.removed ?? null, thatWasUsd: fix?.removedUsd ?? null, wonWaitingForClaimUsd: unclaimedAt(loadSpans(), Date.now()), change24hUsd: base ? Math.round((memo.v.total - base[1]) * 100) / 100 : null, flows24h: flows.filter((f) => f[0] > T).length, windows, worthAt: memo.at };
 }
 let memo: { at: number; v: Worth } | null = null;
 let solPx: { at: number; v: number | null } = { at: 0, v: null };
@@ -242,8 +306,5 @@ export async function worthView(cash: number | null, claim: number, solBal: numb
       saveJson(FILE, { hist, back, flows, comp, fix, v: 3 });
     }
   }
-  const step = Math.max(1, Math.ceil(hist.length / 300));
-  const first = hist.length ? hist[0][0] : Infinity;
-  const series: ([number, number] | [number, number, 1])[] = [...back.filter((p) => p[0] < first), ...despike(hist).filter((_, i, a) => i % step === 0 || i === a.length - 1)];
-  return { ...memo.v, age: Date.now() - memo.at, hist: netOfFlows(series, flows), flows };
+  return { ...memo.v, age: Date.now() - memo.at, hist: pageSeries(), flows };
 }
