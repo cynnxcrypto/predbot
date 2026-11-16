@@ -74,6 +74,12 @@
       "stepsNote": "15 Nov 2026 17:40-17:52 KST, enrique: 'when something actually works, remember to size up in a way that makes sense' / 'lets get it all into the bot'. Per copied wallet, on OUR settled real copies: x2 at 20+ (half won, ahead), x3 at 50+ and $25+ ahead, x5 at 100+ and $75+ ahead (above x2 only when the trader's usual bet is $500+); one step down while its newest 20 are behind or it gave back 5 stakes. Replaces the x1.5 rule. src/eventlive.ts sizeStep.",
       "openUsd": 155,
       "walletUsd": 40,
+      "cutNote": "16 Nov 2026 11:01-11:04 KST, enrique: 'why the fuck arent we cutting bad traders copied out?', 'u have to cut loser and bring winners', 'real is more important'. From each copied wallet's own settled REAL copies: (1) back to paper at once at $6 down or worse (any number of bets), or behind at all after 5 or more; (2) a wallet whose real copies are ahead trades even when its paper record says no; (3) its open stakes may not pass $9 plus what its real copies have made, so a new wallet has at most $9 at risk and a winner earns its room (up to walletUsd); (4) $3 a bet until its real record is ahead after 5 or more, only then sized by the trader's bet. src/eventlive.ts ruleAdapt / eventLiveBlock.",
+      "cutN": 5,
+      "cutLoss": 6,
+      "houseUsd": 9,
+      "ladderNote": "16 Nov 2026 11:20 KST, enrique: 'how the fuck we bet 7.61 in a first bet of a first wallet copy', 'i thought we were doing like 3', 'make it progress'. Every copied wallet starts at $3. It steps up only on its own settled REAL copies: $5 at 5+ bets and $6+ ahead, $7 at 10+ and $12+ ahead, $10 at 20+ and $21+ ahead; it steps back down the moment its real result falls under that line. Rows are [bets, ahead, stake]. The trader's own bet size no longer sets ours (that was the 13 Nov '$3-$10 by how the wallet sizes its bet' rule). src/eventlive.ts ladderStake.",
+      "ladder": [[5, 6, 5], [10, 12, 7], [20, 21, 10]],
       "adaptN": 10,
       "adaptStop": 10,
       "adaptBoost": 1.5,
@@ -99,10 +105,10 @@
     },
     "tennis": {
       "note": "10 Nov 2026 17:28 KST, enrique: start tennis. Real copy of the paper tennis favourite rules (mid 90-95c, 10 min before the start, ask within 2c of mid). $3 a bet, Jev sizing off, only when $25+ rests within 2c of the ask. Guards: 2 losses in a KST day stop it until the next day, 4 bets open at most, its own budget of $10 (enrique 17:56 KST: 10usd for tennis is totally fine, outside of what i said for crypto; lost + open stakes), separate from the crypto $70 cap (enrique 17:45 KST: tennis should have its own little budget). 11 Nov 2026 19:46 KST, enrique: extend tennis budget risk to 30 so there can be 10 different bets online instead of just 3: budget $10 -> $30, bets open at most 4 -> 10; $3 a bet and the 2-losses-a-day stop unchanged. 13 Nov 2026 14:06 KST, enrique: 'it makes literal no sense to just do trades until we lose twice and stop until next day, u have to either decide to stop for good or continue': the 2-losses-a-day pause is gone (dayLosses 99 = not a stop); the $30 budget is the only stop and ends it for good. 13 Nov 2026 17:10 KST, enrique: 'okay if tennis goes -10 then stop it': stopNet 10 = no new tennis bet once the settled real result is -$10 or worse, for good until his word; open bets settle. maxLoss 30 -> 45 only so that 10 open bets still fit next to that stop (it is no longer the stop). Code src/eventlive.ts.",
+      "itfNote": "16 Nov 2026 11:30 KST review (MAIN), on enrique's rule of 11:04 KST 'real is more important' / 'cut loser': tennis-itf-fav90 is BACK ON PAPER. Its real record is 51 settled, 47 won, -$3.81: the wins at 90-96c do not pay for the losses, and 51 real bets are enough to say so. ATP (7 real bets, -$0.20) and WTA (2, +$0.37) stay at $3: too few real bets to judge. To bring ITF back, add it to rules again.",
       "rules": [
         "tennis-wta-fav90",
-        "tennis-atp-fav90",
-        "tennis-itf-fav90"
+        "tennis-atp-fav90"
       ],
       "size": 3,
       "maxAsk": 0.96,
