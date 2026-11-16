@@ -54,6 +54,7 @@ import { swapOf, type Meta } from "./discover.js";
 import { makeReader, type Item } from "./history.js";
 import { signTransaction, wallet, type Wallet } from "./keys.js";
 import { SOL } from "./pools.js";
+import { setExitSource, slowExitsSummary } from "./slowexits.js";
 import { copySafe, onSlowSwap, paperAddresses, paperResults, provenWallets, setSlowRealSummary, STAKE_SOL as PAPER_STAKE_SOL, top5Sol, type SlowSwap } from "./slow.js";
 
 export const HARD_STAKE_SOL = 0.05;
@@ -206,6 +207,8 @@ export interface Pos {
   boughtMs?: number;
   /** the SOL this copy was bought with (15 Nov 2026: stakes differ by day and by wallet, so each copy keeps its own) */
   stakeSol?: number;
+  /** the raw token amount the buy was quoted (16 Nov 2026): only read by the paper exit study, slowexits.ts */
+  tokens?: string;
   /** every transaction of ours for this copy (buy, sale tries, account close): what they did to our SOL is the result */
   sigs: string[];
   sellRounds: number;
@@ -576,6 +579,7 @@ async function buy(p: Pos) {
     p.stakeSol = stakeSol;
     const q = await kit.quote(SOL, p.mint, String(Math.round(stakeSol * LAMPORTS)), c.slippageBps);
     if (!q.outAmount || q.outAmount === "0") return drop(() => state.notSent++);
+    p.tokens = String(q.outAmount);
     const tx = signTransaction(await kit.swapTx(q, w.address, c.maxFeeLamports), w);
     // written down before it is sent: a restart must know of every transaction of a copy
     p.sigs.push(kit.sigOf(tx));
@@ -853,9 +857,45 @@ export function startSlowLive() {
     walletReady = false; // the first real test reports why, in its own fixed words
   }
   onSlowSwap(() => (cfg().on || state.opens.length ? watched() : []), onSwap);
+  // the paper exit study reads the held copies and their results; it never touches a copy
+  setExitSource({ held: heldCopies, resultOf });
   setSlowRealSummary(slowLiveSummary);
   if (walletReady && state.opens.length) setTimeout(() => void recover(), 15_000).unref();
   setInterval(() => sweep(), 5 * 60_000).unref();
+}
+
+/** Read-only, for the paper exit study: the copies held now (bought, not yet being sold). */
+export function heldCopies() {
+  if (!loaded) load();
+  return state.opens.filter((p) => p.stage === "held" && !p.exit && !p.soldSeenMs).map((p) => ({ mint: p.mint, seenMs: p.seenMs, name: p.name, boughtMs: p.boughtMs ?? p.seenMs, stakeSol: p.stakeSol ?? 0, tokens: p.tokens }));
+}
+/** Read-only, for the paper exit study: a finished copy's result. null = its buy never landed; undefined = no row yet. */
+export function resultOf(mint: string, seenMs: number) {
+  const x = state.rows.find((r) => r.mint === mint && r.t === seenMs);
+  if (!x) return undefined;
+  return x.buy === "landed" ? { netSol: x.netSol, stakeSol: x.stakeSol ?? 0.01, heldMin: x.heldMin } : null;
+}
+/**
+ * The real results by size and by time held (enrique, 16 Nov 2026, on the sale rules: "maybe we should do more about
+ * this"). What a stop loss could have saved at the very most, and whether long holds are where the SOL goes: the
+ * record keeps each copy's result and hold, not its price in between. Numbers only.
+ */
+export function spread(done: { netSol: number; stakeSol?: number; heldMin: number | null; exit: string }[]) {
+  const ret = (x: { netSol: number; stakeSol?: number }) => x.netSol / (x.stakeSol ?? 0.01);
+  const sum = (v: typeof done) => ({ n: v.length, won: v.filter((x) => x.netSol > 0).length, netSol: r6(v.reduce((a, x) => a + x.netSol, 0)) });
+  const R = [-Infinity, -0.5, -0.3, -0.1, 0, 0.1, 0.3, 0.5, 1, Infinity];
+  const H = [0, 10, 60, 120, 240, 480, 720, 1440, Infinity];
+  const pct = (x: number) => (Number.isFinite(x) ? Math.round(x * 100) : null);
+  return {
+    byResultPct: R.slice(0, -1).map((lo, i) => ({ from: pct(lo), to: pct(R[i + 1]), ...sum(done.filter((x) => ret(x) >= lo && ret(x) < R[i + 1])) })),
+    byHeldMin: H.slice(0, -1).map((lo, i) => ({ from: lo, to: Number.isFinite(H[i + 1]) ? H[i + 1] : null, ...sum(done.filter((x) => (x.heldMin ?? 0) >= lo && (x.heldMin ?? 0) < H[i + 1])) })),
+    byExit: [...new Set(done.map((x) => x.exit))].map((exit) => ({ exit, ...sum(done.filter((x) => x.exit === exit)) })),
+    /** the most a stop could have saved: every copy that ended under the line counted as sold exactly at it */
+    stopAtMost: [0.15, 0.3, 0.5].map((s) => {
+      const v = done.filter((x) => ret(x) < -s);
+      return { stopPct: -s * 100, copies: v.length, savedSol: r6(v.reduce((a, x) => a + (-s * (x.stakeSol ?? 0.01) - x.netSol), 0)) };
+    }),
+  };
 }
 
 // ---- status (public: numbers and the leaders' screen names only) ----------------------------------------------------
@@ -962,6 +1002,9 @@ export function slowLiveSummary() {
     /** open copies whose wallet is off the list (sold DROP_SELL_MS after the sweep first saw that), and copies sold for that reason */
     openOffList: state.opens.filter((p) => p.offMs).length,
     soldDropped: done.filter((x) => x.exit === "wallet dropped").length,
+    /** the real results by size, by time held and by kind of sale; and the paper study of other sale rules beside the real copies */
+    spread: spread(done),
+    exits: slowExitsSummary(),
     /** what fills the wallet, and whether the buys let go were as good as the ones taken (paper twin of each) */
     openNow: openNow(),
     takenVsSkipped: takenVsSkipped(),
