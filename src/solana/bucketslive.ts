@@ -32,6 +32,7 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { DATA, ROOT } from "../config.js";
+import { saleRefused } from "./refused.js";
 import { CUT_MIN_TRADES, cutReason, realRecord, standing } from "./realfirst.js";
 import { meetsBar, paperOpens, paperRecord, setBucketsRealSummary, spotRuleIds, REAL_MIN_TRADES, type Bucket } from "./buckets.js";
 import { namedWallet, signTransaction, type Wallet } from "./keys.js";
@@ -102,6 +103,22 @@ interface Pos {
   /** what the coins held would bring if sold now (a real sell quote), SOL, and when that was read */
   valueSol?: number;
   valueMs?: number;
+  /** how many accounts the wallet had for this coin before the buy (absent = not known): see rentOf */
+  acctsBefore?: number;
+  /**
+   * sales that could not be made for a reason the chain or Jupiter gave (no route, or a sale that landed and failed),
+   * and when the first was: a time-out, a refused request or the bot being down is not counted (see writeOff)
+   */
+  deadSales?: number;
+  firstDeadMs?: number;
+  /** a written-off coin: what is in the books for it so far (SOL, rent apart), the rent of it in rentOutSol, and sale transactions tried since */
+  bookedSol?: number;
+  rentIn?: number;
+  tries?: number;
+  /** no more sale tries (MAX_STUCK_TRIES reached): it stays in the books as it stands */
+  gaveUp?: boolean;
+  /** what the write-off changed, so that it can be undone when the coin sells after all */
+  undo?: { cutAt?: number; prevDemoted?: number; prevWhy?: string; halt?: string };
 }
 interface Row {
   t: number;
@@ -111,6 +128,9 @@ interface Row {
   buy: "landed" | "did not land" | "failed";
   netSol: number;
   heldMin: number | null;
+  /** the coin could not be sold and was written off; "recovered" once it was sold after all (the proceeds are added to this row) */
+  stuck?: boolean;
+  recovered?: boolean;
 }
 interface State {
   netSol: number;
@@ -128,6 +148,15 @@ interface State {
   lastError: string;
   /** the one-time test trade that was made (its name in the live rules, and when): a name is used once, for good */
   test?: { id: string; at: number };
+  /**
+   * the stop for a finished trade whose transactions could not be read back (the books may be short): kept apart from
+   * `halted`, so that nothing else (the undo of a write-off's stop) can lift it; only a person, by editing the file
+   */
+  unread?: string;
+  /** coins written off as unsellable: out of `opens` and in their rule's record, still tried once an hour */
+  stuck?: Pos[];
+  /** rent that sits in coin accounts not closed yet (ours, not lost): kept out of every result (see rentOf) */
+  rentOutSol?: number;
 }
 const fresh = (): State => ({ netSol: 0, halted: "", note: "", opens: [], rows: [], demoted: {}, seen: [], skipped: {}, lastError: "" });
 let state: State = fresh();
@@ -153,6 +182,8 @@ function save() {
   renameSync(STATE() + ".tmp", STATE());
 }
 const loss = () => Math.max(0, -state.netSol);
+/** Why nothing new is bought: a limit (halted), or books that may be short (unread). */
+const stopped = () => state.halted || state.unread || "";
 const skip = (why: string) => void (state.skipped[why] = (state.skipped[why] ?? 0) + 1);
 
 /** What this module needs from the chain and from Jupiter: copylive's kit in production, fakes in tests. */
@@ -161,12 +192,14 @@ export interface Kit {
   swapTx: (quote: unknown, address: string, maxFeeLamports: number) => Promise<string>;
   send: (tx: string) => Promise<unknown>;
   landed: (sig: string, ms: number) => Promise<{ slot: number; err: unknown } | null>;
-  held: (address: string, mint: string) => Promise<{ amount: bigint }>;
+  held: (address: string, mint: string) => Promise<{ amount: bigint; accounts?: unknown[] }>;
   sigOf: (tx: string) => string;
   balance: (address: string) => Promise<number>;
   booked: (w: Wallet, sigs: string[]) => Promise<{ sol: number; unread: string[] }>;
   /** closes the emptied coin account (its rent comes back) and adds its transaction to row.sigs */
   closeEmpty: (w: Wallet, mint: string, row: CloseRow) => Promise<unknown>;
+  /** closes every empty, unfrozen coin account of the wallet except those of `keep`, adding its transactions to `sigs` */
+  closeSpare?: (w: Wallet, keep: string[], sigs: string[]) => Promise<unknown>;
 }
 type CloseRow = import("./copylive.js").Row;
 export interface LiveDeps {
@@ -227,6 +260,50 @@ function cutNow(rule: string, why: string) {
   state.demoted[rule] = Date.now();
 }
 
+/** How many accounts the wallet has for a coin, null when it cannot be told. */
+async function accountsOf(d: LiveDeps, w: Wallet, mint: string): Promise<number | null> {
+  try {
+    const h = await d.kit.held(w.address, mint);
+    return Array.isArray(h.accounts) ? h.accounts.length : null;
+  } catch {
+    return null;
+  }
+}
+/**
+ * The rent of a coin account is not a result of the trade (MAIN's review, 16 Nov 2026). A buy pays about 0.002 SOL
+ * to open the account and closing it pays that back; when the close does not go through, the rent sits in the empty
+ * account: ours, not lost, and a fifth of a 0.01 SOL stake, enough to cut a rule that did nothing wrong. And a later
+ * trade of the same coin, whose close then succeeds, would be handed rent it never paid. So the rent that a trade
+ * left out (or took back) is taken out of its result and kept in `rentOutSol`.
+ */
+async function rentOf(d: LiveDeps, w: Wallet, p: Pos): Promise<number> {
+  if (p.acctsBefore === undefined) return 0;
+  const after = await accountsOf(d, w, p.mint);
+  return after === null ? 0 : RENT_SOL * Math.max(-1, Math.min(1, after - p.acctsBefore));
+}
+/**
+ * The rent a trade keeps out of its result, given what it already kept out (`rentIn`): rent taken back never makes
+ * rentOutSol negative. Rent that comes back from an account none of our counted trades left (one from before 16 Nov
+ * 2026, when such rent was booked as a loss) is the trade's to keep: that loss was booked once already.
+ */
+const rentKept = (rent: number, rentIn = 0) => Math.max(rent, rentIn - (state.rentOutSol ?? 0));
+const n9 = (x: number) => Math.round(x * 1e9) / 1e9;
+/**
+ * Accounts that the swap routed through (it opens one for a coin in the middle of the route and leaves it empty):
+ * closed at the end of the trade, so their rent comes back inside the trade's own transactions and its result holds
+ * none of it. The coins other trades hold (or are buying) are left alone.
+ */
+async function closeRoutes(d: LiveDeps, w: Wallet, p: Pos) {
+  if (!d.kit.closeSpare) return;
+  const keep = [...state.opens.filter((x) => x !== p).map((x) => x.mint), ...(state.stuck ?? []).filter((x) => x !== p).map((x) => x.mint)];
+  try {
+    await d.kit.closeSpare(w, keep, p.sigs);
+  } catch (e) {
+    state.lastError = d.fixed(e);
+  }
+  save();
+}
+
 async function sendUntil(d: LiveDeps, tx: string, ms: number) {
   const sig = d.kit.sigOf(tx);
   const until = Date.now() + ms;
@@ -254,11 +331,12 @@ async function buy(d: LiveDeps, o: { rule: string; bucket: Bucket; mint: string;
       return skip("too little SOL");
     }
     state.note = "";
+    const acctsBefore = (await accountsOf(d, w, o.mint)) ?? undefined;
     const q = await d.kit.quote(SOL, o.mint, String(Math.round(c.stakeSol * LAMPORTS)), SLIPPAGE_BPS[o.bucket]);
     if (!q.outAmount || q.outAmount === "0") return skip("no price");
     const tx = signTransaction(await d.kit.swapTx(q, w.address, c.maxFeeLamports), w);
     // written down before it is sent: a restart must know of every transaction of a trade
-    p = { rule: o.rule, bucket: o.bucket, mint: o.mint, paperAt: o.at, stage: "buying", sigs: [d.kit.sigOf(tx)] };
+    p = { rule: o.rule, bucket: o.bucket, mint: o.mint, paperAt: o.at, stage: "buying", sigs: [d.kit.sigOf(tx)], ...(acctsBefore === undefined ? {} : { acctsBefore }) };
     state.opens.push(p);
     save();
     const st = await sendUntil(d, tx, 60_000);
@@ -280,27 +358,147 @@ async function buy(d: LiveDeps, o: { rule: string; bucket: Bucket; mint: string;
 async function sell(d: LiveDeps, p: Pos, c: BucketsLiveConfig) {
   p.stage = "selling";
   save();
+  // a sale the chain or Jupiter turned down (no route, or it landed and failed): the only kind that counts toward a write-off
+  let dead = false;
   try {
     const w = d.wallet();
     for (let i = 0; i < 6; i++) {
       const h = await d.kit.held(w.address, p.mint);
       if (h.amount === 0n) return void (await closeAndFinish(d, w, p));
       const q = await d.kit.quote(p.mint, SOL, h.amount.toString(), Math.min(5000, Math.max(SLIPPAGE_BPS[p.bucket], 300) + 600 * i));
-      if (!q.outAmount) throw new Error("no sell quote");
+      if (!q.outAmount || q.outAmount === "0") {
+        dead = true; // Jupiter answered: no way to sell it now
+        break;
+      }
       const tx = signTransaction(await d.kit.swapTx(q, w.address, c.maxFeeLamports), w);
       p.sigs.push(d.kit.sigOf(tx));
       save();
-      await sendUntil(d, tx, 30_000);
+      const st = await sendUntil(d, tx, 30_000);
+      if (st?.err) dead = true;
       await d.sleep(400);
     }
     if ((await d.kit.held(w.address, p.mint)).amount === 0n) return void (await closeAndFinish(d, w, p));
   } catch (e) {
     state.lastError = d.fixed(e);
+    // Jupiter's "no route" comes as a thrown 4xx (copylive's jup); the network, 429s and time-outs are not counted
+    if (saleRefused(e)) dead = true;
   }
-  // could not sell (no route, network): still held, tried again in 10 minutes
+  // could not sell: still held, tried again in 10 minutes
   p.stage = "held";
   p.nextTryMs = Date.now() + 600_000;
+  if (dead) {
+    p.deadSales = (p.deadSales ?? 0) + 1;
+    p.firstDeadMs ??= Date.now();
+  }
   save();
+  if ((p.deadSales ?? 0) >= DEAD_SALES && Date.now() - (p.firstDeadMs ?? Date.now()) >= WRITE_OFF_MS) await writeOff(d, d.wallet(), p);
+}
+
+/**
+ * A coin that cannot be sold must reach its rule's record (MAIN's review, 16 Nov 2026): before, it sat in `opens`
+ * for good, the rule's real record never saw the loss, and it held one of the places. It is written off only when
+ * DEAD_SALES tries over WRITE_OFF_MS or more were turned down for a reason the chain or Jupiter gave (no route, or a
+ * sale that landed and failed): an outage, rate limits or the bot being down never write a coin off. And only when
+ * every one of its transactions can be read back: it is booked from the chain, never from a guess.
+ * Then it is booked as it stands (what its transactions did to the wallet), its rule is judged (a cut, or the loss
+ * cap, can follow), and it moves to `stuck`: a sale is tried once an hour at the bucket's slippage, a little wider
+ * each time, at most MAX_STUCK_TRIES transactions; every try's fee is booked once it can be read. When it sells, the
+ * difference is added to the books and to its row, and a cut or a stop that the write-off made is undone and judged
+ * again on the final result.
+ */
+export const WRITE_OFF_MS = 6 * 3_600_000;
+export const DEAD_SALES = 12;
+export const STUCK_RETRY_MS = 3_600_000;
+export const MAX_STUCK_TRIES = 12;
+async function writeOff(d: LiveDeps, w: Wallet, p: Pos) {
+  const r = await d.kit.booked(w, p.sigs);
+  if (r.unread.length) return; // not booked from a guess: tried at a later look
+  const rent = rentKept(await rentOf(d, w, p));
+  const before = { demoted: state.demoted[p.rule], why: state.demotedWhy?.[p.rule], halt: state.halted };
+  const net = n9(r.sol + rent);
+  book(d, p, "landed", net, rent, true);
+  const undo: NonNullable<Pos["undo"]> = {};
+  if (state.demoted[p.rule] !== before.demoted) Object.assign(undo, { cutAt: state.demoted[p.rule], prevDemoted: before.demoted, prevWhy: before.why });
+  if (state.halted && state.halted !== before.halt) undo.halt = state.halted;
+  state.stuck = [...(state.stuck ?? []), { ...p, stage: "held", bookedSol: net, rentIn: rent, tries: 0, undo, nextTryMs: Date.now() + STUCK_RETRY_MS }];
+  save();
+}
+/** One more try to sell a written-off coin; then its books are read again in full and the difference is booked. */
+async function sellStuck(d: LiveDeps, p: Pos, c: BucketsLiveConfig) {
+  p.nextTryMs = Date.now() + STUCK_RETRY_MS;
+  save();
+  try {
+    const w = d.wallet();
+    let h = await d.kit.held(w.address, p.mint);
+    if (h.amount > 0n && !p.gaveUp) {
+      if ((p.tries ?? 0) >= MAX_STUCK_TRIES) p.gaveUp = true;
+      else {
+        // only the sale is in its own try: no route (a thrown 4xx), a 429 or a time-out must not skip the re-read below,
+        // which books the fee of a try that was sent
+        try {
+          const q = await d.kit.quote(p.mint, SOL, h.amount.toString(), Math.min(5000, Math.max(SLIPPAGE_BPS[p.bucket], 300) + 600 * (p.tries ?? 0)));
+          if (q.outAmount && q.outAmount !== "0") {
+            const tx = signTransaction(await d.kit.swapTx(q, w.address, c.maxFeeLamports), w);
+            p.sigs.push(d.kit.sigOf(tx));
+            p.tries = (p.tries ?? 0) + 1;
+            save();
+            await sendUntil(d, tx, 30_000);
+          }
+        } catch (e) {
+          state.lastError = d.fixed(e);
+        }
+        h = await d.kit.held(w.address, p.mint);
+      }
+    }
+    const sold = h.amount === 0n;
+    if (sold) {
+      const row: CloseRow = { t: Date.now(), name: p.rule, mint: p.mint, leaderSlot: 0, buy: "landed", netSol: 0, sigs: [] };
+      await d.kit.closeEmpty(w, p.mint, row).catch(() => undefined);
+      p.sigs.push(...row.sigs);
+      save();
+      await closeRoutes(d, w, p);
+    }
+    // the whole coin read again, every transaction from its buy: what changed since the last booking is booked now
+    const r = await d.kit.booked(w, p.sigs);
+    if (r.unread.length) return save(); // read again at the next try; nothing is booked from a guess
+    const rent = rentKept(await rentOf(d, w, p), p.rentIn);
+    const net = n9(r.sol + rent);
+    const diff = n9(net - (p.bookedSol ?? 0));
+    state.netSol = n9(state.netSol + diff);
+    state.rentOutSol = n9((state.rentOutSol ?? 0) + rent - (p.rentIn ?? 0));
+    const mine = state.rows.find((x) => x.stuck && !x.recovered && x.rule === p.rule && x.at === p.paperAt);
+    if (mine) mine.netSol = n9(mine.netSol + diff);
+    p.bookedSol = net;
+    p.rentIn = rent;
+    if (sold) {
+      if (mine) mine.recovered = true;
+      state.stuck = (state.stuck ?? []).filter((x) => x !== p);
+      undoWriteOff(d, p);
+    }
+    save();
+  } catch (e) {
+    state.lastError = d.fixed(e);
+  }
+}
+/**
+ * The coin sold after all: a cut or a stop the write-off made is taken back and judged again on the final result.
+ * Only if nothing has happened to the rule since (no newer cut, no real trade bought after the cut).
+ */
+function undoWriteOff(d: LiveDeps, p: Pos) {
+  const c = d.cfg();
+  const u = p.undo ?? {};
+  if (u.cutAt !== undefined && state.demoted[p.rule] === u.cutAt && !state.rows.some((x) => x.rule === p.rule && boughtAt(x) > u.cutAt!)) {
+    if (u.prevDemoted === undefined) delete state.demoted[p.rule];
+    else state.demoted[p.rule] = u.prevDemoted;
+    if (u.prevWhy === undefined) delete state.demotedWhy?.[p.rule];
+    else state.demotedWhy = { ...(state.demotedWhy ?? {}), [p.rule]: u.prevWhy };
+    const cut = cutReason(realOf(p.rule), c.ruleStopSol);
+    if (cut) cutNow(p.rule, cut);
+  }
+  if (u.halt && state.halted === u.halt) {
+    state.halted = "";
+    if (c.maxLossSol > 0 && loss() + c.stakeSol + TRADE_ROOM_SOL > c.maxLossSol + 1e-9) state.halted = `loss cap reached: ${r6(loss())} of ${c.maxLossSol} SOL (no room for another trade)`;
+  }
 }
 
 /** The emptied coin account's rent back; its transaction is counted with the trade. Then the books. */
@@ -313,6 +511,7 @@ async function closeAndFinish(d: LiveDeps, w: Wallet, p: Pos) {
   } catch (e) {
     state.lastError = d.fixed(e);
   }
+  await closeRoutes(d, w, p);
   await finish(d, w, p, "landed");
 }
 
@@ -323,10 +522,16 @@ async function finish(d: LiveDeps, w: Wallet, p: Pos, buyState: Row["buy"]) {
     await d.sleep(5000);
     r = await d.kit.booked(w, p.sigs);
   }
-  if (r.unread.length) state.halted = state.halted || "a transaction of a finished trade could not be read back: the books may be short, so nothing new is bought";
-  state.netSol = Math.round((state.netSol + r.sol) * 1e9) / 1e9;
+  if (r.unread.length) state.unread = "a transaction of a finished trade could not be read back: the books may be short, so nothing new is bought";
+  const rent = rentKept(await rentOf(d, w, p));
+  book(d, p, buyState, n9(r.sol + rent), rent, false);
+}
+/** Put a finished (or written-off) trade in the books and its rule's record; judge the rule and the loss cap. */
+function book(d: LiveDeps, p: Pos, buyState: Row["buy"], net: number, rent: number, stuck: boolean) {
+  state.rentOutSol = n9((state.rentOutSol ?? 0) + rent);
+  state.netSol = n9(state.netSol + net);
   state.opens = state.opens.filter((x) => x !== p);
-  state.rows = [...state.rows, { t: Date.now(), at: p.paperAt, rule: p.rule, buy: buyState, netSol: r.sol, heldMin: p.boughtMs ? Math.round((Date.now() - p.boughtMs) / 60_000) : null }].slice(-5000);
+  state.rows = [...state.rows, { t: Date.now(), at: p.paperAt, rule: p.rule, buy: buyState, netSol: net, ...(stuck ? { stuck: true } : {}), heldMin: p.boughtMs ? Math.round((Date.now() - p.boughtMs) / 60_000) : null }].slice(-5000);
   const c = d.cfg();
   // (the one-time test trade follows no rule: it is never "cut")
   const cut = p.rule === TEST_RULE ? "" : cutReason(realOf(p.rule), c.ruleStopSol);
@@ -343,7 +548,7 @@ export async function bucketsLiveTick(d: LiveDeps, now = Date.now()): Promise<vo
   if (busy) return;
   if (!loaded) load();
   const c = d.cfg();
-  if (!c.on && !state.opens.length) return;
+  if (!c.on && !state.opens.length && !state.stuck?.length) return;
   busy = true;
   try {
     const paper = paperOpens();
@@ -375,8 +580,9 @@ export async function bucketsLiveTick(d: LiveDeps, now = Date.now()): Promise<vo
         save();
       }
     }
+    for (const p of [...(state.stuck ?? [])]) if ((p.nextTryMs ?? 0) <= now) await sellStuck(d, p, c);
     const tid = d.testId?.() ?? "";
-    if (tid && c.on && !state.halted && state.test?.id !== tid && !state.opens.length) {
+    if (tid && c.on && !stopped() && state.test?.id !== tid && !state.opens.length) {
       // the name is written down before anything is sent: whatever happens next, this test is never made twice
       state.test = { id: tid, at: now };
       save();
@@ -386,14 +592,14 @@ export async function bucketsLiveTick(d: LiveDeps, now = Date.now()): Promise<vo
       const key = `${o.rule}:${o.mint}:${o.at}`;
       if (state.seen.includes(key)) continue;
       state.seen = [...state.seen, key].slice(-500);
-      if (!c.on || state.halted) continue;
+      if (!c.on || stopped()) continue;
       // a cut missed when its trade finished (the switch was off then, or the stop was lowered since) is made now
       const late = cutReason(realOf(o.rule), c.ruleStopSol);
       if (late) cutNow(o.rule, late);
       if (!promoted(o.rule)) continue; // the usual case: the rule is paper only
       if (o.mint === SOL) skip("SOL itself");
       else if (now - o.at > BUY_WINDOW_MS) skip("paper buy too old");
-      else if (state.opens.some((p) => p.mint === o.mint)) skip("coin already held");
+      else if (state.opens.some((p) => p.mint === o.mint) || (state.stuck ?? []).some((p) => p.mint === o.mint)) skip("coin already held");
       else if (state.opens.length >= c.maxOpen) skip("too many out");
       else if (loss() + (state.opens.length + 1) * (c.stakeSol + TRADE_ROOM_SOL) > c.maxLossSol + 1e-9) skip("no room under the cap");
       else await buy(d, o, c, now);
@@ -418,13 +624,13 @@ export function bucketsLiveSummary() {
     const mine = done.filter((x) => x.rule === id);
     const st = standingOf(id);
     const live = realOf(id);
-    return { id, real: c.on && !state.halted && st.real, why: !c.on ? "paper: real trading is switched off" : state.halted ? "paper: real trading is stopped" : st.why, realTrades: live.trades, realWon: live.won, realNetSol: r6(live.net), paperTrades: paper.trades, paperWon: paper.won, paperNetUsd: Math.round(paper.netUsd * 100) / 100, demotedAt: since || null, trades: mine.length, won: mine.filter((x) => x.netSol > 0).length, netSol: r6(mine.reduce((a, x) => a + x.netSol, 0)) };
+    return { id, real: c.on && !stopped() && st.real, why: !c.on ? "paper: real trading is switched off" : stopped() ? "paper: real trading is stopped" : st.why, realTrades: live.trades, realWon: live.won, realNetSol: r6(live.net), paperTrades: paper.trades, paperWon: paper.won, paperNetUsd: Math.round(paper.netUsd * 100) / 100, demotedAt: since || null, trades: mine.length, won: mine.filter((x) => x.netSol > 0).length, netSol: r6(mine.reduce((a, x) => a + x.netSol, 0)) };
   });
   return {
-    note: `REAL, off unless the live rules switch it on. A spot bucket rule gets its first real trades when its paper record meets the bar (${REAL_MIN_TRADES}+ paper trades at real quotes, half or more won, ahead after costs): then each of its paper buys is also bought with ${c.stakeSol || 0.01} SOL and sold when the paper trade is sold. Real results come first (enrique, 16 Nov 2026: "cut loser and bring winners", "real is more important"): once it has real trades it stays real while its real net is zero or better, even under the paper bar, and goes back to paper when its real trades are behind after ${CUT_MIN_TRADES} or more, or have lost ${c.ruleStopSol || 0.03} SOL; it returns when its paper trades made after that meet the bar again. In rules: why = the reason in words; realTrades, realWon, realNetSol = its real trades bought since it was last cut; trades, won, netSol = all its real trades ever. Total loss is capped; the perps side has its own wallet and block.`,
-    on: c.on && !state.halted,
+    note: `REAL, off unless the live rules switch it on. A spot bucket rule gets its first real trades when its paper record meets the bar (${REAL_MIN_TRADES}+ paper trades at real quotes, half or more won, ahead after costs): then each of its paper buys is also bought with ${c.stakeSol || 0.01} SOL and sold when the paper trade is sold. Real results come first (enrique, 16 Nov 2026: "cut loser and bring winners", "real is more important"): once it has real trades it stays real while its real net is zero or better, even under the paper bar, and goes back to paper when its real trades are behind after ${CUT_MIN_TRADES} or more, or have lost ${c.ruleStopSol || 0.03} SOL; it returns when its paper trades made after that meet the bar again. In rules: why = the reason in words; realTrades, realWon, realNetSol = its real trades bought since it was last cut; trades, won, netSol = all its real trades ever. A coin that Jupiter or the chain refused to sell ${DEAD_SALES} times over ${WRITE_OFF_MS / 3_600_000} hours or more is written off: it counts in its rule's record as it stands (stuck), a sale is tried hourly (at most ${MAX_STUCK_TRIES}), and what a later sale brings is added, undoing a cut or stop the write-off made. The rent of a coin account is in no trade's result. Total loss is capped; the perps side has its own wallet and block.`,
+    on: c.on && !stopped(),
     switch: c.on ? "on" : "off",
-    halted: state.halted,
+    halted: stopped(),
     stateNote: state.note,
     stakeSol: c.stakeSol,
     capSol: c.maxLossSol,
@@ -434,6 +640,11 @@ export function bucketsLiveSummary() {
     won: done.filter((x) => x.netSol > 0).length,
     notLanded: state.rows.length - done.length,
     open: state.opens.length,
+    // coins written off as unsellable (in their rule's record as they stood; a sale is still tried once an hour), and
+    // rent that sits in coin accounts not closed yet (ours, in no result)
+    stuck: state.stuck?.length ?? 0,
+    stuckGaveUp: (state.stuck ?? []).filter((p) => p.gaveUp).length,
+    rentOutSol: r6(state.rentOutSol ?? 0),
     // SOL that sits in coins now: what was paid for them, and what they would bring at a sell quote read in the last minutes
     // (a coin not yet valued counts at what was paid). Not a loss and not a withdrawal until sold.
     heldCostSol: r6(state.opens.length * c.stakeSol),

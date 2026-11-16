@@ -314,3 +314,135 @@ test("buckets: one copied trader's own record and the bar for following it for r
   assert.deepEqual(row.atOwnLeverage, { trades: 20, won: 12, liquidated: 0, netUsd: 32, avgPctOfCollateral: 8 });
   assert.ok(!JSON.stringify(pc).includes(A));
 });
+
+test("buckets: a trader the list dropped and took back is looked at afresh: what it opened in between is not copied", async () => {
+  _bucketsTest.reset();
+  const A = "0x" + "a".repeat(40);
+  const B = "0x" + "b".repeat(40);
+  const rowOf = (a: string) => ({ ethAddress: a, accountValue: "500000", windowPerformances: [["week", { pnl: "1", roi: "1", vlm: "1" }], ["month", { pnl: "9", roi: "0.5", vlm: "5000000" }], ["allTime", { pnl: "1", roi: "1", vlm: "1" }]] });
+  let board = [A];
+  let posA: unknown[] = [];
+  const deps = {
+    quote: async () => 0n,
+    jup: async () => [],
+    fetch: () =>
+      (async (url: string, init?: { body?: string }) => {
+        const json = (x: unknown) => ({ ok: true, status: 200, json: async () => x }) as unknown as Response;
+        if (url.includes("binance")) return json([]);
+        if (url.includes("leaderboard")) return json({ leaderboardRows: board.map(rowOf) });
+        const body = JSON.parse(init!.body!) as { type: string; user?: string };
+        if (body.type === "allMids") return json({ SOL: "150", BTC: "90000" });
+        return json({ assetPositions: body.user === A ? posA : [] });
+      }) as unknown as typeof fetch,
+  };
+  let now = NOW;
+  const tick = async () => bucketsTick(deps as never, (now += 60_000));
+  const st = () => _bucketsTest.state();
+  await tick(); // first look at A: holds nothing
+  posA = [{ position: { coin: "SOL", szi: "-1000", positionValue: "150000" } }];
+  await tick();
+  assert.deepEqual(st().hlOpen.map((o) => o.coin), ["SOL"]);
+  // the daily list leaves A out: its open copy is still followed to its end
+  board = [B];
+  st().hlAt = 0;
+  await tick();
+  assert.deepEqual(st().hlTraders.map((t) => t.address), [B]);
+  assert.ok(st().hlSeen[A], "still looked at while a copy of it is open");
+  posA = [];
+  await tick();
+  assert.equal(st().hlOpen.length, 0);
+  assert.equal(st().hlTrades.length, 1);
+  assert.equal(st().hlSeen[A], undefined, "nothing of it is open: what it held is forgotten");
+  // off the list it opens a BTC long that we never saw; then it is back on the list
+  posA = [{ position: { coin: "BTC", szi: "1", positionValue: "90000" } }];
+  await tick();
+  board = [A, B];
+  st().hlAt = 0;
+  await tick();
+  await tick();
+  assert.equal(st().hlOpen.length, 0, "a position opened at a price we never saw is not copied as new");
+});
+
+test("buckets: a trader the real side names as a winner stays followed when the daily list leaves it out", async () => {
+  _bucketsTest.reset();
+  const A = "0x" + "c".repeat(40);
+  const Bq = "0x" + "d".repeat(40);
+  const rowOf = (a: string) => ({ ethAddress: a, accountValue: "500000", windowPerformances: [["week", { pnl: "1", roi: "1", vlm: "1" }], ["month", { pnl: "9", roi: "0.5", vlm: "5000000" }], ["allTime", { pnl: "1", roi: "1", vlm: "1" }]] });
+  let board = [A];
+  let posA: unknown[] = [];
+  const deps = {
+    quote: async () => 0n,
+    jup: async () => [],
+    fetch: () =>
+      (async (url: string, init?: { body?: string }) => {
+        const json = (x: unknown) => ({ ok: true, status: 200, json: async () => x }) as unknown as Response;
+        if (url.includes("binance")) return json([]);
+        if (url.includes("leaderboard")) return json({ leaderboardRows: board.map(rowOf) });
+        const body = JSON.parse(init!.body!) as { type: string; user?: string };
+        if (body.type === "allMids") return json({ SOL: "150" });
+        return json({ assetPositions: body.user === A ? posA : [] });
+      }) as unknown as typeof fetch,
+  };
+  let now = NOW + 86_400_000;
+  const tick = async () => bucketsTick(deps as never, (now += 60_000));
+  const st = () => _bucketsTest.state();
+  await tick();
+  let kept = [B.traderRule(A)];
+  B.setKeptTraders(() => kept);
+  try {
+    board = [Bq];
+    st().hlAt = 0;
+    await tick();
+    assert.deepEqual(st().hlTraders.map((t) => t.address), [Bq, A], "the winner stays on the list");
+    assert.equal(B.traderListed(B.traderRule(A)), true);
+    posA = [{ position: { coin: "SOL", szi: "-1000", positionValue: "150000" } }];
+    await tick();
+    assert.deepEqual(st().hlOpen.map((o) => o.trader), [A], "and its new position is copied");
+    // no longer named (its real record fell behind and it was cut): gone at the next list read
+    kept = [];
+    st().hlAt = 0;
+    await tick();
+    assert.deepEqual(st().hlTraders.map((t) => t.address), [Bq]);
+  } finally {
+    B.setKeptTraders(() => []);
+  }
+});
+
+test("buckets: a trader's close seen in a look whose prices fail is not lost: no trader is looked at without prices", async () => {
+  _bucketsTest.reset();
+  const A = "0x" + "e".repeat(40);
+  const rowOf = (a: string) => ({ ethAddress: a, accountValue: "500000", windowPerformances: [["week", { pnl: "1", roi: "1", vlm: "1" }], ["month", { pnl: "9", roi: "0.5", vlm: "5000000" }], ["allTime", { pnl: "1", roi: "1", vlm: "1" }]] });
+  let posA: unknown[] = [];
+  let midsFail = false;
+  const deps = {
+    quote: async () => 0n,
+    jup: async () => [],
+    fetch: () =>
+      (async (url: string, init?: { body?: string }) => {
+        const json = (x: unknown, status = 200) => ({ ok: status === 200, status, json: async () => x }) as unknown as Response;
+        if (url.includes("binance")) return json([]);
+        if (url.includes("leaderboard")) return json({ leaderboardRows: [rowOf(A)] });
+        const body = JSON.parse(init!.body!) as { type: string; user?: string };
+        if (body.type === "allMids") return midsFail ? json({}, 429) : json({ SOL: "150", BTC: "90000" });
+        return json({ assetPositions: body.user === A ? posA : [] });
+      }) as unknown as typeof fetch,
+  };
+  let now = NOW + 2 * 86_400_000;
+  const tick = async () => bucketsTick(deps as never, (now += 60_000));
+  const st = () => _bucketsTest.state();
+  await tick();
+  posA = [{ position: { coin: "SOL", szi: "-1000", positionValue: "150000" } }];
+  await tick();
+  assert.equal(st().hlOpen.length, 1);
+  // the trader closes in a look where the prices answer 429
+  posA = [];
+  midsFail = true;
+  await tick();
+  assert.equal(st().hlOpen.length, 1);
+  assert.deepEqual(Object.keys(st().hlSeen[A] ?? {}), ["SOL"], "what it held is not overwritten without prices");
+  assert.equal(st().errors.traders !== undefined, true);
+  midsFail = false;
+  await tick();
+  assert.equal(st().hlOpen.length, 0, "the close is seen at the next look and booked");
+  assert.equal(st().hlTrades.length, 1);
+});

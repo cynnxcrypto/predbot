@@ -705,3 +705,68 @@ test("real results first: a late cut waits while the trader's own position is ou
   assert.equal(P._test.state().opens.length, 0);
   P._test.reset();
 });
+
+test("several positions gone together: what came in is shared by what each was worth, and nothing is sent while one is in doubt", async () => {
+  const { traderRule } = await import("./buckets.js");
+  const now = await traders(3);
+  const { c, deps, act, keeper } = multiWorld(100);
+  const open = async (o: ReturnType<typeof hl>) => {
+    _bucketsTest.state().hlOpen = [..._bucketsTest.state().hlOpen, o] as never;
+    await P.perpsLiveTick(deps);
+    act();
+    await P.perpsLiveTick(deps);
+  };
+  await open(hl(1, "SOL", -1, now - 3000));
+  await open(hl(2, "BTC", 1, now - 2000));
+  await open(hl(3, "ETH", -1, now - 1000));
+  assert.equal(c.usdc, 70);
+  const of = (coin: string) => P._test.state().opens.find((x) => x.coin === coin)!;
+  // the SOL short is liquidated (at its last mark it had lost its collateral)
+  of("SOL").unrealUsd = -of("SOL").collateralUsd!;
+  keeper.liquidate(of("SOL").position);
+  await P.perpsLiveTick(deps);
+  assert.equal(of("SOL").goneLooks, 1);
+  // one look later the BTC long is closed by hand for $12, and trader 3 closes its ETH short on paper
+  keeper.liquidate(of("BTC").position);
+  c.usdc += 12;
+  _bucketsTest.state().hlOpen = _bucketsTest.state().hlOpen.filter((o) => o.trader !== T(3)) as never;
+  const sent = c.sends;
+  await P.perpsLiveTick(deps);
+  await P.perpsLiveTick(deps);
+  assert.deepEqual([of("SOL").goneLooks, of("BTC").goneLooks], [3, 2]);
+  assert.equal(P._test.state().rows.length, 0, "SOL is not booked alone: BTC is still in doubt, and the $12 would be handed to SOL");
+  assert.equal(c.sends, sent, "no close of the ETH short while the wallet's balance is in doubt");
+  await P.perpsLiveTick(deps);
+  assert.deepEqual(P._test.state().rows.map((x) => [x.rule, x.netUsd]), [[traderRule(T(1)), -10], [traderRule(T(2)), 2]]);
+  assert.equal(P._test.state().netUsd, -8);
+  assert.ok(P._test.state().demoted[traderRule(T(1))] > 0);
+  assert.ok(!P._test.state().demoted[traderRule(T(2))], "the trader whose position came back whole is not cut for the other's liquidation");
+  // now the ETH short is closed, and its result is its own
+  await P.perpsLiveTick(deps);
+  assert.equal(of("ETH").stage, "closing");
+  act(10.5);
+  await P.perpsLiveTick(deps);
+  assert.deepEqual(P._test.state().rows.map((x) => x.netUsd), [-10, 2, 0.5]);
+  assert.equal(c.usdc, 100 - 7.5);
+});
+
+test("the summary: a rule the paper side no longer has is not listed as real", async () => {
+  await traders(0);
+  P._test.setCfg(() => ({ ...CFG, collateralUsd: 10, maxLossUsd: 50, ruleStopUsd: 10 }) as Cfg);
+  P._test.state().rows = [{ t: Date.now(), rule: "SOL-old-name", coin: "SOL", filled: true, netUsd: 2, heldH: 1 }];
+  const row = P.perpsLiveSummary().rules.find((x) => x.id === "SOL-old-name")!;
+  assert.equal(row.real, false);
+  assert.match(row.why, /no longer has this rule/);
+  assert.equal(row.realNetUsd, 2, "its record is kept");
+});
+
+test("kept traders: a real position open, or real copies ahead; not one that is level, behind or cut", async () => {
+  const { traderRule } = await import("./buckets.js");
+  await traders(0);
+  const t = Date.now();
+  const row = (k: number, netUsd: number) => ({ t, rule: traderRule(T(k)), coin: "SOL", filled: true, netUsd, heldH: 1 });
+  P._test.state().rows = [row(1, 2), row(2, -1), row(3, 1), row(3, -1), row(4, 5), { ...row(5, 0), rule: "SOL-break-24h", netUsd: 3 }];
+  P._test.state().demoted[traderRule(T(4))] = t + 1; // cut after its winner: its real record starts again
+  P._test.state().opens = [{ rule: traderRule(T(6)), coin: "ETH", paperId: "x", stage: "open", usdcBefore: 0, sizeUsd: 50, position: "p", request: "r", sentMs: t, closeTries: 0 }];
+  assert.deepEqual(P.keptTraders().sort(), [traderRule(T(1)), traderRule(T(6))].sort());
+});

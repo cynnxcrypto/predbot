@@ -40,7 +40,7 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { DATA, ROOT } from "../config.js";
-import { perpMeetsBar, perpPaperOpens, perpPaperRecord, perpRuleIds, setPerpsRealSummary, traderListed, REAL_MIN_TRADES, TRADER_MIN_COPIES } from "./buckets.js";
+import { perpMeetsBar, perpPaperOpens, perpPaperRecord, perpRuleIds, setKeptTraders, setPerpsRealSummary, traderListed, REAL_MIN_TRADES, TRADER_MIN_COPIES } from "./buckets.js";
 import { CUT_MIN_TRADES, cutReason, realRecord, standing } from "./realfirst.js";
 import { base58decode, namedWallet, signTransaction, type Wallet } from "./keys.js";
 import { USDC } from "./pools.js";
@@ -343,6 +343,12 @@ const realOf = (rule: string) => realRecord(state.rows.filter((x) => x.rule === 
 /** Real results first (realfirst.ts): real record ahead or level = real; no real trades yet, or behind on fewer than three = the paper bar decides. */
 export const standingOf = (rule: string) => standing(realOf(rule), perpMeetsBar(rule, state.demoted[rule] ?? 0, Date.now(), liveCfg().traderMinOurs ?? 0), state.demotedWhy?.[rule]);
 export const promoted = (rule: string) => standingOf(rule).real;
+/** The copied traders the paper side must keep following even off the daily list: a real position open, or real copies ahead. */
+export const keptTraders = () => {
+  if (!loaded) load();
+  const ids = [...new Set([...state.opens.map((x) => x.rule), ...state.rows.map((x) => x.rule)])].filter((id) => id.startsWith("copy-"));
+  return ids.filter((id) => state.opens.some((x) => x.rule === id) || (realOf(id).trades > 0 && realOf(id).net > 0));
+};
 /** Send a rule or trader back to paper: its real record starts again and only paper trades made from now on count. */
 function cutNow(rule: string, why: string) {
   state.demotedWhy = { ...(state.demotedWhy ?? {}), [rule]: why };
@@ -455,10 +461,11 @@ const counter = () => BigInt(Math.floor(Math.random() * 1_000_000_000));
  *  - closed by us: what came back since its close request, less what it paid in when it was filled;
  *  - vanished while open (liquidated, or closed by hand): what came in since the last quiet look, less what it paid in.
  */
-async function finish(d: PerpDeps, w: Wallet, p: Pos, how: "not filled" | "closed" | "vanished") {
+async function finish(d: PerpDeps, w: Wallet, p: Pos, how: "not filled" | "closed" | "vanished", back?: number) {
   const now = await d.usdc(w.address);
   const paid = p.paidUsd ?? p.collUsd ?? p.collateralUsd ?? MIN_COLLATERAL_USD;
-  const net = r2(how === "not filled" ? now - p.usdcBefore : how === "closed" ? now - p.usdcBefore - paid : now - (state.cash ?? now) - paid);
+  // `back`: this position's share of what came in, when several vanished together (see finishGone)
+  const net = r2(how === "not filled" ? now - p.usdcBefore : how === "closed" ? now - p.usdcBefore - paid : (back ?? now - (state.cash ?? now)) - paid);
   state.netUsd = r2(state.netUsd + net);
   state.rows = [...state.rows, { t: Date.now(), rule: p.rule, coin: p.coin, side: (p.dir ?? -1) > 0 ? "long" : "short", leverage: p.lev ?? HARD_LEVERAGE, filled: how !== "not filled", netUsd: net, heldH: p.openedMs ? Math.round(((Date.now() - p.openedMs) / 3_600_000) * 10) / 10 : null }].slice(-2000);
   state.opens = state.opens.filter((x) => x !== p);
@@ -469,6 +476,28 @@ async function finish(d: PerpDeps, w: Wallet, p: Pos, how: "not filled" | "close
   if (cut) cutNow(p.rule, cut);
   if (!state.halted && c.maxLossUsd > 0 && loss() + c.collateralUsd > c.maxLossUsd + 1e-9) state.halted = `loss cap reached: $${r2(loss())} of $${c.maxLossUsd} (no room for another position)`;
   save();
+}
+/**
+ * Book the positions that are gone from the chain. One: all that came into the wallet since the last quiet look is
+ * its. Several at once (MAIN's review, 16 Nov 2026): before, the first was handed everything and the others were
+ * booked as a full loss, so the total was right and the traders' records were wrong. The wallet cannot say whose
+ * dollar is whose, so what came in is shared by what each was worth at its last mark (collateral plus what it had
+ * made, never below zero: a liquidated one was worth nothing, one closed by hand its collateral and gain); by what
+ * each paid in if none had a mark. The total booked is exactly what the wallet shows.
+ */
+async function finishGone(d: PerpDeps, w: Wallet, gone: Pos[]) {
+  if (gone.length === 1) return finish(d, w, gone[0], "vanished");
+  const cameIn = (await d.usdc(w.address)) - (state.cash ?? 0);
+  const worth = gone.map((p) => Math.max(0, (p.collateralUsd ?? 0) + (p.unrealUsd ?? 0)));
+  const paid = gone.map((p) => p.paidUsd ?? p.collUsd ?? p.collateralUsd ?? MIN_COLLATERAL_USD);
+  const by = worth.some((x) => x > 0) ? worth : paid;
+  let left = r2(state.cash === undefined ? 0 : cameIn);
+  for (let i = 0; i < gone.length; i++) {
+    const rest = by.slice(i).reduce((a, x) => a + x, 0);
+    const share = i === gone.length - 1 || !(rest > 0) ? left : r2((left * by[i]) / rest);
+    left = r2(left - share);
+    await finish(d, w, gone[i], "vanished", share);
+  }
 }
 /** Put a new position on the list, written down before its request is sent. */
 function begin(p: Pos) {
@@ -579,14 +608,13 @@ export async function perpsLiveTick(d: PerpDeps, now = Date.now()): Promise<void
       return;
     }
     // 2. the positions that are open: what they are worth, whether they are still there, whether it is time to close
+    const seenNow = new Map<Pos, { size: number; px: number }>();
     for (const p of [...state.opens]) {
       const onChain = await posOf(d, p.position);
       const size = onChain.sizeUsd;
       if (size === 0) {
         // one empty answer is not proof (a node that lags can say "no such account"): gone only at the third look in a row
         p.goneLooks = (p.goneLooks ?? 0) + 1;
-        if (p.goneLooks >= GONE_LOOKS) await finish(d, w, p, "vanished"); // liquidated, or closed by hand
-        else save();
         continue;
       }
       p.goneLooks = 0;
@@ -597,6 +625,19 @@ export async function perpsLiveTick(d: PerpDeps, now = Date.now()): Promise<void
         p.unrealUsd = unrealUsd(p.dir ?? -1, size, onChain.entryPx, px);
         p.markMs = now;
       }
+      seenNow.set(p, { size, px });
+    }
+    // gone for good (liquidated, or closed by hand): booked together, and only once no other position is still in
+    // doubt, so that what came into the wallet is shared among all that brought it
+    if (state.opens.some((x) => x.goneLooks)) {
+      const gone = state.opens.filter((x) => (x.goneLooks ?? 0) >= GONE_LOOKS);
+      if (gone.length && !state.opens.some((x) => x.goneLooks && x.goneLooks < GONE_LOOKS)) await finishGone(d, w, gone);
+      else save();
+    }
+    // while a position is in doubt nothing is sent: a close or an open would move the balance its result is read from
+    if (state.opens.some((x) => x.goneLooks)) return;
+    for (const p of [...state.opens]) {
+      const { px } = seenNow.get(p) ?? { px: 0 };
       if (px > 0 && (!paper.some((o) => o.id === p.paperId) || now - (p.openedMs ?? now) >= MAX_HOLD_H * 3_600_000)) {
         const made = closeIx(w.address, p.coin, p.dir ?? -1, boundPrice(p.dir ?? -1, px, CLOSE_SLIP[Math.min(p.closeTries, CLOSE_SLIP.length - 1)], true), counter());
         p.usdcBefore = await d.usdc(w.address);
@@ -610,8 +651,7 @@ export async function perpsLiveTick(d: PerpDeps, now = Date.now()): Promise<void
         if (p.stage === "closing") return; // one request at a time
       }
     }
-    // (not while a position looks gone: what it brought back must still be measured from the look before)
-    if (state.opens.length && !state.opens.some((x) => x.goneLooks)) state.cash = await d.usdc(w.address).catch(() => state.cash);
+    if (state.opens.length) state.cash = await d.usdc(w.address).catch(() => state.cash);
     // ONE TEST TRADE (enrique, 15 Nov 2026 12:28 KST: "feel free to do one test in each of the new things so we know
     // everything works, try to not lose money of course"): the smallest short on SOL (the size the dry run passes
     // with), through the very code a promoted rule uses. It follows no paper position, so the next look closes it.
@@ -762,11 +802,14 @@ export function perpsLiveSummary() {
     const st = standingOf(id);
     // a copied trader the daily list has dropped: nothing new of it is copied on paper, so nothing is opened for real,
     // whatever its record says (its record is kept, and it is real again when it is back on the list)
-    const off = st.real && !traderListed(id);
+    // the same for a rule the paper side no longer has (renamed or removed): nothing opens for it, so it is not "real"
+    const known = id.startsWith("copy-") || perpRuleIds().includes(id);
+    const off = st.real && (!traderListed(id) || !known);
     const live = realOf(id);
-    return { id, real: c.on && !state.halted && st.real && !off, why: !c.on ? "paper: real trading is switched off" : state.halted ? "paper: real trading is stopped" : off ? "paper: not on the trader list now, nothing new of it is copied; real again when it is back" : st.why, realTrades: live.trades, realWon: live.won, realNetUsd: r2(live.net), paperTrades: paper.trades, paperWon: paper.won, paperNetUsd: r2(paper.netUsd), demotedAt: since || null, trades: mine.length, won: mine.filter((x) => x.netUsd > 0).length, netUsd: r2(mine.reduce((a, x) => a + x.netUsd, 0)) };
+    return { id, real: c.on && !state.halted && st.real && !off, why: !c.on ? "paper: real trading is switched off" : state.halted ? "paper: real trading is stopped" : off ? (traderListed(id) ? "paper: the paper side no longer has this rule, nothing can open for it" : "paper: not on the trader list now, nothing new of it is copied; real again when it is back") : st.why, realTrades: live.trades, realWon: live.won, realNetUsd: r2(live.net), paperTrades: paper.trades, paperWon: paper.won, paperNetUsd: r2(paper.netUsd), demotedAt: since || null, trades: mine.length, won: mine.filter((x) => x.netUsd > 0).length, netUsd: r2(mine.reduce((a, x) => a + x.netUsd, 0)) };
   });
-  const openRows = state.opens.map((x) => ({ rule: x.rule, coin: x.coin, side: (x.dir ?? -1) > 0 ? "long" : "short", leverage: x.lev ?? null, stage: x.stage, sizeUsd: x.sizeUsd, since: x.openedMs ?? x.sentMs, collateralUsd: r2(x.collateralUsd ?? x.collUsd ?? c.collateralUsd), entryPrice: x.entryPx ?? null, unrealisedUsd: x.unrealUsd ?? 0, pricedAt: x.markMs ?? null }));
+  // (entryPrice is rounded to three figures: the exact entry price of a position, with its coin and side, would find it and the wallet on the chain)
+  const openRows = state.opens.map((x) => ({ rule: x.rule, coin: x.coin, side: (x.dir ?? -1) > 0 ? "long" : "short", leverage: x.lev ?? null, stage: x.stage, sizeUsd: x.sizeUsd, since: x.openedMs ?? x.sentMs, collateralUsd: r2(x.collateralUsd ?? x.collUsd ?? c.collateralUsd), entryPrice: x.entryPx ? Number(x.entryPx.toPrecision(3)) : null, unrealisedUsd: x.unrealUsd ?? 0, pricedAt: x.markMs ?? null }));
   return {
     note: `REAL, off unless the live rules switch it on. Longs and shorts on SOL, BTC or ETH on Jupiter Perps, in a wallet of its own, up to ${maxOpenOf(c)} positions at once (one per trader or rule, one per coin and side), $${c.collateralUsd || MIN_COLLATERAL_USD} of collateral each (all that a liquidation can take; a short is backed by USDC, a long by the coin, bought with USDC inside the order). A perp paper rule gets its first real trades, at ${c.leverage || HARD_LEVERAGE}x, when its paper record meets the bar (${REAL_MIN_TRADES}+ paper trades, half or more won, ahead after costs). A copied perp trader ("copy-" and a short tag) is followed on these three coins, at the leverage the trader set (not capped by us; never above half of where Jupiter liquidates), when its own paper copies meet the trader bar (${TRADER_MIN_COPIES}+ closed copies of any coin and side, half or more won, ahead, a day or more on paper${c.traderMinOurs ? `, and ${c.traderMinOurs}+ of them on SOL, BTC or ETH` : ""}). Real results come first (enrique, 16 Nov 2026: "cut loser and bring winners", "real is more important"): once it has real trades it stays real while its real net is zero or better, even under the paper bar, and goes back to paper when its real trades are behind after ${CUT_MIN_TRADES} or more, or have lost $${c.ruleStopUsd || 3}; it returns on paper trades made after that. In rules: why = the reason in words; realTrades, realWon, realNetUsd = its real record since it was last cut; trades, won, netUsd = all its real trades ever. Every transaction is simulated on the chain before it is sent. dryRun / dryRunLong: an open order of ours simulated, hourly until it passes and then daily; dryRunClose / dryRunCloseLong: a close order simulated against a position that exists on the chain. Results are what a position did to the wallet's USDC; network fees in SOL are small and not counted.`,
     on: c.on && !state.halted,
@@ -840,6 +883,7 @@ export async function startPerpsLive() {
     fixed: (e) => whyNotSent(String((e as Error)?.message ?? e)),
   };
   setPerpsRealSummary(perpsLiveSummary);
+  setKeptTraders(keptTraders);
   // SOL for fees (src/solana/gas.ts): the top-up and the one swap in this wallet, and the low flags of all three
   const addrOf = (f: string) => {
     try {

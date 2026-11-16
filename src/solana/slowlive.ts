@@ -420,13 +420,9 @@ export const RETRY_UNSOLD_MS = 3 * 3_600_000;
 export const UNSOLD_DAYS = 7;
 const SELL_SLIPPAGE_BPS = [2000, 2600, 3200, 3800, 4400, 5000];
 const UNSOLD_SLIPPAGE_BPS = [3000, 5000];
-/** Is this error the price service or the chain saying no to the SALE (as against a request that did not get through)? */
-export const saleRefused = (e: unknown) => {
-  const m = String((e as Error)?.message ?? e);
-  // Jupiter answers a coin it cannot sell with a 4xx and its own code (no route, not tradable). Everything else is
-  // the service or the line and not the coin: 429 (asked too fast), 401/403 (the key), 408, 5xx, a time-out, the RPC
-  return m === "no sell quote" || m === "sale failed on the chain" || /^jupiter \S+ http 4(?!29|01|03|08)\d\d\b/.test(m);
-};
+/** Is this error the price service or the chain saying no to the SALE? (refused.ts, shared with bucketslive.ts) */
+export { saleRefused } from "./refused.js";
+import { saleRefused } from "./refused.js";
 /**
  * Whose record: a wallet by its full address. A screen name is only the first letters of an address, so two wallets
  * can share one. A row or an open copy that carries an address is matched by it; a row from before 16 Nov 2026
