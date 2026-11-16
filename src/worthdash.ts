@@ -303,12 +303,19 @@ export async function worthView(cash: number | null, claim: number, solBal: numb
   claim += unclaimedAt(loadSpans(), Date.now());
   if (!memo || Date.now() - memo.at > 15_000) {
     const [bets, px, slow] = await Promise.all([openWorth().catch(() => ({ n: 0, stake: 0, value: 0, priced: 0, days: {} })), solUsd(), solSlowView().catch(() => null)]);
-    const open = ((slow as { open?: { stage: string; worthSol: number | null }[] } | null)?.open ?? []).filter((c) => c.stage !== "waiting");
-    const coinsSol = open.reduce((a, c) => a + (c.worthSol ?? 0), 0);
-    const solPart = px != null ? ((solBal ?? 0) + coinsSol) * px : 0;
-    // Unpriced bets fall back to what was paid: with more than a tenth unpriced the total is not a reading, so it is
-    // shown but not added to the chart.
-    const priced = bets.n === 0 || bets.priced >= bets.n * 0.9;
+    const open = ((slow as { open?: { stage: string; worthSol: number | null; stakeSol?: number | null }[] } | null)?.open ?? []).filter((c) => c.stage !== "waiting");
+    // A coin whose sale could not be priced this time counts at what it cost, and a SOL balance that could not be read
+    // keeps its last reading. Both used to count as nothing: after the 17:25 restart on 16 Nov 2026 the coins' quotes
+    // were refused for a while and the worth read $58 lower in one sample, with about $3 really lost.
+    const coinsSol = open.reduce((a, c) => a + (c.worthSol ?? c.stakeSol ?? 0.01), 0);
+    // not a reading when the coins counted at cost stand for more than a tenth of what the coins cost (and 3+ coins)
+    const unpricedSol = open.reduce((a, c) => a + (c.worthSol == null ? (c.stakeSol ?? 0.01) : 0), 0);
+    const coinsPriced = unpricedSol <= Math.max(0.06, 0.1 * open.reduce((a, c) => a + (c.stakeSol ?? 0.01), 0));
+    const solNow = solBal ?? comp?.sol ?? null;
+    const solPart = px != null ? ((solNow ?? 0) + coinsSol) * px : 0;
+    // Unpriced bets fall back to what was paid: with more than a tenth unpriced (bets, or the spot copy's coins), or the
+    // SOL balance not read, the total is not a reading, so it is shown but not added to the chart.
+    const priced = (bets.n === 0 || bets.priced >= bets.n * 0.9) && coinsPriced && solBal != null;
     // A strategy wallet that could not be read this time keeps its last reading, so the total does not dip.
     const usd = (sol: number | null | undefined, usdc: number | null | undefined, last: number | null) => ((sol == null || usdc == null) && last != null ? last : sol == null && usdc == null ? null : px != null || !sol ? (sol ?? 0) * (px ?? 0) + (usdc ?? 0) : last);
     // In positions: the coins the spot rules hold and the perps collateral with its result so far. Counted in the
