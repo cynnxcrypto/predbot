@@ -131,3 +131,4 @@ test("write-off undo: the stop for unread books is kept apart and never lifted b
   assert.equal(c.sends, before, "nothing is bought while a finished trade's transactions were never read");
   void delta;
 });
+

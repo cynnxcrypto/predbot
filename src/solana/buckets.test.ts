@@ -446,3 +446,38 @@ test("buckets: a trader's close seen in a look whose prices fail is not lost: no
   assert.equal(st().hlOpen.length, 0, "the close is seen at the next look and booked");
   assert.equal(st().hlTrades.length, 1);
 });
+
+test("buckets: the trader list prefers traders on SOL, BTC and ETH, and leaves out those whose copies are all elsewhere", async () => {
+  _bucketsTest.reset();
+  const addr = (c: string) => "0x" + c.repeat(40);
+  const [ON, OFF, NEW, SEEN] = [addr("1"), addr("2"), addr("3"), addr("4")];
+  // month profit: OFF best, then NEW, SEEN, ON
+  const rowOf = (a: string, pnl: number) => ({ ethAddress: a, accountValue: "500000", windowPerformances: [["week", { pnl: "1", roi: "1", vlm: "1" }], ["month", { pnl: String(pnl), roi: "0.5", vlm: "5000000" }], ["allTime", { pnl: "1", roi: "1", vlm: "1" }]] });
+  const deps = {
+    quote: async () => 0n,
+    jup: async () => [],
+    fetch: () =>
+      (async (url: string, init?: { body?: string }) => {
+        const json = (x: unknown) => ({ ok: true, status: 200, json: async () => x }) as unknown as Response;
+        if (url.includes("binance")) return json([]);
+        if (url.includes("leaderboard")) return json({ leaderboardRows: [rowOf(OFF, 40), rowOf(NEW, 30), rowOf(SEEN, 20), rowOf(ON, 10)] });
+        const body = JSON.parse(init!.body!) as { type: string; user?: string };
+        if (body.type === "allMids") return json({ SOL: "150", BTC: "90000" });
+        return json({ assetPositions: body.user === SEEN ? [{ position: { coin: "ETH", szi: "50", positionValue: "150000" } }] : [] });
+      }) as unknown as typeof fetch,
+  };
+  const st = _bucketsTest.state();
+  const now = NOW + 3 * 86_400_000;
+  const copy = (trader: string, coin: string, i: number) => ({ trader, coin, dir: 1, at: now - 5 * 86_400_000 + i, exitAt: now - 4 * 86_400_000, net: 0.01, why: "closed" as const });
+  st.hlTrades = [...Array.from({ length: 12 }, (_, i) => copy(OFF, "HYPE", i)), copy(ON, "SOL", 0), ...Array.from({ length: 11 }, (_, i) => copy(ON, "HYPE", i + 1))] as never;
+  assert.equal(B.majorTier(ON, now), 0);
+  assert.equal(B.majorTier(OFF, now), 2);
+  assert.equal(B.majorTier(NEW, now), 1);
+  await bucketsTick(deps as never, now);
+  assert.deepEqual(st.hlTraders.map((t) => t.address), [ON, NEW, SEEN], "OFF is left out; ON first although its month is the smallest");
+  // SEEN was looked at holding ETH: it moves up at the next list read
+  assert.ok(st.hlMajorSeen?.[SEEN]);
+  st.hlAt = 0;
+  await bucketsTick(deps as never, now + 60_000);
+  assert.deepEqual(st.hlTraders.map((t) => t.address), [SEEN, ON, NEW], "both on Jupiter's coins, by month profit; then the one not known yet");
+});

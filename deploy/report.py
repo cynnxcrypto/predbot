@@ -142,7 +142,68 @@ def public_solana(sc):
                 g["swapOnce"] = {k: g["swapOnce"].get(k) for k in ("id", "result")}
             if isinstance(g.get("topups"), list):
                 g["topups"] = len(g["topups"])
+        # MAIN's fourth review, 16 Nov 2026: the dry runs run only when nothing is open (so their time is the first look
+        # after a real position closed), and a rule's cut is stamped when its trade is booked (a liquidation's moment).
+        # No moment of the real side is left here: every time in it becomes its KST day. A price failure keeps only its count
+        # (its coin said a real perp on it was open).
+        _days_only(real)
+        if isinstance(real.get("priceFails"), dict):
+            real["priceFails"] = {"n": real["priceFails"].get("n")}
+        if key == "netSol":
+            # an open real spot trade's rule, with the paper side's coin of that rule, gave the coin and the 2 minutes of the buy
+            real.pop("opens", None)
+            t = real.get("test")
+            if isinstance(t, dict) and isinstance(t.get("open"), list):
+                t["open"] = len(t["open"])
+    _paper_of_real_rules(bk, perps)
     return sc
+
+
+_TIME_KEYS = ("t", "at", "since", "boughtAt", "soldAt", "openedAt", "closedAt", "pricedAt")
+
+
+def _days_only(o):
+    """Every time in o (ms, under a key named like one) becomes its KST day."""
+    if isinstance(o, dict):
+        for k, v in list(o.items()):
+            if isinstance(v, (int, float)) and not isinstance(v, bool) and v > 1e12 and (k in _TIME_KEYS or k.endswith("At") or k.endswith("Ms")):
+                o[k] = _kst_day(v)
+            else:
+                _days_only(v)
+    elif isinstance(o, list):
+        for v in o:
+            _days_only(v)
+
+
+def _paper_of_real_rules(bk, perps):
+    """MAIN's fourth review, 16 Nov 2026: a real rule buys within 2 minutes of its paper twin, the same coin and side,
+    at the published stake. So the paper side shows no open or recent trade (coin, side, time, price) of a rule that
+    is real or has real trades, spot or perps; its paper record (counts, results) stays."""
+    def real_ids(real):
+        out = set()
+        for r in (real or {}).get("rules") or []:
+            if isinstance(r, dict) and (r.get("real") or r.get("realTrades") or r.get("trades")):
+                out.add(r.get("id"))
+        return out
+    spot = real_ids(bk.get("real"))
+    perp = real_ids(perps.get("real")) | real_ids(bk.get("perpsReal"))
+    for k in ("spotOpen", "spotRecent"):
+        if isinstance(bk.get(k), list):
+            bk[k] = [x for x in bk[k] if not (isinstance(x, dict) and x.get("rule") in spot)]
+    for r in perps.get("rules") or []:
+        if isinstance(r, dict) and r.get("id") in perp:
+            r["open"] = bool(r.get("open"))
+    if isinstance(perps.get("recent"), list):
+        perps["recent"] = [x for x in perps["recent"] if not (isinstance(x, dict) and x.get("rule") in perp)]
+    # a copied trader that is real: its paper copies here are its own Hyperliquid trades (coin, side, time)
+    pc = bk.get("perpCopy") if isinstance(bk.get("perpCopy"), dict) else {}
+    tags = {"0x" + i[5:9] for i in perp if isinstance(i, str) and i.startswith("copy-") and len(i) >= 9}
+    for k in ("recent", "byTrader"):
+        if isinstance(pc.get(k), list):
+            pc[k] = [x for x in pc[k] if not (isinstance(x, dict) and str(x.get("trader", ""))[:6] in tags)]
+    for x in pc.get("traderRecords") or []:
+        if isinstance(x, dict) and x.get("id") in perp:
+            x.pop("open", None)
 
 
 def summary():

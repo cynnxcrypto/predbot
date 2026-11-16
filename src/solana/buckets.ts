@@ -400,7 +400,7 @@ export interface HlTrader {
   monthRoi: number;
 }
 /** The leaderboard -> traders worth following: ahead over the week, the month and all time, real size, not a machine. */
-export function hlPick(board: unknown): HlTrader[] {
+export function hlPick(board: unknown, limit = HL_FOLLOW): HlTrader[] {
   const rows = (board as { leaderboardRows?: unknown })?.leaderboardRows;
   if (!Array.isArray(rows)) return [];
   const out: HlTrader[] = [];
@@ -421,8 +421,25 @@ export function hlPick(board: unknown): HlTrader[] {
     if (!(turn >= 1) || turn > HL_MAX_TURNOVER) continue;
     out.push({ address, monthPnl: month.pnl, monthRoi: month.roi });
   }
-  return out.sort((a, b) => b.monthPnl - a.monthPnl).slice(0, HL_FOLLOW);
+  return out.sort((a, b) => b.monthPnl - a.monthPnl).slice(0, limit);
 }
+/**
+ * SOL, BTC and ETH first (MAIN, 16 Nov 2026: Jupiter Perps offers only these three, so a trader cleared for real
+ * whose copies are all on other coins never fills a real slot). Each trader of the leaderboard gets a tier:
+ *  0: has copies on SOL, BTC or ETH, or was seen holding one of them in the last HL_MAJOR_DAYS days;
+ *  1: not known yet (fewer than HL_OFF_MIN_COPIES copies and never seen holding one of them);
+ *  2: HL_OFF_MIN_COPIES or more copies, none on these coins, never seen holding them: left out.
+ * The list is the best of tier 0, then tier 1, by month profit, up to HL_FOLLOW.
+ */
+export const HL_OFF_MIN_COPIES = 10;
+export const HL_MAJOR_DAYS = 30;
+const onJupiter = (coin: string) => (PERP_COINS as readonly string[]).includes(coin);
+export function majorTier(address: string, now = Date.now()): 0 | 1 | 2 {
+  const xs = [...state.hlTrades.filter((t) => t.trader === address), ...state.hlOpen.filter((o) => o.trader === address)];
+  if (xs.some((t) => onJupiter(t.coin)) || now - (state.hlMajorSeen?.[address] ?? -Infinity) <= HL_MAJOR_DAYS * 86_400_000) return 0;
+  return xs.length >= HL_OFF_MIN_COPIES ? 2 : 1;
+}
+const majorCopies = (address: string) => state.hlTrades.filter((t) => t.trader === address && onJupiter(t.coin)).length;
 /** A trader's open positions out of a clearinghouseState answer: coin -> signed dollars. */
 export function hlPositions(state: unknown): Record<string, number> | null {
   const rows = (state as { assetPositions?: unknown })?.assetPositions;
@@ -549,6 +566,8 @@ interface State {
   hlAt: number;
   hlV?: number;
   hlSeen: Record<string, Record<string, number>>;
+  /** trader -> the last time it was seen holding SOL, BTC or ETH, ms (see majorTier) */
+  hlMajorSeen?: Record<string, number>;
   hlNext: number;
   hlOpen: HlOpen[];
   hlTrades: HlTrade[];
@@ -791,8 +810,12 @@ async function hlTick(deps: BucketDeps, now: number) {
     state.hlAt = now - HL_REFRESH_MS + 1_800_000; // a failed read is tried again in half an hour, not every minute: the file is big
     if (!res) throw new Error("traders: no answer");
     if (!res.ok) throw new Error(`traders: http ${res.status}`);
-    const picked = hlPick(await res.json().catch(() => null));
-    if (!picked.length) throw new Error("traders: nothing usable");
+    const board = hlPick(await res.json().catch(() => null), Infinity);
+    if (!board.length) throw new Error("traders: nothing usable");
+    const tier = new Map(board.map((t) => [t.address, majorTier(t.address, now)]));
+    const picked = board.filter((t) => tier.get(t.address)! < 2).sort((a, b) => tier.get(a.address)! - tier.get(b.address)! || b.monthPnl - a.monthPnl).slice(0, HL_FOLLOW);
+    // what was seen of traders no longer on the board is forgotten after HL_MAJOR_DAYS
+    for (const [a, t] of Object.entries(state.hlMajorSeen ?? {})) if (now - t > HL_MAJOR_DAYS * 86_400_000) delete state.hlMajorSeen![a];
     state.hlAt = now;
     const kept = new Set(keptTraders());
     state.hlTraders = [...picked, ...state.hlTraders.filter((t) => kept.has(traderRule(t.address)) && !picked.some((x) => x.address === t.address))];
@@ -820,11 +843,13 @@ async function hlTick(deps: BucketDeps, now: number) {
   await mid("BTC").catch(() => {
     throw new Error("traders: no prices");
   });
-  // who is looked at this minute: traders with an open copy first, then those copied before (most copies first), then the rest in turns
+  // who is looked at this minute: traders with an open copy first, then those copied before (most copies on SOL, BTC
+  // and ETH first, then most copies), then the rest in turns
   const copies = new Map<string, number>();
   for (const t of state.hlTrades) copies.set(t.trader, (copies.get(t.trader) ?? 0) + 1);
   const holding = [...new Set(state.hlOpen.map((o) => o.trader))];
-  const before0 = [...copies.entries()].sort((x, y) => y[1] - x[1]).map(([a]) => a).filter((a) => watch.includes(a) && !holding.includes(a));
+  const majors = new Map([...copies.keys()].map((a) => [a, majorCopies(a)]));
+  const before0 = [...copies.entries()].sort((x, y) => majors.get(y[0])! - majors.get(x[0])! || y[1] - x[1]).map(([a]) => a).filter((a) => watch.includes(a) && !holding.includes(a));
   const hot = [...holding, ...before0].slice(0, Math.max(HL_HOT_MAX, holding.length));
   const turn: string[] = [];
   const cold = watch.filter((a) => !hot.includes(a));
@@ -840,6 +865,7 @@ async function hlTick(deps: BucketDeps, now: number) {
       const after = hlPositions(answer);
       if (!after) continue;
       const levs = hlLeverage(answer);
+      if (Object.keys(after).some(onJupiter)) state.hlMajorSeen = { ...(state.hlMajorSeen ?? {}), [a]: now };
       const before = state.hlSeen[a];
       state.hlSeen[a] = after;
       if (!before) continue; // first look: what it already holds was opened at prices we never saw
