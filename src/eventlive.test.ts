@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
-import { NEG_TRIAL, _eventLiveTest, restShares, ruleAdapt, sizeStep, paperGate, setPaperBehind, eventLiveBlock, eventLiveBuy, eventLiveConfig, negRiskBlock, parseEventLive, type EventLiveRow } from "./eventlive.js";
+import { NEG_TRIAL, _eventLiveTest, restShares, ruleAdapt, sizeStep, ladderStake, paperGate, setPaperBehind, eventLiveBlock, eventLiveBuy, eventLiveConfig, negRiskBlock, parseEventLive, type EventLiveRow } from "./eventlive.js";
 import { NEG_PERMS, eventClaimCalls, negRiskCalls } from "./live.js";
 import { stopWhenOrderDone } from "./eventpaper.js";
 
@@ -199,8 +199,16 @@ test("per-wallet automatic rule: learning to 10 settled, back to paper at -$10, 
   assert.equal(ruleAdapt(gc, five, "a").state, "learning");
   assert.equal(ruleAdapt(gc, [...five, r("a", 0.5, 4)], "a").state, "paper", "behind after 5 settled");
   assert.equal(ruleAdapt(gc, [...five, r("a", 1.5, 4)], "a").state, "learning", "ahead after 5: stays");
-  const pc = parseEventLive(JSON.stringify({ mode: "live", events: { copy: { rules: ["a"], size: 3, cutN: 5, cutLoss: 6, probationN: 5, houseUsd: 9 } } }), { funder: "0x1" }).groups.copy;
+  const pc = parseEventLive(JSON.stringify({ mode: "live", events: { copy: { rules: ["a"], size: 3, maxSize: 10, cutN: 5, cutLoss: 6, probationN: 5, houseUsd: 9, ladder: [[5, 6, 5], [10, 12, 7], [20, 21, 10], [1, 1, 99], "x", [1, 2]] } } }), { funder: "0x1" }).groups.copy;
   assert.deepEqual([pc.cutN, pc.cutLoss, pc.probationN, pc.houseUsd], [5, 6, 5, 9]);
+  assert.deepEqual(pc.ladder, [[5, 6, 5], [10, 12, 7], [20, 21, 10], [1, 1, 10]], "odd rows are left out and no row passes $10");
+  // sizes that progress: $3 to start, up only on the wallet's own settled real bets, down again when it falls back
+  const lg = { ...g, ladder: [[5, 6, 5], [10, 12, 7], [20, 21, 10]] as [number, number, number][] };
+  const st = (n: number, net: number) => ladderStake(lg, { n, net });
+  assert.deepEqual([st(0, 0), st(1, 16.87), st(4, 30), st(5, 5.99), st(5, 6), st(7, 10.34), st(9, 30)], [3, 3, 3, 3, 5, 5, 5]);
+  assert.deepEqual([st(10, 11.99), st(10, 12), st(19, 50), st(20, 20.99), st(20, 21), st(200, 500)], [5, 7, 7, 7, 10, 10]);
+  assert.deepEqual([st(25, 21), st(25, 11), st(25, 5), st(25, -1)], [10, 5, 3, 3], "it steps back down with its real result");
+  assert.equal(ladderStake(g, { n: 50, net: 99 }), 3, "no ladder: the base size");
   // what a wallet may risk: $9 and what its settled real bets made; winnings earn room, losses take it away
   const hc = { ...cfg, groups: { copy: { ...g, cutN: 5, cutLoss: 6, houseUsd: 9, walletUsd: 40 } } };
   const open = (rule: string, i: number, cost = 3) => ({ ...r(rule, null, 100 + i), cost });
