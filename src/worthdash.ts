@@ -219,6 +219,9 @@ export function worthCheck() {
   return { todayByWallet, claimStepsTakenForDeposits: fix?.removed ?? null, thatWasUsd: fix?.removedUsd ?? null, wonWaitingForClaimUsd: unclaimedAt(loadSpans(), Date.now()), change24hUsd: base && now != null ? Math.round((now - base[1]) * 100) / 100 : null, flows24h: flows.filter((f) => f[0] > T).length, windows, worthAt: full?.at ?? null };
 }
 let memo: { at: number; v: Worth } | null = null;
+/** The dashboard's last worth reading and the deposits and withdrawals it takes out of its windows (src/truthcheck.ts). */
+export const worthLast = () => memo?.v ?? null;
+export const worthFlows = () => flows.slice();
 /** The last full reading's total (see worthCheck). */
 let full: { at: number; total: number } | null = null;
 let solPx: { at: number; v: number | null } = { at: 0, v: null };

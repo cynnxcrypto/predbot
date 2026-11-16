@@ -12,7 +12,9 @@ import { DATA, ROOT } from "./config.js";
 import { execSync } from "node:child_process";
 let chMemo: { at: number; rows: { t: number; tx: string }[] } | null = null;
 import { solSlowView } from "./solslowdash.js";
-import { worthView, worthCheck } from "./worthdash.js";
+import { worthView, worthCheck, worthLast, worthFlows } from "./worthdash.js";
+import { startTruthCheck, truthPrivate, truthPublic } from "./truthcheck.js";
+import { kit as solKit } from "./solana/copylive.js";
 import { solanaCopyLiveSummary } from "./solana/copylive.js";
 import { withdrawSummary } from "./withdraw.js";
 import { createServer } from "node:http";
@@ -103,6 +105,29 @@ export function serveStatus(recorder: Recorder, build: string, others: Recorder[
     return worthView(cash, mine.live?.toClaim ?? 0, solBal, { rulesSol, rulesUsdc, perpsSol, perpsUsdc, rulesHeldSol: heldSol, perpsPosUsd: perpPosUsd });
   };
   setInterval(() => void worthNow().catch(() => undefined), 120_000).unref();
+  // the dashboard's figures against the chain and Polymarket's own data (src/truthcheck.ts, 16 Nov 2026)
+  const mintsOf = (f: string, keys: string[]) => {
+    try {
+      const st = JSON.parse(readFileSync(join(DATA, f), "utf8")) as Record<string, unknown>;
+      return new Set(keys.flatMap((k) => (Array.isArray(st[k]) ? (st[k] as { mint?: string }[]) : []).map((p) => String(p?.mint ?? ""))).filter(Boolean));
+    } catch {
+      return new Set<string>();
+    }
+  };
+  startTruthCheck({
+    dash: () => worthLast(),
+    flows: () => worthFlows(),
+    allTime: () => {
+      const mine = recorder.status() as { live?: { balance?: number | null; toClaim?: number; chain?: Record<string, number> | null } | null };
+      const cash = mine.live?.balance != null ? (mine.live.chain?.pUSD ?? mine.live.balance) + (mine.live.chain?.["USDC.e"] ?? 0) + (mine.live.chain?.USDC ?? 0) : null;
+      return walletHistorySummary(cash, mine.live?.toClaim ?? 0)?.allTimeNet ?? null;
+    },
+    rpcUrl: () => solShared.rpcUrl(),
+    helius: () => solShared.helius() ?? "",
+    quote: (mint, out, amount, bps) => solKit.quote(mint, out, amount, bps) as Promise<{ outAmount?: string }>,
+    tracked: () => ({ spot: mintsOf("solana-slowlive.json", ["opens"]), rules: mintsOf("solana-bucketslive.json", ["opens", "stuck"]) }),
+    fetch: (...a) => fetch(...a),
+  });
   // data/dashboard.json { "password": "..." } (the AWS server, 31 Oct 2026): the page is reached through a Cloudflare tunnel,
   // so every request needs that password (browser login, any user name). Without the file the page stays open as on the Mac.
   const password = String(loadJson<{ password?: string }>("dashboard.json", {}).password ?? "");
@@ -476,11 +501,17 @@ export function serveStatus(recorder: Recorder, build: string, others: Recorder[
       });
       return;
     }
+    if (req.url === "/api/truth") {
+      // everything the truth check read, balances included: only behind the page's password, never in the public status
+      res.writeHead(200, { "content-type": "application/json", "cache-control": "no-store" });
+      res.end(JSON.stringify(truthPrivate()));
+      return;
+    }
     if (req.url === "/api/status") {
       res.writeHead(200, { "content-type": "application/json" });
       const mine = recorder.status() as { live?: { balance?: number | null; toClaim?: number; chain?: Record<string, number> | null } | null };
       const cash = mine.live?.balance != null ? (mine.live.chain?.pUSD ?? mine.live.balance) + (mine.live.chain?.["USDC.e"] ?? 0) + (mine.live.chain?.USDC ?? 0) : null;
-      res.end(JSON.stringify({ build, ...mine, worthCheck: worthCheck(), walletHistory: walletHistorySummary(cash, mine.live?.toClaim ?? 0), solana: solanaSummary(), solanaCopy: solanaCopySummary(), solanaCopyLive: solanaCopyLiveSummary(), withdraw: withdrawSummary(), series: others.map((r) => r.status()), eventPaper: loadJson<unknown>("eventpaper-summary.json", null), budgets: [...budgets(), pairliveSummary().budget, pairfastliveSummary().budget], pairlive: pairliveSummary(), pairfastlive: pairfastliveSummary(), preopen: preopenSummary(), pairlock: pairlockSummary(), pairfast: pairfastSummary() }));
+      res.end(JSON.stringify({ build, ...mine, worthCheck: worthCheck(), truthCheck: truthPublic(), walletHistory: walletHistorySummary(cash, mine.live?.toClaim ?? 0), solana: solanaSummary(), solanaCopy: solanaCopySummary(), solanaCopyLive: solanaCopyLiveSummary(), withdraw: withdrawSummary(), series: others.map((r) => r.status()), eventPaper: loadJson<unknown>("eventpaper-summary.json", null), budgets: [...budgets(), pairliveSummary().budget, pairfastliveSummary().budget], pairlive: pairliveSummary(), pairfastlive: pairfastliveSummary(), preopen: preopenSummary(), pairlock: pairlockSummary(), pairfast: pairfastSummary() }));
       return;
     }
     if (req.url === "/favicon.svg" || req.url === "/favicon.ico") {
