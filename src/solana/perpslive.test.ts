@@ -500,6 +500,10 @@ test("several positions: each one's result is its own, and a liquidation costs i
   assert.equal(P._test.state().opens.length, 2);
   // the SOL short is liquidated between two looks: nothing comes back, the $10 is the loss
   keeper.liquidate(P._test.state().opens.find((x) => x.coin === "SOL")!.position);
+  // one empty answer from the chain is not proof: booked as gone at the third look in a row
+  await P.perpsLiveTick(deps);
+  await P.perpsLiveTick(deps);
+  assert.equal(P._test.state().opens.length, 2);
   await P.perpsLiveTick(deps);
   assert.deepEqual(P._test.state().rows.map((x) => x.netUsd), [3, -10]);
   assert.equal(P._test.state().netUsd, -7);

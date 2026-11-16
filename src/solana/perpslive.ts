@@ -100,6 +100,8 @@ export interface PerpsLiveConfig {
 const OFF: PerpsLiveConfig = { on: false, collateralUsd: 0, leverage: 1, maxLossUsd: 0, ruleStopUsd: 0, maxOpen: 0 };
 /** Jupiter keeps one position per coin and side for a wallet: three coins, two sides. */
 export const HARD_MAX_OPEN = 6;
+/** An open position is booked as gone (liquidated, or closed by hand) only when this many looks in a row found none (MAIN, 16 Nov 2026). */
+export const GONE_LOOKS = 3;
 const maxOpenOf = (c: PerpsLiveConfig) => Math.min(HARD_MAX_OPEN, Math.max(1, Math.floor(c.maxOpen ?? HARD_MAX_OPEN)));
 const num = (v: unknown, d: number) => (typeof v === "number" && Number.isFinite(v) ? v : d);
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
@@ -243,6 +245,8 @@ interface Pos {
   /** the collateral asked for, and the USDC that really left the wallet when it was filled */
   collUsd?: number;
   paidUsd?: number;
+  /** looks in a row at which the chain showed no position (see GONE_LOOKS) */
+  goneLooks?: number;
   sizeUsd: number;
   position: string;
   request: string;
@@ -555,9 +559,13 @@ export async function perpsLiveTick(d: PerpDeps, now = Date.now()): Promise<void
       const onChain = await posOf(d, p.position);
       const size = onChain.sizeUsd;
       if (size === 0) {
-        await finish(d, w, p, "vanished"); // liquidated, or closed by hand
+        // one empty answer is not proof (a node that lags can say "no such account"): gone only at the third look in a row
+        p.goneLooks = (p.goneLooks ?? 0) + 1;
+        if (p.goneLooks >= GONE_LOOKS) await finish(d, w, p, "vanished"); // liquidated, or closed by hand
+        else save();
         continue;
       }
+      p.goneLooks = 0;
       p.collateralUsd = onChain.collateralUsd;
       p.entryPx = onChain.entryPx;
       const px = await d.price(p.coin).catch(() => 0);
@@ -578,7 +586,8 @@ export async function perpsLiveTick(d: PerpDeps, now = Date.now()): Promise<void
         if (p.stage === "closing") return; // one request at a time
       }
     }
-    if (state.opens.length) state.cash = await d.usdc(w.address).catch(() => state.cash);
+    // (not while a position looks gone: what it brought back must still be measured from the look before)
+    if (state.opens.length && !state.opens.some((x) => x.goneLooks)) state.cash = await d.usdc(w.address).catch(() => state.cash);
     // ONE TEST TRADE (enrique, 15 Nov 2026 12:28 KST: "feel free to do one test in each of the new things so we know
     // everything works, try to not lose money of course"): the smallest short on SOL (the size the dry run passes
     // with), through the very code a promoted rule uses. It follows no paper position, so the next look closes it.
