@@ -155,8 +155,10 @@ test("buckets real: a rule that loses its stop goes back to paper until new pape
     now += 100_000;
   }
   const s = L._test.state();
-  assert.ok(s.netSol < -0.039 && s.netSol > -0.041, `four stakes lost (the stop is passed on the fourth): ${s.netSol}`);
-  assert.ok(s.demoted[RULE] > 0, "demoted at its own stop");
+  // real results first: behind after three real trades it is cut, before its 0.03 stop; the fourth paper buy is not bought
+  assert.ok(s.netSol < -0.029 && s.netSol > -0.031, `three stakes lost, then cut: ${s.netSol}`);
+  assert.ok(s.demoted[RULE] > 0, "cut on its real record");
+  assert.equal(s.demotedWhy?.[RULE], "cut: real record behind after 3 trades");
   assert.equal(L.promoted(RULE), false, "its old paper record no longer counts");
   st.open = [paperOpen(now)];
   const before = c.sends;
@@ -165,7 +167,7 @@ test("buckets real: a rule that loses its stop goes back to paper until new pape
   // 120 new paper trades after the demotion, 80 won: real again
   st.trades = [...st.trades, ...paperTrades(120, 80, 0.5, Date.now() + 1000)];
   assert.equal(L.promoted(RULE), true);
-  // the total cap: with 0.1 SOL allowed and 0.04 lost there is room; at 0.09 lost there is none
+  // the total cap: with 0.1 SOL allowed and 0.03 lost there is room; at 0.09 lost there is none
   s.netSol = -0.09;
   st.open = [paperOpen(now + 200_000)];
   await L.bucketsLiveTick(deps, now + 205_000);

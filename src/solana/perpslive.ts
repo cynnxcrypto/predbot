@@ -13,6 +13,9 @@
  * 16 Nov 2026 09:33 KST: "yes do it"): one per trader or rule and one per coin and side (Jupiter keeps one position
  * per coin and side for a wallet, so six at the most). ONE request of ours is on its way at a time, so what the
  * wallet's USDC did while it was on its way is that position's result.
+ * REAL RESULTS FIRST (realfirst.ts; enrique, 16 Nov 2026: "u have to cut loser and bring winners", "real is more
+ * important"): once a trader or rule has real trades, it stays real while its real net is zero or better, whatever
+ * its paper record does; it is cut when its real net is below zero after three or more real trades.
  * BACK TO PAPER: a rule whose real trades have lost `ruleStopUsd` is demoted until its paper trades made after that
  * meet the bar again. At `maxLossUsd` in all, nothing new is opened for good.
  *
@@ -38,6 +41,7 @@ import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { DATA, ROOT } from "../config.js";
 import { perpMeetsBar, perpPaperOpens, perpPaperRecord, perpRuleIds, setPerpsRealSummary, REAL_MIN_TRADES, TRADER_MIN_COPIES } from "./buckets.js";
+import { cutReason, realRecord, standing } from "./realfirst.js";
 import { base58decode, namedWallet, signTransaction, type Wallet } from "./keys.js";
 import { USDC } from "./pools.js";
 import { fileSwap, gasSummary, gasTick, type GasDeps } from "./gas.js";
@@ -286,6 +290,8 @@ interface State {
   cash?: number;
   rows: Row[];
   demoted: Record<string, number>;
+  /** rule -> why it was last cut */
+  demotedWhy?: Record<string, string>;
   seen: string[];
   skipped: Record<string, number>;
   dry: { at: number; result: string } | null;
@@ -329,8 +335,11 @@ function save() {
 }
 const loss = () => Math.max(0, -state.netUsd);
 const skip = (why: string) => void (state.skipped[why] = (state.skipped[why] ?? 0) + 1);
-const ruleNet = (rule: string) => state.rows.filter((x) => x.rule === rule && x.filled && x.t > (state.demoted[rule] ?? 0)).reduce((a, x) => a + x.netUsd, 0);
-export const promoted = (rule: string) => perpMeetsBar(rule, state.demoted[rule] ?? 0);
+/** One trader's or rule's real record: its filled real trades since it was last cut. */
+const realOf = (rule: string) => realRecord(state.rows.filter((x) => x.rule === rule && x.filled && x.t > (state.demoted[rule] ?? 0)).map((x) => x.netUsd));
+/** Real results first (realfirst.ts): real record ahead or level = real; no real trades yet, or behind on fewer than three = the paper bar decides. */
+export const standingOf = (rule: string) => standing(realOf(rule), perpMeetsBar(rule, state.demoted[rule] ?? 0), state.demotedWhy?.[rule]);
+export const promoted = (rule: string) => standingOf(rule).real;
 
 export interface PerpDeps {
   cfg: () => PerpsLiveConfig;
@@ -447,7 +456,11 @@ async function finish(d: PerpDeps, w: Wallet, p: Pos, how: "not filled" | "close
   state.opens = state.opens.filter((x) => x !== p);
   state.cash = now;
   const c = d.cfg();
-  if (c.ruleStopUsd > 0 && ruleNet(p.rule) <= -c.ruleStopUsd) state.demoted[p.rule] = Date.now();
+  const cut = cutReason(realOf(p.rule), c.ruleStopUsd);
+  if (cut) {
+    state.demotedWhy = { ...(state.demotedWhy ?? {}), [p.rule]: cut };
+    state.demoted[p.rule] = Date.now();
+  }
   if (!state.halted && c.maxLossUsd > 0 && loss() + c.collateralUsd > c.maxLossUsd + 1e-9) state.halted = `loss cap reached: $${r2(loss())} of $${c.maxLossUsd} (no room for another position)`;
   save();
 }
@@ -723,11 +736,15 @@ export function perpsLiveSummary() {
   if (!loaded) load();
   const c = liveCfg();
   const done = state.rows.filter((x) => x.filled);
-  const rules = perpRuleIds().map((id) => {
+  // every rule and copied trader, and any that has real trades or was cut even if it is no longer on the paper lists
+  const ids = [...new Set([...perpRuleIds(), ...state.rows.map((x) => x.rule).filter((x) => x !== TEST_RULE), ...Object.keys(state.demoted)])];
+  const rules = ids.map((id) => {
     const since = state.demoted[id] ?? 0;
     const paper = perpPaperRecord(id, since);
     const mine = done.filter((x) => x.rule === id);
-    return { id, real: c.on && !state.halted && perpMeetsBar(id, since), paperTrades: paper.trades, paperWon: paper.won, paperNetUsd: r2(paper.netUsd), demotedAt: since || null, trades: mine.length, won: mine.filter((x) => x.netUsd > 0).length, netUsd: r2(mine.reduce((a, x) => a + x.netUsd, 0)) };
+    const st = standingOf(id);
+    const live = realOf(id);
+    return { id, real: c.on && !state.halted && st.real, why: st.why, realTrades: live.trades, realWon: live.won, realNetUsd: r2(live.net), paperTrades: paper.trades, paperWon: paper.won, paperNetUsd: r2(paper.netUsd), demotedAt: since || null, trades: mine.length, won: mine.filter((x) => x.netUsd > 0).length, netUsd: r2(mine.reduce((a, x) => a + x.netUsd, 0)) };
   });
   const openRows = state.opens.map((x) => ({ rule: x.rule, coin: x.coin, side: (x.dir ?? -1) > 0 ? "long" : "short", leverage: x.lev ?? null, stage: x.stage, sizeUsd: x.sizeUsd, since: x.openedMs ?? x.sentMs, collateralUsd: r2(x.collateralUsd ?? x.collUsd ?? c.collateralUsd), entryPrice: x.entryPx ?? null, unrealisedUsd: x.unrealUsd ?? 0, pricedAt: x.markMs ?? null }));
   return {
