@@ -274,11 +274,16 @@ test("buckets real: a coin bought before a cut and sold after it counts for the 
   assert.equal(c.sends, before, "no real buy without new paper trades at the bar");
   const line = L.bucketsLiveSummary().rules.find((x) => x.id === RULE);
   assert.deepEqual([line?.real, line?.realTrades, line?.trades], [false, 0, 4]);
-  // a real trade bought after the cut does count (and a row of an older build, without its buy time, counts by its finish)
+  // a real trade bought after the cut does count
   s.rows = [...L._test.state().rows, { t: Date.now() + 2000, at: Date.now() + 1000, rule: RULE, buy: "landed" as const, netSol: 0.001, heldMin: 1 }];
   L._test.state().rows = s.rows;
   assert.equal(L.standingOf(RULE).why, "real: its real record is ahead (1 of 1 won); paper record is under the bar");
+  // a row of an older build has no buy time: it counts by its finish less the time it was held. Finished two seconds
+  // after the cut and held a minute, it was bought before the cut and belongs to the record that was cut ...
   L._test.state().rows = [...rows, { t: Date.now() + 2000, rule: RULE, buy: "landed" as const, netSol: 0.001, heldMin: 1 }];
+  assert.equal(L.promoted(RULE), false, "an old row sold just after the cut does not make the rule real again");
+  // ... and one that can only have been bought after the cut counts
+  L._test.state().rows = [...rows, { t: Date.now() + 120_000, rule: RULE, buy: "landed" as const, netSol: 0.001, heldMin: 1 }];
   assert.equal(L.promoted(RULE), true);
 
   // a cut missed at the finish (the switch was off then: no stop known): made before the next buy

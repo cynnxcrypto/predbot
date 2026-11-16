@@ -1,7 +1,15 @@
 import assert from "node:assert/strict";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { test } from "node:test";
-import { gasTick, _test, TOPUP_USD, type GasDeps } from "./gas.js";
-import { SOL, USDC } from "./pools.js";
+
+// a scratch folder: the state these tests save (a made-up swap, top-ups dated far ahead) must never land in the real
+// data folder, where it would hold back the real top-ups and repeat the one-time swap
+process.env.DATA_DIR = mkdtempSync(join(tmpdir(), "gas-"));
+const { gasTick, _test, TOPUP_USD } = await import("./gas.js");
+const { SOL, USDC } = await import("./pools.js");
+type GasDeps = import("./gas.js").GasDeps;
 
 function world(sol: number, usdc: number) {
   const s = { sol, usdc, sent: [] as string[], busy: false, ask: null as { id: string; keepSol: number } | null };

@@ -664,8 +664,10 @@ export async function perpsLiveTick(d: PerpDeps, now = Date.now()): Promise<void
       if (state.seen.includes(o.id)) continue;
       state.seen = [...state.seen, o.id].slice(-500);
       if (!c.on || state.halted) continue;
-      // a cut missed when its trade finished (the switch was off then, or the stop was lowered since) is made now
-      const late = cutReason(realOf(o.rule), c.ruleStopUsd);
+      // a cut missed when its trade finished (the switch was off then, or the stop was lowered since) is made now.
+      // Not while it has a position out: that trade belongs to the record being judged (a row counts from its finish),
+      // nothing can be opened for the rule meanwhile, and finish() judges the record whole
+      const late = state.opens.some((x) => x.rule === o.rule) ? "" : cutReason(realOf(o.rule), c.ruleStopUsd);
       if (late) cutNow(o.rule, late);
       if (!promoted(o.rule)) continue; // the usual case: paper only
       if (!o.dir || !CUSTODY[o.coin]) skip("not SOL, BTC or ETH");

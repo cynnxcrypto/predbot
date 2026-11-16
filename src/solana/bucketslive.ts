@@ -212,7 +212,12 @@ function fileCfg(): BucketsLiveConfig {
  * have several coins out, and one bought before the cut and sold after it belongs to the record that was cut, not to
  * the next one (a late winner must not make a cut rule real again without new paper trades).
  */
-const realOf = (rule: string) => realRecord(state.rows.filter((x) => x.rule === rule && x.buy === "landed" && (x.at ?? x.t) > (state.demoted[rule] ?? 0)).map((x) => x.netSol));
+const realOf = (rule: string) => realRecord(state.rows.filter((x) => x.rule === rule && x.buy === "landed" && boughtAt(x) > (state.demoted[rule] ?? 0)).map((x) => x.netSol));
+/**
+ * When a real trade was bought: the paper buy it followed. A row of the build before 16 Nov 2026 has no buy time, so
+ * for it the earliest buy its finish time and its held minutes allow (held minutes are rounded: half a minute more).
+ */
+const boughtAt = (x: Row) => x.at ?? x.t - ((x.heldMin ?? 0) + 0.5) * 60_000;
 /** Real results first (realfirst.ts): real record ahead or level = real; no real trades yet, or behind on fewer than three = the paper bar decides. */
 export const standingOf = (rule: string) => standing(realOf(rule), meetsBar(paperRecord(rule, state.demoted[rule] ?? 0)), state.demotedWhy?.[rule]);
 export const promoted = (rule: string) => standingOf(rule).real;
@@ -435,8 +440,9 @@ export function bucketsLiveSummary() {
     heldValueSol: r6(state.opens.reduce((a, p) => a + (p.valueSol ?? c.stakeSol), 0)),
     skipped: state.skipped,
     lastError: state.lastError,
-    // the real trades for the page: newest 40 closed and what is out now (rule and bucket only: no coin, no transaction)
-    rows: state.rows.slice(-40).reverse(),
+    // the real trades for the page: newest 40 closed and what is out now (rule and bucket only: no coin, no transaction,
+    // and not the buy time a row keeps for its rule's record: beside the paper list that time would name the coin)
+    rows: state.rows.slice(-40).reverse().map(({ at: _at, ...x }) => x),
     opens: state.opens.map((p) => ({ rule: p.rule, bucket: p.bucket, stage: p.stage, since: p.paperAt })),
     // the one-time test trade: its name, when, where it stands and what it did to the wallet (every fee in)
     test: state.test ? { ...state.test, open: state.opens.filter((p) => p.rule === TEST_RULE).map((p) => p.stage), rows: state.rows.filter((x) => x.rule === TEST_RULE).map((x) => ({ t: x.t, buy: x.buy, netSol: r6(x.netSol), heldMin: x.heldMin })) } : null,

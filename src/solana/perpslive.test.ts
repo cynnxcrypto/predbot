@@ -665,3 +665,40 @@ test("real results first: a finished test trade never cuts the test rule", async
   assert.equal(P._test.state().demotedWhy?.[P.TEST_RULE], undefined);
   P._test.reset();
 });
+
+test("real results first: a late cut waits while the trader's own position is out; the finish judges the whole record", async () => {
+  const { traderRule } = await import("./buckets.js");
+  const now = await traders(1);
+  const rule = traderRule(T(1));
+  const { c, deps, act } = multiWorld(100);
+  c.cfg = { ...c.cfg, ruleStopUsd: 9 };
+  const sol = hl(1, "SOL", -1, now - 1000);
+  _bucketsTest.state().hlOpen = [sol] as never;
+  await P.perpsLiveTick(deps);
+  act();
+  await P.perpsLiveTick(deps);
+  assert.equal(P._test.state().opens[0].stage, "open");
+  // a state the build before left behind: a loss just short of its $10 stop, never cut, and a position out
+  P._test.state().rows = [{ t: now - 500, rule, coin: "ETH", side: "short", leverage: 5, filled: true, netUsd: -9.96, heldH: 1 }] as never;
+  const btc = hl(1, "BTC", -1, Date.now() - 1000);
+  _bucketsTest.state().hlOpen = [sol, btc] as never;
+  const before = c.sends;
+  await P.perpsLiveTick(deps);
+  assert.equal(c.sends, before);
+  assert.equal(P._test.state().demoted[rule], undefined, "not cut while its own position is out");
+  await new Promise((r) => setTimeout(r, 5));
+  // the trader closes SOL: ours closes a little ahead, and the whole record (-9.96 + 0.60) is at the $9 stop
+  _bucketsTest.state().hlOpen = [btc] as never;
+  await P.perpsLiveTick(deps);
+  act(10.6);
+  await P.perpsLiveTick(deps);
+  assert.deepEqual(P._test.state().rows.map((x) => x.netUsd), [-9.96, 0.6]);
+  assert.equal(P._test.state().demotedWhy?.[rule], "cut: real trades reached the loss stop");
+  assert.equal(P.promoted(rule), false, "a position opened before the cut does not start the next record");
+  _bucketsTest.state().hlOpen = [btc, hl(1, "ETH", -1, Date.now() - 1000)] as never;
+  const sends = c.sends;
+  await P.perpsLiveTick(deps);
+  assert.equal(c.sends, sends);
+  assert.equal(P._test.state().opens.length, 0);
+  P._test.reset();
+});

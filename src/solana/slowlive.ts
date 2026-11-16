@@ -114,8 +114,10 @@ export const REST_LOSS_SOL = 0.02;
  * copies of dropped wallets" (open copies whose wallet has been off the list for 6 hours are sold at the market;
  * their result is booked now and the SOL goes to the proven wallets). The wallet was full of copies of wallets
  * paper no longer backed (14 open) while the proven ones missed 60 buys in three hours. The hours count from when the
- * sweep first sees the wallet off the list, and only while there is a list at all: an empty list means the paper
- * study has nothing to say (off, or just started), not that every wallet was dropped.
+ * sweep first sees the wallet off the list, and only while PAPER itself proves at least one wallet: with nothing
+ * proven the paper study has nothing to say (off, just started, its file unreadable), not that every wallet was
+ * dropped. Since 16 Nov 2026 a wallet rested on its real record is off the list like a dropped one, so its open copies
+ * go on the same clock; if paper proves wallets and every one of them is rested, every open copy is on it.
  */
 export const DROP_SELL_MS = 6 * 3_600_000;
 /** At most this many dropped copies are sold per sweep (5 min). */
@@ -350,8 +352,12 @@ function save() {
   renameSync(STATE() + ".tmp", STATE());
 }
 const loss = () => Math.max(0, -state.netSol);
-/** A copy whose sale we gave up on: six rounds failed, and it is tried again only at a restart. Its coin cannot be sold. */
-const stuck = (p: Pos) => !!p.exit && p.sellRounds >= 6;
+/**
+ * A copy whose sale we gave up on: six rounds failed, and it is tried again only at a restart. Its coin cannot be sold.
+ * The count goes up when a round STARTS, so the sixth round while it is still under way is not yet a failure (a
+ * restart's later try is: six had failed before it).
+ */
+const stuck = (p: Pos) => !!p.exit && (p.sellRounds > 6 || (p.sellRounds === 6 && !sellingNow.has(p)));
 const counted7 = (name: string, now: number) => state.rows.filter((x) => x.name === name && x.buy === "landed" && now - x.t < REST_DAYS * 86_400_000);
 /**
  * A wallet's real record (by its screen name): its landed real copies of the last REST_DAYS days. A copy that is out
