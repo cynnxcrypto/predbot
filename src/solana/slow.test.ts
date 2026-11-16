@@ -162,8 +162,10 @@ test("paper copy: buys late after a followed wallet buys, sells after its first 
     assert.equal(r("slow-e5-x5").n, 1);
     assert.equal(r("slow-e30-x30").won, 1);
     assert.equal(r("slow-e300-x30").n, 0);
-    assert.equal(quotes.filter((q) => q.startsWith("buy")).length, 2);
-    assert.equal(quotes.filter((q) => q === "sell 1000").length, 4); // two entries, two exit times
+    assert.equal(p.entries.e1, "1000");
+    assert.equal(r("slow-e1-x1").n, 1);
+    assert.equal(quotes.filter((q) => q.startsWith("buy")).length, 3); // 1 s, 5 s and 30 s
+    assert.equal(quotes.filter((q) => q === "sell 1000").length, 9); // three entries, three exit times
   } finally {
     mock.timers.reset();
     _test.reset();
