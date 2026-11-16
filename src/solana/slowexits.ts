@@ -31,7 +31,11 @@ export const POLL_MS = 120_000;
 export const STEP_MS = 1000;
 const LAMPORTS = 1e9;
 const KEEP_DONE = 5000;
-/** A copy gone from the held list with no result row after this long is dropped (its buy never counted). */
+/**
+ * A copy gone from the held list with no result after this long is dropped: its sale is still not through. A coin
+ * that could not be sold is not dropped: slowlive gives it as a lost stake once six sale rounds have failed (well
+ * inside this time), and it is scored like any other copy but kept out of the gap, which measures sales that went through.
+ */
 const WAIT_ROW_MS = 2 * 3_600_000;
 
 /** What a rule sees at a poll: v = SOL a sale would bring now / SOL paid; prev = the poll before; peak = highest v so far (1 at least); heldH = hours since our buy. */
@@ -67,8 +71,8 @@ export interface Held {
   stakeSol: number;
   tokens?: string;
 }
-/** A finished copy's result: null = its buy never landed; undefined = no row yet. */
-export type Result = { netSol: number; stakeSol: number; heldMin: number | null } | null | undefined;
+/** A finished copy's result: null = its buy never landed; undefined = no row yet; unsold = its coin could not be sold (the stake counted as lost). */
+export type Result = { netSol: number; stakeSol: number; heldMin: number | null; unsold?: boolean } | null | undefined;
 interface Track {
   mint: string;
   seenMs: number;
@@ -179,7 +183,7 @@ function sync(now: number): Track[] {
     state.tracks = state.tracks.filter((x) => x !== t);
     changed = true;
     if (!r) continue;
-    state.done.push({ name: t.name, stakeSol: r.stakeSol, netSol: r.netSol, heldMin: r.heldMin, polls: t.polls, lastV: t.v, near: t.polls > 0 && gone - t.lastMs <= 2 * POLL_MS, fired: t.fired });
+    state.done.push({ name: t.name, stakeSol: r.stakeSol, netSol: r.netSol, heldMin: r.heldMin, polls: t.polls, lastV: t.v, near: !r.unsold && t.polls > 0 && gone - t.lastMs <= 2 * POLL_MS, fired: t.fired });
     if (state.done.length > KEEP_DONE) state.done = state.done.slice(-KEEP_DONE);
   }
   if (changed) save();
@@ -260,12 +264,14 @@ export function slowExitsSummary() {
   const realNet = done.reduce((a, d) => a + d.netSol, 0);
   const rules = RULES.map((r) => {
     let net = 0;
+    let bare = 0;
     let won = 0;
     const hit = done.filter((d) => d.fired[r.id] !== undefined);
     for (const d of done) {
       const v = d.fired[r.id];
       const sold = v === undefined ? ret(d) : r.half ? 0.5 * (v - 1 + gap) + 0.5 * ret(d) : v - 1 + gap;
       net += sold * d.stakeSol;
+      bare += (v === undefined ? ret(d) : r.half ? 0.5 * (v - 1) + 0.5 * ret(d) : v - 1) * d.stakeSol;
       if (sold > 0) won++;
     }
     const avg = (f: (d: Done) => number) => (hit.length ? r1((hit.reduce((a, d) => a + f(d), 0) / hit.length) * 100) : null);
@@ -280,11 +286,18 @@ export function slowExitsSummary() {
       netSol: r6(net),
       /** against the real result of the same copies: above zero = the rule would have made more */
       vsRealSol: r6(net - realNet),
+      /**
+       * The same score with the fired results not moved by the gap (MAIN's review, 16 Nov 2026). The last poll is taken
+       * before the copied wallet sells and our real sale lands after it, so the gap also holds the price move of the
+       * wallet's own sale, which a rule that had sold earlier would not have met. No fee is taken off here: this is the
+       * most the rule can have made, and the truth lies between the two numbers.
+       */
+      vsRealSolNoGap: r6(bare - realNet),
     };
   }).sort((a, b) => b.vsRealSol - a.vsRealSol);
   const open = state.tracks.filter((t) => t.v !== null && !t.goneMs);
   return {
-    note: `PAPER beside the REAL day-holder copies (enrique, 16 Nov 2026: "maybe we should do more about this"): every ${POLL_MS / 1000} s a real sell quote for each real copy that is out; each rule is scored on the same copies against what they really made (a rule that did not fire = the real result; a fired one = its poll's quote, moved by gapPct, the average distance between the last poll's quote and the real result). copies = real copies followed from buy to sale since this began; copies bought before it are not in. Under 100 copies says little.`,
+    note: `PAPER beside the REAL day-holder copies (enrique, 16 Nov 2026: "maybe we should do more about this"): every ${POLL_MS / 1000} s a real sell quote for each real copy that is out; each rule is scored on the same copies against what they really made (a rule that did not fire = the real result; a fired one = its poll's quote, moved by gapPct, the average distance between the last poll's quote and the real result). copies = real copies followed from buy to sale since this began; copies bought before it are not in. gapPct also holds the price move at the copied wallet's own sale (the last poll is before that sale, our real sale after it), which a rule that had sold earlier would not have met, so vsRealSol can read too low for a rule that sold earlier (too high where wallets sell into a rise); vsRealSolNoGap is the same score with the fired results not moved at all (no fees taken off): the most a rule can have made. A copy whose coin could not be sold is scored as its stake lost. Under 100 copies says little, and the first days hold mostly short holds.`,
     pollSec: POLL_MS / 1000,
     copies: done.length,
     real: { won: done.filter((d) => d.netSol > 0).length, netSol: r6(realNet), avgRetPct: done.length ? r1((done.reduce((a, d) => a + ret(d), 0) / done.length) * 100) : null },

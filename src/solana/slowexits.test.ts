@@ -80,6 +80,8 @@ test("real copies are followed from buy to sale and every rule is scored against
   assert.equal(by["half-50"].vsRealSol, Math.round(0.5 * (0.54 - 0.09) * 0.02 * 1e6) / 1e6);
   // a rule that never fired is the real result exactly
   assert.deepEqual([by["take-100"].fired, by["take-100"].vsRealSol, by["take-100"].netSol, by["time-8h"].fired], [0, 0, 0.0006, 0]);
+  // the same scores with the fired results not moved by the gap: the most each rule can have made
+  assert.deepEqual([by["stop-30"].vsRealSolNoGap, by["take-50"].vsRealSolNoGap, by["half-50"].vsRealSolNoGap, by["take-100"].vsRealSolNoGap], [-0.0052, 0.0092, 0.0046, 0]);
   // best first
   assert.deepEqual(s.rules.slice(0, 2).map((r) => r.id).sort(), ["take-30", "take-50"]);
   assert.ok(s.rules[s.rules.length - 1].vsRealSol < 0);
@@ -123,4 +125,43 @@ test("the real results by size and by time held; the most a stop could have save
   // -60%, -40% and the old 0.01 row at -40% end under -30%: sold exactly there they lose 0.006 + 0.006 + 0.003
   assert.deepEqual(s.stopAtMost.find((x) => x.stopPct === -30), { stopPct: -30, copies: 3, savedSol: 0.009 });
   assert.deepEqual(s.stopAtMost.find((x) => x.stopPct === -50), { stopPct: -50, copies: 1, savedSol: 0.002 });
+});
+
+test("a fault in the study's own file never holds back the real numbers", async () => {
+  _test.reset();
+  const { slowLiveSummary } = await import("./slowlive.js");
+  // an entry no run of this code writes (no fired marks): the study's own summary throws on it
+  _test.state().done.push({ name: "w", stakeSol: 0.02, netSol: 0.001, heldMin: 5, polls: 1, lastV: 1, near: true } as never);
+  assert.throws(() => slowExitsSummary());
+  const s = slowLiveSummary();
+  assert.equal(s.exits, null, "the study's block is empty, and no error text is published");
+  assert.ok(Array.isArray(s.spread.byHeldMin) && typeof s.copies === "number", "the real numbers are still there");
+  _test.reset();
+});
+
+test("a coin that could not be sold is scored as its stake lost and kept out of the gap", async () => {
+  _test.reset();
+  const now = Date.now();
+  let held: Held[] = [{ mint: "U", seenMs: 7, name: "w", boughtMs: now, stakeSol: 0.02, tokens: "1" }];
+  let result: { netSol: number; stakeSol: number; heldMin: number | null; unsold?: boolean } | undefined;
+  setExitSource({ held: () => held, resultOf: () => result });
+  const price = [0.019, 0.012];
+  _test.setQuote(async () => BigInt(Math.round(price.shift()! * 1e9)));
+  await tick(now);
+  await tick(now + POLL_MS);
+  // its wallet sells and our sale does not go through: no row, so nothing to score yet
+  held = [];
+  await tick(now + 2 * POLL_MS);
+  assert.deepEqual([slowExitsSummary().copies, _test.state().tracks.length], [0, 1], "still waiting for a result");
+  // six sale rounds have failed: slowlive gives the copy as its stake and the rent lost
+  result = { netSol: -0.02204, stakeSol: 0.02, heldMin: null, unsold: true };
+  await tick(now + 3 * POLL_MS);
+  const s = slowExitsSummary();
+  const by = Object.fromEntries(s.rules.map((r) => [r.id, r]));
+  assert.deepEqual([s.copies, _test.state().tracks.length, s.real.netSol, s.gapCopies, s.gapPct], [1, 0, -0.02204, 0, null], "scored, and not part of the gap");
+  // the stop at -30% had sold at 0.60 of the stake: 0.008 SOL lost instead of the whole stake and the rent
+  assert.deepEqual([by["stop-30"].fired, by["stop-30"].vsRealSol, by["stop-50"].fired], [1, 0.01404, 0]);
+  assert.ok(Math.abs(by["stop-50"].vsRealSol) < 1e-9, "a rule that had not fired lost it too");
+  setExitSource(null);
+  _test.reset();
 });

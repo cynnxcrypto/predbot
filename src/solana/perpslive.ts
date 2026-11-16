@@ -13,6 +13,9 @@
  * 16 Nov 2026 09:33 KST: "yes do it"): one per trader or rule and one per coin and side (Jupiter keeps one position
  * per coin and side for a wallet, so six at the most). ONE request of ours is on its way at a time, so what the
  * wallet's USDC did while it was on its way is that position's result.
+ * REAL RESULTS FIRST (realfirst.ts; enrique, 16 Nov 2026: "u have to cut loser and bring winners", "real is more
+ * important"): once a trader or rule has real trades, it stays real while its real net is zero or better, whatever
+ * its paper record does; it is cut when its real net is below zero after three or more real trades.
  * BACK TO PAPER: a rule whose real trades have lost `ruleStopUsd` is demoted until its paper trades made after that
  * meet the bar again. At `maxLossUsd` in all, nothing new is opened for good.
  *
@@ -37,10 +40,11 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { DATA, ROOT } from "../config.js";
-import { perpMeetsBar, perpPaperOpens, perpPaperRecord, perpRuleIds, setPerpsRealSummary, REAL_MIN_TRADES, TRADER_MIN_COPIES } from "./buckets.js";
+import { perpMeetsBar, perpPaperOpens, perpPaperRecord, perpRuleIds, setPerpsRealSummary, traderListed, REAL_MIN_TRADES, TRADER_MIN_COPIES } from "./buckets.js";
+import { CUT_MIN_TRADES, cutReason, realRecord, standing } from "./realfirst.js";
 import { base58decode, namedWallet, signTransaction, type Wallet } from "./keys.js";
 import { USDC } from "./pools.js";
-import { fileSwap, gasSummary, gasTick, type GasDeps } from "./gas.js";
+import { fileSwap, gasBusy, gasSummary, gasTick, type GasDeps } from "./gas.js";
 import { anchorDisc, ata, ATA_PROGRAM, budget, buildTx, pda, SYSTEM_PROGRAM, TOKEN_PROGRAM, u64le, type Ix } from "./soltx.js";
 
 export const PERPS_PROGRAM = "PERPHjGBqRHArX4DySjwM6UJHiR3sWAatqfdBS2qQJu";
@@ -286,6 +290,8 @@ interface State {
   cash?: number;
   rows: Row[];
   demoted: Record<string, number>;
+  /** rule -> why it was last cut */
+  demotedWhy?: Record<string, string>;
   seen: string[];
   skipped: Record<string, number>;
   dry: { at: number; result: string } | null;
@@ -329,8 +335,16 @@ function save() {
 }
 const loss = () => Math.max(0, -state.netUsd);
 const skip = (why: string) => void (state.skipped[why] = (state.skipped[why] ?? 0) + 1);
-const ruleNet = (rule: string) => state.rows.filter((x) => x.rule === rule && x.filled && x.t > (state.demoted[rule] ?? 0)).reduce((a, x) => a + x.netUsd, 0);
-export const promoted = (rule: string) => perpMeetsBar(rule, state.demoted[rule] ?? 0);
+/** One trader's or rule's real record: its filled real trades since it was last cut. */
+const realOf = (rule: string) => realRecord(state.rows.filter((x) => x.rule === rule && x.filled && x.t > (state.demoted[rule] ?? 0)).map((x) => x.netUsd));
+/** Real results first (realfirst.ts): real record ahead or level = real; no real trades yet, or behind on fewer than three = the paper bar decides. */
+export const standingOf = (rule: string) => standing(realOf(rule), perpMeetsBar(rule, state.demoted[rule] ?? 0), state.demotedWhy?.[rule]);
+export const promoted = (rule: string) => standingOf(rule).real;
+/** Send a rule or trader back to paper: its real record starts again and only paper trades made from now on count. */
+function cutNow(rule: string, why: string) {
+  state.demotedWhy = { ...(state.demotedWhy ?? {}), [rule]: why };
+  state.demoted[rule] = Date.now();
+}
 
 export interface PerpDeps {
   cfg: () => PerpsLiveConfig;
@@ -447,7 +461,9 @@ async function finish(d: PerpDeps, w: Wallet, p: Pos, how: "not filled" | "close
   state.opens = state.opens.filter((x) => x !== p);
   state.cash = now;
   const c = d.cfg();
-  if (c.ruleStopUsd > 0 && ruleNet(p.rule) <= -c.ruleStopUsd) state.demoted[p.rule] = Date.now();
+  // (the one-time test trades follow no rule: they are never "cut" and never listed as one)
+  const cut = p.rule === TEST_RULE ? "" : cutReason(realOf(p.rule), c.ruleStopUsd);
+  if (cut) cutNow(p.rule, cut);
   if (!state.halted && c.maxLossUsd > 0 && loss() + c.collateralUsd > c.maxLossUsd + 1e-9) state.halted = `loss cap reached: $${r2(loss())} of $${c.maxLossUsd} (no room for another position)`;
   save();
 }
@@ -459,6 +475,11 @@ function begin(p: Pos) {
 const drop = (p: Pos) => void (state.opens = state.opens.filter((x) => x !== p));
 
 let busy = false;
+/**
+ * For the SOL top-up and the one swap (gas.ts): true while a look is running or any position is open or on its way.
+ * A position's result is read from the wallet's USDC, so no swap may move that balance while one is out.
+ */
+export const perpsBusy = () => busy || state.opens.length > 0;
 export async function perpsLiveTick(d: PerpDeps, now = Date.now()): Promise<void> {
   if (busy) return;
   if (!loaded) load();
@@ -642,7 +663,13 @@ export async function perpsLiveTick(d: PerpDeps, now = Date.now()): Promise<void
     for (const o of paper) {
       if (state.seen.includes(o.id)) continue;
       state.seen = [...state.seen, o.id].slice(-500);
-      if (!c.on || state.halted || !promoted(o.rule)) continue; // the usual case: paper only
+      if (!c.on || state.halted) continue;
+      // a cut missed when its trade finished (the switch was off then, or the stop was lowered since) is made now.
+      // Not while it has a position out: that trade belongs to the record being judged (a row counts from its finish),
+      // nothing can be opened for the rule meanwhile, and finish() judges the record whole
+      const late = state.opens.some((x) => x.rule === o.rule) ? "" : cutReason(realOf(o.rule), c.ruleStopUsd);
+      if (late) cutNow(o.rule, late);
+      if (!promoted(o.rule)) continue; // the usual case: paper only
       if (!o.dir || !CUSTODY[o.coin]) skip("not SOL, BTC or ETH");
       // a long is new on the real side: none is sent until the open AND the close of a long have passed their dry
       // simulation on the chain (MAIN, 15 Nov 2026)
@@ -723,15 +750,22 @@ export function perpsLiveSummary() {
   if (!loaded) load();
   const c = liveCfg();
   const done = state.rows.filter((x) => x.filled);
-  const rules = perpRuleIds().map((id) => {
+  // every rule and copied trader, and any that has real trades or was cut even if it is no longer on the paper lists
+  const ids = [...new Set([...perpRuleIds(), ...state.rows.map((x) => x.rule), ...Object.keys(state.demoted)])].filter((x) => x !== TEST_RULE);
+  const rules = ids.map((id) => {
     const since = state.demoted[id] ?? 0;
     const paper = perpPaperRecord(id, since);
     const mine = done.filter((x) => x.rule === id);
-    return { id, real: c.on && !state.halted && perpMeetsBar(id, since), paperTrades: paper.trades, paperWon: paper.won, paperNetUsd: r2(paper.netUsd), demotedAt: since || null, trades: mine.length, won: mine.filter((x) => x.netUsd > 0).length, netUsd: r2(mine.reduce((a, x) => a + x.netUsd, 0)) };
+    const st = standingOf(id);
+    // a copied trader the daily list has dropped: nothing new of it is copied on paper, so nothing is opened for real,
+    // whatever its record says (its record is kept, and it is real again when it is back on the list)
+    const off = st.real && !traderListed(id);
+    const live = realOf(id);
+    return { id, real: c.on && !state.halted && st.real && !off, why: !c.on ? "paper: real trading is switched off" : state.halted ? "paper: real trading is stopped" : off ? "paper: not on the trader list now, nothing new of it is copied; real again when it is back" : st.why, realTrades: live.trades, realWon: live.won, realNetUsd: r2(live.net), paperTrades: paper.trades, paperWon: paper.won, paperNetUsd: r2(paper.netUsd), demotedAt: since || null, trades: mine.length, won: mine.filter((x) => x.netUsd > 0).length, netUsd: r2(mine.reduce((a, x) => a + x.netUsd, 0)) };
   });
   const openRows = state.opens.map((x) => ({ rule: x.rule, coin: x.coin, side: (x.dir ?? -1) > 0 ? "long" : "short", leverage: x.lev ?? null, stage: x.stage, sizeUsd: x.sizeUsd, since: x.openedMs ?? x.sentMs, collateralUsd: r2(x.collateralUsd ?? x.collUsd ?? c.collateralUsd), entryPrice: x.entryPx ?? null, unrealisedUsd: x.unrealUsd ?? 0, pricedAt: x.markMs ?? null }));
   return {
-    note: `REAL, off unless the live rules switch it on. Longs and shorts on SOL, BTC or ETH on Jupiter Perps, in a wallet of its own, up to ${maxOpenOf(c)} positions at once (one per trader or rule, one per coin and side), $${c.collateralUsd || MIN_COLLATERAL_USD} of collateral each (all that a liquidation can take; a short is backed by USDC, a long by the coin, bought with USDC inside the order). A perp paper rule is traded at ${c.leverage || HARD_LEVERAGE}x while its paper record meets the bar (${REAL_MIN_TRADES}+ paper trades, half or more won, ahead after costs). A copied perp trader ("copy-" and a short tag) is followed on these three coins, at the leverage the trader set (not capped by us; never above half of where Jupiter liquidates), while its own paper copies meet the trader bar (${TRADER_MIN_COPIES}+ closed copies of any coin and side, half or more won, ahead, a day or more on paper). A rule or trader whose real trades lose $${c.ruleStopUsd || 3} goes back to paper. Every transaction is simulated on the chain before it is sent. dryRun / dryRunLong: an open order of ours simulated, hourly until it passes and then daily; dryRunClose / dryRunCloseLong: a close order simulated against a position that exists on the chain. Results are what a position did to the wallet's USDC; network fees in SOL are small and not counted.`,
+    note: `REAL, off unless the live rules switch it on. Longs and shorts on SOL, BTC or ETH on Jupiter Perps, in a wallet of its own, up to ${maxOpenOf(c)} positions at once (one per trader or rule, one per coin and side), $${c.collateralUsd || MIN_COLLATERAL_USD} of collateral each (all that a liquidation can take; a short is backed by USDC, a long by the coin, bought with USDC inside the order). A perp paper rule gets its first real trades, at ${c.leverage || HARD_LEVERAGE}x, when its paper record meets the bar (${REAL_MIN_TRADES}+ paper trades, half or more won, ahead after costs). A copied perp trader ("copy-" and a short tag) is followed on these three coins, at the leverage the trader set (not capped by us; never above half of where Jupiter liquidates), when its own paper copies meet the trader bar (${TRADER_MIN_COPIES}+ closed copies of any coin and side, half or more won, ahead, a day or more on paper). Real results come first (enrique, 16 Nov 2026: "cut loser and bring winners", "real is more important"): once it has real trades it stays real while its real net is zero or better, even under the paper bar, and goes back to paper when its real trades are behind after ${CUT_MIN_TRADES} or more, or have lost $${c.ruleStopUsd || 3}; it returns on paper trades made after that. In rules: why = the reason in words; realTrades, realWon, realNetUsd = its real record since it was last cut; trades, won, netUsd = all its real trades ever. Every transaction is simulated on the chain before it is sent. dryRun / dryRunLong: an open order of ours simulated, hourly until it passes and then daily; dryRunClose / dryRunCloseLong: a close order simulated against a position that exists on the chain. Results are what a position did to the wallet's USDC; network fees in SOL are small and not counted.`,
     on: c.on && !state.halted,
     switch: c.on ? "on" : "off",
     halted: state.halted,
@@ -811,8 +845,10 @@ export async function startPerpsLive() {
       return "";
     }
   };
-  const g: GasDeps = { wallet: () => namedWallet("perps"), others: () => ({ copy: addrOf("solana-wallet-address.txt"), rules: addrOf("solana-wallet-buckets-address.txt") }), perpsBusy: () => busy || Boolean(state.pos), swapOnce: fileSwap, kit };
-  timer = setInterval(() => void perpsLiveTick(d).then(() => gasTick(g)), 30_000);
+  const g: GasDeps = { wallet: () => namedWallet("perps"), others: () => ({ copy: addrOf("solana-wallet-address.txt"), rules: addrOf("solana-wallet-buckets-address.txt") }), perpsBusy, swapOnce: fileSwap, kit };
+  // no look while a swap of the gas side is on its way (it takes up to a minute): a balance read in the middle of it
+  // would be booked to a position
+  timer = setInterval(() => void (gasBusy() ? undefined : perpsLiveTick(d).then(() => gasTick(g))), 30_000);
   timer.unref();
 }
 

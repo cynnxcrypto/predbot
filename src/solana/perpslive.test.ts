@@ -558,3 +558,147 @@ test("a state file from the one-position days is carried over", async () => {
   assert.equal(P._test.state().netUsd, -1);
   P._test.reset();
 });
+
+test("real results first: a trader ahead for real stays real under the paper bar; behind after three real trades it is cut", async () => {
+  const { traderRule } = await import("./buckets.js");
+  const now = await traders(1);
+  const rule = traderRule(T(1));
+  const { c, deps, act } = multiWorld(100);
+  const row = (netUsd: number, t: number) => ({ t, rule, coin: "SOL", side: "short", leverage: 5, filled: true, netUsd, heldH: 1 });
+  // two real trades, ahead; then its paper record is gone (under the bar)
+  P._test.state().rows = [row(1, now - 3000), row(-0.5, now - 2000)] as never;
+  _bucketsTest.state().hlTrades = [];
+  assert.equal(P.promoted(rule), true);
+  assert.match(P.standingOf(rule).why, /^real: its real record is ahead \(1 of 2 won\); paper record is under the bar/);
+  // so its next position is still opened for real, and it loses $1: three trades, net -$0.50, far from the $10 stop
+  _bucketsTest.state().hlOpen = [hl(1, "SOL", -1, now - 1000)] as never;
+  await P.perpsLiveTick(deps);
+  assert.equal(c.sends, 1);
+  act();
+  await P.perpsLiveTick(deps);
+  _bucketsTest.state().hlOpen = [];
+  await P.perpsLiveTick(deps);
+  act(9);
+  await P.perpsLiveTick(deps);
+  assert.equal(P._test.state().rows.length, 3);
+  assert.ok(P._test.state().demoted[rule] > 0);
+  assert.equal(P._test.state().demotedWhy?.[rule], "cut: real record behind after 3 trades");
+  assert.equal(P.promoted(rule), false);
+  P._test.setCfg(() => c.cfg);
+  const line = P.perpsLiveSummary().rules.find((x) => x.id === rule);
+  assert.equal(line?.real, false);
+  assert.equal(line?.why, "paper: cut: real record behind after 3 trades; returns on new paper trades at the bar");
+  assert.equal(line?.trades, 3);
+  assert.equal(line?.realTrades, 0, "the real record starts again after a cut");
+});
+
+test("real results first: the SOL top-up waits while any position is out; a cut missed at the finish is made before the next open; the test trades are never a rule", async () => {
+  const { traderRule } = await import("./buckets.js");
+  const now = await traders(2);
+  const rule = traderRule(T(1));
+  const { c, deps, act } = multiWorld(100);
+  // the top-up's question (gas.ts): no swap while a position is open or on its way, whatever its stage
+  assert.equal(P.perpsBusy(), false);
+  _bucketsTest.state().hlOpen = [hl(1, "SOL", -1, now - 1000)] as never;
+  await P.perpsLiveTick(deps);
+  assert.equal(P._test.state().opens[0].stage, "opening");
+  assert.equal(P.perpsBusy(), true, "a request on its way");
+  act();
+  await P.perpsLiveTick(deps);
+  assert.equal(P._test.state().opens[0].stage, "open");
+  assert.equal(P.perpsBusy(), true, "an open position: its result is read from the wallet's USDC");
+  _bucketsTest.state().hlOpen = [];
+  await P.perpsLiveTick(deps);
+  act(10.4);
+  await P.perpsLiveTick(deps);
+  assert.equal(P._test.state().opens.length, 0);
+  assert.equal(P.perpsBusy(), false);
+  assert.deepEqual(P._test.state().rows.map((x) => x.netUsd), [0.4]);
+  // a trade that lost the whole stop while the switch was off was not cut then (no stop is known with the switch off)
+  const rule2 = traderRule(T(2));
+  P._test.state().rows = [...P._test.state().rows, { t: now - 500, rule: rule2, coin: "BTC", side: "long", leverage: 5, filled: true, netUsd: -10, heldH: 1 }] as never;
+  assert.equal(P._test.state().demoted[rule2], undefined);
+  // its paper record is still at the bar, but its next position is not opened: the cut is made first
+  _bucketsTest.state().hlOpen = [hl(2, "BTC", 1, Date.now() - 1000)] as never;
+  const before = c.sends;
+  await P.perpsLiveTick(deps);
+  assert.equal(c.sends, before);
+  assert.equal(P._test.state().demotedWhy?.[rule2], "cut: real trades reached the loss stop");
+  assert.equal(P.promoted(rule2), false);
+  assert.equal(P.promoted(rule), true, "the other trader is untouched");
+  // three test trades that cost a few cents: the test rule is never cut and never in the rules list
+  const test3 = [1, 2, 3].map((i) => ({ t: now - 100 + i, rule: P.TEST_RULE, coin: "SOL", side: "short", leverage: 2, filled: true, netUsd: -0.04, heldH: 0 }));
+  P._test.state().rows = [...P._test.state().rows, ...test3] as never;
+  P._test.state().demoted[P.TEST_RULE] = now; // even one written by an older build
+  P._test.setCfg(() => c.cfg);
+  _bucketsTest.state().hlTraders = [{ address: T(1), monthPnl: 1, monthRoi: 1 }] as never;
+  const sum = P.perpsLiveSummary();
+  assert.ok(!sum.rules.some((x) => x.id === P.TEST_RULE));
+  assert.deepEqual([sum.rules.find((x) => x.id === rule)?.real, sum.rules.find((x) => x.id === rule)?.why], [true, "real: its real record is ahead (1 of 1 won)"]);
+  // the daily list drops the trader: nothing new of it is copied, and the status says so instead of "real"
+  _bucketsTest.state().hlTraders = [];
+  const gone = P.perpsLiveSummary().rules.find((x) => x.id === rule);
+  assert.deepEqual([gone?.real, gone?.why, gone?.realTrades], [false, "paper: not on the trader list now, nothing new of it is copied; real again when it is back", 1]);
+  assert.equal(P.promoted(rule), true, "its record is kept: real again when it is back on the list");
+  _bucketsTest.state().hlTraders = [{ address: T(1), monthPnl: 1, monthRoi: 1 }] as never;
+  // switched off: the reason says so instead of "real"
+  P._test.setCfg(() => P.parsePerpsLive("{}"));
+  const off = P.perpsLiveSummary().rules.find((x) => x.id === rule);
+  assert.deepEqual([off?.real, off?.why], [false, "paper: real trading is switched off"]);
+  P._test.reset();
+});
+
+test("real results first: a finished test trade never cuts the test rule", async () => {
+  setup([]);
+  const { c, deps, keeper } = world(30);
+  c.cfg = { ...CFG, ruleStopUsd: 1 };
+  // two older test rows behind, then a third test trade that loses: by the numbers that would be a cut
+  P._test.state().rows = [1, 2].map((i) => ({ t: Date.now() - 10_000 + i, rule: P.TEST_RULE, coin: "SOL", side: "short", leverage: 2, filled: true, netUsd: -0.6, heldH: 0 })) as never;
+  const d = { ...deps, testId: () => "t9" };
+  await P.perpsLiveTick(d);
+  keeper.fillOpen();
+  await P.perpsLiveTick(d);
+  keeper.fillClose(10.5);
+  await P.perpsLiveTick(d);
+  assert.equal(P._test.state().rows.length, 3);
+  assert.equal(P._test.state().demoted[P.TEST_RULE], undefined);
+  assert.equal(P._test.state().demotedWhy?.[P.TEST_RULE], undefined);
+  P._test.reset();
+});
+
+test("real results first: a late cut waits while the trader's own position is out; the finish judges the whole record", async () => {
+  const { traderRule } = await import("./buckets.js");
+  const now = await traders(1);
+  const rule = traderRule(T(1));
+  const { c, deps, act } = multiWorld(100);
+  c.cfg = { ...c.cfg, ruleStopUsd: 9 };
+  const sol = hl(1, "SOL", -1, now - 1000);
+  _bucketsTest.state().hlOpen = [sol] as never;
+  await P.perpsLiveTick(deps);
+  act();
+  await P.perpsLiveTick(deps);
+  assert.equal(P._test.state().opens[0].stage, "open");
+  // a state the build before left behind: a loss just short of its $10 stop, never cut, and a position out
+  P._test.state().rows = [{ t: now - 500, rule, coin: "ETH", side: "short", leverage: 5, filled: true, netUsd: -9.96, heldH: 1 }] as never;
+  const btc = hl(1, "BTC", -1, Date.now() - 1000);
+  _bucketsTest.state().hlOpen = [sol, btc] as never;
+  const before = c.sends;
+  await P.perpsLiveTick(deps);
+  assert.equal(c.sends, before);
+  assert.equal(P._test.state().demoted[rule], undefined, "not cut while its own position is out");
+  await new Promise((r) => setTimeout(r, 5));
+  // the trader closes SOL: ours closes a little ahead, and the whole record (-9.96 + 0.60) is at the $9 stop
+  _bucketsTest.state().hlOpen = [btc] as never;
+  await P.perpsLiveTick(deps);
+  act(10.6);
+  await P.perpsLiveTick(deps);
+  assert.deepEqual(P._test.state().rows.map((x) => x.netUsd), [-9.96, 0.6]);
+  assert.equal(P._test.state().demotedWhy?.[rule], "cut: real trades reached the loss stop");
+  assert.equal(P.promoted(rule), false, "a position opened before the cut does not start the next record");
+  _bucketsTest.state().hlOpen = [btc, hl(1, "ETH", -1, Date.now() - 1000)] as never;
+  const sends = c.sends;
+  await P.perpsLiveTick(deps);
+  assert.equal(c.sends, sends);
+  assert.equal(P._test.state().opens.length, 0);
+  P._test.reset();
+});

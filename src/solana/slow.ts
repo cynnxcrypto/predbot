@@ -367,8 +367,11 @@ interface WState {
   bot?: boolean;
   /** a flipper by its newest transactions (not read further): trips, median hold, realised SOL, % won; read again weekly */
   fast?: { trips: number; holdMin: number; sol: number; wonPct: number };
-  /** read in full and far from the bar (see `kept`): its numbers only, no swaps; read again whole every two weeks */
-  out?: { trips: number; tripsPerDay: number | null; sol: number | null; wonPct: number | null; holdMin: number | null; why: string[] };
+  /**
+   * read in full and far from the bar (see `kept`): its numbers only, no swaps; read again whole every two weeks.
+   * copyable (from 16 Nov 2026) = what its late copies said when it was filed; the swaps that said so are gone.
+   */
+  out?: { trips: number; tripsPerDay: number | null; sol: number | null; wonPct: number | null; holdMin: number | null; why: string[]; copyable?: boolean | null };
   /** read whole at its next turn: read under a shorter window, or filed as a program on one day's pace */
   redo?: boolean;
   swaps: Packed[];
@@ -726,7 +729,7 @@ async function readWallet(c: { name: string; address: string }) {
   // far from the bar: its numbers stay, its swaps do not (thousands of wallets would not fit the state file)
   if (!bot && !fast) {
     const rep = reportOf(c.address)!;
-    if (!kept(rep)) state.wallets[c.address] = { ...state.wallets[c.address], swaps: [], out: { trips: rep.trips, tripsPerDay: rep.tripsPerDay, sol: rep.realisedSol, wonPct: rep.wonPct, holdMin: rep.holdMinMedian, why: rep.why } };
+    if (!kept(rep)) state.wallets[c.address] = { ...state.wallets[c.address], swaps: [], out: { trips: rep.trips, tripsPerDay: rep.tripsPerDay, sol: rep.realisedSol, wonPct: rep.wonPct, holdMin: rep.holdMinMedian, why: rep.why, copyable: rep.copyable } };
   }
   return true;
 }
@@ -839,11 +842,20 @@ export function provenWallets(): { name: string; address: string; n: number; won
  * For the real copy, which may keep a wallet on its own real record after paper drops it: the safety screens it must
  * still pass. Read by the scan, not a program, not a flipper, and its late copies do not say it cannot be copied. The
  * paper record and the rest of the screen (trips, both halves ahead, share won) are not asked here.
+ *
+ * A wallet the scan filed as far from the bar (`out`) has no swaps left, so its report can no longer tell a program
+ * or a flipper (a daily read never sets `bot` by the hold, nor `fast`): it is judged by what was written down when
+ * it was filed. Those are the very wallets paper drops through the screen, so this is where the screens must hold:
+ * the screen's own word "bot", a median hold under FAST_HOLD_MIN minutes (or none known), or late copies that said
+ * it cannot be copied.
  */
 export function copySafe(address: string) {
   const w = state.wallets[address];
   const x = reportOf(address);
-  return !!w && !!x && !w.bot && !w.fast && !x.bot && !x.fast && x.copyable !== false;
+  if (!w || !x || w.bot || w.fast || x.bot || x.fast || x.copyable === false) return false;
+  const o = w.out;
+  if (o && (o.why.includes("bot") || o.holdMin === null || o.holdMin < FAST_HOLD_MIN || o.copyable === false)) return false;
+  return true;
 }
 /**
  * The address behind each screen name, from the paper copies. A name is the first letters of an address, so only a
@@ -1031,17 +1043,28 @@ async function loop() {
     await sleep(did ? 5000 : 10 * 60_000);
   }
 }
-/** Is this wallet due a read: never read, read under a shorter window, or older than its kind's refresh time. */
-const dueNow = (st: WState | undefined, nowMs: number) => !st || !!st.redo || nowMs - st.doneAt >= (st.bot ? BOT_REFRESH_MS : st.fast || st.out ? OUT_REFRESH_MS : REFRESH_MS);
-/** One pass's wallets: those whose swaps we keep (passing or near) first, then the never read, then the stale rest. */
+/**
+ * Is this wallet due a read: never read, read under a shorter window, or older than its kind's refresh time. A wallet
+ * on the real copy's watch (copied for real now, or a real copy of it still out) is read daily even when it is filed
+ * as a flipper or as far from the bar: real money follows it, perhaps on its real record alone (slowlive.ts), and the
+ * safety screens (copySafe) must not be judged on a read two weeks old.
+ */
+const dueNow = (st: WState | undefined, nowMs: number, real = false) => !st || !!st.redo || nowMs - st.doneAt >= (st.bot ? BOT_REFRESH_MS : (st.fast || st.out) && !real ? OUT_REFRESH_MS : REFRESH_MS);
+/** One pass's wallets: those whose swaps we keep (passing or near) and the real copy's first, then the never read, then the stale rest. */
 function dueWallets(max = WALLETS_PER_PASS): Cand[] {
   const now = Date.now();
+  let real = new Set<string>();
+  try {
+    real = new Set(realWatch());
+  } catch {
+    // the real side cannot say: the usual times
+  }
   const rank = (c: Cand) => {
     const st = state.wallets[c.address];
-    return !st ? 1 : (st.bot || st.fast || st.out) && !st.redo ? 2 : 0;
+    return real.has(c.address) ? 0 : !st ? 1 : (st.bot || st.fast || st.out) && !st.redo ? 2 : 0;
   };
   return state.candidates
-    .filter((c) => dueNow(state.wallets[c.address], now))
+    .filter((c) => dueNow(state.wallets[c.address], now, real.has(c.address)))
     .sort((a, b) => rank(a) - rank(b))
     .slice(0, max);
 }

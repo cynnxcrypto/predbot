@@ -155,8 +155,10 @@ test("buckets real: a rule that loses its stop goes back to paper until new pape
     now += 100_000;
   }
   const s = L._test.state();
-  assert.ok(s.netSol < -0.039 && s.netSol > -0.041, `four stakes lost (the stop is passed on the fourth): ${s.netSol}`);
-  assert.ok(s.demoted[RULE] > 0, "demoted at its own stop");
+  // real results first: behind after three real trades it is cut, before its 0.03 stop; the fourth paper buy is not bought
+  assert.ok(s.netSol < -0.029 && s.netSol > -0.031, `three stakes lost, then cut: ${s.netSol}`);
+  assert.ok(s.demoted[RULE] > 0, "cut on its real record");
+  assert.equal(s.demotedWhy?.[RULE], "cut: real record behind after 3 trades");
   assert.equal(L.promoted(RULE), false, "its old paper record no longer counts");
   st.open = [paperOpen(now)];
   const before = c.sends;
@@ -165,7 +167,7 @@ test("buckets real: a rule that loses its stop goes back to paper until new pape
   // 120 new paper trades after the demotion, 80 won: real again
   st.trades = [...st.trades, ...paperTrades(120, 80, 0.5, Date.now() + 1000)];
   assert.equal(L.promoted(RULE), true);
-  // the total cap: with 0.1 SOL allowed and 0.04 lost there is room; at 0.09 lost there is none
+  // the total cap: with 0.1 SOL allowed and 0.03 lost there is room; at 0.09 lost there is none
   s.netSol = -0.09;
   st.open = [paperOpen(now + 200_000)];
   await L.bucketsLiveTick(deps, now + 205_000);
@@ -215,3 +217,89 @@ test("the one-time test trade: bought once, sold at the next look, never again u
   assert.equal(L._test.state().rows.length, 1);
 });
 
+
+test("buckets real: a coin bought before a cut and sold after it counts for the cut record, not the next one; a missed cut is made before the next buy", async () => {
+  const COIN2 = "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB";
+  const st = setup(paperTrades(120, 80), []);
+  const { c, deps } = world(0.0001);
+  // this test holds two coins at once: each coin has its own balance and its own sale price
+  const back = new Map<string, number>([[COIN, 0.0001], [COIN2, 0.02]]);
+  const held = new Map<string, bigint>();
+  const made = new Map<string, { mint: string; buy: boolean }>();
+  const sigOf = (tx: string) => base58(Buffer.from(tx, "base64").subarray(1, 65));
+  const w = wallet();
+  deps.kit.quote = (async (i: string, o: string) => ({ outAmount: i === SOL ? "1000" : String(Math.round(back.get(i)! * 1e9)), mint: i === SOL ? o : i, buy: i === SOL })) as never;
+  deps.kit.swapTx = (async (q: { mint: string; buy: boolean }) => {
+    const tx = buildSigned(w, SYSTEM, SYSTEM, [{ pubkey: w.address, writable: true }], [++c.n]);
+    made.set(sigOf(tx), { mint: q.mint, buy: q.buy });
+    return tx;
+  }) as never;
+  deps.kit.send = async (tx) => {
+    const sig = sigOf(tx);
+    const m = made.get(sig)!;
+    if (c.delta.has(sig)) return;
+    c.sends++;
+    const d = m.buy ? -(c.cfg.stakeSol + 0.00204 + 0.00001) : back.get(m.mint)! - 0.00001;
+    held.set(m.mint, m.buy ? 1000n : 0n);
+    c.sol += d;
+    c.delta.set(sig, d);
+  };
+  deps.kit.held = async (_a, mint) => ({ amount: held.get(mint) ?? 0n });
+  // two real losses already, each bought and sold before now
+  const s = L._test.state();
+  s.rows = [1, 2].map((i) => ({ t: T0 - 5000 + i, at: T0 - 9000 + i, rule: RULE, buy: "landed" as const, netSol: -0.002, heldMin: 1 }));
+  assert.equal(L.promoted(RULE), true, "behind after two real trades: the paper bar still decides");
+  // a dip: two coins bought for real
+  st.open = [paperOpen(T0, COIN), paperOpen(T0 + 1, COIN2)];
+  await L.bucketsLiveTick(deps, T0 + 5000);
+  assert.deepEqual(L._test.state().opens.map((p) => p.stage), ["held", "held"]);
+  // the first is sold at a loss: three real trades, behind, cut
+  st.open = [paperOpen(T0 + 1, COIN2)];
+  await L.bucketsLiveTick(deps, T0 + 40_000);
+  assert.equal(L._test.state().demotedWhy?.[RULE], "cut: real record behind after 3 trades");
+  assert.equal(L._test.state().opens.length, 1, "the coin still out is kept until paper sells it");
+  // the second is sold at a gain after the cut: it was bought before the cut, so it does not make the rule real again
+  await new Promise((r) => setTimeout(r, 5));
+  st.open = [];
+  await L.bucketsLiveTick(deps, T0 + 80_000);
+  const rows = L._test.state().rows;
+  assert.equal(rows.length, 4);
+  assert.ok(rows[3].netSol > 0.005 && rows[3].t > L._test.state().demoted[RULE], "a winner, finished after the cut");
+  assert.deepEqual(rows.slice(2).map((x) => x.at), [T0, T0 + 1], "each row keeps when its paper trade was bought");
+  assert.equal(L.promoted(RULE), false);
+  assert.equal(L.standingOf(RULE).why, "paper: cut: real record behind after 3 trades; returns on new paper trades at the bar");
+  const before = c.sends;
+  st.open = [paperOpen(T0 + 100_000, COIN)];
+  await L.bucketsLiveTick(deps, T0 + 105_000);
+  assert.equal(c.sends, before, "no real buy without new paper trades at the bar");
+  const line = L.bucketsLiveSummary().rules.find((x) => x.id === RULE);
+  assert.deepEqual([line?.real, line?.realTrades, line?.trades], [false, 0, 4]);
+  // a real trade bought after the cut does count
+  s.rows = [...L._test.state().rows, { t: Date.now() + 2000, at: Date.now() + 1000, rule: RULE, buy: "landed" as const, netSol: 0.001, heldMin: 1 }];
+  L._test.state().rows = s.rows;
+  assert.equal(L.standingOf(RULE).why, "real: its real record is ahead (1 of 1 won); paper record is under the bar");
+  // a row of an older build has no buy time: it counts by its finish less the time it was held. Finished two seconds
+  // after the cut and held a minute, it was bought before the cut and belongs to the record that was cut ...
+  L._test.state().rows = [...rows, { t: Date.now() + 2000, rule: RULE, buy: "landed" as const, netSol: 0.001, heldMin: 1 }];
+  assert.equal(L.promoted(RULE), false, "an old row sold just after the cut does not make the rule real again");
+  // ... and one that can only have been bought after the cut counts
+  L._test.state().rows = [...rows, { t: Date.now() + 120_000, rule: RULE, buy: "landed" as const, netSol: 0.001, heldMin: 1 }];
+  assert.equal(L.promoted(RULE), true);
+
+  // a cut missed at the finish (the switch was off then: no stop known): made before the next buy
+  const st2 = setup(paperTrades(120, 80), []);
+  const w2 = world(0.011);
+  L._test.state().rows = [{ t: T0 - 5000, at: T0 - 9000, rule: RULE, buy: "landed" as const, netSol: -0.031, heldMin: 1 }];
+  assert.equal(L._test.state().demoted[RULE], undefined);
+  st2.open = [paperOpen(T0)];
+  await L.bucketsLiveTick(w2.deps, T0 + 5000);
+  assert.equal(w2.c.sends, 0);
+  assert.equal(L._test.state().demotedWhy?.[RULE], "cut: real trades reached the loss stop");
+  // switched off: the reason says so
+  w2.c.cfg = { ...CFG, on: false };
+  L._test.setCfg(() => w2.c.cfg);
+  st2.trades = [...st2.trades, ...paperTrades(120, 80, 0.5, Date.now() + 1000)];
+  const off = L.bucketsLiveSummary().rules.find((x) => x.id === RULE);
+  assert.deepEqual([off?.real, off?.why], [false, "paper: real trading is switched off"]);
+  L._test.reset();
+});
