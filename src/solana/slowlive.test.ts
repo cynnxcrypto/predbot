@@ -9,7 +9,7 @@ process.env.DATA_DIR = mkdtempSync(join(tmpdir(), "slowlive-"));
 // made-up keys: every network call here is faked
 process.env.HELIUS_API_KEY = "test-helius";
 process.env.JUPITER_API_KEY = "test-jupiter";
-const { parseSlowLive, slowLiveSummary, onSwap, sweep, recover, startSlowLive, wallets, rested, takenVsSkipped, openNow, HARD_MAX_LOSS_SOL, HARD_STAKE_SOL, HARD_MAX_OPEN, WALLETS, stepOf, _test } = await import("./slowlive.js");
+const { parseSlowLive, slowLiveSummary, onSwap, sweep, recover, startSlowLive, wallets, rested, realWinner, losingRun, realOf, oneStake, takenVsSkipped, openNow, HARD_MAX_LOSS_SOL, HARD_STAKE_SOL, HARD_MAX_OPEN, WALLETS, stepOf, _test } = await import("./slowlive.js");
 const { _test: run } = await import("./copyrun.js");
 const { buildSigned, wallet } = await import("./keys.js");
 const { base58 } = await import("./whirlpool.js");
@@ -192,10 +192,12 @@ test("real day-holder copy: copies the wallets proven on paper, adapts as the li
   assert.equal(rested("coin buyer Pro2"), false);
   _test.state().rows[_test.state().rows.length - 1].netSol = 0.0005;
   assert.equal(rested("coin buyer Pro2", now + 8 * 86_400_000), false);
-  // more than 0.02 SOL behind: rested at once, at any count
-  _test.state().rows.push(row("coin buyer Rug1", now, -0.0244));
-  _test.state().rows.push(row("coin buyer Rug2", now, -0.0199));
-  assert.deepEqual([rested("coin buyer Rug1"), rested("coin buyer Rug2")], [true, false]);
+  // more than one stake behind: rested at once, at any count. One stake = the biggest its counted copies were bought with
+  // (a row without a stake is one of the first, 0.01 SOL): a copy lost whole rests its wallet, an ordinary loser does not
+  const staked = (name: string, netSol: number, stakeSol?: number) => ({ ...row(name, now, netSol), ...(stakeSol ? { stakeSol } : {}) });
+  _test.state().rows.push(staked("coin buyer Rug1", -0.0103), staked("coin buyer Rug2", -0.0099), staked("coin buyer Rug3", -0.0244, 0.035), staked("coin buyer Rug4", -0.0353, 0.035), staked("coin buyer Rug5", -0.0203, 0.02), staked("coin buyer Rug6", -0.0199, 0.02));
+  assert.deepEqual([1, 2, 3, 4, 5, 6].map((i) => rested(`coin buyer Rug${i}`)), [true, false, false, true, true, false]);
+  assert.deepEqual([oneStake("coin buyer Rug1"), oneStake("coin buyer Rug3"), oneStake("coin buyer Rug5"), oneStake("coin buyer Nobody")], [0.01, 0.035, 0.02, 0.02]);
   slow._test.reset();
   slow._test.setCfg(null);
   _test.reset();
@@ -273,6 +275,153 @@ test("real day-holder copy: real results come first: a real winner stays copied 
   st.wallets[W2] = { ...ws(), fast: { trips: 90, holdMin: 5, sol: 1, wonPct: 60 } };
   _test.relist();
   assert.deepEqual(wallets().map((w) => w.address), [P1], "a flipper now: the real record does not override that");
+  slow._test.reset();
+  slow._test.setCfg(null);
+  _test.reset();
+});
+
+test("real day-holder copy: real first, the gaps closed: a winner's address from our own records; a cut is heard at once; winners first when the list is full; a coin we cannot sell; the clock only while paper lists a wallet", async () => {
+  const paper = (wallet: string, name: string, i: number, back: number) => ({ wallet, name, mint: `c${i}`, seenMs: i, leaderSol: 1, entries: { e5: "10", e30: null, e300: null, e1800: null }, exits: { "e5-x5": back }, closed: "sold" as const });
+  const ws = () => ({ name: "w", doneAt: Date.now(), newest: 0, txPerDay: 10, buysPerDay: 2, spanDays: 30, swaps: [], late: {} });
+  const row = (name: string, i: number, netSol: number, more: Record<string, unknown> = {}) => ({ t: Date.now() - i * 60_000, name, mint: "x", leaderSol: 1, buy: "landed" as const, exit: "sold" as const, heldMin: 60, netSol, sigs: [] as string[], ...more });
+  const out = (wallet: string, name: string, mint: string, more: Record<string, unknown> = {}) => ({ wallet, name, mint, leaderSol: 1, seenMs: Date.now() - 60_000, boughtMs: Date.now() - 60_000, stakeSol: 0.01, stage: "held" as const, sigs: [] as string[], sellRounds: 0, ...more });
+  const W1 = "Win11111111111111111111111111111111111111111";
+  const P1 = "Prov1111111111111111111111111111111111111111";
+  const P2 = "Prov2222222222222222222222222222222222222222";
+  const begin = () => {
+    fresh({ ...CFG, follow: "proven" });
+    slow._test.reset();
+    return slow._test.state();
+  };
+
+  // 1. A real winner paper holds no copies of any more, and whose rows were written before rows carried an address
+  let st = begin();
+  chain(() => 0.012);
+  for (let i = 0; i < 20; i++) st.recent.push(paper(P1, "coin buyer Prov", i, 0.3));
+  st.wallets[W1] = ws() as never;
+  slow._test.follow([P1]);
+  for (let i = 0; i < 6; i++) _test.state().rows.push(row("coin buyer Win1", i + 1, 0.002));
+  _test.relist();
+  assert.deepEqual(wallets().map((w) => [w.address, w.by]), [[P1, "paper"]]);
+  assert.equal(slowLiveSummary().byWallet.find((x) => x.name === "coin buyer Win1")?.state, "address unknown", "no screen failed: it is not 'held back'");
+  // a copy of it that is still out knows both its name and its address: it is kept, and that copy is not on the clock
+  _test.state().opens.push(out(W1, "coin buyer Win1", B));
+  _test.relist();
+  assert.deepEqual(wallets().map((w) => [w.address, w.by]), [[W1, "real"], [P1, "paper"]]);
+  assert.equal(_test.state().addr?.["coin buyer Win1"], W1, "written into the name book");
+  const t1 = Date.now();
+  sweep(t1);
+  sweep(t1 + 7 * 3_600_000);
+  await wait(200);
+  assert.deepEqual([_test.state().opens.length, _test.state().opens[0].offMs], [1, undefined]);
+  // the copy gone and still no row with an address: the name book has it
+  _test.state().opens = [];
+  _test.relist();
+  assert.deepEqual(wallets().map((w) => w.address), [W1, P1]);
+  const s1 = slowLiveSummary();
+  assert.equal(s1.byWallet.find((x) => x.name === "coin buyer Win1")?.state, "kept on real");
+  assert.ok(!JSON.stringify(s1).includes(W1) && !JSON.stringify(s1).includes(P1), "addresses stay out of the status");
+
+  // 2. A wallet that turns loser is cut at once: the list is worked out again when a copy finishes
+  st = begin();
+  const c2 = chain(() => 0.004); // a sale brings back less than half the stake
+  for (let i = 0; i < 20; i++) st.recent.push(paper(P1, "coin buyer Prov", i, 0.3));
+  slow._test.follow([P1]);
+  for (let i = 0; i < 4; i++) _test.state().rows.push(row("coin buyer Prov", i + 1, -0.001)); // four copies a little behind: paper still decides
+  _test.relist();
+  assert.deepEqual(wallets().map((w) => w.address), [P1]);
+  onSwap(swap(P1, A, true));
+  await wait(1500);
+  assert.equal(_test.state().opens[0].stage, "held");
+  onSwap(swap(P1, A, false));
+  await wait(3000);
+  assert.equal(_test.state().rows.length, 5);
+  assert.equal(rested("coin buyer Prov"), true, "five copies, behind");
+  onSwap(swap(P1, B, true)); // its next buy, seconds later: no minute's wait for the list
+  assert.equal(_test.state().opens.length, 0, "cut at once");
+  // and a copy already waiting for its entry when its wallet is cut is not bought
+  st = begin();
+  const c3 = chain(() => 0.012);
+  for (let i = 0; i < 20; i++) st.recent.push(paper(P1, "coin buyer Prov", i, 0.3));
+  slow._test.follow([P1]);
+  for (let i = 0; i < 4; i++) _test.state().rows.push(row("coin buyer Prov", i + 1, -0.001));
+  _test.relist();
+  onSwap(swap(P1, A, true));
+  assert.equal(_test.state().opens[0]?.stage, "waiting");
+  _test.state().rows.push(row("coin buyer Prov", 0, -0.001)); // another copy of it is booked behind in that second
+  await wait(1500);
+  assert.deepEqual([_test.state().opens.length, c3.sends, c2.sends > 0], [0, 0, true], "not bought");
+
+  // 3. The list is full: real winners come first, whoever lists them; the limit drops wallets with no real record
+  st = begin();
+  chain(() => 0.012);
+  const many = Array.from({ length: 26 }, (_, k) => `Pap${String(k).padStart(2, "0")}${"1".repeat(39)}`);
+  many.forEach((a, k) => {
+    for (let i = 0; i < 20; i++) st.recent.push(paper(a, `coin buyer P${k}`, i, 0.3 + (26 - k) * 0.01)); // P0 best on paper, P25 last
+  });
+  slow._test.follow(many);
+  st.wallets[W1] = ws() as never;
+  for (let i = 0; i < 8; i++) _test.state().rows.push(row("coin buyer P25", i + 1, 0.01)); // last on paper, the biggest real winner
+  for (let i = 0; i < 6; i++) _test.state().rows.push(row("coin buyer Win1", i + 1, 0.002, { wallet: W1 })); // off paper, a smaller one
+  _test.relist();
+  const full = wallets();
+  assert.equal(full.length, 25);
+  assert.deepEqual(full.slice(0, 4).map((w) => [w.name, w.by]), [["coin buyer P25", "paper"], ["coin buyer Win1", "real"], ["coin buyer P0", "paper"], ["coin buyer P1", "paper"]]);
+  assert.deepEqual(["P22", "P23", "P24"].map((n) => full.some((w) => w.name === `coin buyer ${n}`)), [true, false, false]);
+
+  // 4. A coin we cannot sell: no row is written until a sale goes through, but its wallet's record counts it as lost
+  st = begin();
+  chain(() => 0.012);
+  st.wallets[W1] = ws() as never;
+  for (let i = 0; i < 6; i++) _test.state().rows.push(row("coin buyer Win1", i + 1, 0.001, { wallet: W1 }));
+  _test.relist();
+  assert.deepEqual(wallets().map((w) => [w.name, w.by]), [["coin buyer Win1", "real"]]);
+  _test.state().opens.push(out(W1, "coin buyer Win1", B, { exit: "sold", soldSeenMs: Date.now() - 50_000, sellRounds: 5, nextTryMs: Date.now() + 600_000 }));
+  assert.equal(realOf("coin buyer Win1").n, 6, "five failed rounds: still being tried");
+  _test.state().opens[0].sellRounds = 6;
+  const r4 = realOf("coin buyer Win1");
+  assert.deepEqual([r4.n, r4.won, Math.round(r4.netSol * 1e6)], [7, 6, Math.round((0.006 - 0.01 - 0.00204) * 1e6)]);
+  assert.equal(rested("coin buyer Win1"), true);
+  _test.relist();
+  assert.deepEqual(wallets(), [], "no longer kept on its real record");
+  assert.deepEqual(slowLiveSummary().byWallet.map((x) => [x.name, x.state, x.copies, x.last7.copies, x.open]), [["coin buyer Win1", "rested on real", 6, 7, 1]]);
+
+  // 4b. A losing run: one old big winner does not carry a wallet through its newest 15 (four won, behind)
+  st = begin();
+  chain(() => 0.012);
+  st.wallets[W1] = ws() as never;
+  for (let i = 0; i < 20; i++) _test.state().rows.push(row("coin buyer Win1", 30 - i, i === 0 ? 0.06 : i < 5 ? 0.001 : i % 4 === 0 ? 0.002 : -0.004, { wallet: W1 }));
+  const r4b = realOf("coin buyer Win1");
+  assert.ok(r4b.n === 20 && r4b.netSol > 0.02, "ahead over the week");
+  assert.deepEqual([losingRun("coin buyer Win1"), rested("coin buyer Win1"), realWinner("coin buyer Win1")], [true, true, false]);
+  _test.relist();
+  assert.deepEqual(wallets(), [], "not kept on its real record");
+  assert.equal(slowLiveSummary().byWallet[0].state, "rested on real");
+  // with its newest 15 ahead it is a winner again
+  for (let i = 0; i < 6; i++) _test.state().rows.push(row("coin buyer Win1", 0, 0.004, { wallet: W1 }));
+  assert.deepEqual([losingRun("coin buyer Win1"), rested("coin buyer Win1"), realWinner("coin buyer Win1")], [false, false, true]);
+
+  // 5. Paper proves nobody and one wallet is kept on real: the dropped-wallet clock does not start for the others
+  st = begin();
+  const c5 = chain(() => 0.009);
+  st.wallets[W1] = ws() as never;
+  for (let i = 0; i < 6; i++) _test.state().rows.push(row("coin buyer Win1", i + 1, 0.002, { wallet: W1 }));
+  slow._test.follow([]);
+  c5.held.set(A, 1000n);
+  _test.state().opens.push(out(P1, "coin buyer Prov", A));
+  _test.relist();
+  assert.deepEqual(wallets().map((w) => [w.address, w.by]), [[W1, "real"]]);
+  const t5 = Date.now();
+  sweep(t5);
+  sweep(t5 + 7 * 3_600_000);
+  await wait(300);
+  assert.deepEqual([_test.state().opens.length, _test.state().opens[0].offMs], [1, undefined], "paper has nothing to say: nothing is sold as dropped");
+  // paper lists a wallet again: the copy of the wallet nobody lists is on the clock from now
+  for (let i = 0; i < 20; i++) st.recent.push(paper(P2, "coin buyer Pro2", i, 0.3));
+  slow._test.follow([P2]);
+  _test.relist();
+  sweep(t5 + 8 * 3_600_000);
+  assert.equal(_test.state().opens[0].offMs, t5 + 8 * 3_600_000);
   slow._test.reset();
   slow._test.setCfg(null);
   _test.reset();

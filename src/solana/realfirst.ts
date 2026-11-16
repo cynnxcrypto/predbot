@@ -15,7 +15,8 @@ export interface RealRecord {
   won: number;
   net: number;
 }
-export const realRecord = (nets: number[]): RealRecord => ({ trades: nets.length, won: nets.filter((x) => x > 0).length, net: nets.reduce((a, x) => a + x, 0) });
+/** The net is rounded to nine places: a sum of cents that is exactly level must read 0, not -2.8e-17 (which would be cut). */
+export const realRecord = (nets: number[]): RealRecord => ({ trades: nets.length, won: nets.filter((x) => x > 0).length, net: Math.round(nets.reduce((a, x) => a + x, 0) * 1e9) / 1e9 || 0 });
 
 /** Why a trader or rule must go back to paper now, or "" when it may stay. `stop` is its loss stop (0 = none). */
 export function cutReason(real: RealRecord, stop: number): string {

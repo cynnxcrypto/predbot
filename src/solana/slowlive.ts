@@ -10,7 +10,11 @@
  * more important"). A wallet with REAL_MIN+ landed real copies in the last REST_DAYS days is judged by those, not by
  * paper: behind, it is rested; ahead, it stays copied even when paper drops it (only the paper record is overridden:
  * it must still pass the scan's safety screens, slow.ts copySafe), and its open copies are then not sold as dropped.
- * A wallet more than REST_LOSS_SOL behind is rested at any count. Paper decides only under REAL_MIN real copies.
+ * A wallet more than one stake behind (oneStake: the biggest stake its copies were bought with) is rested at any count, and a coin
+ * of its that we could not sell counts as a lost stake. A losing run (its newest REST_LAST copies behind with under half
+ * won, the rule before this one) still rests a wallet and keeps it from counting as a winner: one old big win must not
+ * carry a wallet through a run of losers. Paper decides only under REAL_MIN real copies. The scan's
+ * safety screens are asked from what the scan wrote down, also for a wallet it has filed as far from the bar.
  *
  * It began with three fixed wallets. enrique, 14 Nov 2026 14:40 KST: "since we have very
  * little in the sol wallet anyways, just real trade those 3 wallets, lets see". That followed the first paper read
@@ -94,13 +98,16 @@ export const SELL_RESERVE_SOL = 0.001;
 export const MIN_LEADER_SOL = 0.1;
 /** At most this many wallets are copied at once: the best on paper first. */
 export const MAX_WALLETS = 25;
-/** The stake steps look at a wallet's newest REST_LAST real copies (stepOf). */
+/** The stake steps (stepOf) and the losing-run rule (losingRun) look at a wallet's newest REST_LAST real copies. */
 export const REST_LAST = 15;
 /** A wallet's real record is its landed real copies of the last REST_DAYS days. */
 export const REST_DAYS = 7;
 /** With this many real copies in REST_DAYS days the real record decides: behind = rested, ahead = kept whatever paper says. */
 export const REAL_MIN = 5;
-/** More than this many SOL behind in REST_DAYS days: rested at once, at any count. */
+/**
+ * More than ONE STAKE behind in REST_DAYS days: rested at once, at any count (oneStake below: the biggest stake its
+ * counted copies were bought with). This number is that line only for a wallet with no counted copy.
+ */
 export const REST_LOSS_SOL = 0.02;
 /**
  * enrique, 15 Nov 2026 10:52 KST, on the card "Free up the full Solana wallet for the newly proven wallets?": "Sell
@@ -245,6 +252,8 @@ interface State {
   lastError: string;
   /** buys let go since 16 Nov 2026, newest KEEP_MISSED: whose (screen name), which coin, when seen, why. Server only. */
   missed?: Missed[];
+  /** screen name -> the leader's address, for wallets kept on their real record (16 Nov 2026). Server only, never the status. */
+  addr?: Record<string, string>;
 }
 type Why = "same" | "open" | "cap" | "low";
 interface Missed {
@@ -341,10 +350,19 @@ function save() {
   renameSync(STATE() + ".tmp", STATE());
 }
 const loss = () => Math.max(0, -state.netSol);
-/** A wallet's real record (by its screen name): its landed real copies of the last REST_DAYS days. */
+/** A copy whose sale we gave up on: six rounds failed, and it is tried again only at a restart. Its coin cannot be sold. */
+const stuck = (p: Pos) => !!p.exit && p.sellRounds >= 6;
+const counted7 = (name: string, now: number) => state.rows.filter((x) => x.name === name && x.buy === "landed" && now - x.t < REST_DAYS * 86_400_000);
+/**
+ * A wallet's real record (by its screen name): its landed real copies of the last REST_DAYS days. A copy that is out
+ * with a coin we could not sell has no row yet (a row is written when a sale goes through), so it is counted here as
+ * its stake and the coin account's rent lost: a wallet that feeds us coins nobody buys must not stay "ahead".
+ */
+const lost7 = (name: string, now: number) => state.opens.filter((p) => p.name === name && stuck(p) && now - p.seenMs < REST_DAYS * 86_400_000);
 export function realOf(name: string, now = Date.now()) {
-  const rs = state.rows.filter((x) => x.name === name && x.buy === "landed" && now - x.t < REST_DAYS * 86_400_000);
-  return { n: rs.length, won: rs.filter((x) => x.netSol > 0).length, netSol: rs.reduce((a, x) => a + x.netSol, 0) };
+  const rs = counted7(name, now);
+  const lost = lost7(name, now);
+  return { n: rs.length + lost.length, won: rs.filter((x) => x.netSol > 0).length, netSol: rs.reduce((a, x) => a + x.netSol, 0) - lost.reduce((a, p) => a + (p.stakeSol ?? 0.01) + RENT_SOL, 0) };
 }
 /** The size step of a wallet (see STEP1_N): the multiplier and why. Pure over the rows given. */
 export function stepOf(rows: { name: string; buy: string; t: number; netSol: number }[], name: string, leaderSol: number, now = Date.now()): { mult: number; why: string } {
@@ -364,21 +382,40 @@ export function stepOf(rows: { name: string; buy: string; t: number; netSol: num
   return { mult: [1, 2, 4][step], why };
 }
 /**
- * Rested (cut the losers): REAL_MIN+ real copies in REST_DAYS days and behind, or more than REST_LOSS_SOL behind at
- * any count. It comes back as those copies age out, if paper still proves it.
+ * One stake of this wallet's copies, the line of "rested at once": the biggest stake any of its counted copies was
+ * bought with (each copy keeps its own: the stake has changed by the day, 0.01, 0.035, 0.02 SOL, and a size step
+ * doubles it). So one copy lost whole, fees and all, rests its wallet at any stake, and one ordinary loser does not.
+ * REST_LOSS_SOL only for a wallet with no counted copy (its record is then zero anyway).
+ */
+export function oneStake(name: string, now = Date.now()) {
+  const own = [...counted7(name, now), ...lost7(name, now)].map((x) => x.stakeSol ?? 0.01);
+  return own.length ? Math.max(...own) : REST_LOSS_SOL;
+}
+/**
+ * A losing run (the rule before 16 Nov 2026, kept as one more reason to rest): its newest REST_LAST real copies of the
+ * window lost SOL and under half of them won. One old big winner must not keep a wallet copied through a run of losers,
+ * nor make it a "real winner" that is kept against paper.
+ */
+export function losingRun(name: string, now = Date.now()) {
+  const rs = counted7(name, now).slice(-REST_LAST);
+  return rs.length >= REST_LAST && rs.reduce((a, x) => a + x.netSol, 0) < 0 && rs.filter((x) => x.netSol > 0).length * 2 < rs.length;
+}
+/**
+ * Rested (cut the losers): REAL_MIN+ real copies in REST_DAYS days and behind, or more than one stake behind at any
+ * count, or a losing run. It comes back as those copies age out, if paper still proves it.
  */
 export function rested(name: string, now = Date.now()) {
   const x = realOf(name, now);
-  return (x.n >= REAL_MIN && x.netSol < 0) || x.netSol < -REST_LOSS_SOL;
+  return (x.n >= REAL_MIN && x.netSol < 0) || x.netSol < -oneStake(name, now) || losingRun(name, now);
 }
-/** A real winner (keep the winners): REAL_MIN+ real copies in REST_DAYS days and ahead. */
+/** A real winner (keep the winners): REAL_MIN+ real copies in REST_DAYS days and ahead, and not on a losing run. */
 export function realWinner(name: string, now = Date.now()) {
   const x = realOf(name, now);
-  return x.n >= REAL_MIN && x.netSol > 0;
+  return x.n >= REAL_MIN && x.netSol > 0 && !losingRun(name, now);
 }
 /** by: "real" = kept on its real record though paper does not list it; "paper" = on the paper-proven list. */
 type Listed = { name: string; address: string; by: "paper" | "real" };
-let list: { at: number; v: Listed[]; unsafe: string[] } | null = null;
+let list: { at: number; v: Listed[]; unsafe: string[]; unknown: string[]; paper: number } | null = null;
 /** The wallets whose buys are copied now (worked out at most every LIST_MS). */
 export function wallets(now = Date.now()): Listed[] {
   // asked for every transaction of the stream: the file is read only when the list is worked out again
@@ -386,8 +423,9 @@ export function wallets(now = Date.now()): Listed[] {
   const follow = cfg().follow;
   if (!loaded) load();
   let base: readonly { name: string; address: string }[] = [];
-  const kept: (Listed & { netSol: number })[] = [];
+  const kept: Listed[] = [];
   const unsafe: string[] = [];
+  const unknown: string[] = [];
   try {
     base = follow === "fixed" ? WALLETS : provenWallets();
     if (follow !== "fixed") {
@@ -395,18 +433,29 @@ export function wallets(now = Date.now()): Listed[] {
       const names = [...new Set(state.rows.map((x) => x.name))].filter((n) => realWinner(n, now) && !base.some((w) => w.name === n));
       const known = names.length ? paperAddresses() : null;
       for (const name of names) {
-        const address = [...state.rows].reverse().find((x) => x.name === name && x.wallet)?.wallet ?? known?.get(name);
-        if (address && copySafe(address)) kept.push({ name, address, by: "real", netSol: realOf(name, now).netSol });
+        // its address, from our own records first (a finished copy's row, the name book, a copy that is out), then
+        // from paper's copies of it, then the first three. Rows before 16 Nov 2026 carry none, and paper's copies
+        // of a wallet it dropped roll off within days: what is found is written into the name book.
+        const address = [...state.rows].reverse().find((x) => x.name === name && x.wallet)?.wallet ?? state.addr?.[name] ?? state.opens.find((p) => p.name === name)?.wallet ?? known?.get(name) ?? WALLETS.find((w) => w.name === name)?.address;
+        if (!address) {
+          unknown.push(name);
+          continue;
+        }
+        if (state.addr?.[name] !== address) state.addr = { ...(state.addr ?? {}), [name]: address }; // in the file at the next save
+        if (copySafe(address)) kept.push({ name, address, by: "real" });
         else unsafe.push(name);
       }
     }
   } catch {
     base = []; // nothing proven that we can read: nothing new is bought
-    kept.length = 0;
+    kept.length = unsafe.length = unknown.length = 0;
   }
-  kept.sort((a, b) => b.netSol - a.netSol);
-  const v: Listed[] = [...kept.map((w) => ({ name: w.name, address: w.address, by: "real" as const })), ...base.filter((w) => !rested(w.name, now)).map((w) => ({ name: w.name, address: w.address, by: "paper" as const }))].slice(0, MAX_WALLETS);
-  list = { at: now, v, unsafe };
+  // Real winners first, whoever lists them, most real SOL first: the MAX_WALLETS limit never drops a wallet with a
+  // winning real record for one that has none. Then the rest of paper's list, in paper's order.
+  const all: Listed[] = [...kept, ...base.filter((w) => !rested(w.name, now)).map((w) => ({ name: w.name, address: w.address, by: "paper" as const }))];
+  const net = new Map(all.filter((w) => realWinner(w.name, now)).map((w) => [w, realOf(w.name, now).netSol]));
+  const v = [...[...net.keys()].sort((a, b) => net.get(b)! - net.get(a)!), ...all.filter((w) => !net.has(w))].slice(0, MAX_WALLETS);
+  list = { at: now, v, unsafe, unknown, paper: base.length };
   return v;
 }
 /** Every address whose swaps we must hear of: the copied wallets, and the wallet of every copy that is out (its sale). */
@@ -497,6 +546,8 @@ async function buy(p: Pos) {
   };
   if (p.soldSeenMs) return drop(() => state.skippedSold++);
   if (!c.on || state.halted) return drop(() => undefined);
+  // its wallet was cut on its real record while this copy waited for its entry (a copy of it just finished behind)
+  if (rested(p.name)) return drop(() => undefined);
   let w: Wallet;
   try {
     w = wallet();
@@ -627,6 +678,9 @@ async function finish(w: Wallet, p: Pos, exit: Exit) {
   state.netSol = Math.round((state.netSol + r.sol) * 1e9) / 1e9;
   state.opens = state.opens.filter((x) => x !== p);
   state.rows = [...state.rows, row].slice(-5000);
+  // a new row changes its wallet's real record: the list is worked out again at the next question, so a wallet that
+  // has just turned loser is not copied for another minute
+  list = null;
   // at the cap, or so near it that not one more copy fits under it: it stops buying for good
   const c = cfg();
   if (!state.halted && c.maxLossSol > 0 && loss() + c.stakeSol + COPY_ROOM_SOL > c.maxLossSol + 1e-9) state.halted = `loss cap reached: ${r6(loss())} of ${c.maxLossSol} SOL (no room for another copy)`;
@@ -735,6 +789,10 @@ export const CHECK_MS = 3_600_000;
 export function sweep(now = Date.now()) {
   const c = cfg();
   const on = new Set(wallets(now).map((w) => w.address));
+  // the dropped-wallet clock runs only while PAPER itself proves a wallet (rested or not): with nothing proven the
+  // paper study has nothing to say (off, just started, its file unreadable), and a wallet kept on its real record
+  // does not change that
+  const paperSays = (list?.paper ?? 0) > 0;
   let drops = 0;
   for (const p of [...state.opens]) {
     // a buy left half-way by an error: once it can no longer land, the wallet says what happened
@@ -755,7 +813,7 @@ export function sweep(now = Date.now()) {
     if (p.exit) {
       if (p.sellRounds < 6 && now >= (p.nextTryMs ?? 0)) void sell(p, p.exit);
     } else if (now - (p.boughtMs ?? p.seenMs) > c.maxHoldH * 3_600_000) void sell(p, "max hold");
-    else if (on.size) {
+    else if (paperSays) {
       // its wallet's place on the list: off it for DROP_SELL_MS, the copy is sold (a few a sweep); back on it, the clock is cleared
       if (on.has(p.wallet)) p.offMs = undefined;
       else if (!p.offMs) p.offMs = now;
@@ -869,7 +927,7 @@ export function slowLiveSummary() {
   const held = done.map((x) => x.heldMin).filter((x): x is number => x !== null).sort((a, b) => a - b);
   const now = wallets();
   return {
-    note: `REAL. Copies ${c.follow === "fixed" ? "the first 3 day-holding wallets (enrique, 14 Nov 2026)" : `the day-holding wallets proven on paper (enrique, 15 Nov 2026: "Follow paper-proven wallets", "continuosly adapt"): followed on paper, and of its newest 40 closed 5 s paper copies 20+ priced, half or more won, ahead; the list is worked out again every minute, best on paper first, ${MAX_WALLETS} at most; real results come first (enrique, 16 Nov 2026: "cut loser and bring winners", "real is more important"): a wallet with ${REAL_MIN}+ real copies in the last ${REST_DAYS} days is rested if those are behind and stays copied if they are ahead, whatever paper says (it must still pass the scan's safety screens: not a program, not a flipper, not uncopyable); more than ${REST_LOSS_SOL} SOL behind is rested at any count; paper decides only under ${REAL_MIN} real copies; an open copy whose wallet has been off the list for ${DROP_SELL_MS / 3_600_000} h is sold (enrique, 15 Nov 2026: "Sell copies of dropped wallets")`}: buys ${c.stakeSol || "?"} SOL ${c.entrySec} s after one of them buys a coin for ${MIN_LEADER_SOL}+ SOL, sells all ${c.exitSec} s after it first sells that coin, or after ${c.maxHoldH} h. Uses the whole wallet (enrique, 14 Nov 23:21 KST): as many copies at once as its SOL covers (stake, rent and a sale reserve each); loss cap ${c.maxLossSol || "?"} SOL counted from our own transactions read back from the chain, every fee included, and nothing is bought with more than ${MAX_WALLET_SOL} SOL in the wallet.`,
+    note: `REAL. Copies ${c.follow === "fixed" ? "the first 3 day-holding wallets (enrique, 14 Nov 2026)" : `the day-holding wallets proven on paper (enrique, 15 Nov 2026: "Follow paper-proven wallets", "continuosly adapt"): followed on paper, and of its newest 40 closed 5 s paper copies 20+ priced, half or more won, ahead; the list is worked out again every minute, best on paper first, ${MAX_WALLETS} at most; real results come first (enrique, 16 Nov 2026: "cut loser and bring winners", "real is more important"): a wallet with ${REAL_MIN}+ real copies in the last ${REST_DAYS} days is rested if those are behind and stays copied if they are ahead, whatever paper says (it must still pass the scan's safety screens: not a program, not a flipper, not uncopyable); more than one stake behind (the biggest stake its copies of those days were bought with) is rested at any count, as is one whose newest ${REST_LAST} real copies lost with under half won (such a wallet is not kept as a winner either), and a coin we could not sell counts as a lost stake; paper decides only under ${REAL_MIN} real copies; real winners come first when the list is full; an open copy whose wallet has been off the list for ${DROP_SELL_MS / 3_600_000} h is sold (enrique, 15 Nov 2026: "Sell copies of dropped wallets")`}: buys ${c.stakeSol || "?"} SOL ${c.entrySec} s after one of them buys a coin for ${MIN_LEADER_SOL}+ SOL, sells all ${c.exitSec} s after it first sells that coin, or after ${c.maxHoldH} h. Uses the whole wallet (enrique, 14 Nov 23:21 KST): as many copies at once as its SOL covers (stake, rent and a sale reserve each); loss cap ${c.maxLossSol || "?"} SOL counted from our own transactions read back from the chain, every fee included, and nothing is bought with more than ${MAX_WALLET_SOL} SOL in the wallet.`,
     on: c.on && !state.halted && walletReady,
     switch: c.on ? "on" : "off",
     halted: state.halted,
@@ -904,19 +962,21 @@ export function slowLiveSummary() {
     /** copied now; kept = of those, copied on their real record though paper does not list them; rested = cut on their real record */
     wallets: now.map((w) => w.name),
     kept: now.filter((w) => w.by === "real").map((w) => w.name),
-    rested: [...new Set(done.map((x) => x.name))].filter((n) => rested(n)),
+    rested: [...new Set([...done.map((x) => x.name), ...state.opens.map((p) => p.name)])].filter((n) => rested(n)),
     /**
      * Real winners first. state: "kept on real" (copied on its real record, paper does not list it), "on the paper
      * list" (copied, paper lists it), "rested on real" (cut), "held back" (a real winner that fails a safety screen),
-     * "off" (paper dropped it and it has too few real copies to be kept). last7 = the record the rule reads.
+     * "address unknown" (a real winner whose address none of our records holds: not copied), "off" (paper does not
+     * list it and it has too few real copies to be kept, or the list is full). last7 = the record the rule reads
+     * (a coin we could not sell counted as lost); open = its copies that are out now.
      */
-    byWallet: [...new Set([...now.map((w) => w.name), ...done.map((x) => x.name)])]
+    byWallet: [...new Set([...now.map((w) => w.name), ...done.map((x) => x.name), ...state.opens.map((p) => p.name)])]
       .map((name) => {
         const rs = done.filter((x) => x.name === name);
         const on = now.find((w) => w.name === name);
         const l = realOf(name);
-        const st = on ? (on.by === "real" ? "kept on real" : "on the paper list") : rested(name) ? "rested on real" : list?.unsafe.includes(name) ? "held back" : "off";
-        return { name, copied: !!on, state: st, copies: rs.length, won: rs.filter((x) => x.netSol > 0).length, netSol: r6(rs.reduce((a, x) => a + x.netSol, 0)), last7: { copies: l.n, won: l.won, netSol: r6(l.netSol) } };
+        const st = on ? (on.by === "real" ? "kept on real" : "on the paper list") : rested(name) ? "rested on real" : list?.unsafe.includes(name) ? "held back" : list?.unknown.includes(name) ? "address unknown" : "off";
+        return { name, copied: !!on, state: st, copies: rs.length, won: rs.filter((x) => x.netSol > 0).length, netSol: r6(rs.reduce((a, x) => a + x.netSol, 0)), last7: { copies: l.n, won: l.won, netSol: r6(l.netSol) }, open: state.opens.filter((p) => p.name === name && p.stage !== "waiting").length };
       })
       .sort((a, b) => b.netSol - a.netSol),
     recent: state.rows.slice(-20).map((x) => ({ name: x.name, buy: x.buy, exit: x.exit, heldMin: x.heldMin, netSol: r6(x.netSol) })),

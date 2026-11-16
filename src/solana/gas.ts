@@ -108,6 +108,8 @@ async function swap(d: GasDeps, w: Wallet, inMint: string, outMint: string, amou
 const r4 = (v: number) => Math.round(v * 1e4) / 1e4;
 const r2 = (v: number) => Math.round(v * 100) / 100;
 
+/** True while a look of this side is running (a swap may be on its way): the perps side does not read balances then. */
+export const gasBusy = () => busy;
 export async function gasTick(d: GasDeps, now = Date.now()): Promise<void> {
   if (busy) return;
   if (!loaded) load();

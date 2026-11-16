@@ -27,4 +27,10 @@ test("real first: who is cut", () => {
   assert.equal(cutReason(realRecord([3, 3, -1]), 10), "", "a winner with one loss stays");
   assert.equal(cutReason(realRecord([-10]), 10), "cut: real trades reached the loss stop", "the loss stop needs no three trades");
   assert.equal(cutReason(realRecord([-4]), 0), "", "no stop set: only the three-trade rule");
+  // cents that add up to exactly nothing: as floats 0.3 - 0.1 - 0.2 is a hair under zero, which must not read as behind
+  assert.ok(0.3 - 0.1 - 0.2 < 0);
+  assert.equal(realRecord([0.3, -0.1, -0.2]).net, 0);
+  assert.equal(cutReason(realRecord([0.3, -0.1, -0.2]), 10), "", "level in cents after three: stays");
+  assert.equal(standing(realRecord([0.3, -0.1, -0.2]), false).real, true);
+  assert.equal(cutReason(realRecord([-3.3, -3.3, -3.4]), 10), "cut: real trades reached the loss stop", "exactly at the stop in cents");
 });

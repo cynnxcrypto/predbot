@@ -32,7 +32,7 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { DATA, ROOT } from "../config.js";
-import { cutReason, realRecord, standing } from "./realfirst.js";
+import { CUT_MIN_TRADES, cutReason, realRecord, standing } from "./realfirst.js";
 import { meetsBar, paperOpens, paperRecord, setBucketsRealSummary, spotRuleIds, REAL_MIN_TRADES, type Bucket } from "./buckets.js";
 import { namedWallet, signTransaction, type Wallet } from "./keys.js";
 import { SOL } from "./pools.js";
@@ -105,6 +105,8 @@ interface Pos {
 }
 interface Row {
   t: number;
+  /** when the paper trade it followed was bought, ms (rows from 16 Nov 2026): a rule's real record counts trades BOUGHT after its last cut */
+  at?: number;
   rule: string;
   buy: "landed" | "did not land" | "failed";
   netSol: number;
@@ -205,11 +207,20 @@ function fileCfg(): BucketsLiveConfig {
 }
 
 /** Is the rule traded for real now? Paper must meet the bar, counting only paper trades made after a demotion. */
-/** One rule's real record: its landed real trades since it was last cut. */
-const realOf = (rule: string) => realRecord(state.rows.filter((x) => x.rule === rule && x.buy === "landed" && x.t > (state.demoted[rule] ?? 0)).map((x) => x.netSol));
+/**
+ * One rule's real record: its landed real trades bought since it was last cut. By the buy, not the sale: a rule can
+ * have several coins out, and one bought before the cut and sold after it belongs to the record that was cut, not to
+ * the next one (a late winner must not make a cut rule real again without new paper trades).
+ */
+const realOf = (rule: string) => realRecord(state.rows.filter((x) => x.rule === rule && x.buy === "landed" && (x.at ?? x.t) > (state.demoted[rule] ?? 0)).map((x) => x.netSol));
 /** Real results first (realfirst.ts): real record ahead or level = real; no real trades yet, or behind on fewer than three = the paper bar decides. */
 export const standingOf = (rule: string) => standing(realOf(rule), meetsBar(paperRecord(rule, state.demoted[rule] ?? 0)), state.demotedWhy?.[rule]);
 export const promoted = (rule: string) => standingOf(rule).real;
+/** Send a rule back to paper: its real record starts again and only paper trades made from now on count. */
+function cutNow(rule: string, why: string) {
+  state.demotedWhy = { ...(state.demotedWhy ?? {}), [rule]: why };
+  state.demoted[rule] = Date.now();
+}
 
 async function sendUntil(d: LiveDeps, tx: string, ms: number) {
   const sig = d.kit.sigOf(tx);
@@ -310,13 +321,11 @@ async function finish(d: LiveDeps, w: Wallet, p: Pos, buyState: Row["buy"]) {
   if (r.unread.length) state.halted = state.halted || "a transaction of a finished trade could not be read back: the books may be short, so nothing new is bought";
   state.netSol = Math.round((state.netSol + r.sol) * 1e9) / 1e9;
   state.opens = state.opens.filter((x) => x !== p);
-  state.rows = [...state.rows, { t: Date.now(), rule: p.rule, buy: buyState, netSol: r.sol, heldMin: p.boughtMs ? Math.round((Date.now() - p.boughtMs) / 60_000) : null }].slice(-5000);
+  state.rows = [...state.rows, { t: Date.now(), at: p.paperAt, rule: p.rule, buy: buyState, netSol: r.sol, heldMin: p.boughtMs ? Math.round((Date.now() - p.boughtMs) / 60_000) : null }].slice(-5000);
   const c = d.cfg();
-  const cut = cutReason(realOf(p.rule), c.ruleStopSol);
-  if (cut) {
-    state.demotedWhy = { ...(state.demotedWhy ?? {}), [p.rule]: cut };
-    state.demoted[p.rule] = Date.now();
-  }
+  // (the one-time test trade follows no rule: it is never "cut")
+  const cut = p.rule === TEST_RULE ? "" : cutReason(realOf(p.rule), c.ruleStopSol);
+  if (cut) cutNow(p.rule, cut);
   if (!state.halted && c.maxLossSol > 0 && loss() + c.stakeSol + TRADE_ROOM_SOL > c.maxLossSol + 1e-9) state.halted = `loss cap reached: ${r6(loss())} of ${c.maxLossSol} SOL (no room for another trade)`;
   save();
 }
@@ -372,7 +381,11 @@ export async function bucketsLiveTick(d: LiveDeps, now = Date.now()): Promise<vo
       const key = `${o.rule}:${o.mint}:${o.at}`;
       if (state.seen.includes(key)) continue;
       state.seen = [...state.seen, key].slice(-500);
-      if (!c.on || state.halted || !promoted(o.rule)) continue; // the usual case: the rule is paper only
+      if (!c.on || state.halted) continue;
+      // a cut missed when its trade finished (the switch was off then, or the stop was lowered since) is made now
+      const late = cutReason(realOf(o.rule), c.ruleStopSol);
+      if (late) cutNow(o.rule, late);
+      if (!promoted(o.rule)) continue; // the usual case: the rule is paper only
       if (o.mint === SOL) skip("SOL itself");
       else if (now - o.at > BUY_WINDOW_MS) skip("paper buy too old");
       else if (state.opens.some((p) => p.mint === o.mint)) skip("coin already held");
@@ -400,10 +413,10 @@ export function bucketsLiveSummary() {
     const mine = done.filter((x) => x.rule === id);
     const st = standingOf(id);
     const live = realOf(id);
-    return { id, real: c.on && !state.halted && st.real, why: st.why, realTrades: live.trades, realWon: live.won, realNetSol: r6(live.net), paperTrades: paper.trades, paperWon: paper.won, paperNetUsd: Math.round(paper.netUsd * 100) / 100, demotedAt: since || null, trades: mine.length, won: mine.filter((x) => x.netSol > 0).length, netSol: r6(mine.reduce((a, x) => a + x.netSol, 0)) };
+    return { id, real: c.on && !state.halted && st.real, why: !c.on ? "paper: real trading is switched off" : state.halted ? "paper: real trading is stopped" : st.why, realTrades: live.trades, realWon: live.won, realNetSol: r6(live.net), paperTrades: paper.trades, paperWon: paper.won, paperNetUsd: Math.round(paper.netUsd * 100) / 100, demotedAt: since || null, trades: mine.length, won: mine.filter((x) => x.netSol > 0).length, netSol: r6(mine.reduce((a, x) => a + x.netSol, 0)) };
   });
   return {
-    note: `REAL, off unless the live rules switch it on. A spot bucket rule is traded for real only while its paper record meets the bar (${REAL_MIN_TRADES}+ paper trades at real quotes, half or more won, ahead after costs): then each of its paper buys is also bought with ${c.stakeSol || 0.01} SOL and sold when the paper trade is sold. A rule whose real trades lose ${c.ruleStopSol || 0.03} SOL goes back to paper until its paper trades made after that meet the bar again. Total loss is capped; perps are paper only.`,
+    note: `REAL, off unless the live rules switch it on. A spot bucket rule gets its first real trades when its paper record meets the bar (${REAL_MIN_TRADES}+ paper trades at real quotes, half or more won, ahead after costs): then each of its paper buys is also bought with ${c.stakeSol || 0.01} SOL and sold when the paper trade is sold. Real results come first (enrique, 16 Nov 2026: "cut loser and bring winners", "real is more important"): once it has real trades it stays real while its real net is zero or better, even under the paper bar, and goes back to paper when its real trades are behind after ${CUT_MIN_TRADES} or more, or have lost ${c.ruleStopSol || 0.03} SOL; it returns when its paper trades made after that meet the bar again. In rules: why = the reason in words; realTrades, realWon, realNetSol = its real trades bought since it was last cut; trades, won, netSol = all its real trades ever. Total loss is capped; the perps side has its own wallet and block.`,
     on: c.on && !state.halted,
     switch: c.on ? "on" : "off",
     halted: state.halted,
