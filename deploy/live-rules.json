@@ -7,6 +7,8 @@
     "stopLossSol": 0.7,
     "note3": "15 Nov 2026 17:51 KST, enrique: 'the solana spot copy is not still limited by extremely small trades and a tiny balance'. Stake 0.01 -> 0.035 SOL a copy (about $2.50; he agreed to $2-3 a copy, 17:52 KST 'okay sounds good' / 'lets get it all into the bot'): the wallet fits about 36 coins out.",
     "note4": "16 Nov 2026 06:40 KST review (MAIN, standing authority on sizing; enrique 15 Nov: 'adapt'). Stake 0.035 -> 0.02 SOL a copy: at 0.035 the 1.4 SOL fills at 40 copies and 226 buys were let go for no room; those let-go buys did as well on paper as the ones taken (24 priced: +2.7% a copy vs -0.3%). Same SOL out, about 70 copies at once, so fewer of the rare big winners are missed. Still twice the old 0.01.",
+    "note5": "16 Nov 2026 15:41 KST, enrique tapped \"sell at once when a wallet is cut\" (relayed 06:41 UTC, and again 08:30 UTC with 13 copies of cut wallets still open). sellCut on: an open copy of a wallet cut on its real record (rested) is sold when the wallet is still cut at the next sweep (5 min), not after the 6 h dropped-wallet clock; up to 3 a sweep, shared with the 6 h sales. Two looks, not one: a record moves with every copy that finishes (review of 16 Nov 2026).",
+    "sellCut": true,
     "stakeSol": 0.02
   },
   "solanaBuckets": {
