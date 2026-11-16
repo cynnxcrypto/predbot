@@ -136,6 +136,17 @@ export async function solSlowView(): Promise<unknown> {
     open: opens.map((p) => ({ name: short(p.name), sym: sym(p.mint), ms: ms(p.mint), stage: p.stage, t: p.boughtMs ?? p.seenMs, leaderSold: p.soldSeenMs != null, worthSol: vals.get(p.mint) ?? null, stakeSol: (p as { stakeSol?: number }).stakeSol ?? null })),
     // today's result over EVERY finished copy (the list below is only the newest 40)
     todayNetSol: Math.round(allRows.filter((r) => kstDayOf(r.heldMin != null ? r.t + r.heldMin * 60_000 : r.t) === kstDayOf(Date.now())).reduce((x, r) => x + (r.netSol || 0), 0) * 1e6) / 1e6,
+    // every finished copy by the Korean day it closed, newest 30 days (for the overview's day by day)
+    days: (() => {
+      const m: Record<string, { n: number; won: number; netSol: number }> = {};
+      for (const r of allRows) {
+        const d = (m[kstDayOf(r.heldMin != null ? r.t + r.heldMin * 60_000 : r.t)] ??= { n: 0, won: 0, netSol: 0 });
+        d.n++;
+        if ((r.netSol || 0) > 0) d.won++;
+        d.netSol += r.netSol || 0;
+      }
+      return Object.keys(m).sort().reverse().slice(0, 30).map((day) => ({ day, n: m[day].n, won: m[day].won, netSol: Math.round(m[day].netSol * 1e6) / 1e6 }));
+    })(),
     todayN: allRows.filter((r) => kstDayOf(r.heldMin != null ? r.t + r.heldMin * 60_000 : r.t) === kstDayOf(Date.now())).length,
     closed: rows.slice().reverse().map((r) => ({ name: short(r.name), sym: sym(r.mint), ms: ms(r.mint), stakeSol: (r as { stakeSol?: number }).stakeSol ?? (r.t < STAKE_RAISED_MS ? 0.01 : null), t: r.t, closedAt: r.heldMin != null ? r.t + r.heldMin * 60_000 : null, exit: r.exit, heldMin: r.heldMin, netSol: r.netSol })),
   };

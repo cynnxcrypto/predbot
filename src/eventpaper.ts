@@ -17,7 +17,7 @@
  */
 import { loadJson, saveJson } from "./store.js";
 import { autoFollowed, autoState, autoSummary, copyPromote, copyScan, scanDue } from "./copyscan.js";
-import { NEG_READY_FILE, spentOf, eventLiveAdapt, paperGate, setPaperBehind, paperBehindStatus, eventLiveBusy, eventLiveBuy, eventRestBid, eventRestSync, eventDelayedSync, eventLiveConfig, eventLiveRows, eventLiveSettle, eventLiveSummary, eventLiveStop, type NegRiskReady } from "./eventlive.js";
+import { NEG_READY_FILE, spentOf, eventLiveAdapt, paperGate, setPaperBehind, paperBehindStatus, realRecord, eventLiveBusy, eventLiveBuy, eventRestBid, eventRestSync, eventDelayedSync, eventLiveConfig, eventLiveRows, eventLiveSettle, eventLiveSummary, eventLiveStop, type NegRiskReady } from "./eventlive.js";
 import { JEV_CONTEXT, headlines, jevKey, jevStake, type JevStake } from "./jev.js";
 
 const GAMMA = "https://gamma-api.polymarket.com";
@@ -2077,7 +2077,7 @@ async function main() {
       await guard("wallet promotions", async () => {
         setPaperBehind(paperGate(eventLiveConfig().groups.copy?.rules ?? [], state.trades));
         const st = autoState();
-        const lines = copyPromote(st, state.trades, Date.now());
+        const lines = copyPromote(st, state.trades, Date.now(), (rule) => realRecord("copy", rule));
         if (lines.length) {
           for (const t of lines) st.log.push({ t: Date.now(), text: t });
           st.log = st.log.slice(-30);
