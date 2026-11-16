@@ -86,6 +86,8 @@ export const CLOSE_SLIP = [0.02, 0.05, 0.1] as const;
 /** with no price from any source: how long a close that is due waits for one, and how far from the entry price its bound is */
 export const NO_PRICE_CLOSE_MS = 30 * 60_000;
 export const NO_PRICE_SLIP = 0.5;
+/** a gap between two looks longer than this (the bot was down) starts every position's no-price wait again */
+export const LOOK_GAP_MS = 5 * 60_000;
 /** a request the keeper has neither filled nor turned down after this long is taken back by us */
 export const CANCEL_MS = 180_000;
 /** a request that is not on the chain is taken as turned down only after this long: a transaction of ours that
@@ -313,8 +315,10 @@ interface State {
   dryCloseLong?: { at: number; result: string; tried: number } | null;
   lastSim: string;
   lastError: string;
-  /** the last look at which no price could be read for an open position (Binance, then Hyperliquid), and why */
-  priceError?: { at: number; coin: string; why: string } | null;
+  /** price reads that failed for an open position (Binance, then Hyperliquid), the coin of the last one and why. No time: with a close sent blind it would point to our request on the chain (MAIN's review, 16 Nov 2026) */
+  priceFails?: { n: number; coin: string; why: string };
+  /** when the last look ran: a gap longer than LOOK_GAP_MS (a restart) starts the no-price wait again */
+  lastLookMs?: number;
 }
 const fresh = (): State => ({ netUsd: 0, halted: "", note: "", pos: null, opens: [], rows: [], demoted: {}, seen: [], skipped: {}, dry: null, lastSim: "", lastError: "" });
 let state: State = fresh();
@@ -623,6 +627,9 @@ export async function perpsLiveTick(d: PerpDeps, now = Date.now()): Promise<void
       save();
       return;
     }
+    // the bot was down (or a look hung): a price that has been missing is waited for afresh, not counted across the gap
+    if (state.lastLookMs !== undefined && now - state.lastLookMs > LOOK_GAP_MS) for (const x of state.opens) delete x.noPriceMs;
+    state.lastLookMs = now;
     // 2. the positions that are open: what they are worth, whether they are still there, whether it is time to close
     const seenNow = new Map<Pos, { size: number; px: number }>();
     for (const p of [...state.opens]) {
@@ -637,7 +644,7 @@ export async function perpsLiveTick(d: PerpDeps, now = Date.now()): Promise<void
       p.collateralUsd = onChain.collateralUsd;
       p.entryPx = onChain.entryPx;
       const px = await d.price(p.coin).catch((e) => {
-        state.priceError = { at: now, coin: p.coin, why: d.fixed(e) };
+        state.priceFails = { n: (state.priceFails?.n ?? 0) + 1, coin: p.coin, why: d.fixed(e) };
         return 0;
       });
       if (px > 0) {
@@ -669,7 +676,7 @@ export async function perpsLiveTick(d: PerpDeps, now = Date.now()): Promise<void
         const made = closeIx(w.address, p.coin, p.dir ?? -1, bound, counter());
         p.usdcBefore = await d.usdc(w.address);
         p.request = made.request;
-        p.sentMs = now;
+        p.sentMs = Date.now(); // the moment it is sent, not the start of the look (price reads can take a while): GONE_MS counts from here
         p.closeTries++;
         save();
         // "closing" even when it seemed not to land: it may still land, and a second request is made only after GONE_MS
@@ -768,7 +775,7 @@ export async function perpsLiveTick(d: PerpDeps, now = Date.now()): Promise<void
           const sizeUsd = r2(c.collateralUsd * lev);
           const made = openIx(w.address, o.coin, dir, sizeUsd, c.collateralUsd, boundPrice(dir, px, OPEN_SLIP, false), counter(), dir > 0 ? longMinOut(o.coin, c.collateralUsd, px) : null);
           // written down before it is sent
-          const np: Pos = { rule: o.rule, coin: o.coin, paperId: o.id, stage: "opening", usdcBefore: usdc, sizeUsd, position: made.position, request: made.request, sentMs: now, closeTries: 0, dir, lev, collUsd: c.collateralUsd };
+          const np: Pos = { rule: o.rule, coin: o.coin, paperId: o.id, stage: "opening", usdcBefore: usdc, sizeUsd, position: made.position, request: made.request, sentMs: Date.now(), closeTries: 0, dir, lev, collUsd: c.collateralUsd };
           begin(np);
           if (!(await sendChecked(d, w, [made.ix])) && state.lastSim !== "ok") {
             drop(np); // the simulation said no: nothing was sent
@@ -871,8 +878,8 @@ export function perpsLiveSummary() {
     testLong: state.testLong ?? null,
     test: state.test ? { ...state.test, rows: state.rows.filter((x) => x.rule === TEST_RULE).map((x) => ({ t: x.t, filled: x.filled, netUsd: x.netUsd, heldH: x.heldH })) } : null,
     lastSimulation: state.lastSim,
-    // the last look at which no price could be read for an open position (the coin and when; no position detail)
-    priceError: state.priceError ?? null,
+    // price reads that failed for an open position: how many in all, and the coin of the last one (no time)
+    priceFails: state.priceFails ? { n: state.priceFails.n, coin: state.priceFails.coin } : null,
     skipped: state.skipped,
     lastError: state.lastError,
     rulesReal: rules.filter((x) => x.real).length,

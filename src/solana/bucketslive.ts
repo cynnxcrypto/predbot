@@ -103,24 +103,19 @@ interface Pos {
   /** what the coins held would bring if sold now (a real sell quote), SOL, and when that was read */
   valueSol?: number;
   valueMs?: number;
-  /** how many accounts the wallet had for this coin before the buy (absent = not known): see rentOf */
-  acctsBefore?: number;
   /**
    * sales that could not be made for a reason the chain or Jupiter gave (no route, or a sale that landed and failed),
    * and when the first was: a time-out, a refused request or the bot being down is not counted (see writeOff)
    */
   deadSales?: number;
   firstDeadMs?: number;
-  /** a written-off coin: what is in the books for it so far (SOL, rent apart), the rent of it in rentOutSol, and sale transactions tried since */
+  /** a written-off coin: what is in the books for it so far (rent apart), the raw SOL and rent of its transactions read so far, and sale transactions tried since */
   bookedSol?: number;
+  solIn?: number;
   rentIn?: number;
   tries?: number;
   /** no more sale tries (MAX_STUCK_TRIES reached): it stays in the books as it stands */
   gaveUp?: boolean;
-  /** the coins with an empty account when its sale began (to tell the sale's route accounts) */
-  emptyBefore?: string[];
-  /** coins the swaps of this trade routed through and left an empty account for: closed at its end (see closeRoutes) */
-  routes?: string[];
   /** what the write-off changed, so that it can be undone when the coin sells after all */
   undo?: { cutAt?: number; prevDemoted?: number; prevWhy?: string; halt?: string };
 }
@@ -159,9 +154,9 @@ interface State {
   unread?: string;
   /** coins written off as unsellable: out of `opens` and in their rule's record, still tried once an hour */
   stuck?: Pos[];
-  /** rent that sits in coin accounts not closed yet (ours, not lost): kept out of every result (see rentOf) */
+  /** rent that sits in coin accounts not closed yet (ours, not lost): kept out of every result (see keepRent) */
   rentOutSol?: number;
-  /** rent of old empty accounts closed by the sweep at start (in netSol, in no trade); the sweep's transactions until read back */
+  /** what the sweeps of empty coin accounts brought back that was in no rentOutSol (old accounts' rent, less the fees); their transactions until read back */
   rentBackSol?: number;
   sweepSigs?: string[];
 }
@@ -202,13 +197,12 @@ export interface Kit {
   held: (address: string, mint: string) => Promise<{ amount: bigint; accounts?: unknown[] }>;
   sigOf: (tx: string) => string;
   balance: (address: string) => Promise<number>;
-  booked: (w: Wallet, sigs: string[]) => Promise<{ sol: number; unread: string[] }>;
+  /** what these transactions did to the wallet's SOL, those that landed but could not be read, and the rent they moved into our coin accounts (less what they got back) */
+  booked: (w: Wallet, sigs: string[]) => Promise<{ sol: number; unread: string[]; rent?: number }>;
   /** closes the emptied coin account (its rent comes back) and adds its transaction to row.sigs */
   closeEmpty: (w: Wallet, mint: string, row: CloseRow) => Promise<unknown>;
-  /** closes every empty, unfrozen coin account of the wallet except those of `keep` (only those of `only`, when given), adding its transactions to `sigs` */
-  closeSpare?: (w: Wallet, keep: string[], sigs: string[], only?: string[]) => Promise<unknown>;
-  /** the coins the wallet has an EMPTY account for */
-  emptyMints?: (w: Wallet) => Promise<string[]>;
+  /** closes every empty, unfrozen coin account of the wallet except those of `keep`, adding its transactions to `sigs` */
+  closeSpare?: (w: Wallet, keep: string[], sigs: string[]) => Promise<unknown>;
 }
 type CloseRow = import("./copylive.js").Row;
 export interface LiveDeps {
@@ -269,86 +263,52 @@ function cutNow(rule: string, why: string) {
   state.demoted[rule] = Date.now();
 }
 
-/** How many accounts the wallet has for a coin, null when it cannot be told. */
-async function accountsOf(d: LiveDeps, w: Wallet, mint: string): Promise<number | null> {
-  try {
-    const h = await d.kit.held(w.address, mint);
-    return Array.isArray(h.accounts) ? h.accounts.length : null;
-  } catch {
-    return null;
+/**
+ * RENT IS IN NO RESULT (MAIN's reviews, 16 Nov 2026). Opening a coin account puts about 0.002 SOL of rent in it and
+ * closing it gives that back: ours all along, not won or lost, but a fifth of a 0.01 SOL stake. So every booking
+ * takes the rent its transactions moved out of the result, read from the transactions themselves (booked().rent: the
+ * accounts each one opened or closed, whichever coin, route coins too). Rent that went in is kept in rentOutSol; rent
+ * that came back is first taken from rentOutSol, and only what is beyond it (an account from before this build, whose
+ * rent was booked as a loss then) counts, as a gain. So no rent is counted twice, whoever closes the account and when.
+ * Returns the part of `rent` kept out of the result.
+ */
+function keepRent(rent = 0): number {
+  if (rent >= 0) {
+    state.rentOutSol = n9((state.rentOutSol ?? 0) + rent);
+    return rent;
   }
+  const back = Math.min(-rent, state.rentOutSol ?? 0);
+  state.rentOutSol = n9((state.rentOutSol ?? 0) - back);
+  return -back;
 }
-/**
- * The rent of a coin account is not a result of the trade (MAIN's review, 16 Nov 2026). A buy pays about 0.002 SOL
- * to open the account and closing it pays that back; when the close does not go through, the rent sits in the empty
- * account: ours, not lost, and a fifth of a 0.01 SOL stake, enough to cut a rule that did nothing wrong. And a later
- * trade of the same coin, whose close then succeeds, would be handed rent it never paid. So the rent that a trade
- * left out (or took back) is taken out of its result and kept in `rentOutSol`.
- */
-async function rentOf(d: LiveDeps, w: Wallet, p: Pos): Promise<number> {
-  if (p.acctsBefore === undefined) return 0;
-  const after = await accountsOf(d, w, p.mint);
-  return after === null ? 0 : RENT_SOL * Math.max(-1, Math.min(1, after - p.acctsBefore));
-}
-/**
- * The rent a trade keeps out of its result, given what it already kept out (`rentIn`): rent taken back never makes
- * rentOutSol negative. Rent that comes back from an account none of our counted trades left (one from before 16 Nov
- * 2026, when such rent was booked as a loss) is the trade's to keep: that loss was booked once already.
- */
-const rentKept = (rent: number, rentIn = 0) => Math.max(rent, rentIn - (state.rentOutSol ?? 0));
 const n9 = (x: number) => Math.round(x * 1e9) / 1e9;
 /**
- * Accounts that the swap routed through (it opens one for a coin in the middle of the route and leaves it empty):
- * closed at the end of the trade, so their rent comes back inside the trade's own transactions and its result holds
- * none of it. The coins other trades hold (or are buying) are left alone.
- */
-async function closeRoutes(d: LiveDeps, w: Wallet, p: Pos) {
-  if (!d.kit.closeSpare || !p.routes?.length) return;
-  // only the accounts this trade's own swaps left (rent per coin, MAIN's review 16 Nov 2026): another trade's are its own
-  const keep = [...state.opens.filter((x) => x !== p).map((x) => x.mint), ...(state.stuck ?? []).filter((x) => x !== p).map((x) => x.mint)];
-  try {
-    await d.kit.closeSpare(w, keep, p.sigs, p.routes);
-  } catch (e) {
-    state.lastError = d.fixed(e);
-  }
-  save();
-}
-/** The coins with an empty account now; null when it cannot be told (no such reader, or no answer). */
-async function emptyNow(d: LiveDeps, w: Wallet): Promise<string[] | null> {
-  if (!d.kit.emptyMints) return null;
-  return d.kit.emptyMints(w).catch(() => null);
-}
-/** Coins that have an empty account now and had none before a swap of this trade: its route accounts. */
-function addRoutes(p: Pos, before: string[] | null, after: string[] | null) {
-  if (!before || !after) return;
-  const fresh = after.filter((m) => m !== p.mint && !before.includes(m));
-  if (fresh.length) p.routes = [...new Set([...(p.routes ?? []), ...fresh])];
-}
-/**
- * Once after each start, while nothing is out: the wallet's old empty coin accounts are closed, and the rent that
- * comes back is booked in netSol and rentBackSol, in no trade's row (MAIN's review, 16 Nov 2026: without it the first
- * trade after a deploy would be handed every old account's rent, and a losing rule could read as a winner). Booked
- * when its transactions read back; until then they wait in sweepSigs.
+ * The wallet's empty coin accounts (the coin of a trade that is out or stuck excepted) are closed once after each
+ * start and after every finished trade: rent sitting in them comes back to the wallet. Booked apart, in no trade's row,
+ * when the transactions read back (until then they wait in sweepSigs); by keepRent, it moves no result.
  */
 let swept = false;
-async function sweepAtStart(d: LiveDeps) {
+async function sweep(d: LiveDeps) {
   const w = d.wallet();
-  if (!swept && d.kit.closeSpare && !state.opens.length && !(state.stuck ?? []).length) {
-    swept = true;
+  if (d.kit.closeSpare) {
     const sigs: string[] = [];
     try {
-      await d.kit.closeSpare(w, [], sigs);
+      await d.kit.closeSpare(w, [...state.opens.map((x) => x.mint), ...(state.stuck ?? []).map((x) => x.mint)], sigs);
     } catch (e) {
       state.lastError = d.fixed(e);
     }
-    state.sweepSigs = [...(state.sweepSigs ?? []), ...sigs];
+    if (sigs.length) state.sweepSigs = [...(state.sweepSigs ?? []), ...sigs];
     save();
   }
+  await bookSweeps(d);
+}
+async function bookSweeps(d: LiveDeps) {
   if (!state.sweepSigs?.length) return;
-  const r = await d.kit.booked(w, state.sweepSigs);
+  const r = await d.kit.booked(d.wallet(), state.sweepSigs);
   if (r.unread.length) return; // read again at the next look
-  state.netSol = n9(state.netSol + r.sol);
-  state.rentBackSol = n9((state.rentBackSol ?? 0) + r.sol);
+  const net = n9(r.sol + keepRent(r.rent));
+  state.netSol = n9(state.netSol + net);
+  state.rentBackSol = n9((state.rentBackSol ?? 0) + net);
   state.sweepSigs = [];
   save();
 }
@@ -380,13 +340,11 @@ async function buy(d: LiveDeps, o: { rule: string; bucket: Bucket; mint: string;
       return skip("too little SOL");
     }
     state.note = "";
-    const acctsBefore = (await accountsOf(d, w, o.mint)) ?? undefined;
-    const emptyBefore = await emptyNow(d, w);
     const q = await d.kit.quote(SOL, o.mint, String(Math.round(c.stakeSol * LAMPORTS)), SLIPPAGE_BPS[o.bucket]);
     if (!q.outAmount || q.outAmount === "0") return skip("no price");
     const tx = signTransaction(await d.kit.swapTx(q, w.address, c.maxFeeLamports), w);
     // written down before it is sent: a restart must know of every transaction of a trade
-    p = { rule: o.rule, bucket: o.bucket, mint: o.mint, paperAt: o.at, stage: "buying", sigs: [d.kit.sigOf(tx)], ...(acctsBefore === undefined ? {} : { acctsBefore }) };
+    p = { rule: o.rule, bucket: o.bucket, mint: o.mint, paperAt: o.at, stage: "buying", sigs: [d.kit.sigOf(tx)] };
     state.opens.push(p);
     save();
     const st = await sendUntil(d, tx, 60_000);
@@ -397,7 +355,6 @@ async function buy(d: LiveDeps, o: { rule: string; bucket: Bucket; mint: string;
     }
     p.stage = "held";
     p.boughtMs = now;
-    addRoutes(p, emptyBefore, await emptyNow(d, w));
     save();
   } catch (e) {
     state.lastError = d.fixed(e);
@@ -413,7 +370,6 @@ async function sell(d: LiveDeps, p: Pos, c: BucketsLiveConfig) {
   let dead = false;
   try {
     const w = d.wallet();
-    p.emptyBefore = (await emptyNow(d, w)) ?? undefined;
     for (let i = 0; i < 6; i++) {
       const h = await d.kit.held(w.address, p.mint);
       if (h.amount === 0n) return void (await closeAndFinish(d, w, p));
@@ -465,14 +421,13 @@ export const MAX_STUCK_TRIES = 12;
 async function writeOff(d: LiveDeps, w: Wallet, p: Pos) {
   const r = await d.kit.booked(w, p.sigs);
   if (r.unread.length) return; // not booked from a guess: tried at a later look
-  const rent = rentKept(await rentOf(d, w, p));
   const before = { demoted: state.demoted[p.rule], why: state.demotedWhy?.[p.rule], halt: state.halted };
-  const net = n9(r.sol + rent);
-  book(d, p, "landed", net, rent, true);
+  const net = n9(r.sol + keepRent(r.rent));
+  book(d, p, "landed", net, true);
   const undo: NonNullable<Pos["undo"]> = {};
   if (state.demoted[p.rule] !== before.demoted) Object.assign(undo, { cutAt: state.demoted[p.rule], prevDemoted: before.demoted, prevWhy: before.why });
   if (state.halted && state.halted !== before.halt) undo.halt = state.halted;
-  state.stuck = [...(state.stuck ?? []), { ...p, stage: "held", bookedSol: net, rentIn: rent, tries: 0, undo, nextTryMs: Date.now() + STUCK_RETRY_MS }];
+  state.stuck = [...(state.stuck ?? []), { ...p, stage: "held", bookedSol: net, solIn: r.sol, rentIn: r.rent ?? 0, tries: 0, undo, nextTryMs: Date.now() + STUCK_RETRY_MS }];
   save();
 }
 /** One more try to sell a written-off coin; then its books are read again in full and the difference is booked. */
@@ -508,20 +463,18 @@ async function sellStuck(d: LiveDeps, p: Pos, c: BucketsLiveConfig) {
       await d.kit.closeEmpty(w, p.mint, row).catch(() => undefined);
       p.sigs.push(...row.sigs);
       save();
-      await closeRoutes(d, w, p);
     }
     // the whole coin read again, every transaction from its buy: what changed since the last booking is booked now
     const r = await d.kit.booked(w, p.sigs);
     if (r.unread.length) return save(); // read again at the next try; nothing is booked from a guess
-    const rent = rentKept(await rentOf(d, w, p), p.rentIn);
-    const net = n9(r.sol + rent);
-    const diff = n9(net - (p.bookedSol ?? 0));
+    // only what is new since the last booking: its SOL, less the rent it moved (see keepRent)
+    const diff = n9(r.sol - (p.solIn ?? 0) + keepRent(n9((r.rent ?? 0) - (p.rentIn ?? 0))));
     state.netSol = n9(state.netSol + diff);
-    state.rentOutSol = n9((state.rentOutSol ?? 0) + rent - (p.rentIn ?? 0));
     const mine = state.rows.find((x) => x.stuck && !x.recovered && x.rule === p.rule && x.at === p.paperAt);
     if (mine) mine.netSol = n9(mine.netSol + diff);
-    p.bookedSol = net;
-    p.rentIn = rent;
+    p.bookedSol = n9((p.bookedSol ?? 0) + diff);
+    p.solIn = r.sol;
+    p.rentIn = r.rent ?? 0;
     if (sold) {
       if (mine) mine.recovered = true;
       state.stuck = (state.stuck ?? []).filter((x) => x !== p);
@@ -563,8 +516,6 @@ async function closeAndFinish(d: LiveDeps, w: Wallet, p: Pos) {
   } catch (e) {
     state.lastError = d.fixed(e);
   }
-  addRoutes(p, p.emptyBefore ?? null, await emptyNow(d, w));
-  await closeRoutes(d, w, p);
   await finish(d, w, p, "landed");
 }
 
@@ -576,12 +527,11 @@ async function finish(d: LiveDeps, w: Wallet, p: Pos, buyState: Row["buy"]) {
     r = await d.kit.booked(w, p.sigs);
   }
   if (r.unread.length) state.unread = "a transaction of a finished trade could not be read back: the books may be short, so nothing new is bought";
-  const rent = rentKept(await rentOf(d, w, p));
-  book(d, p, buyState, n9(r.sol + rent), rent, false);
+  book(d, p, buyState, n9(r.sol + keepRent(r.rent)), false);
+  await sweep(d); // empty accounts its swaps left (route coins; its own coin's, if that close did not go through)
 }
 /** Put a finished (or written-off) trade in the books and its rule's record; judge the rule and the loss cap. */
-function book(d: LiveDeps, p: Pos, buyState: Row["buy"], net: number, rent: number, stuck: boolean) {
-  state.rentOutSol = n9((state.rentOutSol ?? 0) + rent);
+function book(d: LiveDeps, p: Pos, buyState: Row["buy"], net: number, stuck: boolean) {
   state.netSol = n9(state.netSol + net);
   state.opens = state.opens.filter((x) => x !== p);
   state.rows = [...state.rows, { t: Date.now(), at: p.paperAt, rule: p.rule, buy: buyState, netSol: net, ...(stuck ? { stuck: true } : {}), heldMin: p.boughtMs ? Math.round((Date.now() - p.boughtMs) / 60_000) : null }].slice(-5000);
@@ -634,7 +584,10 @@ export async function bucketsLiveTick(d: LiveDeps, now = Date.now()): Promise<vo
       }
     }
     for (const p of [...(state.stuck ?? [])]) if ((p.nextTryMs ?? 0) <= now) await sellStuck(d, p, c);
-    await sweepAtStart(d);
+    if (!swept) {
+      swept = true;
+      await sweep(d);
+    } else await bookSweeps(d);
     const tid = d.testId?.() ?? "";
     if (tid && c.on && !stopped() && state.test?.id !== tid && !state.opens.length) {
       // the name is written down before anything is sent: whatever happens next, this test is never made twice
@@ -734,4 +687,4 @@ export async function startBucketsLive() {
 }
 
 /** Test hooks. */
-export const _test = { reset: () => ((state = fresh()), (loaded = true), (swept = false)), state: () => state, reload: () => load(), setCfg: (f: () => BucketsLiveConfig) => void (liveCfg = f) };
+export const _test = { forgetSweep: () => void (swept = false), reset: () => ((state = fresh()), (loaded = true), (swept = false)), state: () => state, reload: () => load(), setCfg: (f: () => BucketsLiveConfig) => void (liveCfg = f) };

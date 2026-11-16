@@ -787,7 +787,8 @@ test("no price from any source: a close at the max hold still goes out on a wide
   _bucketsTest.state().hlOpen = [];
   await P.perpsLiveTick(deps);
   assert.equal(p.stage, "open");
-  assert.equal(P.perpsLiveSummary().priceError?.coin, "SOL");
+  assert.equal(P.perpsLiveSummary().priceFails?.coin, "SOL");
+  assert.ok(!("at" in (P.perpsLiveSummary().priceFails ?? {})), "no time in the public status");
   // half an hour without a price: the close goes out, bound half the entry price away
   p.noPriceMs = Date.now() - P.NO_PRICE_CLOSE_MS - 1;
   await P.perpsLiveTick(deps);
