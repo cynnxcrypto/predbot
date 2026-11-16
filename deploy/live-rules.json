@@ -6,7 +6,8 @@
     "maxLossSol": 1.4,
     "stopLossSol": 0.7,
     "note3": "15 Nov 2026 17:51 KST, enrique: 'the solana spot copy is not still limited by extremely small trades and a tiny balance'. Stake 0.01 -> 0.035 SOL a copy (about $2.50; he agreed to $2-3 a copy, 17:52 KST 'okay sounds good' / 'lets get it all into the bot'): the wallet fits about 36 coins out.",
-    "stakeSol": 0.035
+    "note4": "16 Nov 2026 06:40 KST review (MAIN, standing authority on sizing; enrique 15 Nov: 'adapt'). Stake 0.035 -> 0.02 SOL a copy: at 0.035 the 1.4 SOL fills at 40 copies and 226 buys were let go for no room; those let-go buys did as well on paper as the ones taken (24 priced: +2.7% a copy vs -0.3%). Same SOL out, about 70 copies at once, so fewer of the rare big winners are missed. Still twice the old 0.01.",
+    "stakeSol": 0.02
   },
   "solanaBuckets": {
     "note": "15 Nov 2026 08:40 KST, enrique: 'yes to both' (switch the spot bucket real side on so rules promote themselves) and 'so we separate budgets of different things' (its own wallet, funded by him 15 Nov ~11:00 KST). A spot bucket rule trades for real only while its paper record meets the bar (100+ paper trades, half won, ahead); 0.01 SOL a trade, a rule goes back to paper at -0.03 SOL, 5 coins out at most, total loss cap 0.1 SOL. Code src/solana/bucketslive.ts. Perps real stays off (no solanaPerps block).",
