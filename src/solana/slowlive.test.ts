@@ -172,22 +172,107 @@ test("real day-holder copy: copies the wallets proven on paper, adapts as the li
   assert.equal(_test.state().opens.length, 0);
   assert.equal(c.held.has(A), false);
   assert.deepEqual([_test.state().rows[0].name, _test.state().rows[0].exit], ["coin buyer Prov", "sold"]);
-  // rested: its newest 15 real copies of the last 7 days lost SOL with under half won; older ones do not count
-  const row = (name: string, t: number, netSol: number) => ({ t, name, mint: "x", leaderSol: 1, buy: "landed" as const, exit: "sold" as const, heldMin: 60, netSol, sigs: [] });
+  // rested (cut the losers): 5+ real copies in the last 7 days and behind, however many won; older ones do not count
+  const row = (name: string, t: number, netSol: number) => ({ t, name, mint: "x", leaderSol: 1, buy: "landed" as const, exit: "sold" as const, heldMin: 60, netSol, sigs: [] as string[] });
   const now = Date.now();
-  for (let i = 0; i < 15; i++) _test.state().rows.push(row("coin buyer Pro2", now - i * 60_000, i < 7 ? 0.001 : -0.002));
-  assert.equal(rested("coin buyer Pro2"), true);
+  for (let i = 0; i < 4; i++) _test.state().rows.push(row("coin buyer Pro2", now - i * 60_000, i < 3 ? 0.001 : -0.004));
+  assert.equal(rested("coin buyer Pro2"), false, "four copies: paper still decides");
+  _test.state().rows.push(row("coin buyer Pro2", now, 0.0005));
+  assert.equal(rested("coin buyer Pro2"), true, "five copies, four won, behind");
   _test.relist();
   assert.deepEqual(wallets(), []);
   onSwap(swap(P2, B, true));
   assert.equal(_test.state().opens.length, 0, "rested: not copied");
   const s = slowLiveSummary();
-  assert.deepEqual([s.follow, s.wallets, s.rested], ["proven", [], ["coin buyer Pro2"]]);
+  assert.deepEqual([s.follow, s.wallets, s.kept, s.rested], ["proven", [], [], ["coin buyer Pro2"]]);
+  assert.deepEqual(s.byWallet.map((x) => [x.name, x.state, x.last7.copies]), [["coin buyer Prov", "off", 1], ["coin buyer Pro2", "rested on real", 5]]);
   assert.ok(!JSON.stringify(s).includes(P1) && !JSON.stringify(s).includes(P2), "names only in the public summary");
-  // half won, or its bad copies over a week old: not rested
-  _test.state().rows[_test.state().rows.length - 1].netSol = 0.001;
+  // ahead, or its bad copies over a week old: not rested
+  _test.state().rows[_test.state().rows.length - 1].netSol = 0.002;
   assert.equal(rested("coin buyer Pro2"), false);
+  _test.state().rows[_test.state().rows.length - 1].netSol = 0.0005;
   assert.equal(rested("coin buyer Pro2", now + 8 * 86_400_000), false);
+  // more than 0.02 SOL behind: rested at once, at any count
+  _test.state().rows.push(row("coin buyer Rug1", now, -0.0244));
+  _test.state().rows.push(row("coin buyer Rug2", now, -0.0199));
+  assert.deepEqual([rested("coin buyer Rug1"), rested("coin buyer Rug2")], [true, false]);
+  slow._test.reset();
+  slow._test.setCfg(null);
+  _test.reset();
+});
+
+test("real day-holder copy: real results come first: a real winner stays copied when paper drops it, unless a safety screen fails", async () => {
+  fresh({ ...CFG, follow: "proven" });
+  chain(() => 0.012);
+  slow._test.reset();
+  const W1 = "Win11111111111111111111111111111111111111111";
+  const W2 = "Win22222222222222222222222222222222222222222";
+  const W3 = "Win33333333333333333333333333333333333333333";
+  const P1 = "Prov1111111111111111111111111111111111111111";
+  const st = slow._test.state();
+  const paper = (wallet: string, name: string, i: number, back: number) => ({ wallet, name, mint: `c${i}`, seenMs: i, leaderSol: 1, entries: { e5: "10", e30: null, e300: null, e1800: null }, exits: { "e5-x5": back }, closed: "sold" as const });
+  // on paper: P1 proven; the three W wallets were copied on paper but are behind there now
+  for (let i = 0; i < 20; i++) st.recent.push(paper(P1, "coin buyer Prov", i, 0.3));
+  for (const [w, n] of [[W1, "coin buyer Win1"], [W2, "coin buyer Win2"], [W3, "coin buyer Win3"]]) for (let i = 0; i < 25; i++) st.recent.push(paper(w, n, i, 0.24));
+  // the scan: W1 and W2 read and not a program; W3 filed as a program
+  const ws = (bot?: boolean) => ({ name: "w", doneAt: Date.now(), newest: 0, txPerDay: 10, buysPerDay: 2, spanDays: 30, ...(bot ? { bot } : {}), swaps: [], late: {} });
+  st.wallets[W1] = ws();
+  st.wallets[W2] = ws();
+  st.wallets[W3] = ws(true);
+  st.wallets[P1] = ws();
+  slow._test.follow([P1]); // paper follows only P1 now
+  const row = (name: string, i: number, netSol: number, wallet?: string) => ({ t: Date.now() - i * 60_000, name, ...(wallet ? { wallet } : {}), mint: "x", leaderSol: 1, buy: "landed" as const, exit: "sold" as const, heldMin: 60, netSol, sigs: [] as string[] });
+  const rows = _test.state().rows;
+  // real: W1 six copies, ahead by one big winner (two won); W2 four copies ahead (too few); W3 five ahead but a program
+  for (let i = 0; i < 6; i++) rows.push(row("coin buyer Win1", i, i === 0 ? 0.03 : i === 1 ? 0.001 : -0.002));
+  for (let i = 0; i < 4; i++) rows.push(row("coin buyer Win2", i, 0.004, W2));
+  for (let i = 0; i < 5; i++) rows.push(row("coin buyer Win3", i, 0.004, W3));
+  _test.relist();
+  // real winners first, then the paper list
+  assert.deepEqual(wallets().map((w) => [w.address, w.by]), [[W1, "real"], [P1, "paper"]]);
+  // its buys are copied again
+  onSwap(swap(W2, B, true));
+  onSwap(swap(W3, B, true));
+  assert.equal(_test.state().opens.length, 0, "too few real copies / a program: not copied");
+  onSwap(swap(W1, A, true));
+  assert.equal(_test.state().opens.length, 1);
+  await wait(1500);
+  assert.equal(_test.state().opens[0].stage, "held");
+  // its open copy is not on the dropped-wallet clock
+  const t0 = Date.now();
+  sweep(t0);
+  sweep(t0 + 7 * 3_600_000);
+  await wait(300);
+  assert.deepEqual([_test.state().opens.length, _test.state().opens[0].offMs], [1, undefined]);
+  const s = slowLiveSummary();
+  assert.deepEqual([s.wallets, s.kept, s.rested], [["coin buyer Win1", "coin buyer Prov"], ["coin buyer Win1"], []]);
+  // by wallet: real winners first, each with its state
+  assert.deepEqual(s.byWallet.map((x) => [x.name, x.state, x.copies, x.won]), [
+    ["coin buyer Win1", "kept on real", 6, 2],
+    ["coin buyer Win3", "held back", 5, 5],
+    ["coin buyer Win2", "off", 4, 4],
+    ["coin buyer Prov", "on the paper list", 0, 0],
+  ]);
+  assert.ok(![W1, W2, W3, P1].some((a) => JSON.stringify(s).includes(a)), "names only in the public summary");
+  // a fifth winning copy brings W2 in (its address from its rows); W1 falls behind and is cut, and then its copy is on the clock
+  rows.push(row("coin buyer Win2", 0, 0.004, W2));
+  rows.push(row("coin buyer Win1", 0, -0.03));
+  _test.relist();
+  assert.deepEqual(wallets().map((w) => [w.address, w.by]), [[W2, "real"], [P1, "paper"]]);
+  assert.equal(rested("coin buyer Win1"), true);
+  sweep(t0 + 8 * 3_600_000);
+  assert.ok(_test.state().opens[0].offMs);
+  // not copyable by its late copies: a safety screen, so the real record does not override it
+  // a screen name two addresses share cannot be told apart: no address for it
+  assert.equal(slow.paperAddresses().get("coin buyer Prov"), P1);
+  st.recent.push(paper("Prov9999999999999999999999999999999999999999", "coin buyer Prov", 99, 0.3));
+  assert.equal(slow.paperAddresses().has("coin buyer Prov"), false);
+  st.recent.pop();
+  // the safety screens: read by the scan, not a program, not a flipper
+  assert.deepEqual([slow.copySafe(W2), slow.copySafe(W3), slow.copySafe("Unknown1111111111111111111111111111111111111")], [true, false, false]);
+  st.wallets[W2] = { ...ws(), fast: { trips: 90, holdMin: 5, sol: 1, wonPct: 60 } };
+  _test.relist();
+  assert.deepEqual(wallets().map((w) => w.address), [P1], "a flipper now: the real record does not override that");
   slow._test.reset();
   slow._test.setCfg(null);
   _test.reset();

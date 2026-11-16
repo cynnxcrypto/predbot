@@ -836,6 +836,30 @@ export function provenWallets(): { name: string; address: string; n: number; won
   return out.sort((a, b) => b.netSol - a.netSol);
 }
 /**
+ * For the real copy, which may keep a wallet on its own real record after paper drops it: the safety screens it must
+ * still pass. Read by the scan, not a program, not a flipper, and its late copies do not say it cannot be copied. The
+ * paper record and the rest of the screen (trips, both halves ahead, share won) are not asked here.
+ */
+export function copySafe(address: string) {
+  const w = state.wallets[address];
+  const x = reportOf(address);
+  return !!w && !!x && !w.bot && !w.fast && !x.bot && !x.fast && x.copyable !== false;
+}
+/**
+ * The address behind each screen name, from the paper copies. A name is the first letters of an address, so only a
+ * wallet copied on paper can be told apart; a name two addresses share is left out.
+ */
+export function paperAddresses() {
+  const m = new Map<string, string>();
+  for (const p of [...state.recent, ...state.open]) {
+    const a = m.get(p.name);
+    if (a === undefined) m.set(p.name, p.wallet);
+    else if (a !== p.wallet) m.set(p.name, "");
+  }
+  for (const [k, v] of m) if (!v) m.delete(k);
+  return m;
+}
+/**
  * Does it matter how many followed wallets are in a coin? Every closed paper copy (5 s in, 5 s out) by how many OTHER
  * followed wallets had bought that coin before this one and had not yet sold when it bought. The real copy lets a
  * second wallet's buy of a coin it holds go (one copy a coin), so this also says what those let-go buys were worth.
