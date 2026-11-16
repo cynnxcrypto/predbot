@@ -136,6 +136,8 @@ export function serveStatus(recorder: Recorder, build: string, others: Recorder[
         slow: slowDaysServed(),
         ruleRows: Array.isArray(bk?.real?.rows) ? (bk!.real!.rows as { t: number }[]) : null,
         perpRows: Array.isArray(bk?.perps?.real?.rows) ? (bk!.perps!.real!.rows as { t: number }[]) : null,
+        ruleDays: Array.isArray((bk?.real as { days?: unknown } | null | undefined)?.days) ? ((bk!.real as { days: { day: string; n: number; won: number; net: number }[] }).days) : null,
+        perpDays: Array.isArray((bk?.perps?.real as { days?: unknown } | null | undefined)?.days) ? ((bk!.perps!.real as { days: { day: string; n: number; won: number; net: number }[] }).days) : null,
       };
     },
   });

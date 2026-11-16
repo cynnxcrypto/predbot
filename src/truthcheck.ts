@@ -185,6 +185,8 @@ export type ServedDays = {
   slow: { day: string; n: number; won: number; netSol: number }[] | null;
   ruleRows: { t: number; buy?: string; heldMin?: number | null; netSol?: number | null }[] | null;
   perpRows: { t: number; filled?: boolean; netUsd?: number | null }[] | null;
+  ruleDays?: { day: string; n: number; won: number; net: number }[] | null;
+  perpDays?: { day: string; n: number; won: number; net: number }[] | null;
 };
 
 /** Adds a whole served day line (n trades, won of them, net). */
@@ -198,6 +200,10 @@ const addDay = (tab: DayTable, day: string, type: string, n: number, won: number
 /** Adds one trade. */
 const addCell = (tab: DayTable, day: string, type: string, net: number, won: boolean) => addDay(tab, day, type, 1, won ? 1 : 0, net);
 
+/** A net with no trade in it: the fees of a buy that never landed, as the books and the dashboard count them (16 Nov 2026). */
+function addFee(t: DayTable, day: string, type: string, net: number) {
+  if (net) addDay(t, day, type, 0, 0, net);
+}
 /**
  * Each Korean day's closed real trades, counted again from the raw rows by this file's own rules: a Polymarket bet is
  * closed when it was filled (shares > 0) and has a result, on the day it settled; tennis's resting bids (group
@@ -223,16 +229,21 @@ export function recountDays(raw: RawTrades): { cells: DayTable; all: DayTable; g
     const day = kstDay(Number(r?.t) + (Number(r?.heldMin) || 0) * 60_000);
     addCell(all, day, "spot copy", 0, false);
     if (r.buy === "landed") addCell(cells, day, "spot copy", Number(r.netSol) || 0, (Number(r.netSol) || 0) > 0);
+    else addFee(cells, day, "spot copy", Number(r.netSol) || 0);
   }
   for (const r of raw.rules) {
+    if ((r as { rule?: string }).rule === "test-once") continue;
     const day = kstDay(Number(r?.t));
     addCell(all, day, "spot rules", 0, false);
     if (r.buy === "landed") addCell(cells, day, "spot rules", Number(r.netSol) || 0, (Number(r.netSol) || 0) > 0);
+    else addFee(cells, day, "spot rules", Number(r.netSol) || 0);
   }
   for (const r of raw.perps) {
+    if ((r as { rule?: string }).rule === "test-once") continue;
     const day = kstDay(Number(r?.t));
     addCell(all, day, "perps", 0, false);
-    if (r.filled) addCell(cells, day, "perps", Number(r.netUsd) || 0, (Number(r.netUsd) || 0) > 0);
+    if (r.filled !== false) addCell(cells, day, "perps", Number(r.netUsd) || 0, (Number(r.netUsd) || 0) > 0);
+    else addFee(cells, day, "perps", Number(r.netUsd) || 0);
   }
   return { cells, all, groups };
 }
@@ -252,9 +263,11 @@ export function servedDayCells(s: ServedDays): { cells: DayTable; notRead: strin
   }
   if (!s.slow) notRead.push("spot copy");
   else for (const d of s.slow) if (d && Number(d.n)) addDay(cells, d.day, "spot copy", Number(d.n), Number(d.won) || 0, Number(d.netSol) || 0);
-  if (!s.ruleRows) notRead.push("spot rules");
+  if (s.ruleDays) for (const d of s.ruleDays) addDay(cells, d.day, "spot rules", Number(d.n) || 0, Number(d.won) || 0, Number(d.net) || 0);
+  else if (!s.ruleRows) notRead.push("spot rules");
   else for (const x of s.ruleRows) if (x?.buy === "landed" && x.heldMin != null && x.netSol != null) addCell(cells, kstDay(Number(x.t) + (Number(x.heldMin) || 0) * 60_000), "spot rules", Number(x.netSol) || 0, Number(x.netSol) > 0);
-  if (!s.perpRows) notRead.push("perps");
+  if (s.perpDays) for (const d of s.perpDays) addDay(cells, d.day, "perps", Number(d.n) || 0, Number(d.won) || 0, Number(d.net) || 0);
+  else if (!s.perpRows) notRead.push("perps");
   else for (const x of s.perpRows) if (x?.filled !== false && x?.netUsd != null) addCell(cells, kstDay(Number(x.t)), "perps", Number(x.netUsd) || 0, Number(x.netUsd) > 0);
   return { cells, notRead };
 }
