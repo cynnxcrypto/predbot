@@ -29,7 +29,9 @@ export const SCREEN_PER_DAY = 1500;
 export const RESCREEN_DAYS = 7;
 const PERIODS = ["month", "week", "all"];
 const pause = (ms: number) => new Promise((r) => setTimeout(r, ms));
-export const PROMOTE_N = 20;
+export const PROMOTE_N = 40;
+/** a wallet that is real stays real while its paper record of KEEP_N+ bets holds (16 Nov 2026: going real needs PROMOTE_N, twice as many, after three wallets promoted on 22-31 paper bets lost their first real copies) */
+export const KEEP_N = 20;
 export const DROP_DAYS = 14;
 export const DROP_N = 10;
 const DATA = "https://data-api.polymarket.com";
@@ -99,17 +101,20 @@ export function paperResult(trades: PaperTrade[], rule: string) {
 /** Promotions and drops for the auto wallets. Mutates and returns log lines. Pure apart from the state passed in. */
 /** A wallet is on paper at least this long before it can go real, and again after a demotion. */
 export const PAPER_MIN_MS = 24 * 3600_000;
-export function copyPromote(s: AutoState, trades: PaperTrade[], now: number): string[] {
+export function copyPromote(s: AutoState, trades: PaperTrade[], now: number, real?: (rule: string) => { n: number; net: number }): string[] {
   const out: string[] = [];
   for (const w of s.wallets) {
     if (w.stage !== "paper" && w.stage !== "real") continue;
     const r = paperResult(trades, `copy-take-${w.name}`);
-    const meets = r.n >= PROMOTE_N && r.won * 2 >= r.n && r.net > 0;
+    const meets = r.n >= (w.stage === "real" ? KEEP_N : PROMOTE_N) && r.won * 2 >= r.n && r.net > 0;
     // 15 Nov 2026, enrique: "decide what to keep and what to demote and what to promote", recurrently. A real wallet
     // whose paper record (it keeps running beside the real copies) no longer meets the bar goes back to paper, and a
     // wallet waits a day on paper before it can go real (again): hours of luck are not a record.
     if (w.stage === "real") {
-      if (!meets) {
+      // real outranks paper (enrique, 16 Nov 2026: "real is more important"): a wallet whose own real copies are
+      // ahead is not sent back on its paper record; a wallet whose real copies are behind is cut in src/eventlive.ts
+      const rr = real?.(`copy-take-${w.name}`);
+      if (!meets && !(rr && rr.n > 0 && rr.net > 0)) {
         w.stage = "paper";
         w.demotedAt = now;
         out.push(`${w.name} back to PAPER: paper ${r.won} of ${r.n} won, $${r.net.toFixed(2)}`);

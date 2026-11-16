@@ -85,7 +85,7 @@ export type EventLiveRow = {
  *  Polymarket does) until it is finished; only the filled shares are paid for. */
 export const spentOf = (r: { status: string | null; shares: number; ask: number; cost: number }) => (r.status === "resting" ? Math.round(r.shares * r.ask * 1e6) / 1e6 : r.cost);
 const held = (r: EventLiveRow) => r.shares > 0 || r.status === "unknown" || r.status === "resting" || (r.status === "delayed" && r.pnl == null);
-export type EventLiveGroup = { rules: string[]; size: number; maxAsk: number; minDepth: number; dayLosses: number; maxOpen: number; maxLoss: number; negRisk: boolean; maxSize: number; maxDays: number; perWallet: number; stopNet: number; openUsd: number; walletUsd: number; adaptN: number; adaptStop: number; adaptBoost: number; steps: "" | "wallet" | "rule" };
+export type EventLiveGroup = { rules: string[]; size: number; maxAsk: number; minDepth: number; dayLosses: number; maxOpen: number; maxLoss: number; negRisk: boolean; maxSize: number; maxDays: number; perWallet: number; stopNet: number; openUsd: number; walletUsd: number; adaptN: number; adaptStop: number; adaptBoost: number; steps: "" | "wallet" | "rule"; cutN: number; cutLoss: number; probationN: number; houseUsd: number };
 export type EventLiveConfig = { mode: string; minBalance: number; lossCap?: LossCap; groups: Record<string, EventLiveGroup> };
 
 /** No single real event bet is ever larger than this (13 Nov 2026, enrique: "Min $3 max $10"). */
@@ -110,7 +110,7 @@ export function parseEventLive(repoText: string, local: { mode?: string; funder?
     const size = Math.min(MAX_STAKE, num(v.size, 0));
     if (!rules.length || !(size >= 1)) continue;
     const maxSize = Math.min(MAX_STAKE, Math.max(size, num(v.maxSize, size)));
-    groups[g] = { rules, size, maxAsk: Math.min(0.99, num(v.maxAsk, 0.96)), minDepth: Math.max(0, num(v.minDepth, 25)), dayLosses: Math.max(1, Math.floor(num(v.dayLosses, 2))), maxOpen: Math.max(1, Math.floor(num(v.maxOpen, 4))), maxLoss: Math.max(0, num(v.maxLoss, 12)), negRisk: v.negRisk === true, maxSize, maxDays: Math.max(0, num(v.maxDays, 0)), perWallet: Math.max(0, Math.floor(num(v.perWallet, 0))), stopNet: Math.max(0, num(v.stopNet, 0)), openUsd: Math.max(0, num(v.openUsd, 0)), walletUsd: Math.max(0, num(v.walletUsd, 0)), adaptN: Math.max(0, Math.floor(num(v.adaptN, 0))), adaptStop: Math.max(0, num(v.adaptStop, 0)), adaptBoost: Math.min(3, Math.max(1, num(v.adaptBoost, 1))), steps: v.steps === "wallet" || v.steps === "rule" ? v.steps : "" };
+    groups[g] = { rules, size, maxAsk: Math.min(0.99, num(v.maxAsk, 0.96)), minDepth: Math.max(0, num(v.minDepth, 25)), dayLosses: Math.max(1, Math.floor(num(v.dayLosses, 2))), maxOpen: Math.max(1, Math.floor(num(v.maxOpen, 4))), maxLoss: Math.max(0, num(v.maxLoss, 12)), negRisk: v.negRisk === true, maxSize, maxDays: Math.max(0, num(v.maxDays, 0)), perWallet: Math.max(0, Math.floor(num(v.perWallet, 0))), stopNet: Math.max(0, num(v.stopNet, 0)), openUsd: Math.max(0, num(v.openUsd, 0)), walletUsd: Math.max(0, num(v.walletUsd, 0)), adaptN: Math.max(0, Math.floor(num(v.adaptN, 0))), adaptStop: Math.max(0, num(v.adaptStop, 0)), adaptBoost: Math.min(3, Math.max(1, num(v.adaptBoost, 1))), steps: v.steps === "wallet" || v.steps === "rule" ? v.steps : "", cutN: Math.max(0, Math.floor(num(v.cutN, 0))), cutLoss: Math.max(0, num(v.cutLoss, 0)), probationN: Math.max(0, Math.floor(num(v.probationN, 0))), houseUsd: Math.max(0, num(v.houseUsd, 0)) };
   }
   const since = typeof repo.lossCap?.since === "number" ? repo.lossCap.since : Date.parse(String(repo.lossCap?.since ?? ""));
   const maxLoss = Number(repo.lossCap?.maxLoss);
@@ -160,10 +160,18 @@ export function eventLiveBlock(cfg: EventLiveConfig, group: string, rule: string
   // a stepped-up wallet may have four of its stakes open
   const walletCap = g.steps ? Math.max(g.walletUsd, 4 * bet) : g.walletUsd;
   if (g.walletUsd > 0 && ruleUsd + bet > walletCap + 1e-9) return `$${ruleUsd.toFixed(2)} open on this wallet + $${bet.toFixed(2)} would pass its $${g.walletUsd} stake cap`;
-  const pb = paperBehind.get(rule);
-  if (group === "copy" && pb) return `back to paper: its paper record (${pb}) is under the bar`;
+  // REAL OUTRANKS PAPER (enrique, 16 Nov 2026 11:04 KST: "real is more important", "why the fuck were u not looking at
+  // real trades to decide if we should cut loser or not"). The rule's own settled real bets decide first: cut when
+  // they say so (ruleAdapt), and a rule whose real bets are AHEAD is not held back by its paper record. Paper decides
+  // only while the real record has nothing good to say (no real bets yet, or not ahead).
   const ad = ruleAdapt(g, rows.filter((r) => r.group === group), rule);
-  if (ad.state === "paper") return `back to paper: $${ad.net.toFixed(2)} on its first ${ad.n}+ settled real bets`;
+  if (ad.state === "paper") return `back to paper: $${ad.net.toFixed(2)} on its ${ad.n} settled real bets`;
+  const pb = paperBehind.get(rule);
+  if (group === "copy" && pb && !(ad.net > 0)) return `back to paper: its paper record (${pb}) is under the bar`;
+  // WHAT A RULE MAY RISK (houseUsd): its open stakes may not pass houseUsd plus what its settled real bets have made
+  // (less what they lost). A new wallet can so have houseUsd at risk and no more, a wallet that wins for us earns
+  // more room with its own winnings (up to walletUsd), and no wallet can cost much more than houseUsd in all.
+  if (g.houseUsd > 0 && ruleUsd + bet > Math.max(0, g.houseUsd + ad.net) + 1e-9) return `$${ruleUsd.toFixed(2)} open on this wallet + $${bet.toFixed(2)} would pass what it may risk ($${g.houseUsd} and its real result of $${ad.net.toFixed(2)})`;
   const settled = mine.filter((r) => r.pnl != null);
   const net = settled.reduce((s, r) => s + (r.pnl ?? 0), 0);
   // The group's own budget (10 Nov 2026, enrique: "tennis should have its own little budget"): money lost so far plus
@@ -199,7 +207,17 @@ export function paperGate(rules: string[], trades: { rule: string; pnl?: number 
 let paperBehind = new Map<string, string>();
 export const setPaperBehind = (m: Map<string, string>) => void (paperBehind = m);
 /** Status: the copied wallets held on paper by their paper record (rule -> record). */
-export const paperBehindStatus = () => Object.fromEntries(paperBehind);
+export const paperBehindStatus = () => {
+  const rows = eventLiveRows().filter((r) => r.group === "copy");
+  return Object.fromEntries([...paperBehind].filter(([rule]) => !(realRecordOf(rows, rule).net > 0)));
+};
+/** A rule's own settled real bets: how many and what they made. Pure. */
+export function realRecordOf(rows: EventLiveRow[], rule: string): { n: number; net: number } {
+  const s = rows.filter((r) => r.rule === rule && r.shares > 0 && r.pnl != null);
+  return { n: s.length, net: Math.round(s.reduce((a, r) => a + (r.pnl ?? 0), 0) * 100) / 100 };
+}
+/** The same from the real rows on disk, for one group. */
+export const realRecord = (group: string, rule: string) => realRecordOf(eventLiveRows().filter((r) => r.group === group), rule);
 
 /**
  * SIZE UP WHAT WORKS (enrique, 15 Nov 2026 17:40 KST: "when something actually works, remember to size up in a way
@@ -252,6 +270,12 @@ export function sizeStep(g: EventLiveGroup, rows: EventLiveRow[], rule: string, 
 export function ruleAdapt(g: EventLiveGroup, rows: EventLiveRow[], rule: string): { state: "off" | "learning" | "up" | "flat" | "paper"; n: number; net: number } {
   const s = rows.filter((r) => r.rule === rule && r.shares > 0 && r.pnl != null);
   const net = Math.round(s.reduce((a, r) => a + (r.pnl ?? 0), 0) * 100) / 100;
+  // THE CUT ON THE REAL RECORD (enrique, 16 Nov 2026 11:01 KST: "why the fuck arent we cutting bad traders copied
+  // out?"). A rule goes back to paper AT ONCE when its own settled real bets are cutLoss dollars down or worse,
+  // whatever their number, or behind at all after cutN or more of them. It returns only if bets still open settle it
+  // back above the line; otherwise a review or enrique decides.
+  if (g.cutLoss > 0 && net <= -g.cutLoss + 1e-9) return { state: "paper", n: s.length, net };
+  if (g.cutN > 0 && s.length >= g.cutN && net < 0) return { state: "paper", n: s.length, net };
   if (!(g.adaptN > 0)) return { state: "off", n: s.length, net };
   if (s.length < g.adaptN) return { state: "learning", n: s.length, net };
   if (g.adaptStop > 0 && net <= -g.adaptStop + 1e-9) return { state: "paper", n: s.length, net };
@@ -262,7 +286,7 @@ export function eventLiveAdapt(group: string) {
   const g = eventLiveConfig().groups[group];
   if (!g || !(g.adaptN > 0)) return null;
   const rows = eventLiveRows().filter((r) => r.group === group);
-  return { n: g.adaptN, stop: g.adaptStop, boost: g.adaptBoost, steps: g.steps || null, rules: g.rules.map((rule) => ({ rule, ...ruleAdapt(g, rows, rule), ...(g.steps ? { sizeX: Math.round(sizeStep(g, rows, rule, STEP_TRADER_USD).mult * 100) / 100, stepWhy: sizeStep(g, rows, rule, STEP_TRADER_USD).why } : {}) })) };
+  return { n: g.adaptN, stop: g.adaptStop, boost: g.adaptBoost, cutN: g.cutN, cutLoss: g.cutLoss, probationN: g.probationN, houseUsd: g.houseUsd, steps: g.steps || null, rules: g.rules.map((rule) => ({ rule, ...ruleAdapt(g, rows, rule), ...(g.steps ? { sizeX: Math.round(sizeStep(g, rows, rule, STEP_TRADER_USD).mult * 100) / 100, stepWhy: sizeStep(g, rows, rule, STEP_TRADER_USD).why } : {}) })) };
 }
 
 export const NEG_READY_FILE = "negrisk-ready.json";
@@ -337,7 +361,17 @@ export async function eventLiveBuy(group: string, p: { rule: string; marketId: s
     const boost = g.steps ? sizeStep(g, rows.filter((r) => r.group === group), p.rule, p.usual).mult : ruleAdapt(g, rows.filter((r) => r.group === group), p.rule).state === "up" ? g.adaptBoost : 1;
     const want = (p.stake ?? g.size) * boost;
     const top = g.steps ? Math.max(g.maxSize, g.size) * boost : g.maxSize;
-    const stake = p.stake == null && boost === 1 ? g.size : Math.round(Math.min(top, Math.max(g.size, want)) * 100) / 100;
+    // ON PROBATION (16 Nov 2026): a rule bets the base size, however big the trader's bet was, until its own real
+    // record is ahead after probationN or more settled bets (a wallet promoted hours before lost $7.42 on its first
+    // real copy). Only a wallet that has won for us is sized by the trader's bet.
+    const mineRec = realRecordOf(rows.filter((r) => r.group === group), p.rule);
+    const proven = !(g.probationN > 0) || (mineRec.n >= g.probationN && mineRec.net > 0);
+    let stake = !proven || (p.stake == null && boost === 1) ? g.size : Math.round(Math.min(top, Math.max(g.size, want)) * 100) / 100;
+    if (g.houseUsd > 0 && stake > g.size) {
+      // a bigger bet is cut down to the room the wallet has left (never under the base size: the guard below decides that)
+      const openMine = rows.filter((r) => r.group === group && r.rule === p.rule && r.pnl == null && held(r)).reduce((a, r) => a + r.cost, 0);
+      stake = Math.max(g.size, Math.min(stake, Math.floor((g.houseUsd + mineRec.net - openMine) * 100) / 100));
+    }
     const why = eventLiveBlock(cfg, group, p.rule, p.marketId, p.ask, p.depth, p.fillable, rows, Date.now(), stake, p.resolveAt);
     if (why) return why;
     if (!p.conditionId) return "no condition id";

@@ -190,6 +190,28 @@ test("per-wallet automatic rule: learning to 10 settled, back to paper at -$10, 
   const ten = [...nine, r("a", -2, 9)];
   assert.deepEqual(ruleAdapt(g, ten, "a"), { state: "paper", n: 10, net: -20 });
   assert.match(eventLiveBlock(cfg, "copy", "a", "new", 0.5, 10, true, ten, NOW5, 3)!, /back to paper/);
+  // the cut on the real record: at once at cutLoss down, or behind at all after cutN settled
+  const gc = { ...g, cutN: 5, cutLoss: 6 };
+  assert.equal(ruleAdapt(gc, [r("a", -3, 0)], "a").state, "learning");
+  assert.deepEqual(ruleAdapt(gc, [r("a", -3, 0), r("a", -3.2, 1)], "a"), { state: "paper", n: 2, net: -6.2 });
+  assert.equal(ruleAdapt(gc, [r("a", -7.6, 0)], "a").state, "paper", "one big loss is enough");
+  const five = [r("a", 2, 0), r("a", -1, 1), r("a", -1, 2), r("a", -1, 3)];
+  assert.equal(ruleAdapt(gc, five, "a").state, "learning");
+  assert.equal(ruleAdapt(gc, [...five, r("a", 0.5, 4)], "a").state, "paper", "behind after 5 settled");
+  assert.equal(ruleAdapt(gc, [...five, r("a", 1.5, 4)], "a").state, "learning", "ahead after 5: stays");
+  const pc = parseEventLive(JSON.stringify({ mode: "live", events: { copy: { rules: ["a"], size: 3, cutN: 5, cutLoss: 6, probationN: 5, houseUsd: 9 } } }), { funder: "0x1" }).groups.copy;
+  assert.deepEqual([pc.cutN, pc.cutLoss, pc.probationN, pc.houseUsd], [5, 6, 5, 9]);
+  // what a wallet may risk: $9 and what its settled real bets made; winnings earn room, losses take it away
+  const hc = { ...cfg, groups: { copy: { ...g, cutN: 5, cutLoss: 6, houseUsd: 9, walletUsd: 40 } } };
+  const open = (rule: string, i: number, cost = 3) => ({ ...r(rule, null, 100 + i), cost });
+  assert.equal(eventLiveBlock(hc, "copy", "b", "new", 0.5, 10, true, [open("b", 0), open("b", 1)], NOW5, 3), null, "a new wallet: three $3 bets open");
+  assert.match(eventLiveBlock(hc, "copy", "b", "new", 0.5, 10, true, [open("b", 0), open("b", 1), open("b", 2)], NOW5, 3)!, /would pass what it may risk \(\$9 and its real result of \$0\.00\)/);
+  assert.equal(eventLiveBlock(hc, "copy", "b", "new", 0.5, 10, true, [r("b", 10, 0), ...Array.from({ length: 5 }, (_, i) => open("b", i))], NOW5, 3), null, "$10 won: $19 may be open");
+  assert.match(eventLiveBlock(hc, "copy", "b", "new", 0.5, 10, true, [r("b", 10, 0), ...Array.from({ length: 6 }, (_, i) => open("b", i))], NOW5, 3)!, /may risk/);
+  assert.match(eventLiveBlock(hc, "copy", "b", "new", 0.5, 10, true, [r("b", -3.5, 0), open("b", 0)], NOW5, 3)!, /may risk/, "$3.50 lost: one $3 bet at a time");
+  assert.equal(eventLiveBlock(hc, "copy", "b", "new", 0.5, 10, true, [r("b", -3.5, 0)], NOW5, 3), null);
+  assert.match(eventLiveBlock(hc, "copy", "b", "new", 0.5, 10, true, [r("b", -3.5, 0), r("b", -3, 1)], NOW5, 3)!, /back to paper: \$-6\.50 on its 2 settled real bets/);
+  assert.equal(eventLiveBlock(hc, "copy", "a", "new", 0.5, 10, true, [r("b", -3.5, 0), r("b", -3, 1)], NOW5, 3), null, "the other wallet is not touched");
   // the paper record gate: 20+ settled paper bets not ahead, or under half won, hold the wallet's new real copies
   const pt = (rule: string, n: number, wonN: number, each: number) => Array.from({ length: n }, (_, i) => ({ rule, pnl: i < wonN ? each : -each, won: i < wonN }));
   const gate = paperGate(["x1", "a", "b", "x4"], [...pt("x1", 19, 0, 1), ...pt("a", 20, 9, 1), ...pt("b", 20, 12, 1), ...pt("x4", 20, 12, 1), { rule: "x4", pnl: -9, won: false }, { rule: "b", pnl: -50, won: false, fillable: false }]);
@@ -197,6 +219,10 @@ test("per-wallet automatic rule: learning to 10 settled, back to paper at -$10, 
   setPaperBehind(gate);
   assert.match(eventLiveBlock(cfg, "copy", "a", "new", 0.5, 10, true, [], NOW5, 3)!, /paper record \(9 of 20 won/);
   assert.doesNotMatch(String(eventLiveBlock(cfg, "copy", "b", "new", 0.5, 10, true, [], NOW5, 3)), /paper record/);
+  // real outranks paper: a wallet whose own real bets are ahead is not held by its paper record; behind or none, it is
+  assert.equal(eventLiveBlock(cfg, "copy", "a", "new", 0.5, 10, true, [r("a", 2, 0)], NOW5, 3), null, "real ahead: trades");
+  assert.match(eventLiveBlock(cfg, "copy", "a", "new", 0.5, 10, true, [r("a", -1, 0)], NOW5, 3)!, /paper record/);
+  assert.match(eventLiveBlock(cfg, "copy", "a", "new", 0.5, 10, true, [r("a", 2, 0), r("a", -2, 1)], NOW5, 3)!, /paper record/, "level is not ahead");
   setPaperBehind(new Map());
   // size steps: from our own settled real copies; the trader's money gates the steps above x2; a bad run steps down
   const gs = { ...g, steps: "wallet" as const, size: 3 };
@@ -251,7 +277,7 @@ test("daily wallet rescan: the screen, weekly profit, promotion to real and drop
   ] };
   const tr = (rule: string, pnl: number) => ({ rule, pnl, won: pnl > 0, fillable: true });
   const trades = [
-    ...Array.from({ length: 20 }, (_, i) => tr("copy-take-good", i < 11 ? 1 : -1)),
+    ...Array.from({ length: 40 }, (_, i) => tr("copy-take-good", i < 22 ? 1 : -1)),
     ...Array.from({ length: 10 }, () => tr("copy-take-bad", -1)),
     ...Array.from({ length: 10 }, () => tr("copy-take-young", -1)),
   ];
@@ -260,7 +286,9 @@ test("daily wallet rescan: the screen, weekly profit, promotion to real and drop
   assert.deepEqual(st.wallets.map((w) => w.stage), ["real", "dropped", "paper"]);
   // 15 Nov 2026: a real wallet whose paper record falls under the bar goes back to paper, and waits a day there
   const worse = [...trades, ...Array.from({ length: 5 }, () => tr("copy-take-good", -1))];
-  assert.match(copyPromote(st, worse, NOW6 + 3600_000)[0], /good back to PAPER/);
+  assert.equal(copyPromote(st, worse, NOW6 + 3600_000, () => ({ n: 3, net: 4.2 })).length, 0, "real copies ahead: its paper record does not send it back");
+  assert.equal(st.wallets[0].stage, "real");
+  assert.match(copyPromote(st, worse, NOW6 + 3600_000, () => ({ n: 3, net: -1 }))[0], /good back to PAPER/);
   assert.equal(st.wallets[0].stage, "paper");
   assert.equal(copyPromote(st, trades, NOW6 + 2 * 3600_000).length, 0); // meets the bar again, but not a day on paper yet
   assert.equal(st.wallets[0].stage, "paper");
