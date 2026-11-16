@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { flowsBetween, repairClaims, unclaimedAt, winSpans, worthWindows, type Comp, type Flow } from "./worthdash.js";
+import { flowsBetween, repairClaims, unclaimedAt, kstMidnight, winSpans, worthToday, worthWindows, type Comp, type Flow } from "./worthdash.js";
 
 test("worth: a won bet waiting for its claim is counted, and its claim is not a deposit", () => {
   const H = 3_600_000;
@@ -74,4 +74,36 @@ test("worth windows: the public status gives the page's own 1 h, 24 h, 7 d and s
   assert.deepEqual(worthWindows(day, 607.9, now), page(day, 607.9, now));
   assert.deepEqual(worthWindows(day, 607.9, now).map((x) => [x.k, x.usd]), [["1h", -2.1], ["24h", -2.1]]);
   assert.deepEqual(worthWindows([[now, 600]], 600, now), []);
+});
+test("worth today: the real worth change since 00:00 KST, against the last sample at or before midnight", () => {
+  const H = 3_600_000;
+  // 16 Nov 2026 17:15 KST = 08:15 UTC; midnight KST = 15 Nov 15:00 UTC
+  const now = Date.UTC(2026, 10, 16, 8, 15);
+  const mid = Date.UTC(2026, 10, 15, 15, 0);
+  assert.equal(kstMidnight(now), mid);
+  assert.equal(kstMidnight(mid), mid); // midnight itself starts the new day
+  assert.equal(kstMidnight(mid - 1), mid - 24 * H);
+  // hourly estimates the day before, then a sample every 2 minutes from 22:00 KST
+  const h: ([number, number] | [number, number, 1])[] = [];
+  for (let t = mid - 30 * H; t < mid - 2 * H; t += H) h.push([t, 650, 1]);
+  for (let t = mid - 2 * H, i = 0; t <= now; t += 120_000, i++) h.push([t, t <= mid ? 627.4 + (t === mid - 120_000 ? 0.1 : 0) : 610]);
+  const w = worthToday(h, 607.9, now)!;
+  assert.equal(w.from, mid);
+  assert.equal(w.at, mid); // the sample at midnight itself
+  assert.equal(w.usd, -19.5);
+  assert.equal(w.est, false);
+  // no sample at midnight: the last one before it
+  const gap = h.filter((p) => p[0] < mid - 60 * 60_000 || p[0] > mid + 30 * 60_000);
+  const g = worthToday(gap, 607.9, now)!;
+  assert.equal(g.at, mid - 62 * 60_000);
+  assert.equal(g.usd, -19.5);
+  // only hourly estimates before midnight: shown as an estimate
+  const est = h.filter((p) => p[0] < mid - 2 * H || p[0] > mid);
+  assert.equal(worthToday(est, 607.9, now)!.est, true);
+  assert.equal(worthToday(est, 607.9, now)!.usd, -42.1);
+  // samples began after midnight: the first sample, and at says so
+  const late = h.filter((p) => p[0] >= mid + 3 * H);
+  assert.equal(worthToday(late, 607.9, now)!.at, mid + 3 * H);
+  assert.equal(worthToday(late, 607.9, now)!.usd, -2.1);
+  assert.equal(worthToday([], 607.9, now), null);
 });

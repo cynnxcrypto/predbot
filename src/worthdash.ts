@@ -140,6 +140,34 @@ export function worthWindows(h: Point[], total: number, now: number): { k: strin
   if (!out.length || out[out.length - 1].b !== h[0]) out.push({ k: "since", usd: Math.round((total - h[0][1]) * 100) / 100, est: h[0][2] === 1, from: h[0][0], b: h[0] });
   return out.map(({ k, usd, est, from }) => ({ k, usd, est, from }));
 }
+/** 00:00 KST (UTC+9) of the day that holds `now`. */
+export function kstMidnight(now: number): number {
+  return Math.floor((now + 9 * 3_600_000) / 86_400_000) * 86_400_000 - 9 * 3_600_000;
+}
+/**
+ * TODAY = the real worth change since 00:00 KST (16 Nov 2026, enrique: "and whats the real since midnight? like the
+ * today ... im just wondering if that is correct"). The cards' "today" counts bets settled today at their full profit,
+ * so a bet that had already risen before midnight shows its whole win today; at 17:15 KST they said +$14.66 while the
+ * worth had fallen about $19.50. This is the worth now against the last sample at or before midnight, deposits and
+ * withdrawals left out, every sample kept (not the page's thinned series). at = that sample's time: later than `from`
+ * only when no sample before midnight exists, and then the change covers less than the day. Pure.
+ */
+export function worthToday(h: Point[], total: number, now: number): { usd: number; est: boolean; from: number; at: number } | null {
+  if (!h.length) return null;
+  const T = kstMidnight(now);
+  let b = h[0];
+  for (const p of h) {
+    if (p[0] <= T) b = p;
+    else break;
+  }
+  return { usd: Math.round((total - b[1]) * 100) / 100, est: b[2] === 1, from: T, at: b[0] };
+}
+/** Every sample, spikes taken out as the page does, deposits and withdrawals left out. */
+function fullSeries(): Point[] {
+  if (!hist) return [];
+  const first = hist.length ? hist[0][0] : Infinity;
+  return netOfFlows<Point>([...back.filter((p) => p[0] < first), ...despike(hist)], flows);
+}
 /** For the public status: no balance and no deposit in it, only what the repair took off and the results (changes in
  * dollars, never the worth itself and never a percentage, which would give the worth away). */
 export function worthCheck() {
@@ -147,7 +175,9 @@ export function worthCheck() {
   const series = netOfFlows([...back.filter((p) => p[0] < (hist![0]?.[0] ?? Infinity)), ...hist] as [number, number][], flows);
   const T = Date.now() - 86_400_000;
   const base = [...series].reverse().find((p) => p[0] <= T);
-  const windows = Object.fromEntries(worthWindows(pageSeries(), memo.v.total, Date.now()).map((w) => [w.k, { usd: w.usd, est: w.est, from: w.from }]));
+  const windows: Record<string, { usd: number; est: boolean; from: number; at?: number }> = Object.fromEntries(worthWindows(pageSeries(), memo.v.total, Date.now()).map((w) => [w.k, { usd: w.usd, est: w.est, from: w.from }]));
+  const today = worthToday(fullSeries(), memo.v.total, Date.now());
+  if (today) windows.today = today;
   return { claimStepsTakenForDeposits: fix?.removed ?? null, thatWasUsd: fix?.removedUsd ?? null, wonWaitingForClaimUsd: unclaimedAt(loadSpans(), Date.now()), change24hUsd: base ? Math.round((memo.v.total - base[1]) * 100) / 100 : null, flows24h: flows.filter((f) => f[0] > T).length, windows, worthAt: memo.at };
 }
 let memo: { at: number; v: Worth } | null = null;
