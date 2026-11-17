@@ -53,7 +53,7 @@ export const autoFollowed = (s = autoState()) => s.wallets.filter((w) => w.stage
 export const autoRealRules = (s = autoState()) => s.wallets.filter((w) => w.stage === "real").map((w) => `copy-take-${w.name}`);
 
 type PnlPoint = { timestamp?: number; economic_pnl?: number; unrealized_pnl?: number };
-type Act = { type?: string; side?: string; timestamp?: number | string; usdc_size?: number | string; usdcSize?: number | string; title?: string; price?: number | string; size?: number | string };
+type Act = { type?: string; side?: string; timestamp?: number | string; usdc_size?: number | string; usdcSize?: number | string; title?: string; price?: number | string; size?: number | string; outcome?: string; conditionId?: string; condition_id?: string };
 
 /** Weekly profit over the last 4 weeks from daily cumulative points (economic + unrealized), newest week last. */
 export function weeklyPnl(points: PnlPoint[], now: number): number[] | null {
@@ -90,13 +90,21 @@ export const MIN_VALUE_USD = 5000;
 const tsMs = (r: Act) => (Number(r.timestamp) > 1e12 ? Number(r.timestamp) : Number(r.timestamp) * 1000);
 /** Median size in dollars of the wallet's buys of the last 7 days; null when it made none. */
 export function medianBuy(acts: Act[], now: number): number | null {
-  const usd = acts
-    .filter((r) => r.type === "TRADE" && String(r.side ?? "").toUpperCase() === "BUY" && tsMs(r) >= now - 7 * 86400_000)
-    .map((r) => Number(r.usdc_size ?? r.usdcSize ?? Number(r.price) * Number(r.size)))
-    .filter((x) => x > 0)
-    .sort((a, b) => a - b);
+  // per market side, not per fill: a big bettor's order arrives as many small fills (18 Nov 2026: four wallets with
+  // $150k-$500k in positions were dropped for a "usual buy" of $9-$19)
+  const by = new Map<string, number>();
+  for (const r of acts) {
+    if (r.type !== "TRADE" || String(r.side ?? "").toUpperCase() !== "BUY" || tsMs(r) < now - 7 * 86400_000) continue;
+    const x = Number(r.usdc_size ?? r.usdcSize ?? Number(r.price) * Number(r.size));
+    if (!(x > 0)) continue;
+    const k = `${r.conditionId ?? r.condition_id ?? r.title ?? ""}|${r.outcome ?? ""}`;
+    by.set(k, (by.get(k) ?? 0) + x);
+  }
+  const usd = [...by.values()].sort((a, b) => a - b);
   return usd.length ? usd[usd.length >> 1] : null;
 }
+/** Wallets dropped as too small since the size floors began are measured once more: the first measure counted fills, not bets. */
+const SMALL_DROP_FROM = Date.UTC(2026, 10, 17, 14);
 /** Dollars in open positions out of a data API value answer; null when unreadable. */
 export function valueOf(j: unknown): number | null {
   const x = Array.isArray(j) ? j[0] : ((j as { data?: unknown } | null)?.data ?? j);
@@ -186,7 +194,7 @@ const nameFor = (user: string | undefined, address: string, taken: Set<string>) 
  * `get` = the JSON fetcher. Adds at most ADD_PER_DAY wallets. Never throws.
  */
 /** Is a scan due: a day since the last finished one, or the first one of this (wider) version. */
-export const SCAN_VER = 3;
+export const SCAN_VER = 4;
 export const scanDue = (now = Date.now(), s = autoState()) => s.ver !== SCAN_VER || now - s.lastScan > 24 * 3600_000;
 /** Load the file fresh, change it, save it: the scan runs for a long time next to the promotions. */
 function commit(f: (s: AutoState) => void) {
@@ -228,7 +236,8 @@ export async function copyScan(followed: { name: string; address: string }[], ow
     // every wallet already followed is measured first (positions and usual buy, 2 calls each), so the status shows
     // what each one has at stake; a rescan wallet still on PAPER that is too small is dropped, which frees its place.
     // Wallets copied with real money are only measured: cutting one is decided on its real record or by enrique.
-    for (const w of [...followed, ...autoFollowed(s0)]) {
+    const again = s0.wallets.filter((w) => w.stage === "dropped" && (w.droppedAt ?? 0) >= SMALL_DROP_FROM && (s0.sizes?.[w.name]?.valueUsd ?? 0) >= MIN_VALUE_USD && s0.ver !== SCAN_VER);
+    for (const w of [...followed, ...autoFollowed(s0), ...again]) {
       await wait(350);
       const value = valueOf(await get<unknown>(`${DATA}/v2/value?user=${w.address}`).catch(() => null));
       await wait(350);
@@ -238,6 +247,15 @@ export async function copyScan(followed: { name: string; address: string }[], ow
       const size: WalletSize = { valueUsd: value == null ? null : Math.round(value), medBuyUsd: med == null ? null : Math.round(med), at: Date.now() };
       commit((s) => {
         s.sizes = { ...(s.sizes ?? {}), [w.name]: size };
+        const back = again.some((y) => y.address === w.address) ? s.wallets.find((x) => x.address === w.address && x.stage === "dropped") : undefined;
+        if (back && !tooSmall(size)) {
+          back.stage = "paper";
+          back.droppedAt = undefined;
+          const text = `${back.name} back on paper copy: $${size.valueUsd ?? "?"} in positions, usual bet $${size.medBuyUsd ?? "?"}`;
+          s.log.push({ t: Date.now(), text });
+          s.log = s.log.slice(-60);
+          out.push(text);
+        }
         const a = s.wallets.find((x) => x.address === w.address && x.stage === "paper");
         if (a && tooSmall(size)) {
           a.stage = "dropped";
