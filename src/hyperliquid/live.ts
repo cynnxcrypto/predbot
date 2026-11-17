@@ -140,6 +140,8 @@ interface Row {
   netUsd: number;
   heldH: number;
   why: string;
+  /** what the position was opened with (rows before 17 Nov 2026 21:40 KST have none) */
+  collateralUsd?: number;
 }
 interface State {
   netUsd: number;
@@ -178,7 +180,7 @@ export const leverageFor = (traderLev: number | undefined, coin: Coin) => Math.m
 
 function book(p: Pos, netUsd: number, why: string, now: number, stop: number) {
   state.netUsd = r2(state.netUsd + netUsd);
-  state.rows.push({ t: now, rule: p.rule, coin: p.coin, side: p.dir > 0 ? "long" : "short", leverage: p.lev, netUsd: r2(netUsd), heldH: Math.round(((now - p.openedMs) / 3_600_000) * 100) / 100, why });
+  state.rows.push({ t: now, rule: p.rule, coin: p.coin, side: p.dir > 0 ? "long" : "short", leverage: p.lev, netUsd: r2(netUsd), heldH: Math.round(((now - p.openedMs) / 3_600_000) * 100) / 100, why, collateralUsd: p.collUsd });
   if (state.rows.length > 2000) state.rows = state.rows.slice(-2000);
   state.opens = state.opens.filter((x) => x !== p);
   if (p.rule === TEST_RULE) return;
@@ -334,7 +336,10 @@ export function hlLiveSummary(cfg: HlLiveConfig = fileCfg(), meetsBar: (rule: st
     traders: rules.map((rule) => {
       const real = realOf(rule);
       const st = standing(real, meetsBar(rule, state.demoted[rule] ?? 0, now), state.demotedWhy[rule]);
-      return { trader: rule, real: st.real, why: st.why, trades: real.trades, won: real.won, netUsd: r2(real.net) };
+      // trades, won, netUsd: every real trade ever made with this trader, kept through a cut (what it made us);
+      // sinceCut: the record the keep-or-cut rule looks at, which starts again at a cut
+      const all = realRecord(state.rows.filter((x) => x.rule === rule).map((x) => x.netUsd));
+      return { trader: rule, real: st.real, why: st.why, trades: all.trades, won: all.won, netUsd: r2(all.net), cutAt: state.demoted[rule] ?? null, sinceCut: { trades: real.trades, won: real.won, netUsd: r2(real.net) } };
     }),
     recent: state.rows.slice(-30).reverse(),
     test: state.test ?? null,
