@@ -204,3 +204,25 @@ export async function gum<T>(path: string, init: { method?: string; pubkey?: str
 }
 export const gumMarkets = () => gum<GumMarket[]>("/markets");
 export const gumBlockhash = () => gum<{ blockhash: string }>("/blockhash");
+
+/**
+ * Sign a transaction the Gum API built for us (deposit, transfer): its fee payer is the API, so it has two signature
+ * slots. Our signature goes in the slot of our key. Refuses a transaction that wants more than two signers or does
+ * not name our key among them.
+ */
+export function signApiTx(b64: string, w: Wallet): string {
+  const tx = Buffer.from(b64, "base64");
+  const nSig = tx[0];
+  if (nSig < 1 || nSig > 2) throw new Error(`gum: transaction wants ${nSig} signatures`);
+  const msg = tx.subarray(1 + 64 * nSig);
+  const off = msg[0] & 0x80 ? 1 : 0;
+  const required = msg[off];
+  if (required !== nSig) throw new Error("gum: signature slots do not match the message");
+  const keysAt = off + 4; // header (3 bytes), then a one-byte count while there are fewer than 128 keys
+  if (msg[off + 3] & 0x80) throw new Error("gum: too many accounts");
+  let slot = -1;
+  for (let i = 0; i < required; i++) if (msg.subarray(keysAt + 32 * i, keysAt + 32 * (i + 1)).equals(w.pubkey)) slot = i;
+  if (slot < 0) throw new Error("gum: our wallet is not a signer of this transaction");
+  w.sign(msg).copy(tx, 1 + 64 * slot);
+  return tx.toString("base64");
+}

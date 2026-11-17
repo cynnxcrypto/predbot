@@ -435,7 +435,12 @@ export function hlPick(board: unknown, limit = HL_FOLLOW): HlTrader[] {
  */
 export const HL_OFF_MIN_COPIES = 10;
 export const HL_MAJOR_DAYS = 30;
-const onJupiter = (coin: string) => (PERP_COINS as readonly string[]).includes(coin);
+/**
+ * The coins we can trade for real: the pool's three, and (17 Nov 2026) those of Jupiter's order book that Hyperliquid
+ * traders hold too (gumlive.ts; the server's look listed BNB, HYPE, JUP, NEAR and ZEC besides the three).
+ */
+export const GUM_COINS = ["BNB", "HYPE", "JUP", "NEAR", "ZEC"] as const;
+const onJupiter = (coin: string) => (PERP_COINS as readonly string[]).includes(coin) || (GUM_COINS as readonly string[]).includes(coin);
 export function majorTier(address: string, now = Date.now()): 0 | 1 | 2 {
   const xs = [...state.hlTrades.filter((t) => t.trader === address), ...state.hlOpen.filter((o) => o.trader === address)];
   if (xs.some((t) => onJupiter(t.coin)) || now - (state.hlMajorSeen?.[address] ?? -Infinity) <= HL_MAJOR_DAYS * 86_400_000) return 0;
@@ -1178,6 +1183,16 @@ export function perpPaperOpens(): { id: string; rule: string; coin: string; dir:
 export function hlPaperOpens(): { id: string; rule: string; coin: string; dir: number; at: number; lev?: number }[] {
   if (!loaded) load();
   return state.hlOpen.map((o) => ({ id: `${traderRule(o.trader)}:${o.coin}:${o.at}`, rule: traderRule(o.trader), coin: o.coin, dir: o.dir, at: o.at, lev: o.lev }));
+}
+/**
+ * Jupiter's order-book coins (gumlive.ts, 17 Nov 2026): a copied trader's open position on one of `coins` (never SOL,
+ * BTC or ETH, which the JLP pool trades), in the same shape as perpPaperOpens.
+ */
+export function perpPaperOpensOn(coins: string[]): { id: string; rule: string; coin: string; dir: number; at: number; lev?: number }[] {
+  if (!loaded) load();
+  return state.hlOpen
+    .filter((o) => coins.includes(o.coin) && !(PERP_COINS as readonly string[]).includes(o.coin))
+    .map((o) => ({ id: `${traderRule(o.trader)}:${o.coin}:${o.at}`, rule: traderRule(o.trader), coin: o.coin, dir: o.dir, at: o.at, lev: o.lev }));
 }
 /** One perp rule's closed paper trades since `sinceMs`, in the shape of the bar (net in units of one position). */
 export function perpPaperRecord(rule: string, sinceMs = 0) {
