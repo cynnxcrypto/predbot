@@ -65,20 +65,27 @@ export function withConfirmed(fl: Flow[]): Flow[] {
   const keep = fl.filter((f) => !CONFIRMED_WALLETS.has(f[2]));
   for (const c of CONFIRMED) {
     const seen = fl.filter((f) => f[2] === c.wallet && kday(f[0]) === c.day && Math.abs(f[1] - c.usd) <= 0.15 * c.usd).sort((a, b) => Math.abs(a[1] - c.usd) - Math.abs(b[1] - c.usd))[0];
-    keep.push(seen ?? [Date.parse(c.day + "T17:40:00+09:00"), c.usd, c.wallet]);
+    // his figure, at the time the chart saw it (else 17:40 KST that day): the SOL price of the moment must not change it
+    keep.push([seen ? seen[0] : Date.parse(c.day + "T17:40:00+09:00"), c.usd, c.wallet]);
   }
   return keep.sort((a, b) => a[0] - b[0]);
 }
-/** For the public status: per wallet, how many flows the chart booked against the confirmed ones, and by how much the
- * booked money differs (dollars, positive = the chart took out more than was confirmed). No amount of a deposit itself. */
+/** For the public status, per wallet: "booked" = the deposits the worth figures actually take out (every window, card and
+ * day uses these), "confirmed" = his, offUsd = booked minus confirmed (0 when right). "chartSaw" = what the 2-minute
+ * readings and the chain read detected on their own before his figures replace them (diagnostic only, not used).
+ * No amount of a deposit itself. */
 export function depositCheck(fl: Flow[], since: number) {
-  const out: Record<string, { booked: number; confirmed: number; offUsd: number }> = {};
+  const out: Record<string, { booked: number; confirmed: number; offUsd: number; chartSaw: { n: number; offUsd: number } }> = {};
+  const used = withConfirmed(fl);
+  const sum = (a: Flow[]) => a.reduce((x, f) => x + f[1], 0);
   for (const w of CONFIRMED_WALLETS) {
-    const b = fl.filter((f) => f[2] === w && f[0] >= since);
-    const c = withConfirmed(fl).filter((f) => f[2] === w && f[0] >= since);
-    out[w] = { booked: b.length, confirmed: c.length, offUsd: Math.round((b.reduce((a, f) => a + f[1], 0) - c.reduce((a, f) => a + f[1], 0)) * 100) / 100 };
+    const raw = fl.filter((f) => f[2] === w && f[0] >= since);
+    const b = used.filter((f) => f[2] === w && f[0] >= since);
+    const conf = sum(CONFIRMED.filter((c) => c.wallet === w && Date.parse(c.day + "T23:59:59+09:00") >= since).map((c) => [0, c.usd, w] as Flow));
+    const n = CONFIRMED.filter((c) => c.wallet === w && Date.parse(c.day + "T23:59:59+09:00") >= since).length;
+    out[w] = { booked: b.length, confirmed: n, offUsd: Math.round((sum(b) - conf) * 100) / 100, chartSaw: { n: raw.length, offUsd: Math.round((sum(raw) - conf) * 100) / 100 } };
   }
-  const other = fl.filter((f) => f[0] >= since && !CONFIRMED_WALLETS.has(f[2]));
+  const other = used.filter((f) => f[0] >= since && !CONFIRMED_WALLETS.has(f[2]));
   return { ...out, otherFlows: other.map((f) => ({ at: f[0], wallet: f[2] })) };
 }
 const effFlows = () => withConfirmed(mergeChainFlows(pending.length ? [...flows, ...pending] : flows, chainSrc()));
