@@ -495,6 +495,12 @@ export async function truthRun(now = Date.now()): Promise<typeof last> {
       if (!rows.length && (d?.betsN ?? 0) > 0) {
         pos = null;
         errors.push(`positions: Polymarket answered with no positions while we hold ${d?.betsN}: not read`);
+      } else if (pos.openN + pos.wonN + pos.lostN === 0 && (d?.betsN ?? 0) > 0) {
+        // rows came back but none could be read (17 Nov 2026: srcOpen 0 vs 36 open, Polymarket all time still matched):
+        // its field names differ from what splitPositions reads. The field names only (no values) are published to fix it.
+        const keys = rows[0] && typeof rows[0] === "object" ? Object.keys(rows[0]).slice(0, 40).join(",") : typeof rows[0];
+        pos = null;
+        errors.push(`positions: ${rows.length} rows, none readable (fields: ${keys}): not read`);
       }
     } catch (e) {
       errors.push(`positions: ${(e as Error).message}`);
