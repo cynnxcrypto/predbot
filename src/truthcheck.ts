@@ -550,6 +550,15 @@ export async function truthRun(now = Date.now()): Promise<typeof last> {
   if (pos) extra.polymarketCounts = { dashOpen: d?.betsN ?? null, srcOpen: pos.openN, srcWaiting: pos.wonN, srcLostNotRedeemed: pos.lostN };
   const pmDash = d?.cash != null ? d.cash + d.claim + d.bets : null;
   const pmSrc = pmCash != null && pos ? pmCash + pos.open + pos.won : null;
+  // Polymarket's worth change since this KST day's first check, by the independent source and by the dashboard
+  // (18 Nov 2026: "today" read -$33 after the unclaimed-wins fix; is that real?). Differences only, no balance.
+  if (pmSrc != null && pmDash != null) {
+    const day = kstDay(now);
+    const f = loadJson<{ day?: string; at?: number; src?: number; dash?: number }>("truth-day.json", {});
+    const first = f.day === day && Number.isFinite(f.src) && Number.isFinite(f.dash) ? f : { day, at: now, src: pmSrc, dash: pmDash };
+    if (first !== f) saveJson("truth-day.json", first);
+    extra.polymarketSinceFirstCheckToday = { from: first.at, source: r2(pmSrc - (first.src as number)), dashboard: r2(pmDash - (first.dash as number)), note: "money in or out of the wallet since then not taken off" };
+  }
   items.push(compare("Polymarket card", pmDash, pmSrc, 1, 0.01));
   // Solana wallets
   const wallets = { spot: addrFile("solana-wallet-address.txt"), rules: addrFile("solana-wallet-buckets-address.txt"), perps: addrFile("solana-wallet-perps-address.txt") };
@@ -644,7 +653,7 @@ export async function truthRun(now = Date.now()): Promise<typeof last> {
 /** For the public status: the differences and counts only, never a balance or a deposit. */
 export function truthPublic() {
   if (!last) return null;
-  const ex = last.extra as { polymarketPnl?: { asOf: number; ageMin: number; comparedWithOursAt: number | null; fees: number | null; income: number | null }; polymarketCounts?: unknown; polymarketWaitingKinds?: unknown; coins?: Record<string, { coins: number; noRoute: number; unpriced: number; untracked: number; untrackedUsd: number }>; flows?: { chainTransfers: number; matched: number; missing: unknown[]; notOnChain: unknown[]; unconfirmed?: { t: number; wallet: string }[]; perWallet?: unknown; counterpartKinds?: unknown; windowDiff?: unknown }; days?: { rows: DayRow[]; notRead: string[] }; errors?: string[] };
+  const ex = last.extra as { polymarketPnl?: { asOf: number; ageMin: number; comparedWithOursAt: number | null; fees: number | null; income: number | null }; polymarketCounts?: unknown; polymarketWaitingKinds?: unknown; polymarketSinceFirstCheckToday?: unknown; coins?: Record<string, { coins: number; noRoute: number; unpriced: number; untracked: number; untrackedUsd: number }>; flows?: { chainTransfers: number; matched: number; missing: unknown[]; notOnChain: unknown[]; unconfirmed?: { t: number; wallet: string }[]; perWallet?: unknown; counterpartKinds?: unknown; windowDiff?: unknown }; days?: { rows: DayRow[]; notRead: string[] }; errors?: string[] };
   return {
     at: last.at,
     note: "Dashboard minus an independent source (the chain, Polymarket's own position data). Within $1 or 1.5% = ok. Balances stay private.",
@@ -652,6 +661,7 @@ export function truthPublic() {
     polymarketCounts: ex.polymarketCounts ?? null,
     // Polymarket's won-and-redeemable bets by what they are in our books (src/pmredeem.ts): counts and dollars, no ids
     polymarketWaitingKinds: ex.polymarketWaitingKinds ?? null,
+    polymarketSinceFirstCheckToday: ex.polymarketSinceFirstCheckToday ?? null,
     polymarketPnl: ex.polymarketPnl ? { asOf: ex.polymarketPnl.asOf, ageMin: ex.polymarketPnl.ageMin, comparedWithOursAt: ex.polymarketPnl.comparedWithOursAt, fees: ex.polymarketPnl.fees, income: ex.polymarketPnl.income } : null,
     coins: Object.fromEntries(Object.entries(ex.coins ?? {}).map(([k, v]) => [k, { coins: v.coins, noRoute: v.noRoute, unpriced: v.unpriced, untracked: v.untracked, untrackedUsd: v.untrackedUsd }])),
     flows: ex.flows ? { chainTransfers: ex.flows.chainTransfers, matched: ex.flows.matched, missingFromChart: ex.flows.missing.length, chartFlowsNotOnChain: ex.flows.notOnChain.length, notConfirmedByEnrique: (ex.flows.unconfirmed ?? []).map((u) => ({ at: u.t, wallet: u.wallet })), perWallet: ex.flows.perWallet ?? null, counterpartKinds: ex.flows.counterpartKinds ?? null, windowDiff: ex.flows.windowDiff ?? null } : null,
