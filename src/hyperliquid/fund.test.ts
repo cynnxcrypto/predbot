@@ -12,7 +12,7 @@ type C = Chain;
 
 const ME = "0x00000000000000000000000000000000000000Aa";
 /** A pretend Arbitrum + Hyperliquid: ETH at 3000, the pool 0.1% under, deposits credited after `lag` sleeps. */
-function fake(o: { eth?: number; usdc?: number; mid?: number; pool?: number; lag?: number; bridge?: number; chain?: number; credit?: boolean } = {}) {
+function fake(o: { hlDown?: boolean; ref?: number; eth?: number; usdc?: number; mid?: number; pool?: number; lag?: number; bridge?: number; chain?: number; credit?: boolean } = {}) {
   const s = { eth: o.eth ?? 0.05, usdc: o.usdc ?? 0, hl: 0, listed: 0, queue: [] as { n: number; usdc: number }[], swaps: [] as number[], deposits: [] as number[] };
   const mid = o.mid ?? 3000;
   const c: C = {
@@ -23,8 +23,9 @@ function fake(o: { eth?: number; usdc?: number; mid?: number; pool?: number; lag
     eth: async () => s.eth,
     usdc: async (a) => (a === HL_BRIDGE ? o.bridge ?? 3e9 : s.usdc),
     quote: async (eth) => eth * (o.pool ?? mid * 0.999),
-    hlEthMid: async () => mid,
-    hlValue: async () => s.hl,
+    hlEthMid: async () => (o.hlDown ? Promise.reject(new Error("aborted due to timeout")) : mid),
+    refPrice: async () => o.ref ?? mid,
+    hlValue: async () => (o.hlDown ? Promise.reject(new Error("aborted due to timeout")) : s.hl),
     hlDeposited: async () => s.listed,
     swap: async (eth, min) => {
       const got = eth * (o.pool ?? mid * 0.999);
@@ -109,6 +110,20 @@ test("a deposit that failed before leaving is cleared, one that may have left is
   await fund(c, { go: true, waitMs: 0 });
   assert.deepEqual(s.deposits, []);
   assert.ok(loadJson<FundState>("hyperliquid-fund.json", {}).pending);
+});
+
+test("Hyperliquid unreachable: the swap is still planned and made (priced against Chainlink), the deposit waits", async () => {
+  const { c, s } = fake({ hlDown: true });
+  const dry = await fund(c);
+  assert.match(dry.steps.join(" | "), /cannot be reached.*\| would swap 0\.049 ETH for about 146\.85 USDC.*\| the deposit of the USDC would wait/);
+  assert.equal(dry.hlUsd, null);
+  const r = await fund(c, { go: true });
+  assert.deepEqual([s.swaps, s.deposits], [[0.049], []]);
+  assert.match(r.steps[r.steps.length - 1], /waits in the wallet/);
+  // a pool far from the second price is refused just the same
+  const off = fake({ hlDown: true, ref: 3100 });
+  await fund(off.c, { go: true });
+  assert.deepEqual(off.s.swaps, []);
 });
 
 test("small amounts: only the gas reserve does nothing; a small balance goes in one deposit", () => {

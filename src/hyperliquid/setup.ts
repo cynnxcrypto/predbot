@@ -11,7 +11,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { ROOT } from "../config.js";
-import { ARBITRUM_CHAIN_ID, ARBITRUM_RPC, HL_API, fund, realChain, type Chain, type FundReport } from "./fund.js";
+import { ARBITRUM_CHAIN_ID, ARBITRUM_RPC, CREDIT_WAIT_MS, HL_API, fund, realChain, type Chain, type FundReport } from "./fund.js";
 import { hlAgent, hlWallet } from "./keys.js";
 import { fileCfg, hlKeptTraders, hlLiveSummary, hlLiveTick, type HlDeps } from "./live.js";
 import { realVenue } from "./venue.js";
@@ -33,6 +33,8 @@ let address = "";
 let reach: Reach | null = null;
 let funding: (FundReport & { at: number; mode: FundMode; error?: string }) | null = null;
 let busy = false;
+let lookStarted = 0;
+export const LOOK_MAX_MS = 90_000;
 
 /** deploy/live-rules.json "hyperliquid": { "fund": "go" } swaps and deposits for real; anything else is a dry run. */
 export type FundMode = "dry" | "go";
@@ -55,11 +57,17 @@ const fundMode = (): FundMode => {
 export async function fundLook(chain: Chain, mode: FundMode = fundMode()): Promise<void> {
   if (busy) return;
   busy = true;
+  lookStarted = Date.now();
+  let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    funding = { ...(await fund(chain, { go: mode === "go" })), at: Date.now(), mode };
+    // a look that hangs (an RPC that never answers) is given up and reported, and the next look is free to run
+    const limit = mode === "go" ? LOOK_MAX_MS + CREDIT_WAIT_MS : LOOK_MAX_MS;
+    const late = new Promise<never>((_, no) => (timer = setTimeout(() => no(new Error(`the look did not finish in ${limit / 1000} s`)), limit)));
+    funding = { ...(await Promise.race([fund(chain, { go: mode === "go" }), late])), at: Date.now(), mode };
   } catch (e) {
-    funding = { dry: mode !== "go", problems: [], steps: [], eth: funding?.eth ?? 0, usdc: funding?.usdc ?? 0, hlUsd: funding?.hlUsd ?? 0, done: false, at: Date.now(), mode, error: short(e) };
+    funding = { dry: mode !== "go", problems: [], steps: [], eth: funding?.eth ?? 0, usdc: funding?.usdc ?? 0, hlUsd: funding?.hlUsd ?? null, done: false, at: Date.now(), mode, error: short(e) };
   } finally {
+    clearTimeout(timer);
     busy = false;
   }
 }
@@ -70,7 +78,7 @@ export async function reachCheck(fetcher: typeof fetch = fetch): Promise<Reach> 
   const r: Reach = { at: Date.now(), hyperliquidApi: false, coins: 0, arbitrumRpc: false, chainId: null, region: null, errors: [] };
   const post = (url: string, body: unknown) => fetcher(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body), signal: AbortSignal.timeout(10_000) });
   try {
-    const res = await post(`${HL_API}/info`, { type: "meta" });
+    const res = await post(`${HL_API}/info`, { type: "meta" }).catch(() => post(`${HL_API}/info`, { type: "meta" })); // one slow answer is not "unreachable"
     if (!res.ok) throw new Error(`http ${res.status}`);
     const n = ((await res.json()) as { universe?: unknown[] }).universe?.length ?? 0;
     r.coins = n;
@@ -142,7 +150,7 @@ export const hlLive = () => hlLiveSummary(fileCfg(), meetsBar);
 
 /** For the public status: no address, no key, no balance. */
 export function hlPublic() {
-  return { stage: "setup: wallet made, waiting for money; nothing trades", wallet, reach, funding: funding ? { at: funding.at, mode: funding.mode, dry: funding.dry, done: funding.done, problems: funding.problems, steps: funding.steps, error: funding.error ?? null } : null };
+  return { stage: "setup: wallet made, waiting for money; nothing trades", wallet, reach, funding: funding ? { at: funding.at, mode: funding.mode, dry: funding.dry, done: funding.done, problems: funding.problems, steps: funding.steps, error: funding.error ?? null } : lookStarted ? { at: lookStarted, mode: null, dry: true, done: false, problems: [], steps: [], error: "the first look at the wallet has not finished yet" } : null };
 }
 
 /** Behind the dashboard's password only. */
@@ -163,7 +171,7 @@ ${p.address
 <button onclick="navigator.clipboard.writeText(document.getElementById('a').textContent).then(()=>this.textContent='Copied')" style="font:inherit;padding:10px 16px;border-radius:10px;border:0;background:#2f6feb;color:#fff">Copy address</button>
 <p style="color:#9aa4b2">Not Ethereum mainnet, not another network. Minimum about $30. The bot keeps about $3 of ETH for gas, swaps the rest to USDC and deposits it into Hyperliquid.</p>`
     : `<p>No wallet yet: ${p.wallet.error ?? "unknown"}</p>`}
-${p.funding ? `<p>Wallet: <b>${p.funding.eth} ETH</b>, ${p.funding.usdc} USDC · on Hyperliquid: <b>$${p.funding.hlUsd}</b></p>` : ""}
+${p.funding ? `<p>Wallet: <b>${p.funding.eth} ETH</b>, ${p.funding.usdc} USDC · on Hyperliquid: <b>${p.funding.hlUsd === null ? "not reachable now" : "$" + p.funding.hlUsd}</b></p>` : ""}
 <p style="color:#9aa4b2;font-size:14px">Server check: Hyperliquid ${ok(p.reach?.hyperliquidApi)} · Arbitrum ${ok(p.reach?.arbitrumRpc)} · region ${p.reach?.region ?? "not read"}</p></body>`;
 }
 

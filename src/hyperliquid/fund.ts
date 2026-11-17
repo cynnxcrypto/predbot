@@ -60,6 +60,8 @@ export interface Chain {
   quote(eth: number): Promise<number>;
   /** Hyperliquid's own ETH price */
   hlEthMid(): Promise<number>;
+  /** a second ETH price that needs only the Arbitrum RPC (Chainlink's ETH / USD feed), for when Hyperliquid cannot be reached */
+  refPrice(): Promise<number>;
   /** dollars Hyperliquid shows for the account (perp account value + spot USDC) */
   hlValue(address: string): Promise<number>;
   /** USDC Hyperliquid's own ledger shows as deposited to the account since a time */
@@ -84,6 +86,8 @@ export interface FundState {
   log?: { t: number; what: string; amount: number; tx: string }[];
 }
 const FILE = "hyperliquid-fund.json";
+
+const NO_HL = "Hyperliquid cannot be reached from the server right now: the swap is priced against Chainlink's ETH price; a deposit waits until Hyperliquid answers";
 
 export type Step =
   | { do: "swap"; eth: number; minUsdc: number; expectUsdc: number }
@@ -140,8 +144,9 @@ export interface FundReport {
   steps: string[];
   eth: number;
   usdc: number;
-  hlUsd: number;
-  /** Hyperliquid's ETH price when read (0 = not read), for the dashboard's worth of the ETH held */
+  /** null = Hyperliquid could not be reached at this look */
+  hlUsd: number | null;
+  /** the ETH price when read (Hyperliquid's, else Chainlink's; 0 = not read), for the dashboard's worth of the ETH held */
   ethUsd?: number;
   /** USDC sent to Hyperliquid and not shown there yet: still the wallet's money */
   inTransitUsdc?: number;
@@ -162,7 +167,11 @@ async function settle(c: Chain, st: FundState, steps: string[], waitMs: number):
       delete st.pending;
       return;
     }
-    const now = await c.hlValue(c.address);
+    const now = await c.hlValue(c.address).catch(() => null);
+    if (now === null) {
+      steps.push(`Hyperliquid cannot be reached, so the ${r2(p.usdc)} USDC deposit cannot be confirmed yet; nothing more is sent until it is`);
+      return;
+    }
     // either sign is enough: Hyperliquid's ledger lists the deposit, or the account is worth that much more
     const listed = await c.hlDeposited(c.address, p.at - 60_000).catch(() => 0);
     if (listed >= p.usdc - 0.01 || now - p.before >= p.usdc - 0.05) {
@@ -190,9 +199,11 @@ export async function fund(c: Chain, opt: { go: boolean; waitMs?: number } = { g
   const save = () => saveJson(FILE, st);
   const note = (what: string, amount: number, tx: string) => (st.log = [...(st.log ?? []), { t: Date.now(), what, amount, tx }].slice(-50));
   const problems = await check(c);
-  const read = async () => ({ eth: await c.eth(c.address), usdc: await c.usdc(c.address), hlUsd: await c.hlValue(c.address) });
+  // Hyperliquid not answering must not stop the look: the swap needs only Arbitrum; a deposit waits until it answers
+  const read = async () => ({ eth: await c.eth(c.address), usdc: await c.usdc(c.address), hlUsd: await c.hlValue(c.address).catch(() => null) });
   let w = await read();
-  const m0 = await c.hlEthMid().catch(() => 0);
+  const hl0 = await c.hlEthMid().catch(() => 0);
+  const m0 = hl0 > 0 ? hl0 : await c.refPrice().catch(() => 0);
   const ethUsd = Number.isFinite(m0) && m0 > 0 ? m0 : 0;
   if (ethUsd && w.eth > (st.lastEth ?? 0) + 1e-9) st.ethInUsd = r2((st.ethInUsd ?? 0) + (w.eth - (st.lastEth ?? 0)) * ethUsd);
   const out = (done: boolean): FundReport => {
@@ -200,7 +211,7 @@ export async function fund(c: Chain, opt: { go: boolean; waitMs?: number } = { g
       st.lastEth = w.eth;
       save();
     }
-    return { dry: !opt.go, problems, steps, eth: r6(w.eth), usdc: r2(w.usdc), hlUsd: r2(w.hlUsd), ethUsd: ethUsd ? r2(ethUsd) : 0, inTransitUsdc: r2(st.pending?.usdc ?? 0), ethInUsd: st.ethInUsd ?? 0, done };
+    return { dry: !opt.go, problems, steps, eth: r6(w.eth), usdc: r2(w.usdc), hlUsd: w.hlUsd === null ? null : r2(w.hlUsd), ethUsd: ethUsd ? r2(ethUsd) : 0, inTransitUsdc: r2(st.pending?.usdc ?? 0), ethInUsd: st.ethInUsd ?? 0, done };
   };
   if (problems.length) return out(false);
 
@@ -211,7 +222,9 @@ export async function fund(c: Chain, opt: { go: boolean; waitMs?: number } = { g
       if (st.pending) return out(false);
     }
     w = await read();
-    const mid = await c.hlEthMid();
+    const hlMid = await c.hlEthMid().catch(() => 0);
+    const mid = hlMid > 0 ? hlMid : await c.refPrice();
+    if (!(hlMid > 0) && !steps.includes(NO_HL)) steps.push(NO_HL);
     const spare = w.eth - KEEP_GAS_USD / mid;
     const quotePerEth = spare * mid >= MIN_SWAP_USD ? (await c.quote(spare)) / spare : null;
     const step = nextStep({ eth: w.eth, usdc: w.usdc, mid, quotePerEth }, st);
@@ -225,7 +238,8 @@ export async function fund(c: Chain, opt: { go: boolean; waitMs?: number } = { g
         // a dry run carries on as if the swap had paid its quote, to show the deposit steps too
         const usdc = w.usdc + step.expectUsdc;
         const d = nextStep({ eth: w.eth - step.eth, usdc, mid, quotePerEth: null }, st);
-        if (d.do === "deposit") steps.push(d.test ? `would deposit ${d.usdc} USDC as a test, wait for Hyperliquid to show it, then deposit the other ${r2(usdc - d.usdc)}` : `would deposit ${d.usdc} USDC`);
+        if (d.do === "deposit" && w.hlUsd === null) steps.push("the deposit of the USDC would wait until Hyperliquid answers");
+        else if (d.do === "deposit") steps.push(d.test ? `would deposit ${d.usdc} USDC as a test, wait for Hyperliquid to show it, then deposit the other ${r2(usdc - d.usdc)}` : `would deposit ${d.usdc} USDC`);
         return out(false);
       }
       const before = w.usdc;
@@ -238,10 +252,15 @@ export async function fund(c: Chain, opt: { go: boolean; waitMs?: number } = { g
       steps.push(`swapped: got ${r2(w.usdc - before)} USDC`);
       continue;
     }
+    if (w.hlUsd === null) {
+      // without Hyperliquid's answer a deposit could not be confirmed: the USDC stays in the wallet
+      steps.push(`${step.usdc} USDC ${step.test ? "(test first) " : ""}waits in the wallet: nothing is deposited while Hyperliquid cannot be reached`);
+      return out(false);
+    }
     steps.push(`${opt.go ? "deposit" : "would deposit"} ${step.usdc} USDC to Hyperliquid${step.test ? " (test first)" : ""}`);
     if (!opt.go) return out(false);
     // the mark goes down BEFORE the send: a crash between the two can never lead to a second send
-    st.pending = { usdc: step.usdc, before: w.hlUsd, walletUsdc: w.usdc, at: Date.now(), tx: "", test: step.test };
+    st.pending = { usdc: step.usdc, before: w.hlUsd ?? 0, walletUsdc: w.usdc, at: Date.now(), tx: "", test: step.test };
     save();
     const tx = await c.deposit(step.usdc);
     st.pending.tx = tx;
@@ -261,19 +280,36 @@ const erc20 = new Interface([
 const quoter = new Interface([
   "function quoteExactInputSingle((address tokenIn, address tokenOut, uint256 amountIn, uint24 fee, uint160 sqrtPriceLimitX96) params) returns (uint256 amountOut, uint160 sqrtPriceX96After, uint32 initializedTicksCrossed, uint256 gasEstimate)",
 ]);
+/** Chainlink's ETH / USD feed on Arbitrum One: checked by its own description before its price is believed */
+export const CHAINLINK_ETH_USD = "0x639Fe6ab55C921f74e7fac1ee960C0B6293ba612";
+export const REF_MAX_AGE_S = 26 * 3600;
+const feed = new Interface([
+  "function description() view returns (string)",
+  "function decimals() view returns (uint8)",
+  "function latestRoundData() view returns (uint80 roundId, int256 answer, uint256 startedAt, uint256 updatedAt, uint80 answeredInRound)",
+]);
 const router = new Interface([
   "function exactInputSingle((address tokenIn, address tokenOut, uint24 fee, address recipient, uint256 amountIn, uint256 amountOutMinimum, uint160 sqrtPriceLimitX96) params) payable returns (uint256 amountOut)",
 ]);
 
 async function hlInfo<T>(body: unknown, fetcher: typeof fetch): Promise<T> {
-  const res = await fetcher(`${HL_API}/info`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body), signal: AbortSignal.timeout(10_000) });
-  if (!res.ok) throw new Error(`hyperliquid info http ${res.status}`);
-  return (await res.json()) as T;
+  // two tries, 15 s each: one slow answer is not "unreachable"
+  let last: unknown;
+  for (let i = 0; i < 2; i++) {
+    try {
+      const res = await fetcher(`${HL_API}/info`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body), signal: AbortSignal.timeout(15_000) });
+      if (!res.ok) throw new Error(`hyperliquid info http ${res.status}`);
+      return (await res.json()) as T;
+    } catch (e) {
+      last = e;
+    }
+  }
+  throw last;
 }
 
 /** The real thing: Arbitrum through a JSON-RPC, Hyperliquid through its public API. `address` only reads; the key is touched by swap and deposit alone. */
 export function realChain(address: string, fetcher: typeof fetch = fetch): Chain {
-  const provider = new StaticJsonRpcProvider(ARBITRUM_RPC, ARBITRUM_CHAIN_ID);
+  const provider = new StaticJsonRpcProvider({ url: ARBITRUM_RPC, timeout: 15_000, throttleLimit: 2 }, ARBITRUM_CHAIN_ID);
   const call = async (to: string, data: string) => provider.call({ to, data });
   const send = async (tx: { to: string; data: string; value?: BigNumber }): Promise<string> => {
     const signer = hlWallet().connect(provider);
@@ -296,6 +332,15 @@ export function realChain(address: string, fetcher: typeof fetch = fetch): Chain
     quote: async (eth) => {
       const data = quoter.encodeFunctionData("quoteExactInputSingle", [{ tokenIn: WETH, tokenOut: USDC, amountIn: parseUnits(eth.toFixed(6), 18), fee: POOL_FEE, sqrtPriceLimitX96: 0 }]);
       return Number(formatUnits(quoter.decodeFunctionResult("quoteExactInputSingle", await call(QUOTER, data))[0] as BigNumber, 6));
+    },
+    refPrice: async () => {
+      const text = String(feed.decodeFunctionResult("description", await call(CHAINLINK_ETH_USD, feed.encodeFunctionData("description")))[0]);
+      const dec = Number(feed.decodeFunctionResult("decimals", await call(CHAINLINK_ETH_USD, feed.encodeFunctionData("decimals")))[0]);
+      if (text !== "ETH / USD") throw new Error(`price feed answers "${text.slice(0, 20)}", not ETH / USD`);
+      const r = feed.decodeFunctionResult("latestRoundData", await call(CHAINLINK_ETH_USD, feed.encodeFunctionData("latestRoundData")));
+      const px = Number(formatUnits(r.answer as BigNumber, dec));
+      if (!(px > 0) || Date.now() / 1000 - Number(r.updatedAt) > REF_MAX_AGE_S) throw new Error("price feed: no fresh ETH price");
+      return px;
     },
     hlEthMid: async () => Number((await hlInfo<Record<string, string>>({ type: "allMids" }, fetcher)).ETH),
     hlValue: async (a) => {

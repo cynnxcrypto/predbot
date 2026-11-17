@@ -110,7 +110,8 @@ export function serveStatus(recorder: Recorder, build: string, others: Recorder[
     }
     // the Hyperliquid wallet (17 Nov 2026): its last funding look, when it read the wallet without an error
     const hf = hlPrivate().funding;
-    const hl = hf && !hf.error ? { eth: hf.eth, usdc: hf.usdc, hlUsd: hf.hlUsd, ethUsd: hf.ethUsd ?? 0, inTransitUsdc: hf.inTransitUsdc ?? 0, ethInUsd: hf.ethInUsd ?? 0 } : null;
+    // a look at which Hyperliquid did not answer (hlUsd null) is not used: the worth keeps its last full reading, no fake dip
+    const hl = hf && !hf.error && hf.hlUsd !== null ? { eth: hf.eth, usdc: hf.usdc, hlUsd: hf.hlUsd, ethUsd: hf.ethUsd ?? 0, inTransitUsdc: hf.inTransitUsdc ?? 0, ethInUsd: hf.ethInUsd ?? 0 } : null;
     return worthView(cash, mine.live?.toClaim ?? 0, solBal, { rulesSol, rulesUsdc, perpsSol, perpsUsdc, rulesHeldSol: heldSol, perpsPosUsd: perpPosUsd, hl });
   };
   setInterval(() => void worthNow().catch(() => undefined), 120_000).unref();
