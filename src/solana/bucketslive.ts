@@ -264,10 +264,26 @@ function fileTest(): string {
  */
 export const TEST_RULE = "test-once";
 export const TEST_MINT = "JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN"; // JUP
+/**
+ * REAL ON HIS WORD (enrique, 17 Nov 2026 14:55 KST: "try that spot rule on"): a rule named in "solanaBuckets": { "realNow": [...] }
+ * counts as at the paper bar until it is first cut. The usual cut still applies: behind after 3 real trades = back to paper,
+ * and from then on only the paper bar brings it back.
+ */
+let realNowRules = new Set<string>();
+export function readRealNow(text: string): Set<string> {
+  try {
+    const v = (JSON.parse(text) as { solanaBuckets?: { realNow?: unknown } }).solanaBuckets?.realNow;
+    return new Set(Array.isArray(v) ? v.filter((x): x is string => typeof x === "string" && x.length > 0) : []);
+  } catch {
+    return new Set();
+  }
+}
 function fileCfg(): BucketsLiveConfig {
   if (process.env.SOLANA_LIVE === "off") return OFF;
   try {
-    return parseBucketsLive(readFileSync(join(ROOT, "deploy", "live-rules.json"), "utf8"));
+    const text = readFileSync(join(ROOT, "deploy", "live-rules.json"), "utf8");
+    realNowRules = readRealNow(text);
+    return parseBucketsLive(text);
   } catch {
     return OFF;
   }
@@ -286,7 +302,7 @@ const realOf = (rule: string) => realRecord(state.rows.filter((x) => x.rule === 
  */
 const boughtAt = (x: Row) => x.at ?? x.t - ((x.heldMin ?? 0) + 0.5) * 60_000;
 /** Real results first (realfirst.ts): real record ahead or level = real; no real trades yet, or behind on fewer than three = the paper bar decides. */
-export const standingOf = (rule: string) => standing(realOf(rule), meetsBar(paperRecord(rule, state.demoted[rule] ?? 0)), state.demotedWhy?.[rule]);
+export const standingOf = (rule: string) => standing(realOf(rule), meetsBar(paperRecord(rule, state.demoted[rule] ?? 0)) || (realNowRules.has(rule) && !state.demoted[rule]), state.demotedWhy?.[rule]);
 export const promoted = (rule: string) => standingOf(rule).real;
 /** Send a rule back to paper: its real record starts again and only paper trades made from now on count. */
 function cutNow(rule: string, why: string) {
