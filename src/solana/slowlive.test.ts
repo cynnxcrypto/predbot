@@ -6,6 +6,9 @@ import { test } from "node:test";
 
 // a scratch folder: the wallet these tests sign with is made there, never in the real data folder
 process.env.DATA_DIR = mkdtempSync(join(tmpdir(), "slowlive-"));
+// the size floors (17 Nov 2026) are tested on their own below; the other tests use small wallets
+process.env.SOLANA_SLOW_MIN_SOL = "0";
+process.env.SOLANA_SLOW_MIN_BUY_SOL = "0";
 // made-up keys: every network call here is faked
 process.env.HELIUS_API_KEY = "test-helius";
 process.env.JUPITER_API_KEY = "test-jupiter";

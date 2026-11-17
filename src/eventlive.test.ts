@@ -288,7 +288,18 @@ test("daily wallet rescan: the screen, weekly profit, promotion to real and drop
   assert.match(copyScreen([700, -1, 700, 700], acts, NOW6)!, /losing week/);
   assert.match(copyScreen([100, 100, 100, 2000], acts, NOW6)!, /over half/);
   assert.match(copyScreen([700, 700, 700, 700], acts.slice(0, 5), NOW6)!, /5 buys/);
-  assert.match(copyScreen([700, 700, 700, 700], Array.from({ length: 20 }, (_, i) => buy(i, 500)), NOW6)!, /median buy/);
+  assert.equal(copyScreen([700, 700, 700, 700], Array.from({ length: 20 }, (_, i) => buy(i, 5000)), NOW6), null, "a big bettor is no longer refused");
+  assert.match(copyScreen([700, 700, 700, 700], Array.from({ length: 20 }, (_, i) => buy(i, 3)), NOW6)!, /median buy \$3 \(under/);
+  assert.match(copyScreen([300, 300, 300, 300], acts, NOW6)!, /made \$1200 in 4 weeks/);
+  const { valueOf, tooSmall, medianBuy } = await import("./copyscan.js");
+  assert.equal(valueOf([{ user: "0x1", value: 6100.5 }]), 6100.5);
+  assert.equal(valueOf({ data: [{ value: "12" }] }), 12);
+  assert.equal(valueOf(null), null);
+  assert.equal(medianBuy(acts, NOW6), 20);
+  assert.equal(tooSmall({ valueUsd: 900, medBuyUsd: 50, at: 0 }), true);
+  assert.equal(tooSmall({ valueUsd: 9000, medBuyUsd: 5, at: 0 }), true);
+  assert.equal(tooSmall({ valueUsd: null, medBuyUsd: 50, at: 0 }), false, "unknown is not small");
+  assert.equal(tooSmall(undefined), false);
   assert.match(copyScreen([700, 700, 700, 700], Array.from({ length: 20 }, (_, i) => buy(i, 20, "Bitcoin Up or Down")), NOW6)!, /crypto/);
   const st = { lastScan: 0, scans: 0, lastError: null, screened: 0, passed: 0, log: [], wallets: [
     { name: "good", address: "0x1", addedAt: NOW6 - 3 * day, stage: "paper" as const, why: "" },

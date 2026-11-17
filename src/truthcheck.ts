@@ -49,14 +49,14 @@ export function compare(k: string, dash: number | null, src: number | null, tolU
 }
 
 /** Polymarket's positions for the wallet: open ones (not redeemable) and redeemable ones, at Polymarket's currentValue. */
-export function splitPositions(rows: { size?: number | string; currentValue?: number | string; current_value?: number | string; curPrice?: number | string; redeemable?: boolean }[]) {
+export function splitPositions(rows: { size?: number | string; current_size?: number | string; currentValue?: number | string; current_value?: number | string; curPrice?: number | string; redeemable?: boolean }[]) {
   let open = 0;
   let openN = 0;
   let won = 0;
   let wonN = 0;
   let lostN = 0;
   for (const p of rows) {
-    const size = Number(p.size);
+    const size = Number(p.size ?? p.current_size); // v2 names it current_size (17 Nov 2026)
     const v = Number(p.current_value ?? p.currentValue);
     if (!(size > 1e-6) || !Number.isFinite(v)) continue;
     if (p.redeemable) {
@@ -495,6 +495,12 @@ export async function truthRun(now = Date.now()): Promise<typeof last> {
       if (!rows.length && (d?.betsN ?? 0) > 0) {
         pos = null;
         errors.push(`positions: Polymarket answered with no positions while we hold ${d?.betsN}: not read`);
+      } else if (pos.openN + pos.wonN + pos.lostN === 0 && (d?.betsN ?? 0) > 0) {
+        // rows came back but none could be read (17 Nov 2026: srcOpen 0 vs 36 open, Polymarket all time still matched):
+        // its field names differ from what splitPositions reads. The field names only (no values) are published to fix it.
+        const keys = rows[0] && typeof rows[0] === "object" ? Object.keys(rows[0]).slice(0, 40).join(",") : typeof rows[0];
+        pos = null;
+        errors.push(`positions: ${rows.length} rows, none readable (fields: ${keys}): not read`);
       }
     } catch (e) {
       errors.push(`positions: ${(e as Error).message}`);
