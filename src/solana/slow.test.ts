@@ -5,6 +5,9 @@ import { join } from "node:path";
 import { mock, test } from "node:test";
 
 process.env.DATA_DIR = mkdtempSync(join(tmpdir(), "solslow-"));
+// the size floors (17 Nov 2026) are tested on their own below; the other tests use small wallets
+process.env.SOLANA_SLOW_MIN_SOL = "0";
+process.env.SOLANA_SLOW_MIN_BUY_SOL = "0";
 
 const { tripsOf, screen, lateRet, ownRet, priceAfter, posRet, paperRules, slowTx, slowSummary, reportOf, followed, copySafe, onSlowSwap, slowWatch, jupCoins, coinOld, creditsDay, copyableOf, provenWallets, crowdStudy, crowdOnePerCoin, top5Sol, provenThen, _test, STAKE_SOL, TX_SOL, DELAY_COST, MIN_TRIPS } = await import("./slow.js");
 
@@ -841,4 +844,22 @@ test("mid and high caps: a cap buyer is promoted past the coin buyer limit", () 
   assert.equal(st.candidates.at(-1)!.address, "capBuyer");
   assert.ok(st.pool.memeBuyer, "a memecoin buyer waits at the limit");
   _test.reset();
+});
+
+test("screen: money at stake: a wallet that made little, or whose usual buy is small, does not pass", () => {
+  const { SOLANA_SLOW_MIN_SOL: a, SOLANA_SLOW_MIN_BUY_SOL: b } = process.env;
+  delete process.env.SOLANA_SLOW_MIN_SOL;
+  delete process.env.SOLANA_SLOW_MIN_BUY_SOL;
+  try {
+    const small = screen(Array.from({ length: 24 }, (_, i) => trip(i, i % 2 ? 0.3 : -0.1)), meta);
+    assert.equal(small.pass, false);
+    assert.ok(small.why.includes("made 2.4 SOL"), small.why.join());
+    const tiny = screen(Array.from({ length: 24 }, (_, i) => trip(i, i % 2 ? 0.3 : -0.1, 7200, 0.3)), meta);
+    assert.ok(tiny.why.includes("usual buy 0.3 SOL"), tiny.why.join());
+    const big = screen(Array.from({ length: 24 }, (_, i) => trip(i, i % 2 ? 0.3 : -0.1, 7200, 20)), meta);
+    assert.equal(big.pass, true, big.why.join());
+  } finally {
+    process.env.SOLANA_SLOW_MIN_SOL = a;
+    process.env.SOLANA_SLOW_MIN_BUY_SOL = b;
+  }
 });

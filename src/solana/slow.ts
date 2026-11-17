@@ -64,6 +64,14 @@ const COINS_PER_PASS = 25;
 const PROMOTE_PER_PASS = 400;
 const WALLETS_PER_PASS = 300;
 // the screen
+// enrique, 17 Nov 2026 23:10 KST: "they're playing with nothing", "balances that are not trivial". The screen judged
+// % and counts only: the median passing wallet had made about $640 in the month with a usual buy of $36. A wallet
+// now needs MIN_REALISED_SOL made over the window and a usual first buy of MIN_USUAL_SOL (also on the cap shortlist).
+export const MIN_REALISED_SOL = 20;
+/** the two floors in force; SOLANA_SLOW_MIN_SOL / SOLANA_SLOW_MIN_BUY_SOL override them (the tests use small wallets) */
+export const minRealisedSol = () => (process.env.SOLANA_SLOW_MIN_SOL === undefined ? MIN_REALISED_SOL : Number(process.env.SOLANA_SLOW_MIN_SOL));
+export const minUsualSol = () => (process.env.SOLANA_SLOW_MIN_BUY_SOL === undefined ? MIN_USUAL_SOL : Number(process.env.SOLANA_SLOW_MIN_BUY_SOL));
+export const MIN_USUAL_SOL = 1;
 export const MIN_TRIPS = 20;
 export const MIN_HOLD_MIN = 30;
 export const MIN_WIN = 0.4;
@@ -280,7 +288,8 @@ export function capOf(trips: Trip[], ok: (mint: string) => boolean) {
     topSharePct: topShare === null ? null : Math.round(topShare * 100),
     ownAvgPct: r((avg(own) ?? NaN) * 100),
     holdMinMedian: r(median(ts.map(holdMin)), 0),
-    pass: v.length >= CAP_LIST_MIN && won * 2 >= v.length && sum > 0 && older > 0 && newer > 0 && topShare !== null && topShare < MAX_TOP_SHARE,
+    usualSol: r(median(ts.map((t) => t.firstSol))),
+    pass: v.length >= CAP_LIST_MIN && won * 2 >= v.length && sum > 0 && older > 0 && newer > 0 && topShare !== null && topShare < MAX_TOP_SHARE && (median(ts.map((t) => t.firstSol)) ?? 0) >= minUsualSol(),
   };
 }
 /**
@@ -312,6 +321,8 @@ export function screen(trips: Trip[], o: { txPerDay: number; buysPerDay: number;
   if (bot) why.push("bot");
   if (n < MIN_TRIPS) why.push(`${n} trips`);
   if (hold === null || hold < MIN_HOLD_MIN) why.push(`holds ${r(hold, 0)} min`);
+  if (total < minRealisedSol() && total > 0) why.push(`made ${r(total)} SOL`);
+  if (usual !== null && usual < minUsualSol()) why.push(`usual buy ${r(usual)} SOL`);
   if (total <= 0) why.push("lost");
   else if (older <= 0 || newer <= 0) why.push("one half lost");
   if (n && won / n < MIN_WIN) why.push(`${Math.round((won / n) * 100)}% won`);
