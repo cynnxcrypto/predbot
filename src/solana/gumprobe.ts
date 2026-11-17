@@ -1,5 +1,7 @@
 /**
- * READ-ONLY look at Jupiter Perps' order-book markets (Gum, see gum.ts), 17 Nov 2026. Run on the server, once:
+ * READ-ONLY look at Jupiter Perps' order-book markets (Gum, see gum.ts), 17 Nov 2026. The bot runs it once at start
+ * (perpslive.ts) while data/gum-probe.json is missing, with the deposit build and without making an account; its
+ * summary is in the status as perps real gumProbe. By hand, on the server:
  *
  *   npx tsx src/solana/gumprobe.ts            markets, their minimums and limits; our perps wallet's accounts there
  *   npx tsx src/solana/gumprobe.ts --deposit  also BUILDS (never signs, never sends) a 1 USDC deposit, to see where
@@ -10,7 +12,7 @@
  * Nothing else is signed or sent. The perps wallet's address is used only as the X-PUBKEY header the API asks for, and is
  * never printed or written. The result goes to data/gum-probe.json and to the screen.
  */
-import { mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { DATA } from "../config.js";
 import { gum, gumMarkets, type GumMarket } from "./gum.js";
@@ -40,7 +42,21 @@ function market(m: GumMarket) {
   };
 }
 
-async function main() {
+const FILE = () => join(DATA, "gum-probe.json");
+/** The last probe's result, or null if none was run yet (it holds no address). */
+export function gumProbeResult(): unknown {
+  try {
+    return existsSync(FILE()) ? JSON.parse(readFileSync(FILE(), "utf8")) : null;
+  } catch {
+    return null;
+  }
+}
+/** Once, at start: only while no result is saved. Never makes an account (that needs enrique's word). */
+export async function gumProbeOnce() {
+  if (existsSync(FILE())) return;
+  await gumProbe({ deposit: true, createAccount: false });
+}
+export async function gumProbe(o: { deposit: boolean; createAccount: boolean }) {
   const out: Record<string, unknown> = { at: new Date().toISOString(), api: "api.gum.ag/perps" };
   out.health = await gum<unknown>("/health").catch((e) => `error: ${String((e as Error).message)}`);
   const ms = await gumMarkets();
@@ -50,7 +66,7 @@ async function main() {
   const accts = await gum<{ accounts?: { pubkey?: string; tradingAccount?: string; subaccountId?: number; isolated?: boolean; data?: Record<string, unknown> }[] }>("/tradingAccount", { pubkey: w.address }).catch(
     (e) => ({ error: String((e as Error).message) }) as never,
   );
-  if (process.argv.includes("--create-account") && !(accts as { accounts?: unknown[] }).accounts?.length) {
+  if (o.createAccount && !(accts as { accounts?: unknown[] }).accounts?.length) {
     out.created = await gum<{ subaccountId?: number }>("/tradingAccount", { method: "POST", pubkey: w.address })
       .then((x) => ({ subaccountId: x?.subaccountId }))
       .catch((e) => `error: ${String((e as Error).message)}`);
@@ -59,7 +75,7 @@ async function main() {
   out.ourAccounts = Array.isArray((accts as { accounts?: unknown[] }).accounts)
     ? (accts as { accounts: { subaccountId?: number; isolated?: boolean; data?: Record<string, unknown> }[] }).accounts.map((a) => ({ subaccountId: a.subaccountId, isolated: a.isolated, data: a.data }))
     : accts;
-  if (process.argv.includes("--deposit")) {
+  if (o.deposit) {
     const first = (accts as { accounts?: { pubkey?: string; tradingAccount?: string }[] }).accounts?.[0];
     const ta = first?.tradingAccount ?? first?.pubkey;
     if (!ta) out.deposit = "no trading account yet: a deposit cannot be built before one exists";
@@ -73,17 +89,21 @@ async function main() {
         const off = msg[0] & 0x80 ? 1 : 0;
         const nKeys = msg[off + 3];
         const keys = Array.from({ length: nKeys }, (_, i) => base58(msg.subarray(off + 4 + 32 * i, off + 4 + 32 * (i + 1))));
-        out.deposit = { signatures: nSig, accounts: nKeys, namesOurWallet: keys.includes(w.address), namesSolanaUsdcMint: keys.includes(USDC), programs: keys.filter((k) => k !== w.address && k !== ta).slice(-4) };
+        out.deposit = { signatures: nSig, accounts: nKeys, namesOurWallet: keys.includes(w.address), namesSolanaUsdcMint: keys.includes(USDC) };
       } catch (e) {
         out.deposit = `error: ${String((e as Error).message)}`;
       }
     }
   }
   mkdirSync(DATA, { recursive: true });
-  writeFileSync(join(DATA, "gum-probe.json"), JSON.stringify(out, null, 1));
-  console.log(JSON.stringify(out, null, 1));
+  writeFileSync(FILE(), JSON.stringify(out, null, 1));
+  return out;
 }
-main().catch((e) => {
-  console.error("gum probe failed:", String((e as Error)?.message ?? e));
-  process.exit(1);
-});
+if (process.argv[1]?.endsWith("gumprobe.ts")) {
+  gumProbe({ deposit: process.argv.includes("--deposit"), createAccount: process.argv.includes("--create-account") })
+    .then((out) => console.log(JSON.stringify(out, null, 1)))
+    .catch((e) => {
+      console.error("gum probe failed:", String((e as Error)?.message ?? e));
+      process.exit(1);
+    });
+}
