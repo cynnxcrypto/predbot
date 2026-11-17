@@ -216,38 +216,67 @@ const readShortVec = (b: Buffer, at: number): [number, number] => {
   return [-1, at];
 };
 /**
- * How a transaction the Gum API built is laid out, said without any address (for the status when it cannot be
- * signed): its length, its signature slots, the message's version, header and keys, and where our key is.
+ * How a transaction the Gum API built is laid out, said without any address (for the status): its length, its
+ * signature slots, the message's version, header and keys, and where our key is.
+ * Two encodings of the slots are tried (17 Nov 2026, dep-3: the API's deposit came as 544 bytes starting 2, 65, 0, 0
+ * with our key at byte 169):
+ *  - "plain": 64 bytes a slot, as on Solana;
+ *  - "typed": Jupnet's typed signature, each slot its length (a short-vec, 65) then a type byte (0 = ed25519) and the
+ *    64 bytes. With it, the dep-3 transaction reads as a legacy message at byte 133 whose second key is ours.
+ * The one whose message wants exactly as many signers as there are slots, and names our key among them, is used.
  */
-export function txLayout(b64: string, w: Wallet) {
-  const tx = Buffer.from(b64, "base64");
+type SlotEnc = "plain" | "typed";
+function readAs(tx: Buffer, w: Wallet, enc: SlotEnc) {
   const [nSig, sigsAt] = readShortVec(tx, 0);
-  const out = { bytes: tx.length, first: [...tx.subarray(0, 4)], nSig, sigsAt, version: null as string | null, required: -1, readonlySigned: -1, keys: -1, ourKeyAt: -1, ourBytesAt: tx.indexOf(w.pubkey), msgAt: -1 };
-  if (nSig < 0 || sigsAt + 64 * nSig >= tx.length) return out;
-  const msgAt = sigsAt + 64 * nSig;
-  const msg = tx.subarray(msgAt);
+  const out = { enc, nSig, sigsAt, slots: [] as [number, number][], msgAt: -1, version: null as string | null, required: -1, readonlySigned: -1, keys: -1, ourKeyAt: -1 };
+  if (nSig < 0 || nSig > 8) return out;
+  let at = sigsAt;
+  for (let i = 0; i < nSig; i++) {
+    if (enc === "plain") {
+      out.slots.push([at, 64]);
+      at += 64;
+    } else {
+      const [len, from] = readShortVec(tx, at);
+      if (len !== 65) return out;
+      out.slots.push([from, 65]);
+      at = from + 65;
+    }
+  }
+  if (at >= tx.length) return out;
+  const msg = tx.subarray(at);
   const v = msg[0] & 0x80 ? msg[0] & 0x7f : null;
   const off = v === null ? 0 : 1;
   const [nKeys, keysAt] = readShortVec(msg, off + 3);
-  Object.assign(out, { msgAt, version: v === null ? "legacy" : `v${v}`, required: msg[off], readonlySigned: msg[off + 1], keys: nKeys });
+  Object.assign(out, { msgAt: at, version: v === null ? "legacy" : `v${v}`, required: msg[off], readonlySigned: msg[off + 1], keys: nKeys });
   for (let i = 0; i < nKeys && keysAt + 32 * (i + 1) <= msg.length; i++) if (msg.subarray(keysAt + 32 * i, keysAt + 32 * (i + 1)).equals(w.pubkey)) out.ourKeyAt = i;
   return out;
 }
+const fits = (r: ReturnType<typeof readAs>) => r.msgAt > 0 && (r.version === "legacy" || r.version === "v0") && r.required >= 1 && r.required <= 2 && r.required === r.nSig && r.ourKeyAt >= 0 && r.ourKeyAt < r.required;
+export function txLayout(b64: string, w: Wallet) {
+  const tx = Buffer.from(b64, "base64");
+  const tries = (["plain", "typed"] as const).map((e) => readAs(tx, w, e));
+  const r = tries.find(fits) ?? tries[0];
+  const { slots: _s, ...rest } = r;
+  return { bytes: tx.length, first: [...tx.subarray(0, 4)], ourBytesAt: tx.indexOf(w.pubkey), ...rest, fits: fits(r), other: tries.filter((x) => x !== r).map((x) => ({ enc: x.enc, msgAt: x.msgAt, required: x.required, keys: x.keys, ourKeyAt: x.ourKeyAt })) };
+}
 /**
  * Sign a transaction the Gum API built for us (deposit, transfer): the API is its fee payer and adds its own
- * signature. Our signature goes in the slot of our key. The message must be legacy or v0, want at most two signers,
- * and name our key among them. A transaction sent with fewer (or no) signature slots than its message asks for gets
- * the right number (empty ones are the API's to fill). Anything else is refused, with its layout in the error.
+ * signature. Only a transaction read in one of the two slot encodings with a legacy or v0 message that wants as many
+ * signers as it has slots (one or two) and names our key among them is signed, in our own slot (the message's bytes,
+ * ed25519), in the slot's own encoding; everything else in the transaction is left as the API sent it. Anything
+ * else is refused, with its layout in the error.
  */
 export function signApiTx(b64: string, w: Wallet): string {
-  const L = txLayout(b64, w);
-  const bad = (why: string) => new Error(`gum: ${why} ${JSON.stringify({ ...L, ourBytesAt: L.ourBytesAt >= 0 ? L.ourBytesAt : -1 })}`);
-  if (L.msgAt < 0 || L.version === null || !["legacy", "v0"].includes(L.version)) throw bad("transaction not read");
-  if (L.required < 1 || L.required > 2) throw bad(`wants ${L.required} signers`);
-  if (L.ourKeyAt < 0 || L.ourKeyAt >= L.required) throw bad("our wallet is not a signer");
   const tx = Buffer.from(b64, "base64");
-  const msg = tx.subarray(L.msgAt);
-  const sigs: Buffer[] = Array.from({ length: L.required }, (_, i) => (i < L.nSig ? Buffer.from(tx.subarray(L.sigsAt + 64 * i, L.sigsAt + 64 * (i + 1))) : Buffer.alloc(64)));
-  sigs[L.ourKeyAt] = w.sign(msg);
-  return Buffer.concat([Buffer.from([L.required]), ...sigs, msg]).toString("base64");
+  const r = (["plain", "typed"] as const).map((e) => readAs(tx, w, e)).find(fits);
+  if (!r) throw new Error(`gum: transaction not read as one we may sign ${JSON.stringify(txLayout(b64, w))}`);
+  const out = Buffer.from(tx);
+  const sig = w.sign(tx.subarray(r.msgAt));
+  const [at] = r.slots[r.ourKeyAt];
+  if (r.enc === "plain") sig.copy(out, at);
+  else {
+    out[at] = 0; // ed25519
+    sig.copy(out, at + 1);
+  }
+  return out.toString("base64");
 }
