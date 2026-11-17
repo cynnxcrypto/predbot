@@ -53,3 +53,10 @@ test("flatten: samples in the window take the first clean value after it", async
   const h: [number, number | null][] = [[1, 10], [5, 40], [6, null], [7, 41], [9, 12], [10, 13]];
   assert.deepEqual(flatten(h, 4, 8, 1), [[1, 10], [5, 12], [6, null], [7, 12], [9, 12], [10, 13]]);
 });
+
+test("dropClaimFlows: a Polymarket money-in just after a claim is not a deposit", async () => {
+  const { dropClaimFlows } = await import("./worthdash.js");
+  const T = 1_000_000_000;
+  const fl: [number, number, string][] = [[T + 60_000, 28.5, "Polymarket"], [T + 3_600_000, 50, "Polymarket"], [T + 60_000, 10, "Hyperliquid"], [T + 60_000, -5, "Polymarket"]];
+  assert.deepEqual(dropClaimFlows(fl, [T]), [[T + 3_600_000, 50, "Polymarket"], [T + 60_000, 10, "Hyperliquid"], [T + 60_000, -5, "Polymarket"]]);
+});

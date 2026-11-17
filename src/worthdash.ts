@@ -463,6 +463,16 @@ export function despike(h: [number, number][]): [number, number][] {
   return out;
 }
 
+/**
+ * A claim is not a deposit (18 Nov 2026: the claimer collected $28.5 of wins from Polymarket's own list at 00:12 KST;
+ * the cash rose while the waiting list still held them until the next truth check, so the step was booked as money
+ * put in and taken off "today", which read -$33 on +$3 settled). A Polymarket money-in within 15 minutes after, or 2
+ * before, a claim transaction is dropped. Pure.
+ */
+export function dropClaimFlows(fl: Flow[], claimTimes: number[]): Flow[] {
+  return fl.filter((f) => !(f[1] > 0 && (f[2] === "Polymarket" || f[2] === "deposit") && claimTimes.some((t) => f[0] >= t - 2 * 60_000 && f[0] <= t + 15 * 60_000)));
+}
+const claimTimes = () => Object.values(loadJson<Record<string, { at?: number; tx?: string | null }>>("eventlive-claims.json", {})).filter((d) => d?.tx && Number.isFinite(d.at)).map((d) => d.at as number);
 /** Samples in [from, to] take column col of the first sample after to that has it. Pure. */
 export function flatten<P extends (number | null | undefined)[]>(h: P[], from: number, to: number, col: number): P[] {
   const after = h.find((p) => (p[0] as number) > to && p[col] != null);
@@ -525,6 +535,7 @@ export async function worthView(cash: number | null, claim: number, solBal: numb
       fix = { removed: rep.removed, removedUsd: rep.removedUsd };
       back = []; // the hourly estimates are made again, with the waiting wins in them
     } else fix = f.fix ?? null;
+    flows = dropClaimFlows(flows, claimTimes());
   }
   claim += unclaimedAt(loadSpans(), Date.now());
   // won money Polymarket shows redeemable that our books do not have waiting (src/pmredeem.ts, 17 Nov 2026)
@@ -603,6 +614,7 @@ export async function worthView(cash: number | null, claim: number, solBal: numb
       const solOnly = flowsBetween(comp ? { ...comp, rules: null, perps: null, hl: null } : null, { ...nowC, rules: null, perps: null, hl: null }, px, Date.now());
       const extraOnly = flowsBetween(comp ? { ...comp, pc: null, sol: null } : { pc: null, pk: 0, pst: 0, sol: null, coins: 0, rules: null, perps: null }, { ...nowC, pc: null, sol: null }, 1, Date.now());
       flows.push(...solOnly, ...extraOnly);
+      flows = dropClaimFlows(flows, claimTimes());
       flows = flows.filter((f) => f[0] > Date.now() - 8 * 86_400_000);
       comp = nowC;
       hist.push([Date.now(), total]);
