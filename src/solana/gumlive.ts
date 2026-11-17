@@ -23,7 +23,7 @@ import { namedWallet, type Wallet } from "./keys.js";
 import { cutReason, realRecord, standing } from "./realfirst.js";
 import { perpMeetsBar, perpPaperOpensOn } from "./buckets.js";
 import { cutRule, leverageFor, perpsCutAt, perpsRealOf, setOtherVenueReal, MAX_HOLD_H, OPEN_WINDOW_MS, TEST_RULE } from "./perpslive.js";
-import { gum, signApiTx, txLayout, signedCancelAll, signedPlace, type GumMarket, type GumPlace } from "./gum.js";
+import { gum, signApiTx, txLayout, txRoles, redactKeys, signedCancelAll, signedPlace, type GumMarket, type GumPlace } from "./gum.js";
 
 export const HARD_COLLATERAL_USD = 25;
 export const MIN_COLLATERAL_USD = 5;
@@ -316,7 +316,8 @@ export async function gumLiveTick(d: GumDeps, now = Date.now()): Promise<void> {
         await d.deposit(w, state.account.cross, c.deposit.usd, (l) => void (state.depositLayout = l));
         state.deposits[c.deposit.id].result = `sent: $${c.deposit.usd}`;
       } catch (e) {
-        state.deposits[c.deposit.id].result = `error: ${d.fixed(e)}`;
+        // the whole error (dep-4's was cut and could not be read)
+        state.deposits[c.deposit.id].result = `error: ${redactKeys(String((e as Error)?.message ?? e)).slice(0, 1500)}`;
       }
       save();
     }
@@ -495,9 +496,15 @@ export function startGumLive() {
     cancelAll: (w, body) => gum("/order/cancel-all", { method: "POST", pubkey: w.address, body }),
     deposit: async (w, cross, usd, seen) => {
       const b = await gum<{ serializedTransaction: string }>(`/deposit?amount=${Math.round(usd * 1e6)}&trading_account=${cross}`, { pubkey: w.address });
-      seen(txLayout(b.serializedTransaction, w));
-      const r = await gum<{ signature: string }>("/deposit", { method: "POST", pubkey: w.address, body: { serializedTransaction: signApiTx(b.serializedTransaction, w) } });
-      return r.signature;
+      seen({ ...txLayout(b.serializedTransaction, w), roles: txRoles(b.serializedTransaction, w, { [cross]: "ourCrossAccount" }) });
+      try {
+        const r = await gum<{ signature: string }>("/deposit", { method: "POST", pubkey: w.address, body: { serializedTransaction: signApiTx(b.serializedTransaction, w) } });
+        return r.signature;
+      } catch (e) {
+        // read-only: what the trading account holds, to tell an empty source from a wrong target
+        const bal = await gum<unknown>(`/tradingAccount/${cross}/balances`).then((x) => JSON.stringify(x).slice(0, 300), (x) => `balances error: ${String((x as Error).message).slice(0, 200)}`);
+        throw new Error(redactKeys(`${String((e as Error).message)} | cross balances: ${bal}`));
+      }
     },
     paperOpens: perpPaperOpensOn,
     fixed,

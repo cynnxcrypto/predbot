@@ -159,3 +159,17 @@ test("a day's change is the sum of the wallets' changes once all four have one",
   assert.equal(daySum({ day: "x", usd: 5 }, undefined).usd, 5);
   assert.equal(daySum({ day: "x", usd: 5 }, { poly: { usd: 1 }, sc: { usd: 1 }, sr: { usd: 1 }, pp: { usd: 1 } }).summed, true);
 });
+
+test("a wallet made today has a today figure: its worth now less what was put into it since 00:00", async () => {
+  const { walletsToday, kstMidnight } = await import("./worthdash.js");
+  const now = Date.UTC(2026, 10, 17, 11, 0);
+  const mid = kstMidnight(now);
+  const born = mid + 16.5 * 3_600_000;
+  const wh = [[mid - 60_000, 300, 95, 100, 99, null], [born, 301, 95, 100, 99, 150.2], [now - 60_000, 302, 95, 100, 99, 149.1]] as unknown as import("./worthdash.js").WalletPoint[];
+  const w = walletsToday(wh, [[born, 150.2, "Hyperliquid"]], [302, 95, 100, 99, 149.1], now);
+  assert.deepEqual(w.hl, { usd: -1.1, at: mid });
+  assert.deepEqual(w.poly, { usd: 2, at: mid - 60_000 });
+  // an older wallet with no reading near midnight still has none
+  const gap = [[mid + 3 * 3_600_000, 300, 95, 100, 99, null]] as unknown as import("./worthdash.js").WalletPoint[];
+  assert.equal(walletsToday(gap, [], [302, 95, 100, 99, null], now).poly, null);
+});

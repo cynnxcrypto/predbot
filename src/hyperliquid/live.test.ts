@@ -119,6 +119,10 @@ test("real results first: behind after three real trades is cut even with paper 
   }
   assert.equal(hlLiveSummary(ON).trades, 3);
   assert.match(_test.state().demotedWhy["copy-aaaa1111"], /behind after 3 trades/);
+  const tr = hlLiveSummary(ON).traders[0];
+  assert.deepEqual([tr.trades, tr.won, tr.sinceCut.trades, tr.real], [3, 0, 0, false], "a cut trader keeps its real count and net in the status");
+  assert.ok(tr.netUsd < 0 && tr.cutAt);
+  assert.equal(hlLiveSummary(ON).recent[0].collateralUsd, 10);
   // the bar now counts only paper trades made after the cut: here it says no
   const after = world({ bar: [] });
   after.w.paper = [copy("copy-aaaa1111", "DOGE", 1, T0 + 3_000_000)];

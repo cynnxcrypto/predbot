@@ -119,6 +119,12 @@ export function walletsToday(wh: WalletPoint[], fl: Flow[], now: (number | null)
     }
     // no reading from near midnight: no "today" for this wallet (16 Nov 2026, enrique: "since 18:03, how is that a
     // thing"); the page shows the settled figure, labelled so
+    // a wallet made today (Hyperliquid, 17 Nov 2026): it held nothing at 00:00, so its today is what it is worth now
+    // less everything put into it since 00:00. Only for a wallet with no reading at all from before today.
+    if (v != null && b && b[0] > T + 30 * 60e3 && OPTIONAL.has(k)) {
+      const put0 = fl.reduce((a, f) => a + (f[2] === label && f[0] > T && f[0] <= t ? f[1] : 0), 0);
+      return void (out[k] = { usd: Math.round((v - put0) * 100) / 100, at: T });
+    }
     if (v == null || !b || b[0] > T + 30 * 60e3) return void (out[k] = null);
     const put = fl.reduce((a, f) => a + (f[2] === label && f[0] > b![0] && f[0] <= t ? f[1] : 0), 0);
     out[k] = { usd: Math.round((v - (b[i + 1] as number) - put) * 100) / 100, at: b[0] };

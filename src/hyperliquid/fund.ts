@@ -17,7 +17,6 @@
  */
 import { Interface } from "@ethersproject/abi";
 import { BigNumber } from "@ethersproject/bignumber";
-import { StaticJsonRpcProvider } from "@ethersproject/providers";
 import { formatUnits, parseUnits } from "@ethersproject/units";
 import { loadJson, saveJson } from "../store.js";
 import { hlWallet } from "./keys.js";
@@ -86,6 +85,22 @@ export interface FundState {
   log?: { t: number; what: string; amount: number; tx: string }[];
 }
 const FILE = "hyperliquid-fund.json";
+
+/** What the funding has done so far, for the public status: amounts and times, no address, no transaction id. */
+export function fundHistory() {
+  const st = loadJson<FundState>(FILE, {});
+  return {
+    ethReceivedUsd: st.ethInUsd ?? 0,
+    swappedEth: st.swappedEth ?? 0,
+    gotUsdc: st.gotUsdc ?? 0,
+    /** USDC that Hyperliquid has shown arriving (every deposit is counted here only once it was seen there) */
+    depositedUsdcSeenOnHyperliquid: st.depositedUsdc ?? 0,
+    testDepositSeen: !!st.proven,
+    /** a deposit sent and not yet seen on Hyperliquid (null = none in transit) */
+    inTransit: st.pending ? { usdc: st.pending.usdc, sentAt: st.pending.at, test: st.pending.test, sent: !!st.pending.tx } : null,
+    steps: (st.log ?? []).map((x) => ({ t: x.t, what: x.what, amount: x.amount })),
+  };
+}
 
 const NO_HL = "Hyperliquid cannot be reached from the server right now: the swap is priced against Chainlink's ETH price; a deposit waits until Hyperliquid answers";
 
@@ -193,7 +208,9 @@ async function settle(c: Chain, st: FundState, steps: string[], waitMs: number):
  * One run. Dry (the default) reads, checks and says what it would do. With go it does it: swap, test deposit, wait
  * for Hyperliquid to show it, the rest. Safe to run again at any point: it picks up from what the wallet holds.
  */
-export async function fund(c: Chain, opt: { go: boolean; waitMs?: number } = { go: false }): Promise<FundReport> {
+export async function fund(c: Chain, opt: { go: boolean; waitMs?: number; stage?: (s: string) => void } = { go: false }): Promise<FundReport> {
+  const at = (s: string) => opt.stage?.(s);
+  at("checking the chain and the contracts");
   const st = loadJson<FundState>(FILE, {});
   const steps: string[] = [];
   const save = () => saveJson(FILE, st);
@@ -201,7 +218,9 @@ export async function fund(c: Chain, opt: { go: boolean; waitMs?: number } = { g
   const problems = await check(c);
   // Hyperliquid not answering must not stop the look: the swap needs only Arbitrum; a deposit waits until it answers
   const read = async () => ({ eth: await c.eth(c.address), usdc: await c.usdc(c.address), hlUsd: await c.hlValue(c.address).catch(() => null) });
+  at("reading the wallet");
   let w = await read();
+  at("reading the ETH price");
   const hl0 = await c.hlEthMid().catch(() => 0);
   const m0 = hl0 > 0 ? hl0 : await c.refPrice().catch(() => 0);
   const ethUsd = Number.isFinite(m0) && m0 > 0 ? m0 : 0;
@@ -222,6 +241,7 @@ export async function fund(c: Chain, opt: { go: boolean; waitMs?: number } = { g
       if (st.pending) return out(false);
     }
     w = await read();
+    at("pricing the swap");
     const hlMid = await c.hlEthMid().catch(() => 0);
     const mid = hlMid > 0 ? hlMid : await c.refPrice();
     if (!(hlMid > 0) && !steps.includes(NO_HL)) steps.push(NO_HL);
@@ -308,26 +328,63 @@ async function hlInfo<T>(body: unknown, fetcher: typeof fetch): Promise<T> {
 }
 
 /** The real thing: Arbitrum through a JSON-RPC, Hyperliquid through its public API. `address` only reads; the key is touched by swap and deposit alone. */
+/**
+ * One JSON-RPC call to Arbitrum with plain fetch: 10 s, two tries, then an error that says which call. No library
+ * network code is used for the chain (17 Nov 2026: a look through the ethers provider never came back on the server,
+ * while the same RPC answered a plain fetch at once).
+ */
+export async function rpcCall<T>(method: string, params: unknown[], fetcher: typeof fetch = fetch, url = ARBITRUM_RPC): Promise<T> {
+  let last = "";
+  for (let i = 0; i < 2; i++) {
+    try {
+      const res = await fetcher(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }), signal: AbortSignal.timeout(10_000) });
+      if (!res.ok) throw new Error(`http ${res.status}`);
+      const j = (await res.json()) as { result?: T; error?: { message?: string } };
+      if (j.error || j.result === undefined) return Promise.reject(new Error(`arbitrum ${method}: ${String(j.error?.message ?? "no result").slice(0, 80)}`));
+      return j.result;
+    } catch (e) {
+      last = String((e as Error)?.message ?? e).slice(0, 80);
+      if (last.startsWith("arbitrum ")) throw e; // the chain's own answer (a revert): asking again changes nothing
+    }
+  }
+  throw new Error(`arbitrum ${method}: ${last}`);
+}
+export const RECEIPT_WAIT_MS = 90_000;
+
 export function realChain(address: string, fetcher: typeof fetch = fetch): Chain {
-  const provider = new StaticJsonRpcProvider({ url: ARBITRUM_RPC, timeout: 15_000, throttleLimit: 2 }, ARBITRUM_CHAIN_ID);
-  const call = async (to: string, data: string) => provider.call({ to, data });
+  const rpc = <T>(method: string, params: unknown[]) => rpcCall<T>(method, params, fetcher);
+  const call = (to: string, data: string) => rpc<string>("eth_call", [{ to, data }, "latest"]);
   const send = async (tx: { to: string; data: string; value?: BigNumber }): Promise<string> => {
-    const signer = hlWallet().connect(provider);
+    const signer = hlWallet();
     if (signer.address.toLowerCase() !== address.toLowerCase()) throw new Error("the wallet key is not for this address");
-    const sent = await signer.sendTransaction(tx);
-    const rec = await sent.wait(1);
-    if (rec.status !== 1) throw new Error(`transaction failed on chain: ${sent.hash}`);
-    return sent.hash;
+    const value = tx.value ?? BigNumber.from(0);
+    const req = { from: address, to: tx.to, data: tx.data, value: value.toHexString().replace(/^0x0+(?=.)/, "0x") };
+    // a transaction that would fail is found here, before anything is signed
+    const gas = BigNumber.from(await rpc<string>("eth_estimateGas", [req])).mul(13).div(10);
+    const gasPrice = BigNumber.from(await rpc<string>("eth_gasPrice", [])).mul(3).div(2);
+    const nonce = Number(await rpc<string>("eth_getTransactionCount", [address, "pending"]));
+    const raw = await signer.signTransaction({ to: tx.to, data: tx.data, value, nonce, gasLimit: gas, gasPrice, chainId: ARBITRUM_CHAIN_ID, type: 0 });
+    const hash = await rpc<string>("eth_sendRawTransaction", [raw]);
+    const until = Date.now() + RECEIPT_WAIT_MS;
+    for (;;) {
+      const rec = await rpc<{ status?: string } | null>("eth_getTransactionReceipt", [hash]).catch(() => null);
+      if (rec) {
+        if (rec.status !== "0x1") throw new Error(`transaction failed on chain: ${hash}`);
+        return hash;
+      }
+      if (Date.now() > until) throw new Error(`transaction not confirmed after ${RECEIPT_WAIT_MS / 1000} s: ${hash}`);
+      await new Promise((r) => setTimeout(r, 2_000));
+    }
   };
   return {
     address,
-    chainId: async () => Number(await provider.send("eth_chainId", [])),
-    hasCode: async (a) => (await provider.getCode(a)).length > 2,
+    chainId: async () => Number(await rpc<string>("eth_chainId", [])),
+    hasCode: async (a) => (await rpc<string>("eth_getCode", [a, "latest"])).length > 2,
     usdcMeta: async () => ({
       symbol: String(erc20.decodeFunctionResult("symbol", await call(USDC, erc20.encodeFunctionData("symbol")))[0]),
       decimals: Number(erc20.decodeFunctionResult("decimals", await call(USDC, erc20.encodeFunctionData("decimals")))[0]),
     }),
-    eth: async (a) => Number(formatUnits(await provider.getBalance(a), 18)),
+    eth: async (a) => Number(formatUnits(BigNumber.from(await rpc<string>("eth_getBalance", [a, "latest"])), 18)),
     usdc: async (a) => Number(formatUnits(erc20.decodeFunctionResult("balanceOf", await call(USDC, erc20.encodeFunctionData("balanceOf", [a])))[0] as BigNumber, 6)),
     quote: async (eth) => {
       const data = quoter.encodeFunctionData("quoteExactInputSingle", [{ tokenIn: WETH, tokenOut: USDC, amountIn: parseUnits(eth.toFixed(6), 18), fee: POOL_FEE, sqrtPriceLimitX96: 0 }]);
