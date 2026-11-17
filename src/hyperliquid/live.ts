@@ -162,10 +162,24 @@ let loaded = false;
 const load = () => {
   loaded = true;
   state = { ...fresh(), ...loadJson<Partial<State>>(FILE, {}) };
+  // a trader cut on nothing but such rows is put back (copy-05a42708, 17 Nov 2026: three one-minute ATOM shorts)
+  for (const rule of Object.keys(state.demoted)) {
+    const before = state.rows.filter((x) => x.rule === rule && x.t <= state.demoted[rule]);
+    if (before.length && before.every(isFlip) && /behind after/.test(state.demotedWhy[rule] ?? "")) {
+      delete state.demoted[rule];
+      delete state.demotedWhy[rule];
+    }
+  }
 };
 const save = () => saveJson(FILE, state);
 const skip = (why: string) => void (state.skipped[why] = (state.skipped[why] ?? 0) + 1);
-const realOf = (rule: string) => realRecord(state.rows.filter((x) => x.rule === rule && x.t > (state.demoted[rule] ?? 0)).map((x) => x.netUsd));
+/**
+ * A copy opened and closed within a few minutes for cents: not a trade of the trader's, but its position slipping in
+ * and out of the followed list (fixed at the source 17 Nov 2026, src/solana/buckets.ts HL_KEEP_POS_USD). Such rows stay
+ * in the money count, but no trader is kept or cut on them.
+ */
+export const isFlip = (x: { heldH: number; netUsd: number }) => x.heldH <= 0.05 && Math.abs(x.netUsd) < 0.15;
+const realOf = (rule: string) => realRecord(state.rows.filter((x) => x.rule === rule && x.t > (state.demoted[rule] ?? 0) && !isFlip(x)).map((x) => x.netUsd));
 const loss = () => Math.max(0, -state.netUsd);
 
 /** The traders the paper side must keep following even off the daily list: a real position open here, or real copies ahead. */
@@ -294,7 +308,9 @@ async function open(d: HlDeps, x: PaperOpen, collateralUsd: number, coins: Recor
   const px = mids[x.coin];
   if (!coin || !(px > 0)) return "coin not on Hyperliquid's list";
   const lev = leverageFor(x.lev, coin);
-  const sz = roundSz((collateralUsd * lev) / px, coin.szDecimals);
+  // Hyperliquid's smallest order is $10: a 1x copy of $10 came out a few cents under it and was never made. Such a
+  // copy is made at the smallest size Hyperliquid takes (about $11) instead.
+  const sz = roundSz(Math.max(collateralUsd * lev, MIN_ORDER_USD) / px, coin.szDecimals);
   if (sz * px < MIN_ORDER_USD - 1) return "position too small for Hyperliquid";
   if (acct.freeUsd < collateralUsd + 1) return "not enough free money";
   const lv = await d.venue.setLeverage(coin, lev);
@@ -348,4 +364,4 @@ export function hlLiveSummary(cfg: HlLiveConfig = fileCfg(), meetsBar: (rule: st
   };
 }
 
-export const _test = { reset: () => ((state = fresh()), (loaded = true), (busy = false)), state: () => state };
+export const _test = { reset: () => ((state = fresh()), (loaded = true), (busy = false)), state: () => state, reload: () => load() };

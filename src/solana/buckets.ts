@@ -448,7 +448,14 @@ export function majorTier(address: string, now = Date.now()): 0 | 1 | 2 {
 }
 const majorCopies = (address: string) => state.hlTrades.filter((t) => t.trader === address && onJupiter(t.coin)).length;
 /** A trader's open positions out of a clearinghouseState answer: coin -> signed dollars. */
-export function hlPositions(state: unknown): Record<string, number> | null {
+/**
+ * A position already being followed stays followed down to this size. Without it a position worth about HL_MIN_POS_USD
+ * went in and out of the list with every small price move, and each time was copied as a new trade and closed a
+ * minute later (17 Nov 2026: three one-minute ATOM shorts for real on Hyperliquid, fees only, and the trader was cut
+ * for them). It counts as closed when it is gone, turned round, or under this.
+ */
+export const HL_KEEP_POS_USD = 2_500;
+export function hlPositions(state: unknown, held?: Record<string, number>): Record<string, number> | null {
   const rows = (state as { assetPositions?: unknown })?.assetPositions;
   if (!Array.isArray(rows)) return null;
   const out: Record<string, number> = {};
@@ -457,7 +464,9 @@ export function hlPositions(state: unknown): Record<string, number> | null {
     const coin = typeof p?.coin === "string" && /^[A-Za-z0-9]{1,12}$/.test(p.coin) ? p.coin : null;
     const szi = Number(p?.szi);
     const val = Math.abs(Number(p?.positionValue));
-    if (!coin || !Number.isFinite(szi) || szi === 0 || !(val >= HL_MIN_POS_USD)) continue;
+    if (!coin || !Number.isFinite(szi) || szi === 0) continue;
+    const following = held !== undefined && Math.sign(held[coin] ?? 0) === Math.sign(szi);
+    if (!(val >= (following ? HL_KEEP_POS_USD : HL_MIN_POS_USD))) continue;
     out[coin] = Math.sign(szi) * val;
   }
   return out;
@@ -913,7 +922,7 @@ async function hlTick(deps: BucketDeps, now: number) {
     for (let j = 0; j < batch.length; j++) {
       const a = batch[j];
       const answer = answers[j];
-      const after = hlPositions(answer);
+      const after = hlPositions(answer, state.hlSeen[a]);
       if (!after) continue;
       const levs = hlLeverage(answer);
       if (Object.keys(after).some(onJupiter)) state.hlMajorSeen = { ...(state.hlMajorSeen ?? {}), [a]: now };
@@ -1074,6 +1083,8 @@ export function bucketsSummary() {
       traders: state.hlTraders.length,
       listReadAt: state.hlAt || null,
       all: tally(state.hlTrades.map((t) => t.net), PERP_USD),
+      // copies closed within three minutes of opening: mostly a position slipping in and out of the followed list (fixed 17 Nov 2026, HL_KEEP_POS_USD), not the trader's own trades
+      under3min: tally(state.hlTrades.filter((t) => t.exitAt - t.at < 180_000).map((t) => t.net), PERP_USD),
       majors: tally(state.hlTrades.filter((t) => major(t.coin)).map((t) => t.net), PERP_USD),
       others: tally(state.hlTrades.filter((t) => !major(t.coin)).map((t) => t.net), PERP_USD),
       shorts: tally(state.hlTrades.filter((t) => t.dir < 0).map((t) => t.net), PERP_USD),

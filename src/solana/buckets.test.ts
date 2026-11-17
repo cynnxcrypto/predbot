@@ -522,3 +522,14 @@ test("buckets: a linked wallet is followed on paper off the list; liked traders 
     B.setExtraTraders(() => []);
   }
 });
+
+test("a followed position stays followed while it is still held, even when it dips under the size to start following", async () => {
+  const { hlPositions, hlDiff, HL_MIN_POS_USD, HL_KEEP_POS_USD } = await import("./buckets.js");
+  const st = (v: number, szi = "-100") => ({ assetPositions: [{ position: { coin: "ATOM", szi, positionValue: String(v) } }] });
+  const a = hlPositions(st(HL_MIN_POS_USD + 50))!;
+  const b = hlPositions(st(HL_MIN_POS_USD - 80), a)!;
+  assert.deepEqual(hlDiff(a, b), { opened: [], closed: [] });
+  assert.deepEqual(hlPositions(st(HL_MIN_POS_USD - 80)), {}, "not followed yet: too small to start");
+  assert.deepEqual(hlDiff(b, hlPositions(st(HL_KEEP_POS_USD - 1), b)!), { opened: [], closed: ["ATOM"] });
+  assert.deepEqual(hlDiff(b, hlPositions(st(HL_MIN_POS_USD - 80, "100"), b)!), { opened: [], closed: ["ATOM"] }, "turned round under the size: closed, not followed as new");
+});
