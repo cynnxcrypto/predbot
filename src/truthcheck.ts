@@ -150,6 +150,16 @@ export function matchFlows(chain: Transfer[], flows: [number, number, string][])
  * window's worth change is right as far as deposits go; +$X = the chart took out $X too much (the change reads $X too
  * high), -$X = too little.
  */
+/**
+ * MONEY ENRIQUE CONFIRMED (17 Nov 2026, coordinator: "flag any flow that isn't on a list of deposits enrique confirmed";
+ * his only Solana-wallet deposits were about $100-101 each, on 15 Nov 2026 KST). Any other money the worth chart takes
+ * out of the Solana wallets' windows is flagged: it is either a deposit we were not told of or a trade booked as one.
+ */
+export const CONFIRMED_SOLANA_FLOWS: { day: string; minUsd: number; maxUsd: number }[] = [{ day: "2026-11-15", minUsd: 90, maxUsd: 112 }];
+export function unconfirmedFlows(flows: [number, number, string][]): [number, number, string][] {
+  const day = (t: number) => new Date(t + 9 * 3_600_000).toISOString().slice(0, 10);
+  return flows.filter((f) => f[2] !== "Polymarket" && !CONFIRMED_SOLANA_FLOWS.some((c) => c.day === day(f[0]) && f[1] >= c.minUsd && f[1] <= c.maxUsd));
+}
 export function windowFlowDiff(chain: Transfer[], flows: [number, number, string][], from: number): number {
   const ch = chain.filter((c) => c.t >= from).reduce((a, c) => a + c.usd, 0);
   const fl = flows.filter((f) => f[0] >= from && f[2] !== "Polymarket").reduce((a, f) => a + f[1], 0);
@@ -586,6 +596,7 @@ export async function truthRun(now = Date.now()): Promise<typeof last> {
       matched: m.matched.length,
       missing: m.missing.map((x) => ({ t: x.t, wallet: x.wallet, usd: x.usd, sig: x.sig })),
       notOnChain: m.extra.map((f) => ({ t: f[0], usd: f[1], wallet: f[2] })),
+      unconfirmed: unconfirmedFlows(flows).map((f) => ({ t: f[0], usd: f[1], wallet: f[2] })),
       polymarketFlows: flows.filter((f) => f[2] === "Polymarket").map((f) => ({ t: f[0], usd: f[1] })),
       counterpartKinds: kindCount,
       perWallet,
@@ -612,7 +623,7 @@ export async function truthRun(now = Date.now()): Promise<typeof last> {
 /** For the public status: the differences and counts only, never a balance or a deposit. */
 export function truthPublic() {
   if (!last) return null;
-  const ex = last.extra as { polymarketPnl?: { asOf: number; ageMin: number; comparedWithOursAt: number | null; fees: number | null; income: number | null }; polymarketCounts?: unknown; coins?: Record<string, { coins: number; noRoute: number; unpriced: number; untracked: number; untrackedUsd: number }>; flows?: { chainTransfers: number; matched: number; missing: unknown[]; notOnChain: unknown[]; perWallet?: unknown; counterpartKinds?: unknown; windowDiff?: unknown }; days?: { rows: DayRow[]; notRead: string[] }; errors?: string[] };
+  const ex = last.extra as { polymarketPnl?: { asOf: number; ageMin: number; comparedWithOursAt: number | null; fees: number | null; income: number | null }; polymarketCounts?: unknown; coins?: Record<string, { coins: number; noRoute: number; unpriced: number; untracked: number; untrackedUsd: number }>; flows?: { chainTransfers: number; matched: number; missing: unknown[]; notOnChain: unknown[]; unconfirmed?: { t: number; wallet: string }[]; perWallet?: unknown; counterpartKinds?: unknown; windowDiff?: unknown }; days?: { rows: DayRow[]; notRead: string[] }; errors?: string[] };
   return {
     at: last.at,
     note: "Dashboard minus an independent source (the chain, Polymarket's own position data). Within $1 or 1.5% = ok. Balances stay private.",
@@ -620,7 +631,7 @@ export function truthPublic() {
     polymarketCounts: ex.polymarketCounts ?? null,
     polymarketPnl: ex.polymarketPnl ? { asOf: ex.polymarketPnl.asOf, ageMin: ex.polymarketPnl.ageMin, comparedWithOursAt: ex.polymarketPnl.comparedWithOursAt, fees: ex.polymarketPnl.fees, income: ex.polymarketPnl.income } : null,
     coins: Object.fromEntries(Object.entries(ex.coins ?? {}).map(([k, v]) => [k, { coins: v.coins, noRoute: v.noRoute, unpriced: v.unpriced, untracked: v.untracked, untrackedUsd: v.untrackedUsd }])),
-    flows: ex.flows ? { chainTransfers: ex.flows.chainTransfers, matched: ex.flows.matched, missingFromChart: ex.flows.missing.length, chartFlowsNotOnChain: ex.flows.notOnChain.length, perWallet: ex.flows.perWallet ?? null, counterpartKinds: ex.flows.counterpartKinds ?? null, windowDiff: ex.flows.windowDiff ?? null } : null,
+    flows: ex.flows ? { chainTransfers: ex.flows.chainTransfers, matched: ex.flows.matched, missingFromChart: ex.flows.missing.length, chartFlowsNotOnChain: ex.flows.notOnChain.length, notConfirmedByEnrique: (ex.flows.unconfirmed ?? []).map((u) => ({ at: u.t, wallet: u.wallet })), perWallet: ex.flows.perWallet ?? null, counterpartKinds: ex.flows.counterpartKinds ?? null, windowDiff: ex.flows.windowDiff ?? null } : null,
     // day by day: how many lines were compared, and only the wrong ones, as differences (no day's own figures)
     days: ex.days ? { checked: ex.days.rows.length, notRead: ex.days.notRead, wrong: ex.days.rows.filter((r) => !r.ok || r.cumulative).map((r) => ({ day: r.day, type: r.type, countDiff: r.countDiff, netDiff: r.netDiff, ...(r.cumulative ? { cumulative: true } : {}) })) } : null,
     errors: (ex.errors ?? []).map((e) => e.replace(/0x[0-9a-fA-F]{40}|[1-9A-HJ-NP-Za-km-z]{32,44}/g, "…")),
