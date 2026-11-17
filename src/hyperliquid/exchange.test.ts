@@ -55,3 +55,13 @@ test("the coin list, order answers and nonces", () => {
   const a = nonce(5);
   assert.ok(nonce(5) > a, "never the same number twice");
 });
+
+test("reading the account and a trade's own result out of Hyperliquid's answers", async () => {
+  const { readAccount, readResult } = await import("./venue.js");
+  const a = readAccount({ marginSummary: { accountValue: "101.5" }, withdrawable: "80.25", assetPositions: [{ position: { coin: "HYPE", szi: "-0.75", entryPx: "40.0", unrealizedPnl: "1.2", marginUsed: "10.1" } }, { position: { coin: "X", szi: "0" } }] });
+  assert.deepEqual(a, { valueUsd: 101.5, freeUsd: 80.25, positions: { HYPE: { szi: -0.75, entryPx: 40, unrealUsd: 1.2, marginUsd: 10.1 } } });
+  assert.throws(() => readAccount({}));
+  const fills = [{ oid: 1, closedPnl: "0", fee: "0.0135" }, { oid: 2, closedPnl: "3.0", fee: "0.01" }, { oid: 2, closedPnl: "0.5", fee: "0.002" }, { oid: 9, closedPnl: "50", fee: "1" }];
+  assert.equal(Math.round(readResult(fills, [1, 2])! * 1e4) / 1e4, 3.4745);
+  assert.equal(readResult(fills, [1, 3]), null, "an order missing from the record: not guessed");
+});

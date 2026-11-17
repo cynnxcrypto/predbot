@@ -259,6 +259,8 @@ def summary():
     # the truth check: the dashboard minus the chain and Polymarket's own data, differences and counts only (src/truthcheck.ts)
     out["truthCheck"] = s.get("truthCheck")
     out["hyperliquid"] = s.get("hyperliquid")  # 17 Nov 2026: wallet made yes/no, reach checks, region; never the address
+    if isinstance(out["hyperliquid"], dict) and isinstance(out["hyperliquid"].get("live"), dict):
+        out["hyperliquid"]["live"].pop("account", None)  # the balance stays on the private page
     out["solanaCopy"] = public_solana(s.get("solanaCopy"))  # 11 Nov 2026: paper wallet-copy speed test on Solana (src/solana/copyrun.ts), read-only; keys are scrubbed there
     out["withdraw"] = s.get("withdraw")  # one-off withdrawal: stage, tries, confirmed, amounts; never an address or a transaction id
     # numbers only: never an address, token, signature or key; the wallet's balance stays off the public file too

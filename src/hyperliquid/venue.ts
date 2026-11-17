@@ -1,0 +1,63 @@
+/**
+ * Hyperliquid for the trading loop (src/hyperliquid/live.ts): reads through the public info API, orders signed by
+ * the trading key. The wallet's own key is touched in one place only: naming the trading key for the account, once.
+ */
+import { approveAgent, coinsOf, leverageAction, orderAction, post, readOrder, send, type Coin } from "./exchange.js";
+import { hlAgent, hlWallet } from "./keys.js";
+import type { Account, Venue } from "./live.js";
+
+const errOf = (answer: unknown): string => {
+  const a = answer as { status?: string; response?: unknown };
+  return a?.status === "ok" ? "" : (typeof a?.response === "string" ? a.response : "no ok from Hyperliquid").replace(/0x[0-9a-fA-F]{40,}/g, "…").slice(0, 160);
+};
+
+/** A clearinghouseState answer -> the account as the loop wants it. Throws when it is not one. */
+export function readAccount(answer: unknown): Account {
+  const a = answer as { marginSummary?: { accountValue?: unknown }; withdrawable?: unknown; assetPositions?: unknown };
+  const valueUsd = Number(a?.marginSummary?.accountValue);
+  if (!Number.isFinite(valueUsd) || !Array.isArray(a.assetPositions)) throw new Error("hyperliquid: no account in the answer");
+  const positions: Account["positions"] = {};
+  for (const x of a.assetPositions as { position?: Record<string, unknown> }[]) {
+    const p = x?.position;
+    const szi = Number(p?.szi);
+    if (typeof p?.coin !== "string" || !Number.isFinite(szi) || szi === 0) continue;
+    positions[p.coin] = { szi, entryPx: Number(p.entryPx) || 0, unrealUsd: Number(p.unrealizedPnl) || 0, marginUsd: Number(p.marginUsed) || 0 };
+  }
+  return { valueUsd, freeUsd: Number(a.withdrawable) || 0, positions };
+}
+
+/** What Hyperliquid's fill record says a set of orders made: closed profit minus fees. Null unless every order is in it. */
+export function readResult(fills: unknown, oids: number[]): number | null {
+  if (!Array.isArray(fills)) return null;
+  const mine = (fills as { oid?: number; closedPnl?: string; fee?: string }[]).filter((f) => oids.includes(Number(f?.oid)));
+  if (!oids.every((o) => mine.some((f) => Number(f.oid) === o))) return null;
+  const net = mine.reduce((s, f) => s + Number(f.closedPnl ?? 0) - Number(f.fee ?? 0), 0);
+  return Number.isFinite(net) ? net : null;
+}
+
+export function realVenue(address: string, fetcher: typeof fetch = fetch): Venue {
+  let coins: { at: number; v: Record<string, Coin> } | null = null;
+  return {
+    coins: async () => {
+      if (!coins || Date.now() - coins.at > 3_600_000) {
+        const v = coinsOf(await post("info", { type: "meta" }, fetcher));
+        if (!Object.keys(v).length) throw new Error("hyperliquid: no coin list");
+        coins = { at: Date.now(), v };
+      }
+      return coins.v;
+    },
+    mids: async () => Object.fromEntries(Object.entries((await post("info", { type: "allMids" }, fetcher)) as Record<string, string>).map(([k, v]) => [k, Number(v)])),
+    account: async () => readAccount(await post("info", { type: "clearinghouseState", user: address }, fetcher)),
+    agent: async () => {
+      const agent = hlAgent().address.toLowerCase();
+      const named = (await post("info", { type: "extraAgents", user: address }, fetcher).catch(() => null)) as { address?: string }[] | null;
+      if (Array.isArray(named) && named.some((x) => String(x?.address).toLowerCase() === agent)) return "";
+      const w = hlWallet();
+      if (w.address.toLowerCase() !== address.toLowerCase()) return "the wallet key is not for this account";
+      return errOf(await approveAgent(w, agent, fetcher));
+    },
+    setLeverage: async (coin, leverage) => errOf(await send(hlAgent(), leverageAction(coin, leverage), fetcher)),
+    order: async (coin, buy, px, sz, reduceOnly) => readOrder(await send(hlAgent(), orderAction(coin, buy, px, sz, reduceOnly), fetcher)),
+    result: async (oids, sinceMs) => readResult(await post("info", { type: "userFillsByTime", user: address, startTime: Math.floor(sinceMs) }, fetcher), oids),
+  };
+}

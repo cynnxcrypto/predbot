@@ -15,7 +15,7 @@ let chMemo: { at: number; rows: { t: number; tx: string }[] } | null = null;
 import { solSlowView, slowDaysServed } from "./solslowdash.js";
 import { worthView, worthCheck, worthLast, worthFlows } from "./worthdash.js";
 import { startTruthCheck, truthPrivate, truthPublic } from "./truthcheck.js";
-import { hlPage, hlPrivate, hlPublic, startHyperliquid } from "./hyperliquid/setup.js";
+import { hlLive, hlPage, hlPrivate, hlPublic, startHyperliquid } from "./hyperliquid/setup.js";
 import { kit as solKit } from "./solana/copylive.js";
 import { solanaCopyLiveSummary } from "./solana/copylive.js";
 import { withdrawSummary } from "./withdraw.js";
@@ -537,7 +537,7 @@ export function serveStatus(recorder: Recorder, build: string, others: Recorder[
       res.writeHead(200, { "content-type": "application/json" });
       const mine = recorder.status() as { live?: { balance?: number | null; toClaim?: number; chain?: Record<string, number> | null } | null };
       const cash = mine.live?.balance != null ? (mine.live.chain?.pUSD ?? mine.live.balance) + (mine.live.chain?.["USDC.e"] ?? 0) + (mine.live.chain?.USDC ?? 0) : null;
-      res.end(JSON.stringify({ build, ...mine, worthCheck: worthCheck(), truthCheck: truthPublic(), hyperliquid: hlPublic(), walletHistory: walletHistorySummary(cash, mine.live?.toClaim ?? 0), solana: solanaSummary(), solanaCopy: solanaCopySummary(), solanaCopyLive: solanaCopyLiveSummary(), withdraw: withdrawSummary(), series: others.map((r) => r.status()), eventPaper: loadJson<unknown>("eventpaper-summary.json", null), budgets: [...budgets(), pairliveSummary().budget, pairfastliveSummary().budget], pairlive: pairliveSummary(), pairfastlive: pairfastliveSummary(), preopen: preopenSummary(), pairlock: pairlockSummary(), pairfast: pairfastSummary() }));
+      res.end(JSON.stringify({ build, ...mine, worthCheck: worthCheck(), truthCheck: truthPublic(), hyperliquid: { ...hlPublic(), live: hlLive() }, walletHistory: walletHistorySummary(cash, mine.live?.toClaim ?? 0), solana: solanaSummary(), solanaCopy: solanaCopySummary(), solanaCopyLive: solanaCopyLiveSummary(), withdraw: withdrawSummary(), series: others.map((r) => r.status()), eventPaper: loadJson<unknown>("eventpaper-summary.json", null), budgets: [...budgets(), pairliveSummary().budget, pairfastliveSummary().budget], pairlive: pairliveSummary(), pairfastlive: pairfastliveSummary(), preopen: preopenSummary(), pairlock: pairlockSummary(), pairfast: pairfastSummary() }));
       return;
     }
     if (req.url === "/favicon.svg" || req.url === "/favicon.ico") {

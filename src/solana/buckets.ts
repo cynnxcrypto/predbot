@@ -802,8 +802,10 @@ async function hlPost(deps: BucketDeps, body: unknown): Promise<unknown> {
  * "cut loser and bring winners"), so a real winner is not dropped for sliding down that ranking. It leaves when its
  * real record is no longer ahead (the real side cuts it), like any other.
  */
-let keptTraders: () => string[] = () => [];
-export const setKeptTraders = (f: () => string[]) => void (keptTraders = f);
+const keptBy = new Map<string, () => string[]>();
+const keptTraders = () => [...new Set([...keptBy.values()].flatMap((f) => f()))];
+/** `who` names the real side that asks (Solana perps, Hyperliquid): each keeps its own winners on the list. */
+export const setKeptTraders = (f: () => string[], who = "perps") => void keptBy.set(who, f);
 async function hlTick(deps: BucketDeps, now: number) {
   if (now - state.hlAt > HL_REFRESH_MS || !state.hlTraders.length) {
     const res = await deps.fetch()("https://stats-data.hyperliquid.xyz/Mainnet/leaderboard", { signal: AbortSignal.timeout(90_000) }).catch(() => null);
@@ -1127,6 +1129,11 @@ export function perpPaperOpens(): { id: string; rule: string; coin: string; dir:
     // set: each trader is promoted on its own record
     ...state.hlOpen.filter((o) => (PERP_COINS as readonly string[]).includes(o.coin)).map((o) => ({ id: `${traderRule(o.trader)}:${o.coin}:${o.at}`, rule: traderRule(o.trader), coin: o.coin, dir: o.dir, at: o.at, lev: o.lev })),
   ];
+}
+/** Every copied trader's open paper copy, on EVERY coin (the Hyperliquid front trades them all; Solana perps only three). */
+export function hlPaperOpens(): { id: string; rule: string; coin: string; dir: number; at: number; lev?: number }[] {
+  if (!loaded) load();
+  return state.hlOpen.map((o) => ({ id: `${traderRule(o.trader)}:${o.coin}:${o.at}`, rule: traderRule(o.trader), coin: o.coin, dir: o.dir, at: o.at, lev: o.lev }));
 }
 /** One perp rule's closed paper trades since `sinceMs`, in the shape of the bar (net in units of one position). */
 export function perpPaperRecord(rule: string, sinceMs = 0) {

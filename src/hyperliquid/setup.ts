@@ -13,6 +13,9 @@ import { join } from "node:path";
 import { ROOT } from "../config.js";
 import { ARBITRUM_CHAIN_ID, ARBITRUM_RPC, HL_API, fund, realChain, type Chain, type FundReport } from "./fund.js";
 import { hlAgent, hlWallet } from "./keys.js";
+import { fileCfg, hlKeptTraders, hlLiveSummary, hlLiveTick, type HlDeps } from "./live.js";
+import { realVenue } from "./venue.js";
+import { hlPaperOpens, perpMeetsBar, setKeptTraders, traderListed } from "../solana/buckets.js";
 
 interface Reach {
   at: number;
@@ -119,9 +122,18 @@ export function startHyperliquid(fetcher: typeof fetch = fetch): Promise<void> {
     const look = () => void fundLook(chain);
     setTimeout(look, 60_000).unref();
     setInterval(look, 5 * 60_000).unref();
+    // real copies (src/hyperliquid/live.ts): does nothing unless deploy/live-rules.json hyperliquid.trade says so
+    const deps: HlDeps = { cfg: fileCfg, venue: realVenue(address, fetcher), paperOpens: hlPaperOpens, meetsBar, listed: traderListed };
+    setKeptTraders(hlKeptTraders, "hyperliquid");
+    setInterval(() => void hlLiveTick(deps), 20_000).unref();
   }
   return run();
 }
+
+/** A trader's bar on Hyperliquid counts its paper copies on every coin (the Solana perps side wants some on SOL, BTC or ETH). */
+const meetsBar = (rule: string, sinceMs: number, now: number) => perpMeetsBar(rule, sinceMs, now, 0);
+/** The real copies, for the status and the tab (traders by short name, no address). */
+export const hlLive = () => hlLiveSummary(fileCfg(), meetsBar);
 
 /** For the public status: no address, no key, no balance. */
 export function hlPublic() {
