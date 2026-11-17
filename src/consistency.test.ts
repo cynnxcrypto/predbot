@@ -151,6 +151,6 @@ test("Solana wallets book exactly enrique's confirmed deposits; everything else 
   assert.deepEqual(out.filter((f) => f[2] === "Solana spot rules"), [[at(17 + 40 / 60), 101, "Solana spot rules"]]);
   assert.deepEqual(out.filter((f) => f[2] === "Solana spot copy"), [[at(17 + 40 / 60), 101, "Solana spot copy"]]);
   assert.ok(out.some((f) => f[2] === "deposit") && out.some((f) => f[2] === "Hyperliquid"));
-  const dc = depositCheck(chart, at(-24)) as Record<string, { booked: number; confirmed: number; offUsd: number }>;
+  const dc = depositCheck(chart, at(-24)) as unknown as Record<string, { booked: number; confirmed: number; offUsd: number }>;
   assert.deepEqual(dc["Solana perps"], { booked: 2, confirmed: 1, offUsd: 11.06 });
 });
