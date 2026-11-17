@@ -23,7 +23,7 @@ import { namedWallet, type Wallet } from "./keys.js";
 import { cutReason, realRecord, standing } from "./realfirst.js";
 import { perpMeetsBar, perpPaperOpensOn } from "./buckets.js";
 import { cutRule, leverageFor, perpsCutAt, perpsRealOf, setOtherVenueReal, MAX_HOLD_H, OPEN_WINDOW_MS, TEST_RULE } from "./perpslive.js";
-import { gum, signApiTx, signedCancelAll, signedPlace, type GumMarket, type GumPlace } from "./gum.js";
+import { gum, signApiTx, txLayout, signedCancelAll, signedPlace, type GumMarket, type GumPlace } from "./gum.js";
 
 export const HARD_COLLATERAL_USD = 25;
 export const MIN_COLLATERAL_USD = 5;
@@ -125,6 +125,8 @@ interface State {
   account?: { cross: string; sub: number };
   created?: { at: number; result: string };
   deposits?: Record<string, { at: number; result: string }>;
+  /** the layout of the last deposit transaction the API built (no address): what the signer saw */
+  depositLayout?: unknown;
   dry?: { id: string; at: number; result: string };
   test?: { id: string; at: number; result?: string };
   lastError: string;
@@ -202,7 +204,7 @@ export interface GumDeps {
   place: (w: Wallet, body: unknown) => Promise<unknown>;
   cancelAll: (w: Wallet, body: unknown) => Promise<unknown>;
   /** build, sign (signApiTx) and submit a deposit into the cross account; returns the signature */
-  deposit: (w: Wallet, cross: string, usd: number) => Promise<string>;
+  deposit: (w: Wallet, cross: string, usd: number, seen: (layout: unknown) => void) => Promise<string>;
   paperOpens: (coins: string[]) => { id: string; rule: string; coin: string; dir: number; at: number; lev?: number }[];
   fixed: (e: unknown) => string;
   /** is this trader real now (tests; production: gumStanding) */
@@ -311,7 +313,7 @@ export async function gumLiveTick(d: GumDeps, now = Date.now()): Promise<void> {
       state.deposits = { ...(state.deposits ?? {}), [c.deposit.id]: { at: now, result: "sending" } };
       save();
       try {
-        await d.deposit(w, state.account.cross, c.deposit.usd);
+        await d.deposit(w, state.account.cross, c.deposit.usd, (l) => void (state.depositLayout = l));
         state.deposits[c.deposit.id].result = `sent: $${c.deposit.usd}`;
       } catch (e) {
         state.deposits[c.deposit.id].result = `error: ${d.fixed(e)}`;
@@ -452,6 +454,7 @@ export function gumLiveSummary() {
     account: !!state.account,
     created: state.created?.result ?? null,
     deposits: Object.fromEntries(Object.entries(state.deposits ?? {}).map(([k, v]) => [k, v.result])),
+    depositLayout: state.depositLayout ?? null,
     dryRun: state.dry ? { id: state.dry.id, result: state.dry.result } : null,
     test: state.test ? { id: state.test.id, result: state.test.result ?? null } : null,
     collateralUsd: c.collateralUsd,
@@ -490,8 +493,9 @@ export function startGumLive() {
     blockhash: async () => (await gum<{ blockhash: string }>("/blockhash")).blockhash,
     place: (w, body) => gum("/order/create", { method: "POST", pubkey: w.address, body }),
     cancelAll: (w, body) => gum("/order/cancel-all", { method: "POST", pubkey: w.address, body }),
-    deposit: async (w, cross, usd) => {
+    deposit: async (w, cross, usd, seen) => {
       const b = await gum<{ serializedTransaction: string }>(`/deposit?amount=${Math.round(usd * 1e6)}&trading_account=${cross}`, { pubkey: w.address });
+      seen(txLayout(b.serializedTransaction, w));
       const r = await gum<{ signature: string }>("/deposit", { method: "POST", pubkey: w.address, body: { serializedTransaction: signApiTx(b.serializedTransaction, w) } });
       return r.signature;
     },
