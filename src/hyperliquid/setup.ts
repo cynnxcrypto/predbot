@@ -8,7 +8,10 @@
  * Public status gets only yes/no answers, the chain id and the region. The deposit address is given out by
  * hlPrivate() alone, which the dashboard serves behind its password. Nothing here signs or sends anything.
  */
-import { ARBITRUM_CHAIN_ID, ARBITRUM_RPC, HL_API } from "./fund.js";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { ROOT } from "../config.js";
+import { ARBITRUM_CHAIN_ID, ARBITRUM_RPC, HL_API, fund, realChain, type Chain, type FundReport } from "./fund.js";
 import { hlAgent, hlWallet } from "./keys.js";
 
 interface Reach {
@@ -24,6 +27,38 @@ interface Reach {
 let wallet: { ok: boolean; error?: string } = { ok: false, error: "not started" };
 let address = "";
 let reach: Reach | null = null;
+let funding: (FundReport & { at: number; mode: FundMode; error?: string }) | null = null;
+let busy = false;
+
+/** deploy/live-rules.json "hyperliquid": { "fund": "go" } swaps and deposits for real; anything else is a dry run. */
+export type FundMode = "dry" | "go";
+export function parseFundMode(text: string): FundMode {
+  try {
+    return (JSON.parse(text) as { hyperliquid?: { fund?: unknown } }).hyperliquid?.fund === "go" ? "go" : "dry";
+  } catch {
+    return "dry";
+  }
+}
+const fundMode = (): FundMode => {
+  try {
+    return parseFundMode(readFileSync(join(ROOT, "deploy", "live-rules.json"), "utf8"));
+  } catch {
+    return "dry";
+  }
+};
+
+/** One look at the wallet: a dry run of the funding, or the real thing when the repo file says go. Never throws. */
+export async function fundLook(chain: Chain, mode: FundMode = fundMode()): Promise<void> {
+  if (busy) return;
+  busy = true;
+  try {
+    funding = { ...(await fund(chain, { go: mode === "go" })), at: Date.now(), mode };
+  } catch (e) {
+    funding = { dry: mode !== "go", problems: [], steps: [], eth: funding?.eth ?? 0, usdc: funding?.usdc ?? 0, hlUsd: funding?.hlUsd ?? 0, done: false, at: Date.now(), mode, error: short(e) };
+  } finally {
+    busy = false;
+  }
+}
 
 const short = (e: unknown) => String((e as Error)?.message ?? e).replace(/0x[0-9a-fA-F]{40,}/g, "…").slice(0, 120);
 
@@ -78,17 +113,24 @@ export function startHyperliquid(fetcher: typeof fetch = fetch): Promise<void> {
   }
   const run = () => reachCheck(fetcher).then((r) => void (reach = r)).catch(() => undefined);
   setInterval(run, 6 * 3_600_000).unref();
+  if (wallet.ok) {
+    // money that arrives is seen within five minutes; what happens to it depends on the switch in the repo file
+    const chain = realChain(address, fetcher);
+    const look = () => void fundLook(chain);
+    setTimeout(look, 60_000).unref();
+    setInterval(look, 5 * 60_000).unref();
+  }
   return run();
 }
 
 /** For the public status: no address, no key, no balance. */
 export function hlPublic() {
-  return { stage: "setup: wallet made, waiting for money; nothing trades", wallet, reach };
+  return { stage: "setup: wallet made, waiting for money; nothing trades", wallet, reach, funding: funding ? { at: funding.at, mode: funding.mode, dry: funding.dry, done: funding.done, problems: funding.problems, steps: funding.steps, error: funding.error ?? null } : null };
 }
 
 /** Behind the dashboard's password only. */
 export function hlPrivate() {
-  return { address: wallet.ok ? address : null, network: "Arbitrum One", token: "ETH", wallet, reach };
+  return { address: wallet.ok ? address : null, network: "Arbitrum One", token: "ETH", wallet, reach, funding };
 }
 
 /** The private page: the deposit address and how to send to it. */
@@ -104,7 +146,8 @@ ${p.address
 <button onclick="navigator.clipboard.writeText(document.getElementById('a').textContent).then(()=>this.textContent='Copied')" style="font:inherit;padding:10px 16px;border-radius:10px;border:0;background:#2f6feb;color:#fff">Copy address</button>
 <p style="color:#9aa4b2">Not Ethereum mainnet, not another network. Minimum about $30. The bot keeps about $3 of ETH for gas, swaps the rest to USDC and deposits it into Hyperliquid.</p>`
     : `<p>No wallet yet: ${p.wallet.error ?? "unknown"}</p>`}
+${p.funding ? `<p>Wallet: <b>${p.funding.eth} ETH</b>, ${p.funding.usdc} USDC · on Hyperliquid: <b>$${p.funding.hlUsd}</b></p>` : ""}
 <p style="color:#9aa4b2;font-size:14px">Server check: Hyperliquid ${ok(p.reach?.hyperliquidApi)} · Arbitrum ${ok(p.reach?.arbitrumRpc)} · region ${p.reach?.region ?? "not read"}</p></body>`;
 }
 
-export const _hlTest = { reset: () => void ((wallet = { ok: false, error: "not started" }), (address = ""), (reach = null)) };
+export const _hlTest = { reset: () => void ((wallet = { ok: false, error: "not started" }), (address = ""), (reach = null), (funding = null)) };

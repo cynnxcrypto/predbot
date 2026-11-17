@@ -6,7 +6,18 @@ import { test } from "node:test";
 
 const dir = mkdtempSync(join(tmpdir(), "hlsetup-"));
 process.env.DATA_DIR = dir;
-const { hlPage, hlPrivate, hlPublic, reachCheck, startHyperliquid } = await import("./setup.js");
+import type { Chain } from "./fund.js";
+const { fundLook, hlPage, hlPrivate, hlPublic, parseFundMode, reachCheck, startHyperliquid } = await import("./setup.js");
+
+test("the swap is real only when the repo file says go; a look that fails is reported, not thrown", async () => {
+  assert.equal(parseFundMode('{"hyperliquid":{"fund":"go"}}'), "go");
+  for (const t of ['{"hyperliquid":{"fund":true}}', '{"hyperliquid":{}}', "{}", "not json"]) assert.equal(parseFundMode(t), "dry");
+  const down = { chainId: async () => Promise.reject(new Error("rpc down 0x" + "a".repeat(40))) } as unknown as Chain;
+  await fundLook(down, "go");
+  const f = hlPublic().funding;
+  assert.equal(f?.mode, "go");
+  assert.match(f?.error ?? "", /rpc down …/);
+});
 
 const net = (o: { hl?: number; chain?: string; region?: string | null }) =>
   (async (url: string | URL | Request, init?: RequestInit) => {

@@ -236,5 +236,9 @@
     "maxLoss": 15,
     "maxPairs": 1,
     "slack": 3
+  },
+  "hyperliquid": {
+    "note": "17 Nov 2026 15:22-15:24 KST, enrique: 'new tab for hyperliquid', 'lets not mix it', 'and it is it's own wallet', 'how about i send eth to the arbitrum wallet', 'and u manage the swap too'. fund: 'dry' = the bot only says what it would do with the ETH in the wallet (status hyperliquid.funding.steps); 'go' = it keeps about $3 of ETH for gas, swaps the rest to USDC and deposits it into Hyperliquid (6 USDC test first). Turn to 'go' only after a dry run on the server shows no problems.",
+    "fund": "dry"
   }
 }
