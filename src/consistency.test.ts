@@ -135,3 +135,22 @@ test("a new wallet's first money is a deposit from the first reading, never a ga
   const all = worthToday(netOfFlows([[mid - 60_000, 600], ...hist], fresh), total, now);
   assert.equal(all?.usd, 0);
 });
+
+test("Solana wallets book exactly enrique's confirmed deposits; everything else on them is a result", async () => {
+  const { withConfirmed, depositCheck } = await import("./worthdash.js");
+  const at = (h: number) => Date.parse("2026-11-15T00:00:00+09:00") + h * 3_600_000;
+  const chart: [number, number, string][] = [
+    [at(10.9), 128.79, "deposit"], // not a Solana wallet's: left as it is
+    [at(11.3), 96.5, "Solana perps"], // his $100, seen at that day's SOL price: kept as the chart saw it
+    [at(13), 11.06, "Solana perps"], // a position opening: dropped
+    [at(17.6), 72.3, "Solana spot rules"], // not his $101 (more than 15% off): dropped, the $101 is booked instead
+    [at(30), 46.7, "Hyperliquid"],
+  ];
+  const out = withConfirmed(chart);
+  assert.deepEqual(out.filter((f) => f[2] === "Solana perps"), [[at(11.3), 96.5, "Solana perps"]]);
+  assert.deepEqual(out.filter((f) => f[2] === "Solana spot rules"), [[at(17 + 40 / 60), 101, "Solana spot rules"]]);
+  assert.deepEqual(out.filter((f) => f[2] === "Solana spot copy"), [[at(17 + 40 / 60), 101, "Solana spot copy"]]);
+  assert.ok(out.some((f) => f[2] === "deposit") && out.some((f) => f[2] === "Hyperliquid"));
+  const dc = depositCheck(chart, at(-24)) as Record<string, { booked: number; confirmed: number; offUsd: number }>;
+  assert.deepEqual(dc["Solana perps"], { booked: 2, confirmed: 1, offUsd: 11.06 });
+});

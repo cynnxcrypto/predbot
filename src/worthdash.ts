@@ -45,7 +45,43 @@ export function mergeChainFlows(fl: Flow[], ch: ChainFix | null): Flow[] {
 }
 /** Deposits seen at the last reading and not yet in a chart sample. */
 let pending: Flow[] = [];
-const effFlows = () => mergeChainFlows(pending.length ? [...flows, ...pending] : flows, chainSrc());
+/**
+ * THE MONEY ENRIQUE PUT INTO THE SOLANA WALLETS (17 Nov 2026, MAIN's truth check: the flows booked for 15 Nov were not his
+ * confirmed deposits, and the chain read does not reach back to all of 15 Nov). His word, 15 Nov 17:38-17:47 KST: about
+ * $101 into Solana spot copy, $101 into Solana spot rules, $100 into Solana perps, and nothing else into these three
+ * wallets since. For these wallets exactly these are booked: at the time and figure the chart saw it (same wallet, same
+ * Korean day, within 15%), else on that day at 17:40 KST at his figure. Every other step on them is a result or a move
+ * inside the wallet. Hyperliquid keeps its own ledger of ETH that arrived; Polymarket keeps its own detection.
+ */
+export const CONFIRMED: { wallet: string; day: string; usd: number }[] = [
+  { wallet: "Solana spot copy", day: "2026-11-15", usd: 101 },
+  { wallet: "Solana spot rules", day: "2026-11-15", usd: 101 },
+  { wallet: "Solana perps", day: "2026-11-15", usd: 100 },
+];
+const CONFIRMED_WALLETS = new Set(CONFIRMED.map((c) => c.wallet));
+const kday = (t: number) => new Date(t + 9 * 3_600_000).toISOString().slice(0, 10);
+/** The flows with, for the three Solana wallets, exactly the confirmed deposits. Pure. */
+export function withConfirmed(fl: Flow[]): Flow[] {
+  const keep = fl.filter((f) => !CONFIRMED_WALLETS.has(f[2]));
+  for (const c of CONFIRMED) {
+    const seen = fl.filter((f) => f[2] === c.wallet && kday(f[0]) === c.day && Math.abs(f[1] - c.usd) <= 0.15 * c.usd).sort((a, b) => Math.abs(a[1] - c.usd) - Math.abs(b[1] - c.usd))[0];
+    keep.push(seen ?? [Date.parse(c.day + "T17:40:00+09:00"), c.usd, c.wallet]);
+  }
+  return keep.sort((a, b) => a[0] - b[0]);
+}
+/** For the public status: per wallet, how many flows the chart booked against the confirmed ones, and by how much the
+ * booked money differs (dollars, positive = the chart took out more than was confirmed). No amount of a deposit itself. */
+export function depositCheck(fl: Flow[], since: number) {
+  const out: Record<string, { booked: number; confirmed: number; offUsd: number }> = {};
+  for (const w of CONFIRMED_WALLETS) {
+    const b = fl.filter((f) => f[2] === w && f[0] >= since);
+    const c = withConfirmed(fl).filter((f) => f[2] === w && f[0] >= since);
+    out[w] = { booked: b.length, confirmed: c.length, offUsd: Math.round((b.reduce((a, f) => a + f[1], 0) - c.reduce((a, f) => a + f[1], 0)) * 100) / 100 };
+  }
+  const other = fl.filter((f) => f[0] >= since && !CONFIRMED_WALLETS.has(f[2]));
+  return { ...out, otherFlows: other.map((f) => ({ at: f[0], wallet: f[2] })) };
+}
+const effFlows = () => withConfirmed(mergeChainFlows(pending.length ? [...flows, ...pending] : flows, chainSrc()));
 let comp: Comp | null = null;
 /**
  * Each wallet's own worth at every sample (16 Nov 2026, MAIN for enrique: every card's "today" is that wallet's real
@@ -345,7 +381,7 @@ export function worthCheck() {
   if (today) windows.today = today as { usd: number; est: boolean; from: number; at: number };
   const tw = memo.v.today ?? {};
   const todayByWallet = Object.fromEntries(WALLETS.map(([k, label]) => [label, tw[k] ? { usd: tw[k]!.usd, at: tw[k]!.at } : null]));
-  return { todayByWallet, claimStepsTakenForDeposits: fix?.removed ?? null, thatWasUsd: fix?.removedUsd ?? null, wonWaitingForClaimUsd: unclaimedAt(loadSpans(), Date.now()), change24hUsd: base && now != null ? Math.round((now - base[1]) * 100) / 100 : null, flows24h: flows.filter((f) => f[0] > T).length, windows, worthAt: full?.at ?? null };
+  return { deposits: depositCheck(mergeChainFlows(flows, chainSrc()), Date.now() - 8 * 86_400_000), todayByWallet, claimStepsTakenForDeposits: fix?.removed ?? null, thatWasUsd: fix?.removedUsd ?? null, wonWaitingForClaimUsd: unclaimedAt(loadSpans(), Date.now()), change24hUsd: base && now != null ? Math.round((now - base[1]) * 100) / 100 : null, flows24h: flows.filter((f) => f[0] > T).length, windows, worthAt: full?.at ?? null };
 }
 let memo: { at: number; v: Worth } | null = null;
 /** The dashboard's last worth reading and the deposits and withdrawals it takes out of its windows (src/truthcheck.ts). */
