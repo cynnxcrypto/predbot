@@ -352,7 +352,30 @@ function save() {
 const loss = () => Math.max(0, -state.netUsd);
 const skip = (why: string) => void (state.skipped[why] = (state.skipped[why] ?? 0) + 1);
 /** One trader's or rule's real record: its filled real trades since it was last cut. */
-const realOf = (rule: string) => realRecord(state.rows.filter((x) => x.rule === rule && x.filled && x.t > (state.demoted[rule] ?? 0)).map((x) => x.netUsd));
+/**
+ * One real record per rule or trader, whichever venue it traded on (17 Nov 2026: Jupiter's order book, gumlive.ts,
+ * trades the coins the JLP pool does not have). gumlive.ts registers its real results here; a cut from either side is
+ * one cut (cutRule).
+ */
+let otherVenue: (rule: string, sinceMs: number) => number[] = () => [];
+export const setOtherVenueReal = (f: (rule: string, sinceMs: number) => number[]) => void (otherVenue = f);
+let gumSummary: () => unknown = () => null;
+const realOf = (rule: string) => realRecord([...state.rows.filter((x) => x.rule === rule && x.filled && x.t > (state.demoted[rule] ?? 0)).map((x) => x.netUsd), ...otherVenue(rule, state.demoted[rule] ?? 0)]);
+/** For the order-book side: the shared real record, when the rule was last cut, and why. */
+export const perpsRealOf = (rule: string) => {
+  if (!loaded) load();
+  return realOf(rule);
+};
+export const perpsCutAt = (rule: string) => {
+  if (!loaded) load();
+  return { at: state.demoted[rule] ?? 0, why: state.demotedWhy?.[rule] ?? "" };
+};
+/** A cut decided on the order-book side: one cut for the rule on both venues. */
+export function cutRule(rule: string, why: string) {
+  if (!loaded) load();
+  cutNow(rule, why);
+  save();
+}
 /** Real results first (realfirst.ts): real record ahead or level = real; no real trades yet, or behind on fewer than three = the paper bar decides. */
 export const standingOf = (rule: string) => standing(realOf(rule), perpMeetsBar(rule, state.demoted[rule] ?? 0, Date.now(), liveCfg().traderMinOurs ?? 0), state.demotedWhy?.[rule]);
 export const promoted = (rule: string) => standingOf(rule).real;
@@ -888,6 +911,8 @@ export function perpsLiveSummary() {
     lastError: state.lastError,
     // Jupiter Perps' order-book coins (Gum): markets, minimums, our account there, where a deposit draws from (no address)
     gumProbe: gumProbeResult(),
+    // the order-book side (gumlive.ts): its own switches, money and results; the same traders and one record per trader
+    gum: gumSummary(),
     rulesReal: rules.filter((x) => x.real).length,
     rules: rules.filter((x) => x.real || x.trades || x.demotedAt || x.paperTrades >= (x.id.startsWith("copy-") ? TRADER_MIN_COPIES / 2 : REAL_MIN_TRADES / 2)),
   };
@@ -935,6 +960,12 @@ export async function startPerpsLive() {
   setPerpsRealSummary(perpsLiveSummary);
   setKeptTraders(keptTraders);
   // Jupiter Perps' order-book coins (HYPE, ZEC, ...): a read-only look, once, while none is saved (gumprobe.ts)
+  void import("./gumlive.js")
+    .then((g) => {
+      g.startGumLive();
+      gumSummary = g.gumLiveSummary;
+    })
+    .catch((e) => console.error("[perps] gum side:", String((e as Error)?.message ?? e).slice(0, 200)));
   void gumProbeOnce().catch((e) => console.error("[perps] gum probe:", String((e as Error)?.message ?? e).slice(0, 200)));
   // SOL for fees (src/solana/gas.ts): the top-up and the one swap in this wallet, and the low flags of all three
   const addrOf = (f: string) => {

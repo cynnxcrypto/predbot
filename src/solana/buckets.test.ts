@@ -469,7 +469,7 @@ test("buckets: the trader list prefers traders on SOL, BTC and ETH, and leaves o
   const st = _bucketsTest.state();
   const now = NOW + 3 * 86_400_000;
   const copy = (trader: string, coin: string, i: number) => ({ trader, coin, dir: 1, at: now - 5 * 86_400_000 + i, exitAt: now - 4 * 86_400_000, net: 0.01, why: "closed" as const });
-  st.hlTrades = [...Array.from({ length: 12 }, (_, i) => copy(OFF, "HYPE", i)), copy(ON, "SOL", 0), ...Array.from({ length: 11 }, (_, i) => copy(ON, "HYPE", i + 1))] as never;
+  st.hlTrades = [...Array.from({ length: 12 }, (_, i) => copy(OFF, "DOGE", i)), copy(ON, "SOL", 0), ...Array.from({ length: 11 }, (_, i) => copy(ON, "DOGE", i + 1))] as never;
   assert.equal(B.majorTier(ON, now), 0);
   assert.equal(B.majorTier(OFF, now), 2);
   assert.equal(B.majorTier(NEW, now), 1);
