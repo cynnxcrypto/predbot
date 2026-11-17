@@ -172,3 +172,24 @@ test("gum: an API transaction is signed only in our own slot", () => {
   const notOurs = Buffer.concat([Buffer.from([2]), Buffer.alloc(128), Buffer.concat([Buffer.from([2, 0, 1, 3]), other, Buffer.alloc(32, 4), Buffer.alloc(32, 9), Buffer.alloc(32, 1), Buffer.from([0])])]).toString("base64");
   assert.throws(() => signApiTx(notOurs, w));
 });
+
+test("gum: API transactions in other shapes: v0, no signature slots, fewer slots than signers; the layout says nothing of addresses", async () => {
+  const { txLayout } = await import("./gum.js");
+  const w = namedWallet("perps");
+  const payer = Buffer.alloc(32, 3);
+  const body = (lead: number[]) => Buffer.concat([Buffer.from(lead), Buffer.from([2, 0, 1, 3]), payer, w.pubkey, Buffer.alloc(32, 9), Buffer.alloc(32, 1), Buffer.from([0]), Buffer.from([0])]);
+  for (const [name, tx] of [
+    ["v0, two slots", Buffer.concat([Buffer.from([2]), Buffer.alloc(128), body([0x80])])],
+    ["no slots", Buffer.concat([Buffer.from([0]), body([0x80])])],
+    ["one slot", Buffer.concat([Buffer.from([1]), Buffer.alloc(64), body([])])],
+  ] as const) {
+    const out = Buffer.from(signApiTx(tx.toString("base64"), w), "base64");
+    assert.equal(out[0], 2, name);
+    assert.ok(out.subarray(1, 65).equals(Buffer.alloc(64)), `${name}: the API's slot is left empty`);
+    assert.ok(!out.subarray(65, 129).equals(Buffer.alloc(64)), `${name}: ours is signed`);
+    const L = txLayout(out.toString("base64"), w);
+    assert.equal(L.ourKeyAt, 1);
+    assert.ok(!JSON.stringify(L).includes(w.address));
+  }
+  assert.throws(() => signApiTx(Buffer.from([9, 9, 9]).toString("base64"), w), /not read/);
+});
