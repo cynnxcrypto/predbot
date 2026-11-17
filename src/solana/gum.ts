@@ -12,6 +12,7 @@
  */
 import { base58 } from "./whirlpool.js";
 import { base58decode, type Wallet } from "./keys.js";
+import { ata, onCurve } from "./soltx.js";
 
 export const GUM_API = process.env.GUM_API || "https://api.gum.ag/perps";
 export const JTX_PROGRAM_ID = "jtxQHH3ysuWRETjaynai3jowPztq2LBJApVFcEv4Wmg";
@@ -199,7 +200,8 @@ export async function gum<T>(path: string, init: { method?: string; pubkey?: str
     signal: AbortSignal.timeout(ms),
   });
   const text = await res.text();
-  if (!res.ok) throw new Error(`gum ${path.split("?")[0]} http ${res.status} ${text.slice(0, 200)}`);
+  // the whole error body (up to 2000 characters): dep-4's simulation error was cut at 200 and could not be read
+  if (!res.ok) throw new Error(`gum ${path.split("?")[0]} http ${res.status} ${text.slice(0, 2000)}`);
   return (text ? JSON.parse(text) : null) as T;
 }
 export const gumMarkets = () => gum<GumMarket[]>("/markets");
@@ -258,6 +260,59 @@ export function txLayout(b64: string, w: Wallet) {
   const r = tries.find(fits) ?? tries[0];
   const { slots: _s, ...rest } = r;
   return { bytes: tx.length, first: [...tx.subarray(0, 4)], ourBytesAt: tx.indexOf(w.pubkey), ...rest, fits: fits(r), other: tries.filter((x) => x !== r).map((x) => ({ enc: x.enc, msgAt: x.msgAt, required: x.required, keys: x.keys, ourKeyAt: x.ourKeyAt })) };
+}
+const SOL_USDC = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
+const KNOWN: Record<string, string> = {
+  [JTX_PROGRAM_ID]: "jtx",
+  [SOL_USDC]: "usdcMint(solana)",
+  TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA: "tokenProgram",
+  TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb: "token2022",
+  ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL: "ataProgram",
+  "11111111111111111111111111111111": "system",
+  ComputeBudget111111111111111111111111111111: "computeBudget",
+  SysvarRent111111111111111111111111111111111: "sysvarRent",
+  SysvarC1ock11111111111111111111111111111111: "sysvarClock",
+  Sysvar1nstructions1111111111111111111111111: "sysvarInstructions",
+};
+/** Any address in a text becomes <key>, except the known programs and mints (an API error can quote accounts). */
+export const redactKeys = (t: string) => t.replace(/[1-9A-HJ-NP-Za-km-z]{32,44}/g, (x) => KNOWN[x] ?? "<key>");
+/**
+ * What each account and instruction of a transaction the API built is, by role only (for the status, never an
+ * address): ours, our trading account, our Solana USDC token account, a known program, or "other" (with whether it is
+ * a wallet-like key or a program-derived one). Written for dep-4, whose simulation said "invalid account data" on
+ * instruction 0: it shows which token account and mint the deposit draws from.
+ */
+export function txRoles(b64: string, w: Wallet, mine: Record<string, string> = {}) {
+  const tx = Buffer.from(b64, "base64");
+  const tries = (["plain", "typed"] as const).map((e) => readAs(tx, w, e));
+  const r = tries.find(fits) ?? tries.find((x) => x.msgAt > 0);
+  if (!r) return null;
+  const msg = tx.subarray(r.msgAt);
+  const off = r.version === "legacy" ? 0 : 1;
+  const nRo = msg[off + 2];
+  const [nKeys, keysAt] = readShortVec(msg, off + 3);
+  const usdcAta = ata(w.address, SOL_USDC);
+  const names: Record<string, string> = { [w.address]: "ours", [usdcAta]: "ourUsdcAccount(solana)", ...KNOWN, ...mine };
+  const keys = Array.from({ length: nKeys }, (_, i) => {
+    const k = msg.subarray(keysAt + 32 * i, keysAt + 32 * (i + 1));
+    const a = base58(k);
+    const signer = i < r.required;
+    const writable = signer ? i < r.required - r.readonlySigned : i < nKeys - nRo;
+    return { i, role: names[a] ?? (onCurve(k) ? "other(wallet-like)" : "other(derived)"), signer, writable };
+  });
+  let at = keysAt + 32 * nKeys + 32; // the blockhash
+  const [nIx, ixAt] = readShortVec(msg, at);
+  at = ixAt;
+  const ixs: { program: string; accounts: string[]; dataLen: number; data8: number[] }[] = [];
+  for (let j = 0; j < nIx && j < 8 && at < msg.length; j++) {
+    const prog = msg[at];
+    const [nAcc, accAt] = readShortVec(msg, at + 1);
+    const accs = [...msg.subarray(accAt, accAt + nAcc)];
+    const [dLen, dAt] = readShortVec(msg, accAt + nAcc);
+    ixs.push({ program: keys[prog]?.role ?? `#${prog}`, accounts: accs.map((x) => `${x}:${keys[x]?.role ?? "?"}`), dataLen: dLen, data8: [...msg.subarray(dAt, dAt + Math.min(8, dLen))] });
+    at = dAt + dLen;
+  }
+  return { keys, instructions: ixs };
 }
 /**
  * Sign a transaction the Gum API built for us (deposit, transfer): the API is its fee payer and adds its own
