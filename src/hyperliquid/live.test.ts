@@ -175,3 +175,30 @@ test("an order that is refused opens nothing; limits are clamped; leverage is wh
   assert.equal(parseHlLive("{}").on, false);
   assert.deepEqual([leverageFor(25, COINS.BTC), leverageFor(25, COINS.HYPE), leverageFor(0.4, COINS.BTC), leverageFor(undefined, COINS.BTC)], [20, 5, 1, 2]);
 });
+
+test("one-minute in-and-out copies for cents never cut a trader; one cut on nothing else is put back; a 1x copy is made", async () => {
+  const { saveJson } = await import("../store.js");
+  const { w, d } = world();
+  for (let i = 0; i < 3; i++) {
+    const at = T0 + i * 600_000;
+    w.paper = [copy("copy-aaaa1111", "DOGE", -1, at, 2)];
+    w.mids.DOGE = 0.2;
+    await hlLiveTick(d, at + 1000);
+    w.paper = [];
+    w.mids.DOGE = 0.2001; // nothing moved: the loss is the fee
+    await hlLiveTick(d, at + 61_000);
+  }
+  const tr = hlLiveSummary(ON, () => true).traders[0];
+  assert.deepEqual([tr.trades, tr.sinceCut.trades, tr.cutAt, tr.real], [3, 0, null, true]);
+  assert.ok(tr.netUsd < 0, "the cents still count as money");
+  // the state as the server has it: cut on three such rows
+  const rows = _test.state().rows;
+  saveJson("hyperliquid-live.json", { ..._test.state(), demoted: { "copy-aaaa1111": rows[2].t }, demotedWhy: { "copy-aaaa1111": "cut: real record behind after 3 trades" } });
+  _test.reload();
+  assert.deepEqual(_test.state().demoted, {});
+  _test.reset();
+  const one = world();
+  one.w.paper = [copy("copy-aaaa1111", "HYPE", 1, T0, 1)];
+  await hlLiveTick(one.d, T0 + 1000);
+  assert.deepEqual(one.w.orders, [{ coin: 5, buy: true, sz: 0.27, reduce: false }]); // $11 at $40, not $10
+});
