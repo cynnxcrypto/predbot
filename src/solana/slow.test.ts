@@ -817,3 +817,16 @@ test("mid and high caps: the floor is $50M, $500k liquidity, 30 days; stocks and
   ]);
   assert.deepEqual(got.map((x) => [x.mint, x.mcap, x.liq, x.stock]), [["A", 5e7, 5e5, false], ["B", 1e9, 1e7, true], ["C", 1e9, 1e7, true], ["D", null, null, false]]);
 });
+
+test("mid and high caps: a coin with no first pool given passes on size; buyers of a cap coin become candidates first", () => {
+  _test.reset();
+  const now = Date.now();
+  const st = _test.state();
+  st.caps = { CapOld111111: { mcap: 3e8, liq: 2e6, createdMs: null, at: now }, CapYoung1111: { mcap: 3e8, liq: 2e6, createdMs: now - 5 * DAY, at: now }, CapThin11111: { mcap: 3e8, liq: 1e5, createdMs: null, at: now } };
+  assert.deepEqual([_test.capOk("CapOld111111"), _test.capOk("CapYoung1111"), _test.capOk("CapThin11111")], [true, false, false]);
+  st.pool = { memeBuyer: ["Meme01,Meme02,Meme03", 9], capBuyer: ["CapOld", 0.3] };
+  _test.promote(1);
+  assert.deepEqual(st.candidates.map((c) => c.address), ["capBuyer"]);
+  assert.deepEqual(slowSummary().caps.coinsOverFloorLeftOut, { young: 1, thin: 1 });
+  _test.reset();
+});
