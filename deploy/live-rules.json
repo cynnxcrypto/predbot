@@ -251,7 +251,8 @@
     "fund": "go",
     "trade": {
       "note": "OFF. Real copies of Hyperliquid traders on Hyperliquid, every coin (src/hyperliquid/live.ts). Same rules as the Solana perps copies: a trader is real on its own paper record (20+ closed copies, half won, ahead, a day old), then on its real record (cut when behind after 3 real trades or at traderStopUsd); its own leverage up to half of Hyperliquid's limit for the coin, isolated margin; one position per trader and per coin. To make the one test trade (smallest BTC long, about $11, closed at the next look) add \"testOnce\": \"<a new name>\". To trade, set on to true.",
-      "on": false,
+      "onNote": "17 Nov 2026 20:04 KST: on, on enrique's word 19:10 KST \"why isnt hl trading on, it's based on the same perp traders as in the sol perps tab\", after funding finished and test t1 opened and closed (-$0.01). Same real-record rules as the Solana perps copies.",
+      "on": true,
       "collateralUsd": 10,
       "maxOpen": 5,
       "maxLossUsd": 50,
