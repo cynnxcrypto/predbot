@@ -49,14 +49,14 @@ export function compare(k: string, dash: number | null, src: number | null, tolU
 }
 
 /** Polymarket's positions for the wallet: open ones (not redeemable) and redeemable ones, at Polymarket's currentValue. */
-export function splitPositions(rows: { size?: number | string; currentValue?: number | string; current_value?: number | string; curPrice?: number | string; redeemable?: boolean }[]) {
+export function splitPositions(rows: { size?: number | string; current_size?: number | string; currentValue?: number | string; current_value?: number | string; curPrice?: number | string; redeemable?: boolean }[]) {
   let open = 0;
   let openN = 0;
   let won = 0;
   let wonN = 0;
   let lostN = 0;
   for (const p of rows) {
-    const size = Number(p.size);
+    const size = Number(p.size ?? p.current_size); // v2 names it current_size (17 Nov 2026)
     const v = Number(p.current_value ?? p.currentValue);
     if (!(size > 1e-6) || !Number.isFinite(v)) continue;
     if (p.redeemable) {
