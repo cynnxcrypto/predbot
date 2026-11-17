@@ -56,7 +56,7 @@ import { makeReader, type Item } from "./history.js";
 import { signTransaction, wallet, type Wallet } from "./keys.js";
 import { SOL } from "./pools.js";
 import { setExitSource, slowExitsSummary } from "./slowexits.js";
-import { copySafe, onSlowSwap, paperAddresses, paperResults, provenWallets, setSlowRealSummary, STAKE_SOL as PAPER_STAKE_SOL, top5Sol, type SlowSwap } from "./slow.js";
+import { capOk, capWallets, copySafe, onSlowSwap, paperAddresses, paperResults, provenWallets, setSlowRealSummary, STAKE_SOL as PAPER_STAKE_SOL, top5Sol, type SlowSwap } from "./slow.js";
 
 export const HARD_STAKE_SOL = 0.05;
 /** when the stake went from 0.01 to 0.035 SOL (the restart of 18:00 KST 15 Nov 2026) */
@@ -156,6 +156,14 @@ export interface SlowLiveConfig {
   /** "proven" = the wallets the paper copy proves (the default); "fixed" = the first three */
   follow: "proven" | "fixed";
   /**
+   * Mid and high caps only (enrique, 17 Nov 2026: "dont focus on memecoins then" / "focus on mid to high caps" /
+   * "50m mcap sounds fine" / "why do we need them to do new trades, dont they have a history?"): a buy is copied only
+   * in a coin the scan counts as a mid or high cap (slow.ts capOk: $50M+ market value, $500k+ liquidity, 30+ days
+   * old), and the wallets come from the replay of their past cap trips (slow.ts capWallets) instead of paper's proven
+   * list. The real record still rests a wallet that falls behind. Off unless the file says "capOnly": true.
+   */
+  capOnly?: boolean;
+  /**
    * Sell the open copies of a wallet as soon as it is cut on its real record (at two sweeps, see cutClearly), instead of
    * leaving them to the 6 h dropped-wallet clock. Off unless the file says "sellCut": true: a real sale rule, enrique's
    * word only (given 16 Nov 2026).
@@ -185,6 +193,7 @@ export function parseSlowLive(text: string): SlowLiveConfig {
       maxFeeLamports: clamp(Math.floor(num(p.maxFeeLamports, 20_000)), 5_000, 200_000),
       follow: p.wallets === "fixed" ? "fixed" : "proven",
       sellCut: p.sellCut === true,
+      capOnly: p.capOnly === true,
     };
   } catch {
     return OFF;
@@ -263,6 +272,8 @@ interface State {
   missedCap: number;
   missedOpen: number;
   missedLow: number;
+  /** buys of copied wallets let go on caps only: the coin is under the floor or its size is not known */
+  notCap?: number;
   skippedSold: number;
   notSent: number;
   unreadTx: number;
@@ -558,7 +569,7 @@ export function wallets(now = Date.now()): Listed[] {
   const unsafeAddr: string[] = [];
   const unknown: string[] = [];
   try {
-    base = follow === "fixed" ? WALLETS : provenWallets();
+    base = follow === "fixed" ? WALLETS : cfg().capOnly ? capWallets() : provenWallets();
     if (follow !== "fixed") {
       // the real winners paper does not list: copied on their real record, if the scan's safety screens still hold
       const whos = everyone().filter((w) => realWinner(w, now) && !base.some((b) => (w.address ? b.address === w.address : b.name === w.name)));
@@ -642,6 +653,8 @@ function onBuy(s: SlowSwap) {
   if (!c.on || state.halted || !walletReady || s.sol < MIN_LEADER_SOL) return;
   // a wallet heard only because a copy of it is still out: off the list, so its new buys are not copied
   if (!wallets().some((w) => w.address === s.wallet)) return;
+  // caps only: a coin under the floor (or one the scan has no size for) is not copied
+  if (c.capOnly && !capOk(s.mint)) return void (state.notCap = (state.notCap ?? 0) + 1);
   const same = state.opens.find((p) => p.mint === s.mint);
   if (same) {
     if (same.wallet !== s.wallet) {
@@ -1221,6 +1234,8 @@ export function slowLiveSummary() {
     missedCap: state.missedCap,
     missedOpen: state.missedOpen,
     missedLow: state.missedLow,
+    capOnly: c.capOnly === true,
+    notCap: state.notCap ?? 0,
     skippedSold: state.skippedSold,
     notSent: state.notSent,
     /** buy quotes refused for asking too fast (every refusal counted; a refused quote is asked again twice) */
