@@ -22,6 +22,11 @@
     "realNow": ["meme-dip1h"],
     "realNowNote": "17 Nov 2026 14:55 KST, enrique: 'try that spot rule on'. meme-dip1h trades for real now (paper 96 trades, 66 won, ahead), before its 100-trade bar, at the usual stakeSol. Usual cut: behind after 3 real trades, or its rule stop, sends it back to paper and then only the paper bar brings it back. src/solana/bucketslive.ts readRealNow."
   },
+  "solanaGum": {
+    "note": "17 Nov 2026 16:24 KST, enrique: 'do both hyperliquid and jupiter perps'. Real copies on Jupiter's order book (Gum: HYPE, ZEC, JUP, BNB, NEAR), same traders, one record with the JLP side (src/solana/gumlive.ts). Steps one at a time, each checked in the status: createAccount, deposit dep-1 $20, dryRun dry-1, test t-1 (HYPE long $5), then on with collateralUsd 10, maxLossUsd 30, ruleStopUsd 9, maxOpen 3.",
+    "on": false,
+    "createAccount": true
+  },
   "solanaPerps": {
     "note": "OFF. Real perps trading needs a perp rule at the bar and enrique's own yes. testOnce: 15 Nov 2026 12:28 KST, enrique: 'feel free to do one test in each of the new things so we know everything works, try to not lose money of course' - ONE smallest SOL short ($10 collateral, $20 size), opened and closed at the next look, once per name; the same name on solanaBuckets buys and sells 0.01 SOL of JUP once.",
     "on": true,
