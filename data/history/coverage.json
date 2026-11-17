@@ -1,101 +1,101 @@
 {
  "esports": {
-  "days": 545,
-  "events": 31726,
+  "days": 546,
+  "events": 31819,
   "fills": 0,
   "first": "2025-02-09",
-  "last": "2026-11-14",
-  "markets": 135663,
-  "with_prices": 64011
+  "last": "2026-11-15",
+  "markets": 136121,
+  "with_prices": 64240
  },
  "finance_daily": {
-  "days": 155,
-  "events": 7082,
+  "days": 156,
+  "events": 7088,
   "fills": 0,
   "first": "2025-10-15",
-  "last": "2026-11-13",
-  "markets": 10933,
-  "with_prices": 6480
+  "last": "2026-11-15",
+  "markets": 10939,
+  "with_prices": 6483
  },
  "football": {
-  "days": 560,
-  "events": 114764,
+  "days": 561,
+  "events": 115300,
   "fills": 0,
   "first": "2025-01-08",
-  "last": "2026-11-14",
-  "markets": 446613,
-  "with_prices": 174888
+  "last": "2026-11-15",
+  "markets": 449861,
+  "with_prices": 175605
  },
  "other": {
-  "days": 418,
-  "events": 5084,
+  "days": 419,
+  "events": 5086,
   "fills": 0,
   "first": "2025-01-15",
-  "last": "2026-11-14",
-  "markets": 27868,
-  "with_prices": 22268
+  "last": "2026-11-15",
+  "markets": 27903,
+  "with_prices": 22289
  },
  "other_sports": {
-  "days": 632,
-  "events": 81392,
+  "days": 633,
+  "events": 81862,
   "fills": 0,
   "first": "2025-01-01",
-  "last": "2026-11-14",
-  "markets": 248642,
-  "with_prices": 134320
+  "last": "2026-11-15",
+  "markets": 250099,
+  "with_prices": 134394
  },
  "politics": {
-  "days": 644,
-  "events": 10508,
+  "days": 645,
+  "events": 10511,
   "fills": 0,
   "first": "2025-01-01",
-  "last": "2026-11-14",
-  "markets": 91612,
-  "with_prices": 54016
+  "last": "2026-11-15",
+  "markets": 91649,
+  "with_prices": 54033
  },
  "sports_futures": {
-  "days": 539,
-  "events": 4390,
+  "days": 540,
+  "events": 4400,
   "fills": 0,
   "first": "2025-01-03",
-  "last": "2026-11-11",
-  "markets": 92506,
-  "with_prices": 43373
+  "last": "2026-11-15",
+  "markets": 92770,
+  "with_prices": 43466
  },
  "temperature": {
-  "days": 445,
-  "events": 4181,
+  "days": 446,
+  "events": 4260,
   "fills": 0,
   "first": "2025-01-22",
-  "last": "2026-11-14",
-  "markets": 39858,
-  "with_prices": 26244
+  "last": "2026-11-15",
+  "markets": 40727,
+  "with_prices": 26709
  },
  "tennis": {
-  "days": 489,
-  "events": 53848,
+  "days": 490,
+  "events": 54401,
   "fills": 0,
   "first": "2025-01-20",
-  "last": "2026-11-14",
-  "markets": 94034,
-  "with_prices": 36180
+  "last": "2026-11-15",
+  "markets": 94667,
+  "with_prices": 36345
  },
  "us_sports": {
-  "days": 683,
-  "events": 51808,
+  "days": 684,
+  "events": 52118,
   "fills": 0,
   "first": "2025-01-01",
-  "last": "2026-11-14",
-  "markets": 263199,
-  "with_prices": 113423
+  "last": "2026-11-15",
+  "markets": 266820,
+  "with_prices": 114716
  },
  "weather_other": {
-  "days": 211,
-  "events": 680,
+  "days": 212,
+  "events": 684,
   "fills": 0,
   "first": "2025-01-10",
-  "last": "2026-11-14",
-  "markets": 4029,
-  "with_prices": 3098
+  "last": "2026-11-15",
+  "markets": 4061,
+  "with_prices": 3118
  }
 }
