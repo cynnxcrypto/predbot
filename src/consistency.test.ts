@@ -52,3 +52,20 @@ test("day lines of closed trades add up to every closed trade (spot copy, spot r
   assert.equal(Math.round(c.reduce((a, x) => a + x.net, 0) * 100), Math.round(r2.reduce((a, x) => a + x.netUsd, 0) * 100));
   assert.equal(c.reduce((a, x) => a + x.n, 0), 2);
 });
+
+test("coins with no quote never block today: last quote, else cost once held 30 min", async () => {
+  const { priceCoins } = await import("./worthdash.js");
+  const mem = new Map<string, number>();
+  const t0 = mid;
+  priceCoins([{ name: "a", t: t0, worthSol: 0.03, stakeSol: 0.02 }], mem, t0 + 60_000);
+  const out = priceCoins(
+    [
+      { name: "a", t: t0, worthSol: null, stakeSol: 0.02 },
+      { name: "dead", t: t0 - 3_600_000, worthSol: null, stakeSol: 0.02 },
+      { name: "new", t: t0 + 3_000_000, worthSol: null, stakeSol: 0.02 },
+    ],
+    mem,
+    t0 + 3_600_000,
+  );
+  assert.deepEqual(out.map((c) => c.worthSol), [0.03, 0.02, null]);
+});

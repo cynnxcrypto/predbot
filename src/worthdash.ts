@@ -263,6 +263,17 @@ export function daySum<T extends { usd: number }>(d: T, w: Record<string, { usd:
   const s = sumOfWallets(d, w ?? {});
   return s === d ? d : { ...(s as T), summed: true };
 }
+/** Each open coin's worth for the total: its quote now, else its last quote (mem, updated here), else its cost once held
+ * 30 min (a coin that never had a sale route). Only a fresh coin with no quote yet stays unpriced. */
+export function priceCoins<C extends { worthSol: number | null; stakeSol?: number | null; name?: string; t?: number }>(open: C[], mem: Map<string, number>, now: number): C[] {
+  return open.map((c) => {
+    const k = `${c.name ?? ""}|${c.t ?? ""}`;
+    if (c.worthSol != null) mem.set(k, c.worthSol);
+    const last = mem.get(k);
+    const old = c.t != null && now - c.t > 30 * 60_000;
+    return { ...c, worthSol: c.worthSol ?? last ?? (old ? (c.stakeSol ?? 0.01) : null) };
+  });
+}
 function dayView() {
   if (dayMemo && Date.now() - dayMemo.at < 60_000) return dayMemo.v;
   const w = wallHist[wallHist.length - 1];
@@ -368,6 +379,9 @@ const r2w = (v: number | null) => (v == null ? null : Math.round(v * 100) / 100)
  * real sample are taken, so a seed never overrides a reading.
  */
 const SEED = "wallet-seed.json";
+const COINS = "worth-coins.json";
+const coinPx = new Map<string, number>(Object.entries(loadJson<Record<string, number>>(COINS, {})).filter(([, v]) => Number.isFinite(v)));
+let coinPxSaved = 0;
 export function withSeed(wh: WalletPoint[], seed: unknown): WalletPoint[] {
   if (!Array.isArray(seed)) return wh;
   const first = wh.length ? wh[0][0] : Infinity;
@@ -412,7 +426,17 @@ export async function worthView(cash: number | null, claim: number, solBal: numb
   claim += unclaimedAt(loadSpans(), Date.now());
   if (!memo || Date.now() - memo.at > 15_000) {
     const [bets, px, slow] = await Promise.all([openWorth().catch(() => ({ n: 0, stake: 0, value: 0, priced: 0, days: {} })), solUsd(), solSlowView().catch(() => null)]);
-    const open = ((slow as { open?: { stage: string; worthSol: number | null; stakeSol?: number | null }[] } | null)?.open ?? []).filter((c) => c.stage !== "waiting");
+    const open0 = ((slow as { open?: { stage: string; worthSol: number | null; stakeSol?: number | null; name?: string; t?: number }[] } | null)?.open ?? []).filter((c) => c.stage !== "waiting");
+    // A coin whose quote fails this time keeps its last price (kept across restarts); one never priced at all and held
+    // over 30 min counts at cost, as it has every time, so it moves nothing. 17 Nov 2026: dead coins with no sale route
+    // kept every reading "partial", so after a restart no today showed anywhere for hours.
+    const open = priceCoins(open0, coinPx, Date.now());
+    if (Date.now() - coinPxSaved > 120_000) {
+      coinPxSaved = Date.now();
+      const keep = new Set(open0.map((c) => `${c.name ?? ""}|${c.t ?? ""}`));
+      for (const k of [...coinPx.keys()]) if (!keep.has(k)) coinPx.delete(k);
+      saveJson(COINS, Object.fromEntries(coinPx));
+    }
     // A coin whose sale could not be priced this time counts at what it cost, and a SOL balance that could not be read
     // keeps its last reading. Both used to count as nothing: after the 17:25 restart on 16 Nov 2026 the coins' quotes
     // were refused for a while and the worth read $58 lower in one sample, with about $3 really lost.
