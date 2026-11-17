@@ -139,6 +139,7 @@ export const CAP_COST = 0.015;
 export const CAP_LIST_MIN = 10;
 export const CAP_LIST_MAX = 25;
 const CAP_TTL_MS = 3 * 86_400_000;
+const CAP_RESAMPLE_MS = 86_400_000;
 /** Jupiter searches (100 coins each) a pass for coins our wallets traded that no list described */
 const CAP_LOOKUPS = 5;
 const CAP_WALLETS_PER_PASS = 20;
@@ -612,7 +613,9 @@ function setCap(x: { mint: string; createdMs: number | null; mcap: number | null
 /** Asked of Jupiter within CAP_TTL_MS (a coin it sized, or did not know). */
 const capKnown = (m: string, nowMs = Date.now()) => nowMs - Math.max(state.caps?.[m]?.at ?? 0, capAsked.get(m) ?? 0) < CAP_TTL_MS;
 let capsMoved = false;
-const capOkRow = (c: CapRow | null, nowMs: number) => !!c && !c.stock && c.mcap >= CAP_MIN_USD && c.liq >= CAP_MIN_LIQ_USD && c.createdMs !== null && nowMs - c.createdMs >= CAP_MIN_AGE_D * 86_400_000;
+/** Why a coin of CAP_MIN_USD+ is not a cap, or "" when it is. No first pool given: the old coins (Jupiter often has none for them) pass. */
+const capWhy = (c: CapRow, nowMs: number) => (c.stock ? "share" : c.liq < CAP_MIN_LIQ_USD ? "thin" : c.createdMs !== null && nowMs - c.createdMs < CAP_MIN_AGE_D * 86_400_000 ? "young" : "");
+const capOkRow = (c: CapRow | null, nowMs: number) => !!c && c.mcap >= CAP_MIN_USD && capWhy(c, nowMs) === "";
 /** A mid or high cap by its last description: CAP_MIN_USD+ market value, CAP_MIN_LIQ_USD+ liquidity, CAP_MIN_AGE_D+ days old. */
 export const capOk = (mint: string, nowMs = Date.now()) => capOkRow(state.caps?.[mint] ?? null, nowMs);
 /**
@@ -774,11 +777,14 @@ async function sampleCoin(mint: string): Promise<boolean> {
 function promote(max = PROMOTE_PER_PASS) {
   const have = new Set(state.candidates.map((c) => c.address));
   for (const w of Object.keys(state.pool)) if (have.has(w)) delete state.pool[w];
+  const now = Date.now();
+  const capKeys = new Set(Object.keys(state.caps ?? {}).filter((m) => capOk(m, now)).map((m) => m.slice(0, 6)));
   let n = state.candidates.filter((c) => srcOf(c) === "coin").length;
   const ranked = Object.entries(state.pool)
     .filter(([w]) => !have.has(w))
-    .map(([w, [k, sol]]) => ({ w, coins: k.split(",").length, sol }))
-    .sort((a, b) => b.coins - a.coins || b.sol - a.sol);
+    .map(([w, [k, sol]]) => ({ w, coins: k.split(",").length, cap: k.split(",").some((x) => capKeys.has(x)), sol }))
+    // buyers of a mid or high cap first (enrique, 17 Nov 2026: "cant u find wallets that are good at spot trading of midcaps?")
+    .sort((a, b) => Number(b.cap) - Number(a.cap) || b.coins - a.coins || b.sol - a.sol);
   let added = 0;
   for (const x of ranked) {
     if (n >= MAX_COIN_BUYERS || added >= max) break;
@@ -800,7 +806,8 @@ async function coinStep(max = COINS_PER_PASS): Promise<boolean> {
   const now = Date.now();
   const recent = Object.values(state.coins).filter((c) => c.sampledAt && now - c.sampledAt < COIN_RESAMPLE_MS).length;
   const allDue = Object.entries(state.coins)
-    .filter(([, c]) => coinOld(c, now) && !(c.sampledAt && now - c.sampledAt < COIN_RESAMPLE_MS))
+    // a mid or high cap is sampled again daily (new buyers of it every day), the rest weekly
+    .filter(([m, c]) => coinOld(c, now) && !(c.sampledAt && now - c.sampledAt < (capOk(m, now) ? CAP_RESAMPLE_MS : COIN_RESAMPLE_MS)))
     // mid and high caps first (enrique, 17 Nov 2026: "focus on mid to high caps"): their buyers are the wallets wanted
     .sort((a, b) => Number(capOk(b[0], now)) - Number(capOk(a[0], now)) || (a[1].from === b[1].from ? b[1].days.length - a[1].days.length || (b[1].vol ?? 0) - (a[1].vol ?? 0) : a[1].from === "jupiter" ? -1 : 1))
     .slice(0, Math.max(0, MAX_COINS - recent));
@@ -1569,6 +1576,14 @@ export function slowSummary() {
         coinsSized: rows.length,
         coinsAsked: capAsked.size,
         coinsOk: Object.keys(state.caps ?? {}).filter((m) => capOk(m, now)).length,
+        /** coins of CAP_MIN_USD+ left out, by why: thin liquidity, younger than CAP_MIN_AGE_D days, a pool or tokenised share */
+        coinsOverFloorLeftOut: rows.filter((c) => c.mcap >= CAP_MIN_USD && capWhy(c, now)).reduce<Record<string, number>>((a, c) => ((a[capWhy(c, now)] = (a[capWhy(c, now)] ?? 0) + 1), a), {}),
+        /** buyers of a cap coin waiting in the pool (they become candidates first) */
+        capBuyersInPool: (() => {
+          const keys = new Set(Object.keys(state.caps ?? {}).filter((m) => capOk(m, now)).map((m) => m.slice(0, 6)));
+          return Object.values(state.pool).filter(([k]) => k.split(",").some((x) => keys.has(x))).length;
+        })(),
+        coinsOkSampledThisWeek: Object.entries(state.coins).filter(([m, c]) => capOk(m, now) && c.sampledAt && now - c.sampledAt < COIN_RESAMPLE_MS).length,
         lookups: capHealth.lookups,
         walletsWithCapTrips: withCap.length,
         walletsReplayable: withCap.filter((x) => x.cap!.trips >= CAP_MIN_TRIPS).length,
