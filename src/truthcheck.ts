@@ -21,6 +21,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { DATA } from "./config.js";
 import { loadJson, saveJson } from "./store.js";
+import { savePmRedeemable, waitingKinds, wonRows } from "./pmredeem.js";
 
 const POLY_RPC = "https://polygon-bor-rpc.publicnode.com";
 /** Polymarket's collaterals, as src/live.ts reads them (pUSD, USDC.e, USDC). */
@@ -491,6 +492,12 @@ export async function truthRun(now = Date.now()): Promise<typeof last> {
         if (!cursor || !j.data.length) break;
       }
       pos = splitPositions(rows);
+      // Polymarket's redeemable wins, for the worth and the claimer (src/pmredeem.ts); ids stay on this machine
+      if (rows.length) {
+        const won = wonRows(rows as Parameters<typeof wonRows>[0]);
+        savePmRedeemable(won, now);
+        extra.polymarketWaitingKinds = waitingKinds(won, loadJson("eventlive.json", []), loadJson("eventlive-claims.json", {}));
+      }
       // an empty answer while the dashboard holds bets is a failed read, not $0 of bets (17 Nov 2026: srcOpen 0 vs 39 open)
       if (!rows.length && (d?.betsN ?? 0) > 0) {
         pos = null;

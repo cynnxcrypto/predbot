@@ -315,7 +315,7 @@ export function eventLiveAdapt(group: string) {
 export const NEG_READY_FILE = "negrisk-ready.json";
 /** Written by src/live.ts negRiskSetup(): whether the wallet holds every permission grouped markets need. */
 export type NegRiskReady = { at?: number; ready?: boolean; missing?: string[]; tries?: number; lastTryAt?: number; error?: string | null };
-type NegClaims = Record<string, { tx?: string | null; negRisk?: boolean }>;
+type NegClaims = Record<string, { tx?: string | null; negRisk?: boolean; pm?: boolean }>;
 /**
  * Grouped-market bets allowed before the first claim of one has been confirmed on chain (0 = no limit). 2 from
  * 12 Nov 2026; 0 since 14 Nov 2026 01:25 KST, enrique: "u are copying a guy tht does 100 bets a day on weather and is
@@ -331,7 +331,8 @@ export const NEG_TRIAL = 0;
 export function negRiskBlock(g: EventLiveGroup, ready: NegRiskReady, rows: EventLiveRow[], claims: NegClaims): string | null {
   if (!g.negRisk) return "neg-risk market (not switched on for this test)";
   if (!ready.ready) return `grouped market: wallet permissions not ready${ready.error ? ` (${ready.error.slice(0, 60)})` : ""}`;
-  if (Object.values(claims).some((d) => d?.negRisk && d.tx)) return null;
+  // a claim sent from Polymarket's own list (src/pmredeem.ts) was not checked on chain: it does not lift the trial
+  if (Object.values(claims).some((d) => d?.negRisk && d.tx && !d.pm)) return null;
   const pending = rows.filter((r) => r.negRisk && (r.shares > 0 || r.status === "unknown") && (r.pnl == null || ((r.pay ?? 0) > 0 && !claims[r.conditionId ?? ""]?.tx))).length;
   return NEG_TRIAL > 0 && pending >= NEG_TRIAL ? `grouped market test: ${pending} bets until the first claim is confirmed` : null;
 }

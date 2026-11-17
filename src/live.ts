@@ -49,6 +49,7 @@ import type { PaperTrade } from "./paperlive.js";
 import { book, marketFor, type Market } from "./polymarket.js";
 import { append, loadJson, readAll, saveJson } from "./store.js";
 import { withdrawnUsd } from "./withdraw.js";
+import { extraClaims, loadPmRedeemable } from "./pmredeem.js";
 
 export type LiveMode = "off" | "dry" | "live";
 /** "ladder": sizes the rule climbs through on evidence (29 Oct 2026, enrique "adapt sizing if a rule is evolving positively, automatic"):
@@ -1509,7 +1510,7 @@ export class LiveTrader {
    */
   private async redeemEvents(): Promise<boolean> {
     const now = Date.now();
-    type Done = { at: number; tx: string | null; tries: number; nextAt: number; error: string | null; negRisk?: boolean };
+    type Done = { at: number; tx: string | null; tries: number; nextAt: number; error: string | null; negRisk?: boolean; reclaims?: number; pm?: boolean };
     const done = loadJson<Record<string, Done>>("eventlive-claims.json", {});
     const rows = loadJson<{ conditionId?: string | null; shares?: number; pay?: number | null; settledAt?: number | null; negRisk?: boolean; token?: string }[]>("eventlive.json", []);
     // Plain and grouped (neg-risk) bets are claimed in separate transactions, each kind at most once every 3 hours: the
@@ -1527,13 +1528,23 @@ export class LiveTrader {
         if (r.token) e.tokens.push(r.token);
         byCond.set(r.conditionId, e);
       }
+      // wins Polymarket itself still shows redeemable that the list above leaves out (src/pmredeem.ts, 17 Nov 2026)
+      const again = new Set<string>();
+      const fromPm = new Set<string>();
+      for (const w of extraClaims(loadPmRedeemable(now), neg, done, now)) {
+        if (byCond.has(w.c)) continue;
+        if (done[w.c]) again.add(w.c);
+        fromPm.add(w.c);
+        byCond.set(w.c, { shares: w.v, tokens: [] });
+      }
       const batch = [...byCond.entries()].slice(0, neg ? 4 : 8);
       if (!batch.length) continue;
       this.redeeming = true;
       relayBusy = true;
+      const rc = (cond: string) => (done[cond]?.reclaims ?? 0) + (again.has(cond) ? 1 : 0);
       const fail = (cond: string, text: string) => {
         const tries = (done[cond]?.tries ?? 0) + 1;
-        done[cond] = { at: Date.now(), tx: null, tries, nextAt: Math.max(relayerBlockedUntil, Date.now() + 3 * 3600_000), error: text, ...(neg ? { negRisk: true } : {}) };
+        done[cond] = { at: Date.now(), tx: null, tries, nextAt: Math.max(relayerBlockedUntil, Date.now() + 3 * 3600_000), error: text, ...(neg ? { negRisk: true } : {}), ...(rc(cond) ? { reclaims: rc(cond) } : {}) };
         if (tries >= 5) console.log(`live: giving up on claiming event market ${cond.slice(0, 10)} after 5 tries (${text}); claim it on polymarket.com`);
       };
       try {
@@ -1547,12 +1558,12 @@ export class LiveTrader {
         for (const [cond, e] of batch) {
           // A grouped claim counts only when the chain shows the winning shares gone: it is what lifts the trial limit.
           let left = 0;
-          if (neg) {
+          if (neg && !fromPm.has(cond)) {
             if (!e.tokens.length) left = NaN;
             for (const token of e.tokens) left += Number(BigInt(await provider.call({ to: CTF, data: ctfAbi.encodeFunctionData("balanceOf", [this.config.funder, token]) }))) / 1e6;
           }
           if (neg && !(left < 0.01)) fail(cond, Number.isNaN(left) ? "claim sent but could not be checked" : `claim sent but ${left.toFixed(2)} shares are still in the wallet`);
-          else done[cond] = { at: Date.now(), tx: hash, tries: (done[cond]?.tries ?? 0) + 1, nextAt: 0, error: null, ...(neg ? { negRisk: true } : {}) };
+          else done[cond] = { at: Date.now(), tx: hash, tries: (done[cond]?.tries ?? 0) + 1, nextAt: 0, error: null, ...(neg ? { negRisk: true } : {}), ...(rc(cond) ? { reclaims: rc(cond) } : {}), ...(fromPm.has(cond) ? { pm: true } : {}) };
         }
         console.log(`live: claimed ${batch.reduce((s, [, v]) => s + v.shares, 0).toFixed(2)} ${neg ? "grouped-market " : ""}event shares from ${batch.length} market(s) (${hash})`);
         await this.refreshBalance();
