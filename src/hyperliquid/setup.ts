@@ -15,7 +15,8 @@ import { ARBITRUM_CHAIN_ID, ARBITRUM_RPC, HL_API, fund, realChain, type Chain, t
 import { hlAgent, hlWallet } from "./keys.js";
 import { fileCfg, hlKeptTraders, hlLiveSummary, hlLiveTick, type HlDeps } from "./live.js";
 import { realVenue } from "./venue.js";
-import { hlPaperOpens, perpMeetsBar, setKeptTraders, traderListed } from "../solana/buckets.js";
+import { hlBoard, hlPaperOpens, likedTraders, perpMeetsBar, setExtraTraders, setKeptTraders, traderListed, traderRecord } from "../solana/buckets.js";
+import { linkedTraders, startLinks } from "./links.js";
 
 interface Reach {
   at: number;
@@ -115,6 +116,10 @@ export function startHyperliquid(fetcher: typeof fetch = fetch): Promise<void> {
     wallet = { ok: false, error: short(e) };
   }
   const run = () => reachCheck(fetcher).then((r) => void (reach = r)).catch(() => undefined);
+  // where a trader we like moved to (links.ts): reads Hyperliquid's public ledgers only, needs no wallet of ours;
+  // the wallets it names are followed on paper. One wallet read every 10 s: about a fifth of the allowed rate.
+  startLinks({ fetch: () => fetcher, liked: () => likedTraders(), board: hlBoard, record: (t) => traderRecord(t), wait: () => new Promise((ok) => setTimeout(ok, 10_000).unref()) });
+  setExtraTraders(() => linkedTraders());
   setInterval(run, 6 * 3_600_000).unref();
   if (wallet.ok) {
     // money that arrives is seen within five minutes; what happens to it depends on the switch in the repo file
