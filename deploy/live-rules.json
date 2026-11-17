@@ -1,7 +1,8 @@
 {
   "solanaSlow": {
     "note": "14 Nov 2026 14:40 KST, enrique: 'since we have very little in the sol wallet anyways, just real trade those 3 wallets, lets see'. Real copy of the 3 day-holding Solana wallets (paper slow-e5-x5): 0.01 SOL a copy 5 s after one of them buys a coin for 0.1+ SOL, sold 5 s after its first sale or after 72 h; hard loss cap 0.1 SOL, a copy only goes in if the cap holds with every open copy lost; stops for good when none fits. Code src/solana/slowlive.ts. 14 Nov 2026 23:21 KST, enrique: 'the solana wallet for trading can use the whole wallet, there's almost no money there so no worries': maxLossSol 0.1 -> 0.6 (= MAX_WALLET_SOL, so SOL added later is never at stake), no maxOpen; the balance check before each buy is the limit.",
-    "on": true,
+    "offNote": "17 Nov 2026 19:07 KST, enrique: 'dont focus on memecoins then', 'focus on mid to high caps', 'copy successful traders in mid to high caps'. No new real meme copies (on false); copies already held are still sold by the usual triggers. Paper copying goes on; a mid/high cap copier replaces this.",
+    "on": false,
     "note2": "15 Nov 2026 17:38 KST, enrique: 'these are the final funding numbers ... make it all grow' (this wallet about $101). maxLossSol 0.6 -> 1.4: up to that much may be out in copies at once (was 0.5 of 0.6). stopLossSol: new copies stop when that much SOL is really lost (review decides); 0.3, then 0.7 on his word 17:59 KST ('yeah thats fine lets try that'). Stake stays 0.01 until the sizing plan has his yes.",
     "maxLossSol": 1.4,
     "stopLossSol": 0.7,
