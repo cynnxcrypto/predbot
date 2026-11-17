@@ -56,7 +56,10 @@ test("flatten: samples in the window take the first clean value after it", async
 
 test("dropClaimFlows: a Polymarket money-in just after a claim is not a deposit", async () => {
   const { dropClaimFlows } = await import("./worthdash.js");
-  const T = 1_000_000_000;
+  const T = Date.UTC(2026, 10, 17, 15, 0);
   const fl: [number, number, string][] = [[T + 60_000, 28.5, "Polymarket"], [T + 3_600_000, 50, "Polymarket"], [T + 60_000, 10, "Hyperliquid"], [T + 60_000, -5, "Polymarket"]];
   assert.deepEqual(dropClaimFlows(fl, [T]), [[T + 3_600_000, 50, "Polymarket"], [T + 60_000, 10, "Hyperliquid"], [T + 60_000, -5, "Polymarket"]]);
+  // a deposit before 17 Nov 2026, or labelled "deposit", stays even next to a claim
+  const old = Date.UTC(2026, 10, 15, 1, 50);
+  assert.equal(dropClaimFlows([[old + 60_000, 300, "deposit"], [old + 60_000, 30, "Polymarket"]], [old]).length, 2);
 });

@@ -469,8 +469,11 @@ export function despike(h: [number, number][]): [number, number][] {
  * put in and taken off "today", which read -$33 on +$3 settled). A Polymarket money-in within 15 minutes after, or 2
  * before, a claim transaction is dropped. Pure.
  */
+const CLAIM_FLOWS_FROM = Date.UTC(2026, 10, 17, 14, 0);
 export function dropClaimFlows(fl: Flow[], claimTimes: number[]): Flow[] {
-  return fl.filter((f) => !(f[1] > 0 && (f[2] === "Polymarket" || f[2] === "deposit") && claimTimes.some((t) => f[0] >= t - 2 * 60_000 && f[0] <= t + 15 * 60_000)));
+  // only from the day the claimer began claiming from Polymarket's own list: older claims are handled by repairClaims,
+  // and a real deposit that happened near a claim (15 Nov 2026) must stay one
+  return fl.filter((f) => !(f[1] > 0 && f[2] === "Polymarket" && f[0] >= CLAIM_FLOWS_FROM && claimTimes.some((t) => f[0] >= t - 2 * 60_000 && f[0] <= t + 15 * 60_000)));
 }
 const claimTimes = () => Object.values(loadJson<Record<string, { at?: number; tx?: string | null }>>("eventlive-claims.json", {})).filter((d) => d?.tx && Number.isFinite(d.at)).map((d) => d.at as number);
 /** Samples in [from, to] take column col of the first sample after to that has it. Pure. */
@@ -536,6 +539,13 @@ export async function worthView(cash: number | null, claim: number, solBal: numb
       back = []; // the hourly estimates are made again, with the waiting wins in them
     } else fix = f.fix ?? null;
     flows = dropClaimFlows(flows, claimTimes());
+    // 5e243720 (18 Nov 2026) dropped the 15 Nov 10:53 KST money-in by mistake (a claim was near it). It is put back
+    // from the series' own jump at that time (the amount stays on this machine).
+    const lostAt = Date.UTC(2026, 10, 15, 1, 53, 5);
+    if (!flows.some((f) => f[2] === "deposit" && Math.abs(f[0] - lostAt) < 5 * 60_000)) {
+      const back1 = flowsFromJumps(hist.filter((p) => Math.abs(p[0] - lostAt) <= 20 * 60_000)).filter((f) => Math.abs(f[0] - lostAt) < 5 * 60_000);
+      if (back1.length) flows = [...flows, ...back1].sort((a, b) => a[0] - b[0]);
+    }
   }
   claim += unclaimedAt(loadSpans(), Date.now());
   // won money Polymarket shows redeemable that our books do not have waiting (src/pmredeem.ts, 17 Nov 2026)
