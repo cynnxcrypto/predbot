@@ -35,7 +35,7 @@ const r2 = (x: number) => Math.round(x * 100) / 100;
 const r6 = (x: number) => Math.round(x * 1e6) / 1e6;
 
 /** What the dashboard shows, as src/worthdash.ts last worked it out. */
-export type DashFigures = { at: number; total: number | null; cash: number | null; claim: number; bets: number; betsN: number; solBal: number | null; coinsSol: number; coinsN: number; solUsd: number | null; rulesUsd: number | null; perpsUsd: number | null; perpsPos: number };
+export type DashFigures = { at: number; total: number | null; cash: number | null; claim: number; bets: number; betsN: number; solBal: number | null; coinsSol: number; coinsN: number; solUsd: number | null; rulesUsd: number | null; perpsUsd: number | null; perpsPos: number; hlUsd?: number | null };
 /** One compared figure: dash = the dashboard, src = the source; diff = dash - src. */
 export type Item = { k: string; dash: number | null; src: number | null; diff: number | null; ok: boolean | null; why?: string };
 export type Coin = { mint: string; amount: string; sol: number | null; tracked: boolean };
@@ -558,7 +558,8 @@ export async function truthRun(now = Date.now()): Promise<typeof last> {
   items.push(compare("Solana spot copy card", spotDash, solSrc.spot, 1, 0.015, "coins at a Jupiter sale quote; the chain's coins, tracked or not"));
   items.push(compare("Solana spot rules card", d?.rulesUsd ?? null, solSrc.rules, 1, 0.015));
   items.push(compare("Solana perps card", d?.perpsUsd ?? null, solSrc.perps, 1, 0.015, "an open perp from the perps module's own chain read"));
-  const parts = [pmSrc, solSrc.spot, solSrc.rules, solSrc.perps];
+  // Hyperliquid (17 Nov 2026) is not read again here yet: its own reading is added so the total compares like for like
+  const parts = [pmSrc, solSrc.spot, solSrc.rules, solSrc.perps, d?.hlUsd ?? 0];
   items.push(compare("Total worth", d?.total ?? null, parts.every((x) => x != null) ? parts.reduce((a: number, x) => a + (x as number), 0) : null, 2, 0.01));
   // money in and out of the Solana wallets, 8 days, against the flows the chart takes out
   if (px != null && deps.helius()) {

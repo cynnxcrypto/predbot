@@ -77,6 +77,10 @@ export interface FundState {
   swappedEth?: number;
   gotUsdc?: number;
   depositedUsdc?: number;
+  /** ETH held at the end of the last run, and every rise of it since, in dollars at the time: what enrique sent (the bot
+   * only ever spends ETH). The dashboard books a rise of this as a deposit, never as a gain. */
+  lastEth?: number;
+  ethInUsd?: number;
   log?: { t: number; what: string; amount: number; tx: string }[];
 }
 const FILE = "hyperliquid-fund.json";
@@ -137,6 +141,12 @@ export interface FundReport {
   eth: number;
   usdc: number;
   hlUsd: number;
+  /** Hyperliquid's ETH price when read (0 = not read), for the dashboard's worth of the ETH held */
+  ethUsd?: number;
+  /** USDC sent to Hyperliquid and not shown there yet: still the wallet's money */
+  inTransitUsdc?: number;
+  /** every dollar of ETH that ever arrived (see FundState.ethInUsd) */
+  ethInUsd?: number;
   done: boolean;
 }
 
@@ -182,7 +192,16 @@ export async function fund(c: Chain, opt: { go: boolean; waitMs?: number } = { g
   const problems = await check(c);
   const read = async () => ({ eth: await c.eth(c.address), usdc: await c.usdc(c.address), hlUsd: await c.hlValue(c.address) });
   let w = await read();
-  const out = (done: boolean): FundReport => ({ dry: !opt.go, problems, steps, eth: r6(w.eth), usdc: r2(w.usdc), hlUsd: r2(w.hlUsd), done });
+  const m0 = await c.hlEthMid().catch(() => 0);
+  const ethUsd = Number.isFinite(m0) && m0 > 0 ? m0 : 0;
+  if (ethUsd && w.eth > (st.lastEth ?? 0) + 1e-9) st.ethInUsd = r2((st.ethInUsd ?? 0) + (w.eth - (st.lastEth ?? 0)) * ethUsd);
+  const out = (done: boolean): FundReport => {
+    if (ethUsd) {
+      st.lastEth = w.eth;
+      save();
+    }
+    return { dry: !opt.go, problems, steps, eth: r6(w.eth), usdc: r2(w.usdc), hlUsd: r2(w.hlUsd), ethUsd: ethUsd ? r2(ethUsd) : 0, inTransitUsdc: r2(st.pending?.usdc ?? 0), ethInUsd: st.ethInUsd ?? 0, done };
+  };
   if (problems.length) return out(false);
 
   for (let i = 0; i < 6; i++) {

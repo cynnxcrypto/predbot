@@ -14,11 +14,11 @@ const SOL = "So11111111111111111111111111111111111111112";
 const USDC = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
 const FILE = "worth-history.json";
 type Today = { usd: number; at: number; from?: number; est?: boolean } | null;
-type Worth = { today?: Record<string, Today>; at: number; total: number | null; cash: number | null; claim: number; bets: number; betsN: number; betsStake: number; days: Record<string, { n: number; stake: number; value: number; win: number; lose: number }>; solBal: number | null; coinsSol: number; coinsN: number; solUsd: number | null; rulesUsd: number | null; perpsUsd: number | null; rulesPos: number; perpsPos: number; parts?: Record<string, { sol: number | null; usdc: number | null; pos: number }> };
+type Worth = { today?: Record<string, Today>; at: number; total: number | null; cash: number | null; claim: number; bets: number; betsN: number; betsStake: number; days: Record<string, { n: number; stake: number; value: number; win: number; lose: number }>; solBal: number | null; coinsSol: number; coinsN: number; solUsd: number | null; rulesUsd: number | null; perpsUsd: number | null; hlUsd?: number | null; rulesPos: number; perpsPos: number; parts?: Record<string, { sol: number | null; usdc: number | null; pos: number } | { eth: number; usdc: number; account: number } | null> };
 /** Money put in or taken out: [time, dollars (+ in, - out), which wallet]. Not a gain or a loss. */
 export type Flow = [number, number, string];
 /** What each wallet held at the last sample, to tell a deposit from a result. */
-export type Comp = { pc: number | null; pk: number; pst: number; sol: number | null; coins: number; rules: number | null; perps: number | null; pkh?: number[]; rulesPos?: number; perpsPos?: number };
+export type Comp = { pc: number | null; pk: number; pst: number; sol: number | null; coins: number; rules: number | null; perps: number | null; pkh?: number[]; rulesPos?: number; perpsPos?: number; hl?: number | null; hlIn?: number | null };
 let flows: Flow[] = [];
 let comp: Comp | null = null;
 /**
@@ -26,10 +26,12 @@ let comp: Comp | null = null;
  * worth change since 00:00 KST): [time, Polymarket (cash + claims + open bets), Solana spot copy (SOL + coins),
  * Solana spot rules, Solana perps], dollars, null = not read.
  */
-export type WalletPoint = [number, number | null, number | null, number | null, number | null];
+export type WalletPoint = [number, number | null, number | null, number | null, number | null, (number | null)?];
 let wallHist: WalletPoint[] = [];
 /** The wallets in WalletPoint order, with the label their deposits and withdrawals carry. */
-export const WALLETS = [["poly", "Polymarket"], ["sc", "Solana spot copy"], ["sr", "Solana spot rules"], ["pp", "Solana perps"]] as const;
+export const WALLETS = [["poly", "Polymarket"], ["sc", "Solana spot copy"], ["sr", "Solana spot rules"], ["pp", "Solana perps"], ["hl", "Hyperliquid"]] as const;
+/** A wallet the overview's sum can do without while it has no reading from 00:00 (Hyperliquid, 17 Nov 2026: new). */
+const OPTIONAL = new Set<string>(["hl"]);
 /**
  * TODAY FOR EACH WALLET: its worth now against its last sample at or before 00:00 KST (the first sample of the day when
  * none is older, as just after this began), less what was put in or taken out of that wallet since. at = the sample
@@ -88,6 +90,15 @@ export function flowsBetween(a: Comp | null, b: Comp, px: number | null, t: numb
       const moved = a != null && Math.abs((b[pk] ?? 0) - (a[pk] ?? 0)) >= 0.5;
       if (was == null ? d >= 0.5 : Math.abs(d) >= 5 && !moved) out.push([t, r2(d), label]);
     }
+  }
+  // Hyperliquid (17 Nov 2026): money comes in only as ETH enrique sends on Arbitrum, and the bot only ever spends ETH
+  // (swap, gas), so its funding run keeps a running total of every rise in the ETH held (hlIn, dollars). A rise of that
+  // total is a deposit; swapping, moving USDC into Hyperliquid and trading move money inside the wallet. A wallet seen
+  // for the first time counts whole.
+  if (b.hl != null) {
+    if (a?.hl == null) {
+      if (b.hl >= 0.5) out.push([t, r2(b.hl), "Hyperliquid"]);
+    } else if (a.hlIn != null && b.hlIn != null && b.hlIn - a.hlIn >= 0.5) out.push([t, r2(b.hlIn - a.hlIn), "Hyperliquid"]);
   }
   return out;
 }
@@ -260,8 +271,8 @@ let dayMemo: { at: number; v: { worthDays: ReturnType<typeof worthDays>; walletD
  * wallet cards agree to the cent (16 Nov 2026, enrique: "not even this sums up properly"). Pure.
  */
 export function sumOfWallets<T extends { usd: number }>(all: T | null, w: Record<string, { usd: number } | null>): T | null {
-  if (!all || !WALLETS.every(([k]) => w[k] != null)) return all;
-  return { ...all, usd: Math.round(WALLETS.reduce((a, [k]) => a + (w[k] as { usd: number }).usd, 0) * 100) / 100 };
+  if (!all || !WALLETS.every(([k]) => w[k] != null || OPTIONAL.has(k))) return all;
+  return { ...all, usd: Math.round(WALLETS.reduce((a, [k]) => a + (w[k]?.usd ?? 0), 0) * 100) / 100 };
 }
 export function daySum<T extends { usd: number }>(d: T, w: Record<string, { usd: number }> | undefined): T & { summed?: boolean } {
   const s = sumOfWallets(d, w ?? {});
@@ -390,17 +401,17 @@ export function withSeed(wh: WalletPoint[], seed: unknown): WalletPoint[] {
   if (!Array.isArray(seed)) return wh;
   const first = wh.length ? wh[0][0] : Infinity;
   const ok = (x: unknown) => x == null || (typeof x === "number" && Number.isFinite(x));
-  const add = seed.filter((p): p is WalletPoint => Array.isArray(p) && p.length === 5 && typeof p[0] === "number" && Number.isFinite(p[0]) && p[0] < first && p.slice(1).every(ok))
-    .map((p) => [p[0], p[1] ?? null, p[2] ?? null, p[3] ?? null, p[4] ?? null] as WalletPoint)
+  const add = seed.filter((p): p is WalletPoint => Array.isArray(p) && (p.length === 5 || p.length === 6) && typeof p[0] === "number" && Number.isFinite(p[0]) && p[0] < first && p.slice(1).every(ok))
+    .map((p) => [p[0], p[1] ?? null, p[2] ?? null, p[3] ?? null, p[4] ?? null, p[5] ?? null] as WalletPoint)
     .sort((a, b) => a[0] - b[0]);
   return add.length ? [...add, ...wh] : wh;
 }
 /** Each wallet's worth in WalletPoint order. */
-function wallNow(cash: number | null, claim: number, bets: number, sol: number | null, rules: number | null, perps: number | null): [number | null, number | null, number | null, number | null] {
-  return [cash == null ? null : r2w(cash + claim + bets), r2w(sol), r2w(rules), r2w(perps)];
+function wallNow(cash: number | null, claim: number, bets: number, sol: number | null, rules: number | null, perps: number | null, hl: number | null): [number | null, number | null, number | null, number | null, number | null] {
+  return [cash == null ? null : r2w(cash + claim + bets), r2w(sol), r2w(rules), r2w(perps), r2w(hl)];
 }
 /** rules / perps = what the two strategy wallets hold in dollars (null = not read). */
-export async function worthView(cash: number | null, claim: number, solBal: number | null, extra: { rulesSol?: number | null; rulesUsdc?: number | null; perpsSol?: number | null; perpsUsdc?: number | null; rulesHeldSol?: number; perpsPosUsd?: number } = {}): Promise<Worth & { age: number; hist: ([number, number] | [number, number, 1])[]; flows: Flow[] }> {
+export async function worthView(cash: number | null, claim: number, solBal: number | null, extra: { rulesSol?: number | null; rulesUsdc?: number | null; perpsSol?: number | null; perpsUsdc?: number | null; rulesHeldSol?: number; perpsPosUsd?: number; hl?: { eth: number; usdc: number; hlUsd: number; ethUsd: number; inTransitUsdc: number; ethInUsd: number } | null } = {}): Promise<Worth & { age: number; hist: ([number, number] | [number, number, 1])[]; flows: Flow[] }> {
   if (!hist) {
     const f = loadJson<[number, number][] | { hist?: [number, number][]; back?: [number, number, 1][]; flows?: Flow[]; comp?: Comp | null; v?: number; fix?: { removed: number; removedUsd: number } | null; wall?: WalletPoint[] }>(FILE, []);
     wallHist = Array.isArray(f) ? [] : (f.wall ?? []).filter((p) => Array.isArray(p) && Number.isFinite(p[0]));
@@ -471,27 +482,31 @@ export async function worthView(cash: number | null, claim: number, solBal: numb
       rules: { sol: d2(extra.rulesSol == null || px == null ? null : extra.rulesSol * px), usdc: d2(extra.rulesUsdc), pos: rulesPos },
       perps: { sol: d2(extra.perpsSol == null || px == null ? null : extra.perpsSol * px), usdc: d2(extra.perpsUsdc), pos: perpsPos },
     };
-    const total = cash != null ? Math.round((cash + claim + bets.value + solPart + (rulesUsd ?? 0) + (perpsUsd ?? 0)) * 100) / 100 : null;
-    const wn = wallNow(cash, claim, bets.value, px != null ? solPart : null, rulesUsd, perpsUsd);
+    // Hyperliquid: the account there (positions at their value) + USDC + money on its way there + ETH at its price; a
+    // failed read keeps the last one
+    const h = extra.hl;
+    const hlUsd = h && h.ethUsd > 0 ? Math.round((h.hlUsd + h.usdc + h.inTransitUsdc + h.eth * h.ethUsd) * 100) / 100 : (comp?.hl ?? null);
+    const total = cash != null ? Math.round((cash + claim + bets.value + solPart + (rulesUsd ?? 0) + (perpsUsd ?? 0) + (hlUsd ?? 0)) * 100) / 100 : null;
+    const wn = wallNow(cash, claim, bets.value, px != null ? solPart : null, rulesUsd, perpsUsd, hlUsd);
     const all = total != null ? worthToday(fullSeries(), total, Date.now()) : null;
     // a partial reading (bets or coins not priced, the SOL balance not read) gives no new "today": the last full one is
     // kept, as the chart keeps no sample from it (16 Nov 2026: after a restart unpriced coins read as -$84 today)
     const wt = priced ? walletsToday(wallHist, flows, wn, Date.now()) : null;
     const today = wt ? { all: sumOfWallets(all, wt), ...wt } : (memo?.v.today ?? undefined);
-    memo = { at: Date.now(), v: { at: Date.now(), total, cash, claim, bets: bets.value, betsN: bets.n, betsStake: bets.stake, days: bets.days, solBal, coinsSol: Math.round(coinsSol * 1e4) / 1e4, coinsN: open.length, solUsd: px, rulesUsd, perpsUsd, parts, rulesPos, perpsPos, today } };
+    memo = { at: Date.now(), v: { at: Date.now(), total, cash, claim, bets: bets.value, betsN: bets.n, betsStake: bets.stake, days: bets.days, solBal, coinsSol: Math.round(coinsSol * 1e4) / 1e4, coinsN: open.length, solUsd: px, rulesUsd, perpsUsd, hlUsd, parts: { ...parts, hl: h && h.ethUsd > 0 ? { eth: Math.round(h.eth * h.ethUsd * 100) / 100, usdc: Math.round((h.usdc + h.inTransitUsdc) * 100) / 100, account: h.hlUsd } : null }, rulesPos, perpsPos, today } };
     if (total != null && priced) full = { at: Date.now(), total };
     const last = hist[hist.length - 1];
     if (total != null && priced && (!last || Date.now() - last[0] >= 120_000)) {
       // rules / perps are kept in dollars here, so their px is 1; the SOL wallet is kept in SOL
-      const nowC: Comp = { pc: cash, pk: claim + bets.value, pst: bets.stake, sol: solBal ?? comp?.sol ?? null, coins: coinsSol, rules: rulesUsd, perps: perpsUsd, pkh: comp ? [...(comp.pkh ?? []), comp.pk].slice(-10) : [], rulesPos, perpsPos };
-      const solOnly = flowsBetween(comp ? { ...comp, rules: null, perps: null } : null, { ...nowC, rules: null, perps: null }, px, Date.now());
+      const nowC: Comp = { pc: cash, pk: claim + bets.value, pst: bets.stake, sol: solBal ?? comp?.sol ?? null, coins: coinsSol, rules: rulesUsd, perps: perpsUsd, pkh: comp ? [...(comp.pkh ?? []), comp.pk].slice(-10) : [], rulesPos, perpsPos, hl: hlUsd, hlIn: h && h.ethUsd > 0 ? h.ethInUsd : (comp?.hlIn ?? null) };
+      const solOnly = flowsBetween(comp ? { ...comp, rules: null, perps: null, hl: null } : null, { ...nowC, rules: null, perps: null, hl: null }, px, Date.now());
       const extraOnly = flowsBetween(comp ? { ...comp, pc: null, sol: null } : { pc: null, pk: 0, pst: 0, sol: null, coins: 0, rules: null, perps: null }, { ...nowC, pc: null, sol: null }, 1, Date.now());
       flows.push(...solOnly, ...extraOnly);
       flows = flows.filter((f) => f[0] > Date.now() - 8 * 86_400_000);
       comp = nowC;
       hist.push([Date.now(), total]);
       if (hist.length > 5040) hist = hist.slice(-5040); // a week at one sample every two minutes
-      wallHist.push([Date.now(), ...wallNow(cash, claim, bets.value, px != null ? solPart : null, rulesUsd, perpsUsd)]);
+      wallHist.push([Date.now(), ...wallNow(cash, claim, bets.value, px != null ? solPart : null, rulesUsd, perpsUsd, hlUsd)]);
       if (wallHist.length > 1500) wallHist = wallHist.slice(-1500); // two days
       if (!back.length) {
         try {

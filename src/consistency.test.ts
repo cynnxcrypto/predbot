@@ -79,3 +79,25 @@ test("a perps position opening or closing is not a deposit or a withdrawal", asy
   // a real top-up with no position change is still one
   assert.equal(flowsBetween({ ...base, perps: 100, perpsPos: 0 }, { ...base, perps: 150, perpsPos: 0 }, 1, mid).length, 1);
 });
+
+test("Hyperliquid: ETH sent is a deposit, a swap or a trade is not; the overview sums five wallets once it has a today", async () => {
+  const { flowsBetween } = await import("./worthdash.js");
+  const base = { pc: null, pk: 0, pst: 0, sol: null, coins: 0, rules: null, perps: null };
+  // first seen with money: counts whole
+  assert.deepEqual(flowsBetween({ ...base }, { ...base, hl: 150, hlIn: 150 }, 1, mid), [[mid, 150, "Hyperliquid"]]);
+  // ETH swapped to USDC and moved into Hyperliquid, a position opened: same money, no flow
+  assert.deepEqual(flowsBetween({ ...base, hl: 150, hlIn: 150 }, { ...base, hl: 149.2, hlIn: 150 }, 1, mid), []);
+  // a trade making $30 is a result, not a deposit
+  assert.deepEqual(flowsBetween({ ...base, hl: 149.2, hlIn: 150 }, { ...base, hl: 179.2, hlIn: 150 }, 1, mid), []);
+  // more ETH arrives: a deposit of what arrived
+  assert.deepEqual(flowsBetween({ ...base, hl: 179.2, hlIn: 150 }, { ...base, hl: 279.2, hlIn: 250 }, 1, mid), [[mid, 100, "Hyperliquid"]]);
+  // overview: without a Hyperliquid today it is the four; with one, the five
+  const w4 = { poly: { usd: 1 }, sc: { usd: 2 }, sr: { usd: 3 }, pp: { usd: 4 }, hl: null };
+  assert.equal(sumOfWallets({ usd: 99 }, w4)?.usd, 10);
+  assert.equal(sumOfWallets({ usd: 99 }, { ...w4, hl: { usd: -2.5 } })?.usd, 7.5);
+  assert.equal(sumOfWallets({ usd: 99 }, { ...w4, pp: null })?.usd, 99, "a core wallet missing: the total's own change");
+  // an old reading without a Hyperliquid column still works for the other four
+  const t = walletsToday(wh, [], [...nowW, 50], now);
+  assert.equal(t.hl, null);
+  assert.ok(t.poly);
+});
