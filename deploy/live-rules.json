@@ -28,7 +28,7 @@
     "on": false,
     "createAccount": true,
     "depositNote": "17 Nov 2026 18:34 KST, enrique: 'okay do it' (the $20 move into Jupiter's order book, after the test-then-copy flow was explained).",
-    "deposit": { "id": "dep-2", "usd": 20 }
+    "deposit": { "id": "dep-3", "usd": 20 }
   },
   "solanaPerps": {
     "note": "OFF. Real perps trading needs a perp rule at the bar and enrique's own yes. testOnce: 15 Nov 2026 12:28 KST, enrique: 'feel free to do one test in each of the new things so we know everything works, try to not lose money of course' - ONE smallest SOL short ($10 collateral, $20 size), opened and closed at the next look, once per name; the same name on solanaBuckets buys and sells 0.01 SOL of JUP once.",
