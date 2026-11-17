@@ -18,7 +18,7 @@ type Worth = { today?: Record<string, Today>; at: number; total: number | null; 
 /** Money put in or taken out: [time, dollars (+ in, - out), which wallet]. Not a gain or a loss. */
 export type Flow = [number, number, string];
 /** What each wallet held at the last sample, to tell a deposit from a result. */
-export type Comp = { pc: number | null; pk: number; pst: number; sol: number | null; coins: number; rules: number | null; perps: number | null; pkh?: number[] };
+export type Comp = { pc: number | null; pk: number; pst: number; sol: number | null; coins: number; rules: number | null; perps: number | null; pkh?: number[]; rulesPos?: number; perpsPos?: number };
 let flows: Flow[] = [];
 let comp: Comp | null = null;
 /**
@@ -77,12 +77,16 @@ export function flowsBetween(a: Comp | null, b: Comp, px: number | null, t: numb
       const dc = (b.coins - a.coins) * px;
       if (Math.abs(d) >= 5 && !(Math.sign(dc) === -Math.sign(d) && Math.abs(dc) >= 0.5 * Math.abs(d))) out.push([t, r2(d), "Solana spot copy"]);
     }
-    for (const [k, label] of [["rules", "Solana spot rules"], ["perps", "Solana perps"]] as const) {
+    for (const [k, label, pk] of [["rules", "Solana spot rules", "rulesPos"], ["perps", "Solana perps", "perpsPos"]] as const) {
       const now = b[k];
       if (now == null) continue;
       const was = a ? a[k] : null;
       const d = was == null ? now : now - was;
-      if (was == null ? d >= 0.5 : Math.abs(d) >= 5) out.push([t, r2(d), label]);
+      // a position opened or closed between the two readings moves money between the wallet's cash and the position,
+      // and the two are read at slightly different times: not a deposit or a withdrawal (17 Nov 2026, enrique: "didnt
+      // do those deposits", a perps open read as +$11.06 deposited and its close as -$11.98 withdrawn)
+      const moved = a != null && Math.abs((b[pk] ?? 0) - (a[pk] ?? 0)) >= 0.5;
+      if (was == null ? d >= 0.5 : Math.abs(d) >= 5 && !moved) out.push([t, r2(d), label]);
     }
   }
   return out;
@@ -402,6 +406,10 @@ export async function worthView(cash: number | null, claim: number, solBal: numb
     wallHist = Array.isArray(f) ? [] : (f.wall ?? []).filter((p) => Array.isArray(p) && Number.isFinite(p[0]));
     wallHist = withSeed(wallHist, loadJson<unknown>(SEED, []));
     flows = Array.isArray(f) ? [] : (f.flows ?? []);
+    // 17 Nov 2026: perps positions opening and closing were booked as deposits and withdrawals (the position was not
+    // counted, see status.ts). enrique put $100-$101 into each strategy wallet once (15 Nov) and nothing else; every
+    // smaller step booked on those two wallets was a trade, so it goes back into the result. Done at every load.
+    flows = flows.filter((x) => !((x[2] === "Solana perps" || x[2] === "Solana spot rules") && Math.abs(x[1]) < 50));
     comp = Array.isArray(f) ? null : (f.comp ?? null);
     const needJumps = Array.isArray(f) || (f.v ?? 0) < 2;
     hist = (Array.isArray(f) ? f : (f.hist ?? [])).filter((p) => Array.isArray(p) && Number.isFinite(p[0]) && Number.isFinite(p[1]));
@@ -475,7 +483,7 @@ export async function worthView(cash: number | null, claim: number, solBal: numb
     const last = hist[hist.length - 1];
     if (total != null && priced && (!last || Date.now() - last[0] >= 120_000)) {
       // rules / perps are kept in dollars here, so their px is 1; the SOL wallet is kept in SOL
-      const nowC: Comp = { pc: cash, pk: claim + bets.value, pst: bets.stake, sol: solBal ?? comp?.sol ?? null, coins: coinsSol, rules: rulesUsd, perps: perpsUsd, pkh: comp ? [...(comp.pkh ?? []), comp.pk].slice(-10) : [] };
+      const nowC: Comp = { pc: cash, pk: claim + bets.value, pst: bets.stake, sol: solBal ?? comp?.sol ?? null, coins: coinsSol, rules: rulesUsd, perps: perpsUsd, pkh: comp ? [...(comp.pkh ?? []), comp.pk].slice(-10) : [], rulesPos, perpsPos };
       const solOnly = flowsBetween(comp ? { ...comp, rules: null, perps: null } : null, { ...nowC, rules: null, perps: null }, px, Date.now());
       const extraOnly = flowsBetween(comp ? { ...comp, pc: null, sol: null } : { pc: null, pk: 0, pst: 0, sol: null, coins: 0, rules: null, perps: null }, { ...nowC, pc: null, sol: null }, 1, Date.now());
       flows.push(...solOnly, ...extraOnly);

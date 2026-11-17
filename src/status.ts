@@ -1,3 +1,4 @@
+import { perpsLiveSummary } from "./solana/perpslive.js";
 import { preopenSummary } from "./preopen.js";
 import { pairliveSummary } from "./pairlive.js";
 import { pairlockSummary } from "./pairlock.js";
@@ -96,7 +97,9 @@ export function serveStatus(recorder: Recorder, build: string, others: Recorder[
       const bk2 = (solanaCopySummary() as { buckets?: { real?: { heldValueSol?: number }; perps?: { real?: { open?: { collateralUsd?: number; unrealisedUsd?: number } | null; opens?: unknown[]; inPositionsUsd?: number; unrealisedUsd?: number } } } } | null)?.buckets;
       heldSol = Number(bk2?.real?.heldValueSol) || 0;
       // every open perps position counts: the collateral in it and what it has made
-      const pr = bk2?.perps?.real;
+      // from the perps module itself: the public summary no longer carries open positions (d2c137f0), which left the
+      // collateral of an open position out of the worth and read its open and close as a deposit and a withdrawal
+      const pr = (perpsLiveSummary() as unknown as NonNullable<NonNullable<typeof bk2>["perps"]>["real"]) ?? bk2?.perps?.real;
       const o = pr?.open;
       perpPosUsd = Array.isArray(pr?.opens) ? (Number(pr?.inPositionsUsd) || 0) + (Number(pr?.unrealisedUsd) || 0) : o ? (Number(o.collateralUsd) || 0) + (Number(o.unrealisedUsd) || 0) : 0;
     } catch {

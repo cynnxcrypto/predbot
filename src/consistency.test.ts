@@ -69,3 +69,13 @@ test("coins with no quote never block today: last quote, else cost once held 30 
   );
   assert.deepEqual(out.map((c) => c.worthSol), [0.03, 0.02, null]);
 });
+
+test("a perps position opening or closing is not a deposit or a withdrawal", async () => {
+  const { flowsBetween } = await import("./worthdash.js");
+  const base = { pc: null, pk: 0, pst: 0, sol: null, coins: 0, rules: null };
+  // open: cash leaves the wallet for the position, read a moment apart
+  assert.deepEqual(flowsBetween({ ...base, perps: 100, perpsPos: 0 }, { ...base, perps: 111.06, perpsPos: 11 }, 1, mid), []);
+  assert.deepEqual(flowsBetween({ ...base, perps: 111.06, perpsPos: 11 }, { ...base, perps: 99.08, perpsPos: 0 }, 1, mid), []);
+  // a real top-up with no position change is still one
+  assert.equal(flowsBetween({ ...base, perps: 100, perpsPos: 0 }, { ...base, perps: 150, perpsPos: 0 }, 1, mid).length, 1);
+});
