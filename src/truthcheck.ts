@@ -595,6 +595,8 @@ export async function truthRun(now = Date.now()): Promise<typeof last> {
     extra.flows = {
       chainTransfers: chain.length,
       matched: m.matched.length,
+      kindsRead: !!kinds,
+      from: now - 8 * 86_400_000,
       missing: m.missing.map((x) => ({ t: x.t, wallet: x.wallet, usd: x.usd, sig: x.sig })),
       notOnChain: m.extra.map((f) => ({ t: f[0], usd: f[1], wallet: f[2] })),
       unconfirmed: unconfirmedFlows(flows).map((f) => ({ t: f[0], usd: f[1], wallet: f[2] })),
@@ -648,5 +650,12 @@ export function startTruthCheck(d: Deps) {
   const run = () => void truthRun().catch(() => undefined);
   setTimeout(run, 4 * 60_000).unref();
   setInterval(run, 30 * 60_000).unref();
+}
+/** What the worth chart should change for the two Solana strategy wallets (src/worthdash.ts mergeChainFlows): only from
+ * a run that knew what was on the other side of each transfer. Behind the password only (truth.json). */
+export function chainFix(): { at: number; from: number; missing: { t: number; usd: number; wallet: string }[]; notOnChain: { t: number; usd: number; wallet: string }[] } | null {
+  const f = (last?.extra as { flows?: { kindsRead?: boolean; from?: number; missing?: { t: number; usd: number; wallet: string }[]; notOnChain?: { t: number; usd: number; wallet: string }[] } } | undefined)?.flows;
+  if (!last || !f?.kindsRead || f.from == null) return null;
+  return { at: last.at, from: f.from, missing: f.missing ?? [], notOnChain: f.notOnChain ?? [] };
 }
 export const _truthTest = { setDeps: (d: Deps | null) => void (deps = d), reset: () => void (last = null), setWaits: (w: number[]) => void (dataWaits = w) };

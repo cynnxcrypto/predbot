@@ -101,3 +101,20 @@ test("Hyperliquid: ETH sent is a deposit, a swap or a trade is not; the overview
   assert.equal(t.hl, null);
   assert.ok(t.poly);
 });
+
+test("strategy wallets: the chain decides what was money in or out (15 Nov 2026 read +$100 when real deposits were dropped)", async () => {
+  const { mergeChainFlows } = await import("./worthdash.js");
+  const t0 = mid - 2 * 86_400_000;
+  const chart: [number, number, string][] = [
+    [t0, 60, "Solana perps"], // a real deposit, matched on the chain: kept at the chart's figure
+    [t0 + 3_600_000, 11.06, "Solana perps"], // a position opening read as a deposit: not on the chain, taken out
+    [t0 + 7_200_000, 92, "Polymarket"], // other wallets untouched
+  ];
+  const fix = { at: mid, from: mid - 8 * 86_400_000, missing: [{ t: t0 + 600_000, usd: 40.5, wallet: "Solana perps" }], notOnChain: [{ t: t0 + 3_600_000, usd: 11.06, wallet: "Solana perps" }] };
+  assert.deepEqual(mergeChainFlows(chart, fix), [[t0, 60, "Solana perps"], [t0 + 600_000, 40.5, "Solana perps"], [t0 + 7_200_000, 92, "Polymarket"]]);
+  // with no chain read, the chart's own
+  assert.deepEqual(mergeChainFlows(chart, null), chart);
+  // a flow after the last chain read is the chart's own detection
+  const late: [number, number, string] = [mid + 60_000, 20, "Solana spot rules"];
+  assert.ok(mergeChainFlows([late], fix).some((f) => f === late));
+});

@@ -13,8 +13,8 @@ import { DATA, ROOT } from "./config.js";
 import { execSync } from "node:child_process";
 let chMemo: { at: number; rows: { t: number; tx: string }[] } | null = null;
 import { solSlowView, slowDaysServed } from "./solslowdash.js";
-import { worthView, worthCheck, worthLast, worthFlows } from "./worthdash.js";
-import { startTruthCheck, truthPrivate, truthPublic } from "./truthcheck.js";
+import { setChainFlows, worthView, worthCheck, worthLast, worthFlows } from "./worthdash.js";
+import { chainFix, startTruthCheck, truthPrivate, truthPublic } from "./truthcheck.js";
 import { hlLive, hlPage, hlPrivate, hlPublic, startHyperliquid } from "./hyperliquid/setup.js";
 import { linksPrivate, linksPublic } from "./hyperliquid/links.js";
 import { kit as solKit } from "./solana/copylive.js";
@@ -124,6 +124,8 @@ export function serveStatus(recorder: Recorder, build: string, others: Recorder[
   };
   // the Hyperliquid front (17 Nov 2026): its wallet is made here on first start; the address is behind the password only
   void startHyperliquid();
+  // the two Solana strategy wallets' money in and out, from the chain as the truth check last read it (17 Nov 2026)
+  setChainFlows(chainFix);
   startTruthCheck({
     dash: () => worthLast(),
     flows: () => worthFlows(),
@@ -638,7 +640,7 @@ const SOLANA_HTML = `<section class="sec hide" id="sec-solana">
   <div class="panel real"><div class="ph"><div class="k">real trade log <span class="tag real">real</span></div><div class="mut" id="sol-prsub"></div></div><div id="sol-prbars"></div><div id="sol-prlist"></div></div>
 </div>
 <div class="grid" id="sol-hl">
-  <div class="panel real"><div class="ph"><div class="k">real money <span class="tag real">real</span></div><div class="mut" id="hl-st"></div></div><div class="stats" id="hl-s"><span class="mut">waiting for the first reading</span></div><div id="hl-viz"></div><div id="hl-tiles"></div><div id="hl-tr"></div></div>
+  <div class="panel real"><div class="ph"><div class="k">real money <span class="tag real">real</span></div><div class="mut" id="hl-st"></div></div><div class="stats" id="hl-s"><span class="mut">waiting for the first reading</span></div><div id="hl-fund"></div><div id="hl-viz"></div><div id="hl-tiles"></div><div id="hl-tr"></div></div>
   <div class="panel real"><div class="ph"><div class="k">real trade log <span class="tag real">real</span></div><div class="mut" id="hl-sub"></div></div><div id="hl-bars"></div><div id="hl-list"></div></div>
 </div>
 <div class="grid hide" id="sol-bk">
@@ -1102,6 +1104,7 @@ var plg=function(c){c=String(c||"").toLowerCase();return c?'<img src="/logo/'+es
 var HQ=s.hyperliquid&&s.hyperliquid.live||null;if(el("hl-s")&&HQ){var hos=HQ.opens||[],hrc=(HQ.recent||[]).filter(function(x){return x&&isFinite(x.t)}),hn=+HQ.netUsd||0,ht=+HQ.trades||0,hw=+HQ.won||0,hur=hos.reduce(function(a,x){return a+(+x.unrealUsd||0)},0),hcol=hos.reduce(function(a,x){return a+(+x.collateralUsd||0)},0),hac=HQ.account||null,hmx=HQ.limits&&+HQ.limits.maxOpen||0,hcap=HQ.limits&&+HQ.limits.maxLossUsd||0,hlo=Math.max(0,-hn);var hd0=new Date(Date.now()+9*36e5).toISOString().slice(0,10),htd=0;hrc.forEach(function(x){if(new Date(x.t+9*36e5).toISOString().slice(0,10)===hd0)htd+=+x.netUsd||0});var HTR=HQ.traders||[],hra=HTR.filter(function(x){return x.real}).length;
 setH(el("hl-st"),HQ.halted?"stopped at the loss cap":HQ.on?(hra?hra+" of "+HTR.length+" traders real":"on · no trader at the bar yet"):"off · built and tested");
 setH(el("hl-s"),window.TDT("hl",Math.round(htd*100)/100,sg,sc)+tl("all time",sg(hn),sc(hn),"closed real positions, every fee included")+tl("open now",hos.length?sg(hur):"—",hos.length?sc(hur):"","what the open positions have made at the last price, before the fees to close")+tl("closed",String(ht),"")+tl("on Hyperliquid",hac?money(+hac.valueUsd||0):"—","",hac?"account value, positions included · free "+money(+hac.freeUsd||0):"not read yet"));
+var HF=s.hyperliquid&&s.hyperliquid.funding||null,HPW=window.HW&&window.HW.parts&&window.HW.parts.hl||null;setH(el("hl-fund"),'<div class="k" style="margin:14px 0 6px">wallet · ETH → USDC → on Hyperliquid</div>'+(HPW?'<div class="sctl"><div style="background:color-mix(in srgb,var(--mut) 14%,transparent)"><b>ETH</b><span>'+money(+HPW.eth||0)+'</span></div><div style="background:color-mix(in srgb,var(--mut) 14%,transparent)"><b>USDC</b><span>'+money(+HPW.usdc||0)+'</span></div><div style="background:color-mix(in srgb,var(--mut) 14%,transparent)"><b>on Hyperliquid</b><span>'+money(+HPW.account||0)+'</span></div></div>':'')+(HF?'<div class="mut" style="font-size:12px;white-space:normal;line-height:1.5;margin-top:8px">'+(HF.mode==="go"?"funding on":"funding dry run: says what it would do, sends nothing")+(HF.at?" · looked "+Math.max(0,Math.round((Date.now()-HF.at)/60000))+" min ago":"")+(HF.error?' · <span class="bad">'+esc(HF.error)+'</span>':'')+((HF.problems||[]).length?' · <span class="bad">'+esc(HF.problems.join("; "))+'</span>':'')+((HF.steps||[]).length?'<br>'+(HF.steps||[]).slice(-4).map(function(x){return esc(x)}).join("<br>"):'')+'</div>':'<div class="note">funding: no look yet</div>'));
 setH(el("hl-viz"),(ht?vb('<b class="ok">'+hw+'</b> won','<b class="bad">'+(ht-hw)+'</b> lost',[[hw/ht*100,"up"],[(ht-hw)/ht*100,"down"]]):"")+(hcap?vb("loss limit "+money(hcap),'<b>'+money(Math.max(0,hcap-hlo))+'</b> left',[[Math.min(100,100*hlo/hcap),"down"]]):""));
 var hlg=function(c){c=String(c||"").toLowerCase();return c?'<img src="/logo/'+esc(c)+'.png" alt="" style="width:15px;height:15px;border-radius:50%;vertical-align:-3px;margin-right:6px" onerror="this.remove()">':""};var hsd=function(x){return (x.coin||"")+" "+(x.side||"")+(+x.leverage?" "+(+x.leverage)+"x":"")};
 setH(el("hl-tiles"),'<div class="k" style="margin:14px 0 6px">positions open now · '+hos.length+(hmx?' of '+hmx:'')+'</div>'+(hos.length?'<div class="sctl">'+hos.map(function(X){var xu=+X.unrealUsd||0,upc=+X.collateralUsd?Math.round(1000*xu/(+X.collateralUsd))/10:null;return '<div title="trader '+esc(X.trader||"")+' · '+money(+X.collateralUsd||0)+' in" style="min-width:130px;background:color-mix(in srgb,var(--'+(xu>0?"up":xu<0?"down":"mut")+') '+Math.min(60,12+Math.abs(upc||0)*2)+'%,transparent)"><b>'+hlg(X.coin)+esc(hsd(X))+'</b><span>'+sg(xu)+(upc!=null?" · "+(upc>0?"+":"")+upc+"%":"")+'</span></div>'}).join("")+'</div>':'<div class="empty" style="padding:8px 0;text-align:left">none'+(hmx?' · up to '+hmx+' at once':'')+'</div>'));
