@@ -91,8 +91,8 @@ test("not copied: under the bar, too late, a second copy of a trader or a coin, 
   assert.equal(w.orders.length, 0);
   w.paper = [copy("copy-aaaa1111", "BTC", 1, T0), copy("copy-aaaa1111", "HYPE", 1, T0), copy("copy-bbbb2222", "BTC", -1, T0)];
   await hlLiveTick(d, T0 + 2000);
-  assert.equal(w.orders.length, 1);
-  assert.deepEqual(_test.state().skipped, { "trader already has a copy open": 1, "coin already held": 1 });
+  assert.equal(w.orders.length, 2, "both of the first trader's positions are copied");
+  assert.deepEqual(_test.state().skipped, { "coin already held": 1 });
   const poor = world({ free: 6 });
   poor.w.paper = [copy("copy-aaaa1111", "BTC", 1, T0)];
   await (_test.reset(), hlLiveTick(poor.d, T0 + 1000));

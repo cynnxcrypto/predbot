@@ -8,7 +8,9 @@
  *   - a trader goes real on its own record: TRADER_MIN_COPIES closed paper copies, half or more won, ahead, a day old;
  *   - real results first (src/solana/realfirst.ts): real while its real net is zero or better; back to paper when
  *     behind after 3 real trades or at its stop;
- *   - one position per trader and one per coin (Hyperliquid nets a coin's positions into one);
+ *   - every open position of a real trader is copied (enrique, 17 Nov 2026 23:08 KST: "yes allow more than one HL copy
+ *     per trader"); one per coin, since Hyperliquid nets a coin's positions into one; as many as the wallet's free
+ *     money and maxOpen allow;
  *   - the trader's own leverage, whole numbers, at most half of what Hyperliquid allows for the coin; ISOLATED
  *     margin, so one position can lose its own collateral and nothing more;
  *   - the copy is opened only in the first OPEN_WINDOW_MS after the paper copy, and closed when the paper copy closes.
@@ -285,7 +287,6 @@ export async function hlLiveTick(d: HlDeps, now = Date.now()): Promise<void> {
         if (loss() >= cfg.maxLossUsd) (skip("loss cap reached"));
         else if (!d.listed(x.rule)) skip("trader off the list");
         else if (state.opens.length >= cfg.maxOpen) skip("all positions in use");
-        else if (state.opens.some((o) => o.rule === x.rule)) skip("trader already has a copy open");
         else if (state.opens.some((o) => o.coin === x.coin) || acct.positions[x.coin]) skip("coin already held");
         else {
           const why = await open(d, x, cfg.collateralUsd, coins, mids, acct, now);
