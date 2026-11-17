@@ -43,7 +43,9 @@ export function mergeChainFlows(fl: Flow[], ch: ChainFix | null): Flow[] {
   const add = ch.missing.filter((x) => CHAIN_WALLETS.has(x.wallet) && span(x.t)).map((x) => [x.t, Math.round(x.usd * 100) / 100, x.wallet] as Flow);
   return [...keep, ...add].sort((a, b) => a[0] - b[0]);
 }
-const effFlows = () => mergeChainFlows(flows, chainSrc());
+/** Deposits seen at the last reading and not yet in a chart sample. */
+let pending: Flow[] = [];
+const effFlows = () => mergeChainFlows(pending.length ? [...flows, ...pending] : flows, chainSrc());
 let comp: Comp | null = null;
 /**
  * Each wallet's own worth at every sample (16 Nov 2026, MAIN for enrique: every card's "today" is that wallet's real
@@ -508,6 +510,16 @@ export async function worthView(cash: number | null, claim: number, solBal: numb
     const hlUsd = h && h.ethUsd > 0 ? Math.round((h.hlUsd + h.usdc + h.inTransitUsdc + h.eth * h.ethUsd) * 100) / 100 : (comp?.hl ?? null);
     const total = cash != null ? Math.round((cash + claim + bets.value + solPart + (rulesUsd ?? 0) + (perpsUsd ?? 0) + (hlUsd ?? 0)) * 100) / 100 : null;
     const wn = wallNow(cash, claim, bets.value, px != null ? solPart : null, rulesUsd, perpsUsd, hlUsd);
+    // Money put in shows in the total at once, but was booked as a deposit only with the next chart sample (up to 2 min
+    // later): in between, every window read it as a gain (17 Nov 2026: enrique's $46.70 into Hyperliquid read as 1 h
+    // +$52.97). The deposits since the last sample are now worked out at every reading and taken out at once.
+    const hadPending = pending.length > 0;
+    pending = [];
+    if (total != null && priced) {
+      const c0: Comp = { pc: cash, pk: claim + bets.value, pst: bets.stake, sol: solBal ?? comp?.sol ?? null, coins: coinsSol, rules: rulesUsd, perps: perpsUsd, pkh: comp ? [...(comp.pkh ?? []), comp.pk].slice(-10) : [], rulesPos, perpsPos, hl: hlUsd, hlIn: h && h.ethUsd > 0 ? h.ethInUsd : (comp?.hlIn ?? null) };
+      pending = [...flowsBetween(comp ? { ...comp, rules: null, perps: null, hl: null } : null, { ...c0, rules: null, perps: null, hl: null }, px, Date.now()), ...flowsBetween(comp ? { ...comp, pc: null, sol: null } : { pc: null, pk: 0, pst: 0, sol: null, coins: 0, rules: null, perps: null }, { ...c0, pc: null, sol: null }, 1, Date.now())];
+    }
+    if (pending.length || hadPending) dayMemo = null;
     const all = total != null ? worthToday(fullSeries(), total, Date.now()) : null;
     // a partial reading (bets or coins not priced, the SOL balance not read) gives no new "today": the last full one is
     // kept, as the chart keeps no sample from it (16 Nov 2026: after a restart unpriced coins read as -$84 today)
@@ -517,6 +529,7 @@ export async function worthView(cash: number | null, claim: number, solBal: numb
     if (total != null && priced) full = { at: Date.now(), total };
     const last = hist[hist.length - 1];
     if (total != null && priced && (!last || Date.now() - last[0] >= 120_000)) {
+      pending = [];
       // rules / perps are kept in dollars here, so their px is 1; the SOL wallet is kept in SOL
       const nowC: Comp = { pc: cash, pk: claim + bets.value, pst: bets.stake, sol: solBal ?? comp?.sol ?? null, coins: coinsSol, rules: rulesUsd, perps: perpsUsd, pkh: comp ? [...(comp.pkh ?? []), comp.pk].slice(-10) : [], rulesPos, perpsPos, hl: hlUsd, hlIn: h && h.ethUsd > 0 ? h.ethInUsd : (comp?.hlIn ?? null) };
       const solOnly = flowsBetween(comp ? { ...comp, rules: null, perps: null, hl: null } : null, { ...nowC, rules: null, perps: null, hl: null }, px, Date.now());

@@ -118,3 +118,20 @@ test("strategy wallets: the chain decides what was money in or out (15 Nov 2026 
   const late: [number, number, string] = [mid + 60_000, 20, "Solana spot rules"];
   assert.ok(mergeChainFlows([late], fix).some((f) => f === late));
 });
+
+test("a new wallet's first money is a deposit from the first reading, never a gain in any window", async () => {
+  const { flowsBetween, netOfFlows } = await import("./worthdash.js");
+  const t = now - 3_600_000;
+  const before = { pc: 300, pk: 120, pst: 110, sol: 1, coins: 0.5, rules: 100, perps: 100 };
+  // the Hyperliquid wallet is read for the first time with $46.70 in it, before the next chart sample
+  const fresh = flowsBetween({ ...before, pc: null, sol: null }, { ...before, pc: null, sol: null, hl: 46.7, hlIn: 46.7 }, 1, now);
+  assert.deepEqual(fresh, [[now, 46.7, "Hyperliquid"]]);
+  const hist: [number, number][] = [[t, 600], [now - 60_000, 600]];
+  const total = 646.7;
+  // the 1 h window: total now against the series an hour ago, net of money put in since
+  const series = netOfFlows(hist, fresh);
+  const h1 = series.find((p) => p[0] === t)!;
+  assert.equal(Math.round((total - h1[1]) * 100) / 100, 0);
+  const all = worthToday(netOfFlows([[mid - 60_000, 600], ...hist], fresh), total, now);
+  assert.equal(all?.usd, 0);
+});
