@@ -43,6 +43,7 @@ import { join } from "node:path";
 import { DATA, ROOT } from "../config.js";
 import { perpMeetsBar, perpPaperOpens, perpPaperRecord, perpRuleIds, setKeptTraders, setPerpsRealSummary, traderListed, REAL_MIN_TRADES, TRADER_MIN_COPIES } from "./buckets.js";
 import { CUT_MIN_TRADES, cutReason, realRecord, standing } from "./realfirst.js";
+import { gumProbeOnce, gumProbeResult } from "./gumprobe.js";
 import { base58decode, namedWallet, signTransaction, type Wallet } from "./keys.js";
 import { USDC } from "./pools.js";
 import { fileSwap, gasBusy, gasSummary, gasTick, type GasDeps } from "./gas.js";
@@ -885,6 +886,8 @@ export function perpsLiveSummary() {
     priceFails: state.priceFails ? { n: state.priceFails.n, coin: state.priceFails.coin } : null,
     skipped: state.skipped,
     lastError: state.lastError,
+    // Jupiter Perps' order-book coins (Gum): markets, minimums, our account there, where a deposit draws from (no address)
+    gumProbe: gumProbeResult(),
     rulesReal: rules.filter((x) => x.real).length,
     rules: rules.filter((x) => x.real || x.trades || x.demotedAt || x.paperTrades >= (x.id.startsWith("copy-") ? TRADER_MIN_COPIES / 2 : REAL_MIN_TRADES / 2)),
   };
@@ -931,6 +934,8 @@ export async function startPerpsLive() {
   };
   setPerpsRealSummary(perpsLiveSummary);
   setKeptTraders(keptTraders);
+  // Jupiter Perps' order-book coins (HYPE, ZEC, ...): a read-only look, once, while none is saved (gumprobe.ts)
+  void gumProbeOnce().catch((e) => console.error("[perps] gum probe:", String((e as Error)?.message ?? e).slice(0, 200)));
   // SOL for fees (src/solana/gas.ts): the top-up and the one swap in this wallet, and the low flags of all three
   const addrOf = (f: string) => {
     try {
