@@ -217,6 +217,10 @@ test("per-wallet automatic rule: learning to 10 settled, back to paper at -$10, 
   assert.deepEqual([st(10, 11.99), st(10, 12), st(19, 50), st(20, 20.99), st(20, 21), st(200, 500)], [5, 7, 7, 7, 10, 10]);
   assert.deepEqual([st(25, 21), st(25, 11), st(25, 5), st(25, -1)], [10, 5, 3, 3], "it steps back down with its real result");
   assert.equal(ladderStake(g, { n: 50, net: 99 }), 3, "no ladder: the base size");
+  // smart (17 Nov 2026): the line is met without its best bet; newest 3 behind take one row off
+  assert.equal(ladderStake(lg, { n: 7, net: 40, best: 38, last3: 1 }), 3, "ahead only through one big win: base size");
+  assert.equal(ladderStake(lg, { n: 10, net: 20, best: 5, last3: 2 }), 7);
+  assert.equal(ladderStake(lg, { n: 10, net: 20, best: 5, last3: -1 }), 5, "newest 3 behind: one row down");
   // what a wallet may risk: $9 and what its settled real bets made; winnings earn room, losses take it away
   const hc = { ...cfg, groups: { copy: { ...g, cutN: 5, cutLoss: 6, houseUsd: 9, walletUsd: 40 } } };
   const open = (rule: string, i: number, cost = 3) => ({ ...r(rule, null, 100 + i), cost });

@@ -34,3 +34,13 @@ test("real first: who is cut", () => {
   assert.equal(standing(realRecord([0.3, -0.1, -0.2]), false).real, true);
   assert.equal(cutReason(realRecord([-3.3, -3.3, -3.4]), 10), "cut: real trades reached the loss stop", "exactly at the stop in cents");
 });
+
+test("scaleOf: up only on a steady real record, never on one lucky win; down fast on recent losses", async () => {
+  const { scaleOf } = await import("./realfirst.js");
+  assert.equal(scaleOf([1, 1, 1, 1], 1).mult, 1, "under 5 real trades: x1");
+  assert.equal(scaleOf([0.5, 0.5, -0.2, 0.5, 0.5], 1).mult, 2, "5 steady: x2");
+  assert.equal(scaleOf([-1, -1, 10, 1, -0.5], 1).mult, 1, "ahead through one big win only: x1");
+  assert.equal(scaleOf([1, 1, 1, 1, 1, 1, 1, 1, 1, 1], 1).mult, 3, "10 steady and 2 stakes ahead without the best: x3");
+  assert.equal(scaleOf([1, 1, 1, 1, 1, 1, 1, 1, -1, -1], 1).mult, 2, "newest 3 behind: one step down");
+  assert.equal(scaleOf([3, 3, 3, 3, 3, 1, -1, -1, -1, -1], 1).mult, 1, "newest 5 behind too: back to x1");
+});

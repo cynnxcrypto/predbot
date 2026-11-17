@@ -42,7 +42,7 @@ import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { DATA, ROOT } from "../config.js";
 import { perpMeetsBar, perpPaperOpens, perpPaperRecord, perpRuleIds, setKeptTraders, setPerpsRealSummary, traderListed, REAL_MIN_TRADES, TRADER_MIN_COPIES } from "./buckets.js";
-import { CUT_MIN_TRADES, cutReason, realRecord, standing } from "./realfirst.js";
+import { CUT_MIN_TRADES, cutReason, realRecord, scaleOf, standing, SCALE_WALLET_SHARE } from "./realfirst.js";
 import { base58decode, namedWallet, signTransaction, type Wallet } from "./keys.js";
 import { USDC } from "./pools.js";
 import { fileSwap, gasBusy, gasSummary, gasTick, type GasDeps } from "./gas.js";
@@ -351,7 +351,13 @@ function save() {
 const loss = () => Math.max(0, -state.netUsd);
 const skip = (why: string) => void (state.skipped[why] = (state.skipped[why] ?? 0) + 1);
 /** One trader's or rule's real record: its filled real trades since it was last cut. */
-const realOf = (rule: string) => realRecord(state.rows.filter((x) => x.rule === rule && x.filled && x.t > (state.demoted[rule] ?? 0)).map((x) => x.netUsd));
+const realNetsOf = (rule: string) => state.rows.filter((x) => x.rule === rule && x.filled && x.t > (state.demoted[rule] ?? 0)).sort((a, b) => a.t - b.t).map((x) => x.netUsd);
+const realOf = (rule: string) => realRecord(realNetsOf(rule));
+/**
+ * Its collateral now (enrique, 17 Nov 2026 15:16 KST: winners scale up, "smart about how we scale up and down"): the base,
+ * scaled on its own real record (realfirst.ts scaleOf), at most a fifth of the wallet's USDC and HARD_COLLATERAL_USD.
+ */
+export const collateralOf = (rule: string, base: number, usdc = Infinity) => (rule === TEST_RULE ? base : Math.max(base, Math.min(HARD_COLLATERAL_USD, base * scaleOf(realNetsOf(rule), base).mult, SCALE_WALLET_SHARE * usdc)));
 /** Real results first (realfirst.ts): real record ahead or level = real; no real trades yet, or behind on fewer than three = the paper bar decides. */
 export const standingOf = (rule: string) => standing(realOf(rule), perpMeetsBar(rule, state.demoted[rule] ?? 0, Date.now(), liveCfg().traderMinOurs ?? 0), state.demotedWhy?.[rule]);
 export const promoted = (rule: string) => standingOf(rule).real;
@@ -757,10 +763,11 @@ export async function perpsLiveTick(d: PerpDeps, now = Date.now()): Promise<void
       else if (state.opens.some((x) => x.coin === o.coin && (x.dir ?? -1) === (o.dir > 0 ? 1 : -1))) skip("coin and side already held");
       else if (state.opens.length >= maxOpenOf(c)) skip("all positions in use");
       // every open position can lose its collateral: the cap must hold even if all of them do
-      else if (loss() + (state.opens.length + 1) * c.collateralUsd > c.maxLossUsd + 1e-9) skip("no room under the cap");
+      else if (loss() + state.opens.reduce((a, x) => a + (x.collUsd ?? x.collateralUsd ?? c.collateralUsd), 0) + collateralOf(o.rule, c.collateralUsd) > c.maxLossUsd + 1e-9) skip("no room under the cap");
       else {
         const usdc = await d.usdc(w.address);
-        if (usdc < c.collateralUsd + 1) {
+        const coll = collateralOf(o.rule, c.collateralUsd, usdc);
+        if (usdc < coll + 1) {
           state.note = "too little USDC in the perps wallet";
           skip("too little USDC");
         } else if ((await d.sol(w.address)) < MIN_SOL) {
@@ -773,10 +780,10 @@ export async function perpsLiveTick(d: PerpDeps, now = Date.now()): Promise<void
           // a copied trader's own leverage, as it is; a rule's from the live rules. The collateral is all a liquidation can take.
           const jupMax = custodyMaxLeverage((await d.rpc<{ value: { data?: [string, string] } | null }>("getAccountInfo", [CUSTODY[o.coin], { encoding: "base64", commitment: "confirmed" }]).catch(() => null))?.value?.data?.[0]);
           const lev = Math.round(leverageFor(o.lev, c.leverage, jupMax) * 100) / 100;
-          const sizeUsd = r2(c.collateralUsd * lev);
-          const made = openIx(w.address, o.coin, dir, sizeUsd, c.collateralUsd, boundPrice(dir, px, OPEN_SLIP, false), counter(), dir > 0 ? longMinOut(o.coin, c.collateralUsd, px) : null);
+          const sizeUsd = r2(coll * lev);
+          const made = openIx(w.address, o.coin, dir, sizeUsd, coll, boundPrice(dir, px, OPEN_SLIP, false), counter(), dir > 0 ? longMinOut(o.coin, coll, px) : null);
           // written down before it is sent
-          const np: Pos = { rule: o.rule, coin: o.coin, paperId: o.id, stage: "opening", usdcBefore: usdc, sizeUsd, position: made.position, request: made.request, sentMs: Date.now(), closeTries: 0, dir, lev, collUsd: c.collateralUsd };
+          const np: Pos = { rule: o.rule, coin: o.coin, paperId: o.id, stage: "opening", usdcBefore: usdc, sizeUsd, position: made.position, request: made.request, sentMs: Date.now(), closeTries: 0, dir, lev, collUsd: coll };
           begin(np);
           if (!(await sendChecked(d, w, [made.ix])) && state.lastSim !== "ok") {
             drop(np); // the simulation said no: nothing was sent

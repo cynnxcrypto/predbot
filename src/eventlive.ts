@@ -225,15 +225,19 @@ export const paperBehindStatus = () => {
  * sets ours. Each row's line is chosen so that three bets of its size fit in what the wallet may risk (houseUsd and
  * its real result). Pure.
  */
-export function ladderStake(g: EventLiveGroup, rec: { n: number; net: number }): number {
-  let stake = g.size;
-  for (const [bets, ahead, usd] of g.ladder) if (rec.n >= bets && rec.net >= ahead - 1e-9) stake = Math.max(stake, usd);
-  return stake;
+export function ladderStake(g: EventLiveGroup, rec: { n: number; net: number; best?: number; last3?: number }): number {
+  // smart, not blunt (enrique, 17 Nov 2026 15:16 KST: "we have to be smart about how we scale up and down"): the line is
+  // met without its single best bet, so one lucky win never sizes it up, and its newest 3 bets behind take one row off
+  const steady = rec.net - Math.max(0, rec.best ?? 0);
+  const rows = g.ladder.filter(([bets, ahead]) => rec.n >= bets && rec.net >= ahead - 1e-9 && (rec.best == null || steady >= ahead - 1e-9)).map((x) => x[2]).sort((a, b) => a - b);
+  if (rec.last3 != null && rec.n >= 3 && rec.last3 < 0) rows.pop();
+  return Math.max(g.size, ...rows);
 }
 /** A rule's own settled real bets: how many and what they made. Pure. */
-export function realRecordOf(rows: EventLiveRow[], rule: string): { n: number; net: number } {
-  const s = rows.filter((r) => r.rule === rule && r.shares > 0 && r.pnl != null);
-  return { n: s.length, net: Math.round(s.reduce((a, r) => a + (r.pnl ?? 0), 0) * 100) / 100 };
+export function realRecordOf(rows: EventLiveRow[], rule: string): { n: number; net: number; best: number; last3: number } {
+  const s = rows.filter((r) => r.rule === rule && r.shares > 0 && r.pnl != null).sort((a, b) => (a.settledAt ?? a.t) - (b.settledAt ?? b.t));
+  const r2 = (x: number) => Math.round(x * 100) / 100;
+  return { n: s.length, net: r2(s.reduce((a, r) => a + (r.pnl ?? 0), 0)), best: r2(Math.max(0, ...s.map((r) => r.pnl ?? 0))), last3: r2(s.slice(-3).reduce((a, r) => a + (r.pnl ?? 0), 0)) };
 }
 /** The same from the real rows on disk, for one group. */
 export const realRecord = (group: string, rule: string) => realRecordOf(eventLiveRows().filter((r) => r.group === group), rule);
