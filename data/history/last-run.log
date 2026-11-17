@@ -1,18 +1,8 @@
-run start 2026-11-17T08:06:26Z args: --budget-min 290 --start 2025-01-01
-pm: 2 days to do (1 re-pulls)
-2026-11-09 final esports:316/171/0 finance_daily:294/113/0 football:727/227/0 other:58/43/0 other_sports:1925/14/0 politics:62/54/0 temperature:1034/557/0 tennis:870/203/0 us_sports:1051/545/0 weather_other:32/25/0 77s
-2026-11-15 first esports:458/229/0 finance_daily:6/3/0 football:3248/717/0 other:35/21/0 other_sports:1457/74/0 politics:37/17/0 sports_futures:264/93/0 temperature:869/465/0 tennis:633/165/0 us_sports:3621/1293/0 weather_other:16/4/0 195s
+run start 2026-11-17T21:04:19Z args: --budget-min 290 --start 2025-01-01
+pm: 0 days to do (0 re-pulls)
 results football-data files: 67
 results nfl games: 842
 results nhl games: 2730
 results mlb games: 5933
 results finance rows: 24073
 results temperature stations: 69 updated 69
-To https://github.com/cynnxcrypto/predbot.git
- ! [rejected]          b1509686ab76324de10e48489c5a278ffa5cc209 -> server-data (fetch first)
-error: failed to push some refs to 'https://github.com/cynnxcrypto/predbot.git'
-hint: Updates were rejected because the remote contains work that you do not
-hint: have locally. This is usually caused by another repository pushing to
-hint: the same ref. If you want to integrate the remote changes, use
-hint: 'git pull' before pushing again.
-hint: See the 'Note about fast-forwards' in 'git push --help' for details.
