@@ -9,7 +9,7 @@ process.env.DATA_DIR = mkdtempSync(join(tmpdir(), "solslow-"));
 process.env.SOLANA_SLOW_MIN_SOL = "0";
 process.env.SOLANA_SLOW_MIN_BUY_SOL = "0";
 
-const { tripsOf, screen, lateRet, ownRet, priceAfter, posRet, paperRules, slowTx, slowSummary, reportOf, followed, copySafe, onSlowSwap, slowWatch, jupCoins, coinOld, creditsDay, copyableOf, provenWallets, crowdStudy, crowdOnePerCoin, top5Sol, provenThen, _test, STAKE_SOL, TX_SOL, DELAY_COST, MIN_TRIPS } = await import("./slow.js");
+const { balanceOf, tripsOf, screen, lateRet, ownRet, priceAfter, posRet, paperRules, slowTx, slowSummary, reportOf, followed, copySafe, onSlowSwap, slowWatch, jupCoins, coinOld, creditsDay, copyableOf, provenWallets, crowdStudy, crowdOnePerCoin, top5Sol, provenThen, _test, STAKE_SOL, TX_SOL, DELAY_COST, MIN_TRIPS } = await import("./slow.js");
 
 const W = "Wa11et1111111111111111111111111111111111111";
 const M = "M1nt11111111111111111111111111111111111111";
@@ -862,4 +862,15 @@ test("screen: money at stake: a wallet that made little, or whose usual buy is s
     process.env.SOLANA_SLOW_MIN_SOL = a;
     process.env.SOLANA_SLOW_MIN_BUY_SOL = b;
   }
+});
+
+test("a followed wallet's balance: SOL and priced coins from one answer; unpriced coins count as nothing", () => {
+  const b = balanceOf({
+    nativeBalance: { lamports: 12_340_000_000, price_per_sol: 70, total_price: 863.8 },
+    items: [{ token_info: { price_info: { total_price: 1500.4 } } }, { token_info: {} }, { token_info: { price_info: { total_price: "x" } } }],
+  });
+  assert.deepEqual(b, { sol: 12.34, usd: 2364 });
+  assert.deepEqual(balanceOf({ nativeBalance: { lamports: 1e9 }, items: [] }), { sol: 1, usd: null }, "no SOL price: dollars unknown");
+  assert.equal(balanceOf({ items: [] }), null);
+  assert.equal(balanceOf(null), null);
 });

@@ -482,9 +482,61 @@ interface State {
   pool: Record<string, [string, number]>;
   /** coin sizes by mint (mid and high caps, see CAP_MIN_USD) */
   caps?: Record<string, CapRow>;
+  /** what each followed wallet holds, by address (see balanceStep) */
+  bal?: Record<string, Balance>;
   open: Pos[];
   recent: Pos[];
 }
+/**
+ * What a followed wallet holds (enrique, 17 Nov 2026: "balances that are not trivial"): its SOL and the dollar value
+ * of its priced coins, read once a day with one Helius call (getAssetsByOwner, 10 credits). Coins Helius has no
+ * price for count as nothing, so the value is a floor.
+ */
+export interface Balance {
+  sol: number;
+  usd: number | null;
+  at: number;
+}
+export const BAL_REFRESH_MS = 24 * 3_600_000;
+const BAL_PER_LOOP = 5;
+/** A getAssetsByOwner answer -> SOL held and dollars in SOL and priced coins; null when unreadable. */
+export function balanceOf(result: unknown): { sol: number; usd: number | null } | null {
+  const x = result as { nativeBalance?: { lamports?: unknown; total_price?: unknown }; items?: unknown } | null;
+  const lamports = Number(x?.nativeBalance?.lamports);
+  if (!Number.isFinite(lamports) || lamports < 0) return null;
+  const native = Number(x?.nativeBalance?.total_price);
+  let coins = 0;
+  for (const it of Array.isArray(x?.items) ? (x!.items as { token_info?: { price_info?: { total_price?: unknown } } }[]) : []) {
+    const v = Number(it?.token_info?.price_info?.total_price);
+    if (Number.isFinite(v) && v > 0) coins += v;
+  }
+  return { sol: Math.round(lamports / 1e7) / 100, usd: Number.isFinite(native) ? Math.round(native + coins) : null };
+}
+/** Reads the balance of up to BAL_PER_LOOP followed wallets not read for a day. false = out of credits or no key. */
+async function balanceStep(now = Date.now()): Promise<boolean> {
+  const due = followed().filter((w) => now - (state.bal?.[w.address]?.at ?? 0) > BAL_REFRESH_MS).slice(0, BAL_PER_LOOP);
+  for (const w of due) {
+    const url = cfg?.rpcUrl();
+    today();
+    if (!url || state.credits >= creditsDay()) return false;
+    health.calls++;
+    const body = { jsonrpc: "2.0", id: 1, method: "getAssetsByOwner", params: { ownerAddress: w.address, page: 1, limit: 1000, displayOptions: { showFungible: true, showNativeBalance: true } } };
+    const res = await cfg!.fetch()(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body), signal: AbortSignal.timeout(20_000) });
+    state.credits += 10;
+    const j = (await res.json().catch(() => ({}))) as { result?: unknown; error?: { message: string } };
+    if (j.error || !res.ok) throw new Error(j.error?.message ?? `http ${res.status}`);
+    const b = balanceOf(j.result);
+    // an unreadable answer is not asked again for a day either: the wallet shows as unknown, not as empty
+    (state.bal ??= {})[w.address] = b ? { ...b, at: now } : { sol: state.bal?.[w.address]?.sol ?? -1, usd: state.bal?.[w.address]?.usd ?? null, at: now };
+    cache = null;
+    saveScreen();
+  }
+  // wallets no longer followed are forgotten
+  const keep = new Set(followed().map((w) => w.address));
+  for (const a of Object.keys(state.bal ?? {})) if (!keep.has(a)) delete state.bal![a];
+  return true;
+}
+
 /** The screen (large, saved at most every 5 minutes) and the paper copies (saved at most every 15 s) apart. */
 const FILE = () => join(DATA, "solana", "slow-wallets.json");
 const PAPER = () => join(DATA, "solana", "slow-paper.json");
@@ -1281,6 +1333,12 @@ async function loop() {
       health.errors++;
       health.lastError = scrub(String((e as Error)?.message ?? e));
     }
+    try {
+      await balanceStep();
+    } catch (e) {
+      health.errors++;
+      health.lastError = scrub(String((e as Error)?.message ?? e));
+    }
     for (const c of dueWallets()) {
       if (stopped) return;
       health.working = c.name;
@@ -1581,6 +1639,13 @@ export function slowSummary() {
     /** people with 10+ trips, most realised SOL first: a ranking, not a pick */
     near: people.filter((x) => !x.pass && x.trips >= 10).sort((a, b) => (b.realisedSol ?? 0) - (a.realisedSol ?? 0)).slice(0, 15).map(slim),
     followed: fol.map((x) => x.name),
+    /** each followed wallet's own size: SOL held and dollars in SOL and priced coins (a floor; null = not read yet),
+     *  beside what it made over the window and its usual first buy */
+    followedSizes: fol.map((x) => {
+      const b = state.bal?.[x.address];
+      const rep = reportOf(x.address);
+      return { name: x.name, sol: b && b.sol >= 0 ? b.sol : null, usd: b?.usd ?? null, readAt: b?.at ?? null, realisedSol: rep?.realisedSol ?? null, buySolMedian: rep?.buySolMedian ?? null };
+    }),
     /** mid and high caps (enrique, 17 Nov 2026): coin sizes, the replay of each wallet's past cap trips, the shortlist */
     caps: (() => {
       const now = Date.now();
