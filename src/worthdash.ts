@@ -463,6 +463,12 @@ export function despike(h: [number, number][]): [number, number][] {
   return out;
 }
 
+/** Samples in [from, to] take column col of the first sample after to that has it. Pure. */
+export function flatten<P extends (number | null | undefined)[]>(h: P[], from: number, to: number, col: number): P[] {
+  const after = h.find((p) => (p[0] as number) > to && p[col] != null);
+  if (!after) return h;
+  return h.map((p) => ((p[0] as number) >= from && (p[0] as number) <= to && p[col] != null ? (Object.assign([...p], { [col]: after[col] }) as P) : p));
+}
 const r2w = (v: number | null) => (v == null ? null : Math.round(v * 100) / 100);
 /**
  * data/wallet-seed.json (server only): wallet readings rebuilt by hand for times before the wallet samples began, as
@@ -505,6 +511,12 @@ export async function worthView(cash: number | null, claim: number, solBal: numb
     const badTo = Date.UTC(2026, 10, 16, 9, 0);
     hist = hist.filter((p) => p[0] < badFrom || p[0] > badTo);
     wallHist = wallHist.filter((p) => p[0] < badFrom || p[0] > badTo);
+    // 17 Nov 2026 23:40-00:42 KST: Polymarket's won-and-unclaimed list was first counted (src/pmredeem.ts) and the
+    // claimer then claimed those wins while the list still held them, so the samples counted them twice, up to about
+    // $28 high, and the 00:00 KST reading was taken from them ("today" read -$30 on +$3 settled). Those samples take
+    // the first clean reading after them, so today is measured from 00:42 KST. Done at every load.
+    hist = flatten(hist, Date.UTC(2026, 10, 17, 14, 40), Date.UTC(2026, 10, 17, 15, 42), 1);
+    wallHist = flatten(wallHist, Date.UTC(2026, 10, 17, 14, 40), Date.UTC(2026, 10, 17, 15, 42), 1);
     if (needJumps) flows = flowsFromJumps(hist);
     if (Array.isArray(f) || (f.v ?? 0) < 3) {
       const rep = repairClaims(hist, flows, loadSpans());

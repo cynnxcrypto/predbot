@@ -47,3 +47,9 @@ test("extraClaims: new ones at once, done or given-up ones after 2 h and at most
   assert.deepEqual(extraClaims(pm, false, claims, now).map((w) => w.c), [C(1), C(3), C(5)]);
   assert.deepEqual(extraClaims(pm, true, claims, now), []);
 });
+
+test("flatten: samples in the window take the first clean value after it", async () => {
+  const { flatten } = await import("./worthdash.js");
+  const h: [number, number | null][] = [[1, 10], [5, 40], [6, null], [7, 41], [9, 12], [10, 13]];
+  assert.deepEqual(flatten(h, 4, 8, 1), [[1, 10], [5, 12], [6, null], [7, 12], [9, 12], [10, 13]]);
+});
