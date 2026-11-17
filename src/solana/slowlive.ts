@@ -1265,8 +1265,7 @@ export function slowLiveSummary() {
         const on = now.find((n) => (w.address ? n.address === w.address : n.name === name));
         const l = realOf(w);
         const st = on ? (on.by === "real" ? "kept on real" : "on the paper list") : rested(w) ? "rested on real" : list?.unsafe.includes(keyOf(w)) ? "held back" : list?.unknown.includes(name) ? "address unknown" : "off";
-        // address: a public trader's wallet, as the scan lists already serve it, for the page's link
-        return { name, address: w.address ?? null, copied: !!on, state: st, copies: rs.length, won: rs.filter((x) => x.netSol > 0).length, netSol: r6(rs.reduce((a, x) => a + x.netSol, 0)), last7: { copies: l.n, won: l.won, netSol: r6(l.netSol) }, open: state.opens.filter((p) => isOf(p, w) && p.stage !== "waiting").length };
+        return { name, copied: !!on, state: st, copies: rs.length, won: rs.filter((x) => x.netSol > 0).length, netSol: r6(rs.reduce((a, x) => a + x.netSol, 0)), last7: { copies: l.n, won: l.won, netSol: r6(l.netSol) }, open: state.opens.filter((p) => isOf(p, w) && p.stage !== "waiting").length };
       })
       .sort((a, b) => b.netSol - a.netSol),
     recent: state.rows.slice(-20).map((x) => ({ name: x.name, buy: x.buy, exit: x.exit, heldMin: x.heldMin, netSol: r6(x.netSol) })),
