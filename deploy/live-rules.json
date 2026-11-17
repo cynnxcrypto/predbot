@@ -255,7 +255,8 @@
       "collateralUsd": 10,
       "maxOpen": 5,
       "maxLossUsd": 50,
-      "traderStopUsd": 9
+      "traderStopUsd": 9,
+      "testOnce": "t1"
     }
   }
 }
