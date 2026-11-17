@@ -12,7 +12,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { ROOT } from "../config.js";
 import { loadJson, saveJson } from "../store.js";
-import { ARBITRUM_CHAIN_ID, ARBITRUM_RPC, CREDIT_WAIT_MS, HL_API, fund, realChain, type Chain, type FundReport } from "./fund.js";
+import { ARBITRUM_CHAIN_ID, ARBITRUM_RPC, CREDIT_WAIT_MS, HL_API, fund, fundHistory, realChain, type Chain, type FundReport } from "./fund.js";
 import { hlAgent, hlWallet } from "./keys.js";
 import { fileCfg, hlKeptTraders, hlLiveSummary, hlLiveTick, type HlDeps } from "./live.js";
 import { realVenue } from "./venue.js";
@@ -164,7 +164,10 @@ export const hlLive = () => hlLiveSummary(fileCfg(), meetsBar);
 
 /** For the public status: no address, no key, no balance. */
 export function hlPublic() {
-  return { stage: "setup: wallet made, waiting for money; nothing trades", wallet, reach, funding: funding ? { at: funding.at, mode: funding.mode, dry: funding.dry, done: funding.done, problems: funding.problems, steps: funding.steps, error: funding.error ?? null } : lookStarted ? { at: lookStarted, mode: null, dry: true, done: false, problems: [], steps: [], error: "the first look at the wallet has not finished yet" } : null, looks: { ...looks, upMin: Math.round(process.uptime() / 60), lastStartedAt: lookStarted || null } };
+  const on = funding && !funding.error && funding.hlUsd !== null ? funding.hlUsd >= 1 : null;
+  const history = fundHistory();
+  const stage = on ? "funded: the money is on Hyperliquid" : history.inTransit ? "funding: a deposit is on its way to Hyperliquid" : history.swappedEth > 0 ? "funding: swapped, not all deposited yet" : history.ethReceivedUsd > 0 ? "funding: ETH received, not swapped yet" : "setup: wallet made, waiting for money";
+  return { stage, onHyperliquid: on, history, wallet, reach, funding: funding ? { at: funding.at, mode: funding.mode, dry: funding.dry, done: funding.done, problems: funding.problems, steps: funding.steps, error: funding.error ?? null } : lookStarted ? { at: lookStarted, mode: null, dry: true, done: false, problems: [], steps: [], error: "the first look at the wallet has not finished yet" } : null, looks: { ...looks, upMin: Math.round(process.uptime() / 60), lastStartedAt: lookStarted || null } };
 }
 
 /** Behind the dashboard's password only. */

@@ -86,6 +86,22 @@ export interface FundState {
 }
 const FILE = "hyperliquid-fund.json";
 
+/** What the funding has done so far, for the public status: amounts and times, no address, no transaction id. */
+export function fundHistory() {
+  const st = loadJson<FundState>(FILE, {});
+  return {
+    ethReceivedUsd: st.ethInUsd ?? 0,
+    swappedEth: st.swappedEth ?? 0,
+    gotUsdc: st.gotUsdc ?? 0,
+    /** USDC that Hyperliquid has shown arriving (every deposit is counted here only once it was seen there) */
+    depositedUsdcSeenOnHyperliquid: st.depositedUsdc ?? 0,
+    testDepositSeen: !!st.proven,
+    /** a deposit sent and not yet seen on Hyperliquid (null = none in transit) */
+    inTransit: st.pending ? { usdc: st.pending.usdc, sentAt: st.pending.at, test: st.pending.test, sent: !!st.pending.tx } : null,
+    steps: (st.log ?? []).map((x) => ({ t: x.t, what: x.what, amount: x.amount })),
+  };
+}
+
 const NO_HL = "Hyperliquid cannot be reached from the server right now: the swap is priced against Chainlink's ETH price; a deposit waits until Hyperliquid answers";
 
 export type Step =

@@ -159,3 +159,18 @@ test("the real chain link: plain JSON-RPC reads, and a swap signed by the wallet
   await assert.rejects(rpcCall("eth_chainId", [], dead), /arbitrum eth_chainId: aborted due to timeout/);
   assert.equal(tries, 2);
 });
+
+test("the public history says what was swapped, what Hyperliquid has shown, and what is still on its way (no transaction ids)", async () => {
+  const { fundHistory } = await import("./fund.js");
+  const stuck = fake({ credit: false });
+  await fund(stuck.c, { go: true, waitMs: 0 });
+  const h1 = fundHistory();
+  assert.deepEqual([h1.swappedEth, h1.depositedUsdcSeenOnHyperliquid, h1.testDepositSeen, h1.inTransit?.usdc, h1.inTransit?.sent], [0.049, 0, false, 6, true]);
+  saveJson("hyperliquid-fund.json", {});
+  const { c } = fake({ lag: 2 });
+  await fund(c, { go: true });
+  const h = fundHistory();
+  assert.deepEqual([h.swappedEth, h.gotUsdc, h.depositedUsdcSeenOnHyperliquid, h.testDepositSeen, h.inTransit], [0.049, 146.85, 146.85, true, null]);
+  assert.deepEqual(h.steps.map((x) => [x.what, x.amount]), [["swap", 0.049], ["test deposit", 6], ["deposit", 140.85]]);
+  assert.equal(JSON.stringify(h).includes("0x"), false);
+});
