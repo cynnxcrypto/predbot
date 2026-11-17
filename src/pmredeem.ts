@@ -24,7 +24,9 @@ export const RECLAIM_AFTER = 2 * 3600_000;
 /** c: condition id, v: payout in dollars, neg: grouped (neg-risk) market. */
 export type PmWon = { c: string; v: number; neg: boolean };
 export type ClaimDone = { at?: number; tx?: string | null; tries?: number; nextAt?: number; reclaims?: number };
-type BetRow = { conditionId?: string | null; shares?: number; pay?: number | null; settledAt?: number | null };
+type BetRow = { conditionId?: string | null; shares?: number; pay?: number | null; settledAt?: number | null; pnl?: number | null };
+/** Markets our books still hold as open bets: the worth already counts them at their price (about $1 a share once won). */
+const openInOurs = (bets: BetRow[]) => new Set((Array.isArray(bets) ? bets : []).filter((r) => r?.conditionId && (r.shares ?? 0) > 0 && r.pnl == null && r.settledAt == null).map((r) => r.conditionId as string));
 
 /** The redeemable positions worth something, out of Polymarket's v2 position rows. Pure. */
 export function wonRows(rows: { condition_id?: unknown; conditionId?: unknown; redeemable?: unknown; current_value?: unknown; currentValue?: unknown; negative_risk?: unknown; negativeRisk?: unknown; current_size?: unknown; size?: unknown }[]): PmWon[] {
@@ -64,7 +66,8 @@ export function ourUnclaimed(bets: BetRow[], claims: Record<string, ClaimDone | 
 /** Won money Polymarket shows redeemable that our own books do not count as waiting. Pure. */
 export function extraUnclaimed(pm: PmWon[], bets: BetRow[], claims: Record<string, ClaimDone | undefined>): number {
   const ours = ourUnclaimed(bets, claims);
-  return Math.round(pm.reduce((a, w) => a + Math.max(0, w.v - (ours.get(w.c) ?? 0)), 0) * 100) / 100;
+  const open = openInOurs(bets);
+  return Math.round(pm.reduce((a, w) => a + (open.has(w.c) ? 0 : Math.max(0, w.v - (ours.get(w.c) ?? 0))), 0) * 100) / 100;
 }
 
 /** What each redeemable win is in our books, for the public status (counts and dollars, no ids). Pure. */
@@ -83,7 +86,8 @@ export function waitingKinds(pm: PmWon[], bets: BetRow[], claims: Record<string,
     else if (d?.tx) add("claimMarkedDone", w.v);
     else if ((d?.tries ?? 0) >= 5) add("claimGaveUp", w.v);
     else if (ours.has(w.c)) add("waitingInOurBooks", w.v);
-    else add("wonNotBookedAsWon", w.v);
+    else if (openInOurs(bets).has(w.c)) add("stillOpenInOurBooks", w.v);
+    else add("settledAsLostInOurBooks", w.v);
   }
   return k;
 }

@@ -20,14 +20,18 @@ test("extraUnclaimed counts only what our books do not have waiting", () => {
     { c: C(1), v: 10, neg: false },
     { c: C(2), v: 6, neg: false },
     { c: C(3), v: 4, neg: false },
+    { c: C(7), v: 5, neg: false },
+    { c: C(8), v: 2, neg: false },
   ];
   const bets = [
     { conditionId: C(1), shares: 10, pay: 1, settledAt: 1 }, // waiting in our books: already counted
     { conditionId: C(2), shares: 6, pay: 1, settledAt: 1 }, // claim marked done, still redeemable: not counted by us
+    { conditionId: C(7), shares: 5, pnl: null }, // still open in our books: already counted as an open bet
+    { conditionId: C(8), shares: 2, pay: 0, pnl: -1, settledAt: 1 }, // booked as lost, Polymarket says won
   ];
   const claims = { [C(2)]: { tx: "0xabc", at: 1 } };
-  assert.equal(extraUnclaimed(pm, bets, claims), 10);
-  assert.deepEqual(waitingKinds(pm, bets, claims), { waitingInOurBooks: { n: 1, usd: 10 }, claimMarkedDone: { n: 1, usd: 6 }, notInOurBets: { n: 1, usd: 4 } });
+  assert.equal(extraUnclaimed(pm, bets, claims), 12);
+  assert.deepEqual(waitingKinds(pm, bets, claims), { waitingInOurBooks: { n: 1, usd: 10 }, claimMarkedDone: { n: 1, usd: 6 }, notInOurBets: { n: 1, usd: 4 }, stillOpenInOurBooks: { n: 1, usd: 5 }, settledAsLostInOurBooks: { n: 1, usd: 2 } });
 });
 
 test("extraClaims: new ones at once, done or given-up ones after 2 h and at most 3 more times", () => {
