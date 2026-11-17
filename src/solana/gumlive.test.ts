@@ -217,3 +217,26 @@ test("gum: the dep-3 deposit as the API sent it (544 bytes, typed slots: 2, 65, 
   const notOurs = Buffer.concat([Buffer.from([2]), slot(), slot(), Buffer.concat([Buffer.from([2, 0, 6, keys.length]), Buffer.alloc(32, 3), Buffer.alloc(32, 4), ...keys.slice(2), Buffer.alloc(32, 5), ix])]);
   assert.throws(() => signApiTx(notOurs.toString("base64"), w), /not read/);
 });
+
+test("gum: a deposit's accounts and instructions are told by role, never by address; errors lose their addresses", async () => {
+  const { txRoles, redactKeys, JTX_PROGRAM_ID } = await import("./gum.js");
+  const { ata } = await import("./soltx.js");
+  const { base58decode } = await import("./keys.js");
+  const w = namedWallet("perps");
+  const USDC = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
+  const cross = Buffer.alloc(32, 21);
+  const keys = [Buffer.alloc(32, 3), w.pubkey, cross, base58decode(ata(w.address, USDC)), Buffer.alloc(32, 22), base58decode(USDC), base58decode("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"), base58decode(JTX_PROGRAM_ID)];
+  const ix = Buffer.concat([Buffer.from([7, 5, 1, 2, 3, 4, 5, 9]), Buffer.from([4, 1, 2, 3, 4, 5, 6, 7, 8])]);
+  // 2 signers (the second read-only), 3 read-only unsigned keys (mint, token program, jtx)
+  const msg = Buffer.concat([Buffer.from([2, 1, 3, keys.length]), ...keys, Buffer.alloc(32, 5), Buffer.from([1]), ix]);
+  const slot = () => Buffer.concat([Buffer.from([65, 0]), Buffer.alloc(64)]);
+  const b64 = Buffer.concat([Buffer.from([2]), slot(), slot(), msg]).toString("base64");
+  const { base58 } = await import("./whirlpool.js");
+  const R = txRoles(b64, w, { [base58(cross)]: "ourCrossAccount" })!;
+  assert.deepEqual(R.keys.map((k) => k.role), ["other(wallet-like)", "ours", "ourCrossAccount", "ourUsdcAccount(solana)", R.keys[4].role, "usdcMint(solana)", "tokenProgram", "jtx"]);
+  assert.deepEqual([R.keys[0].writable, R.keys[1].writable, R.keys[2].writable, R.keys[5].writable], [true, false, true, false]);
+  assert.equal(R.instructions[0].program, "jtx");
+  assert.deepEqual(R.instructions[0].accounts, ["1:ours", "2:ourCrossAccount", "3:ourUsdcAccount(solana)", "4:" + R.keys[4].role, "5:usdcMint(solana)"]);
+  assert.ok(!JSON.stringify(R).includes(w.address));
+  assert.equal(redactKeys(`bad account ${w.address} of ${USDC}`), "bad account <key> of usdcMint(solana)");
+});
