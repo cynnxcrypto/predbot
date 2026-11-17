@@ -108,6 +108,9 @@ export const COIN_MIN_AGE_D = 3;
 export const SAMPLE_DAYS = [0.25, 1, 2, 3, 4, 5, 6, 8, 10, 13] as const;
 /** pages of 100 transactions read at each sample point */
 export const SAMPLE_PAGES = 3;
+/** a mid or high cap is sampled wider and deeper (few such coins, and their buyers are the wallets wanted): about 1,000 credits a coin */
+export const CAP_SAMPLE_DAYS = [0.1, 0.25, 0.5, 1, 1.5, 2, 3, 4, 5, 6, 8, 10, 13, 17, 21, 25, 29] as const;
+export const CAP_SAMPLE_PAGES = 6;
 /** a coin without a known first day: a sample whose first transaction comes this long after the point is its launch, or a dead stretch */
 const SAMPLE_GAP_S = 3 * 3600;
 export const MIN_BUYER_SOL = 0.2;
@@ -739,11 +742,12 @@ async function sampleCoin(mint: string): Promise<boolean> {
   const c = state.coins[mint];
   const now = Date.now();
   const seen = new Map<string, number>();
-  for (const d of SAMPLE_DAYS) {
+  const cap = capOk(mint, now);
+  for (const d of cap ? CAP_SAMPLE_DAYS : SAMPLE_DAYS) {
     const from = now - d * 86_400_000;
     if (c.createdMs !== null && from < c.createdMs + 86_400_000) continue; // launch-day buyers are snipers
     let token: string | null = null;
-    for (let i = 0; i < SAMPLE_PAGES; i++) {
+    for (let i = 0; i < (cap ? CAP_SAMPLE_PAGES : SAMPLE_PAGES); i++) {
       const pg = await page(mint, { blockTime: { gte: Math.floor(from / 1000) } }, "asc", token);
       if (!pg) return false;
       // no first day given: if nothing traded for hours after the point, what comes back is its launch (or a dead stretch)
@@ -787,7 +791,9 @@ function promote(max = PROMOTE_PER_PASS) {
     .sort((a, b) => Number(b.cap) - Number(a.cap) || b.coins - a.coins || b.sol - a.sol);
   let added = 0;
   for (const x of ranked) {
-    if (n >= MAX_COIN_BUYERS || added >= max) break;
+    if (added >= max) break;
+    // the coin buyers are capped, except buyers of a mid or high cap (the wallets wanted since 17 Nov 2026)
+    if (n >= MAX_COIN_BUYERS && !x.cap) continue;
     state.candidates.push({ name: `coin buyer ${x.w.slice(0, 4)}`, address: x.w, source: "coin" });
     delete state.pool[x.w];
     n++;

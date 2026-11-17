@@ -830,3 +830,15 @@ test("mid and high caps: a coin with no first pool given passes on size; buyers 
   assert.deepEqual(slowSummary().caps.coinsOverFloorLeftOut, { young: 1, thin: 1 });
   _test.reset();
 });
+
+test("mid and high caps: a cap buyer is promoted past the coin buyer limit", () => {
+  _test.reset();
+  const st = _test.state();
+  st.caps = { CapOld111111: { mcap: 3e8, liq: 2e6, createdMs: null, at: Date.now() } };
+  for (let i = 0; i < 30_000; i++) st.candidates.push({ name: `coin buyer ${i}`, address: `w${i}`, source: "coin" });
+  st.pool = { memeBuyer: ["Meme01", 9], capBuyer: ["CapOld", 0.3] };
+  _test.promote(5);
+  assert.equal(st.candidates.at(-1)!.address, "capBuyer");
+  assert.ok(st.pool.memeBuyer, "a memecoin buyer waits at the limit");
+  _test.reset();
+});
