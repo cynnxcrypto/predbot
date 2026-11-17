@@ -22,6 +22,13 @@
     "realNow": ["meme-dip1h"],
     "realNowNote": "17 Nov 2026 14:55 KST, enrique: 'try that spot rule on'. meme-dip1h trades for real now (paper 96 trades, 66 won, ahead), before its 100-trade bar, at the usual stakeSol. Usual cut: behind after 3 real trades, or its rule stop, sends it back to paper and then only the paper bar brings it back. src/solana/bucketslive.ts readRealNow."
   },
+  "solanaGum": {
+    "note": "17 Nov 2026 16:24 KST, enrique: 'do both hyperliquid and jupiter perps'. Real copies on Jupiter's order book (Gum: HYPE, ZEC, JUP, BNB, NEAR), same traders, one record with the JLP side (src/solana/gumlive.ts). Steps one at a time, each checked in the status: createAccount, deposit dep-1 $20, dryRun dry-1, test t-1 (HYPE long $5), then on with collateralUsd 10, maxLossUsd 30, ruleStopUsd 9, maxOpen 3.",
+    "on": false,
+    "createAccount": true,
+    "depositNote": "17 Nov 2026 18:34 KST, enrique: 'okay do it' (the $20 move into Jupiter's order book, after the test-then-copy flow was explained).",
+    "deposit": { "id": "dep-1", "usd": 20 }
+  },
   "solanaPerps": {
     "note": "OFF. Real perps trading needs a perp rule at the bar and enrique's own yes. testOnce: 15 Nov 2026 12:28 KST, enrique: 'feel free to do one test in each of the new things so we know everything works, try to not lose money of course' - ONE smallest SOL short ($10 collateral, $20 size), opened and closed at the next look, once per name; the same name on solanaBuckets buys and sells 0.01 SOL of JUP once.",
     "on": true,
@@ -236,5 +243,17 @@
     "maxLoss": 15,
     "maxPairs": 1,
     "slack": 3
+  },
+  "hyperliquid": {
+    "note": "17 Nov 2026 15:22-15:24 KST, enrique: 'new tab for hyperliquid', 'lets not mix it', 'and it is it's own wallet', 'how about i send eth to the arbitrum wallet', 'and u manage the swap too'. fund: 'dry' = the bot only says what it would do with the ETH in the wallet (status hyperliquid.funding.steps); 'go' = it keeps about $3 of ETH for gas, swaps the rest to USDC and deposits it into Hyperliquid (6 USDC test first). Turn to 'go' only after a dry run on the server shows no problems.",
+    "fund": "dry",
+    "trade": {
+      "note": "OFF. Real copies of Hyperliquid traders on Hyperliquid, every coin (src/hyperliquid/live.ts). Same rules as the Solana perps copies: a trader is real on its own paper record (20+ closed copies, half won, ahead, a day old), then on its real record (cut when behind after 3 real trades or at traderStopUsd); its own leverage up to half of Hyperliquid's limit for the coin, isolated margin; one position per trader and per coin. To make the one test trade (smallest BTC long, about $11, closed at the next look) add \"testOnce\": \"<a new name>\". To trade, set on to true.",
+      "on": false,
+      "collateralUsd": 10,
+      "maxOpen": 5,
+      "maxLossUsd": 50,
+      "traderStopUsd": 9
+    }
   }
 }

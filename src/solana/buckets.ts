@@ -374,6 +374,8 @@ export function parseKlines(rows: unknown, now: number): { k: Candles; px: numbe
 // enrique, 15 Nov 2026 18:23 KST: "for solana perps, do more for copying top traders, that might be way better than
 // trying to come up with rules". The list went from 60 to 400 traders and smaller accounts are let in.
 export const HL_FOLLOW = 400;
+/** linked wallets followed on paper besides the list, at most */
+export const HL_EXTRA_MAX = 20;
 export const HL_MIN_ACCOUNT_USD = 25_000;
 export const HL_MIN_MONTH_ROI = 0.1;
 export const HL_MAX_TURNOVER = 200; // month volume / account: above this it is a market maker or a bot
@@ -807,15 +809,57 @@ async function hlPost(deps: BucketDeps, body: unknown): Promise<unknown> {
  * "cut loser and bring winners"), so a real winner is not dropped for sliding down that ranking. It leaves when its
  * real record is no longer ahead (the real side cuts it), like any other.
  */
-let keptTraders: () => string[] = () => [];
-export const setKeptTraders = (f: () => string[]) => void (keptTraders = f);
+const keptBy = new Map<string, () => string[]>();
+const keptTraders = () => [...new Set([...keptBy.values()].flatMap((f) => f()))];
+/** `who` names the real side that asks (Solana perps, Hyperliquid): each keeps its own winners on the list. */
+export const setKeptTraders = (f: () => string[], who = "perps") => void keptBy.set(who, f);
+/**
+ * Wallets followed on PAPER besides the daily list: the likely new wallets of traders we like (hyperliquid/links.ts,
+ * enrique 17 Nov 2026: traders change wallets to shake off copiers). They are copied on paper like any trader of the
+ * list and go real only on their own record, at the same bar. Being linked to a winner earns nothing by itself.
+ */
+let extraTraders: () => string[] = () => [];
+export const setExtraTraders = (f: () => string[]) => void (extraTraders = f);
+/** The whole leaderboard of the last daily read, address and account value only (not saved: empty until that read). */
+let boardLite: { address: string; acct: number }[] = [];
+export const hlBoard = () => boardLite;
+export function boardOf(board: unknown): { address: string; acct: number }[] {
+  const rows = (board as { leaderboardRows?: unknown })?.leaderboardRows;
+  if (!Array.isArray(rows)) return [];
+  const out: { address: string; acct: number }[] = [];
+  for (const x of rows as Record<string, unknown>[]) {
+    const acct = Number(x?.accountValue);
+    if (typeof x?.ethAddress === "string" && /^0x[0-9a-fA-F]{40}$/.test(x.ethAddress) && acct > 0) out.push({ address: x.ethAddress.toLowerCase(), acct });
+  }
+  return out;
+}
+/**
+ * The traders we like, for the wallet-link search: copied for real and kept by the real side ("real"), at the bar on
+ * paper ("bar"), or half way there and ahead ("paper": 10+ closed copies, half won, ahead). Judged on our own record
+ * of copying them, so a trader who emptied the account and left the leaderboard is still on this list.
+ */
+export const LIKED_MIN_COPIES = 10;
+export function likedTraders(now = Date.now(), limit = 15): { address: string; why: "real" | "bar" | "paper" }[] {
+  if (!loaded) load();
+  const kept = new Set(keptTraders());
+  const out: { address: string; why: "real" | "bar" | "paper"; net: number }[] = [];
+  for (const a of copiedTraders()) {
+    const rec = traderRecord(traderRule(a));
+    const why = kept.has(traderRule(a)) ? "real" : traderMeetsBar(rec, now) ? "bar" : rec.trades >= LIKED_MIN_COPIES && rec.won * 2 >= rec.trades && rec.netUsd > 0 ? "paper" : null;
+    if (why) out.push({ address: a, why, net: rec.netUsd });
+  }
+  const rank = { real: 0, bar: 1, paper: 2 };
+  return out.sort((x, y) => rank[x.why] - rank[y.why] || y.net - x.net).slice(0, limit).map(({ address, why }) => ({ address, why }));
+}
 async function hlTick(deps: BucketDeps, now: number) {
   if (now - state.hlAt > HL_REFRESH_MS || !state.hlTraders.length) {
     const res = await deps.fetch()("https://stats-data.hyperliquid.xyz/Mainnet/leaderboard", { signal: AbortSignal.timeout(90_000) }).catch(() => null);
     state.hlAt = now - HL_REFRESH_MS + 1_800_000; // a failed read is tried again in half an hour, not every minute: the file is big
     if (!res) throw new Error("traders: no answer");
     if (!res.ok) throw new Error(`traders: http ${res.status}`);
-    const board = hlPick(await res.json().catch(() => null), Infinity);
+    const raw = await res.json().catch(() => null);
+    boardLite = boardOf(raw);
+    const board = hlPick(raw, Infinity);
     if (!board.length) throw new Error("traders: nothing usable");
     const tier = new Map(board.map((t) => [t.address, majorTier(t.address, now)]));
     const picked = board.filter((t) => tier.get(t.address)! < 2).sort((a, b) => tier.get(a.address)! - tier.get(b.address)! || b.monthPnl - a.monthPnl).slice(0, HL_FOLLOW);
@@ -827,6 +871,8 @@ async function hlTick(deps: BucketDeps, now: number) {
     const keep = new Set([...state.hlTraders.map((t) => t.address), ...state.hlOpen.map((o) => o.trader)]);
     for (const a of Object.keys(state.hlSeen)) if (!keep.has(a)) delete state.hlSeen[a];
   }
+  // likely new wallets of traders we like join the list (paper only); one that is no longer named leaves at the daily read
+  for (const a of extraTraders().slice(0, HL_EXTRA_MAX)) if (/^0x[0-9a-f]{40}$/.test(a) && !state.hlTraders.some((t) => t.address === a)) state.hlTraders.push({ address: a, monthPnl: 0, monthRoi: 0 });
   const watch = [...new Set([...state.hlTraders.map((t) => t.address), ...state.hlOpen.map((o) => o.trader)])];
   let mids: Record<string, number> | null = null;
   const mid = async (coin: string) => {
@@ -1132,6 +1178,11 @@ export function perpPaperOpens(): { id: string; rule: string; coin: string; dir:
     // set: each trader is promoted on its own record
     ...state.hlOpen.filter((o) => (PERP_COINS as readonly string[]).includes(o.coin)).map((o) => ({ id: `${traderRule(o.trader)}:${o.coin}:${o.at}`, rule: traderRule(o.trader), coin: o.coin, dir: o.dir, at: o.at, lev: o.lev })),
   ];
+}
+/** Every copied trader's open paper copy, on EVERY coin (the Hyperliquid front trades them all; Solana perps only three). */
+export function hlPaperOpens(): { id: string; rule: string; coin: string; dir: number; at: number; lev?: number }[] {
+  if (!loaded) load();
+  return state.hlOpen.map((o) => ({ id: `${traderRule(o.trader)}:${o.coin}:${o.at}`, rule: traderRule(o.trader), coin: o.coin, dir: o.dir, at: o.at, lev: o.lev }));
 }
 /**
  * Jupiter's order-book coins (gumlive.ts, 17 Nov 2026): a copied trader's open position on one of `coins` (never SOL,

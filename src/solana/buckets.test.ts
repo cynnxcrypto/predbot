@@ -481,3 +481,44 @@ test("buckets: the trader list prefers traders on SOL, BTC and ETH, and leaves o
   await bucketsTick(deps as never, now + 60_000);
   assert.deepEqual(st.hlTraders.map((t) => t.address), [SEEN, ON, NEW], "both on Jupiter's coins, by month profit; then the one not known yet");
 });
+
+test("buckets: a linked wallet is followed on paper off the list; liked traders are named from our own copy record", async () => {
+  _bucketsTest.reset();
+  const A = "0x" + "a".repeat(40);
+  const X = "0x" + "c".repeat(40);
+  const rowOf = (a: string) => ({ ethAddress: a, accountValue: "500000", windowPerformances: [["week", { pnl: "1", roi: "1", vlm: "1" }], ["month", { pnl: "9", roi: "0.5", vlm: "5000000" }], ["allTime", { pnl: "1", roi: "1", vlm: "1" }]] });
+  let posX: unknown[] = [];
+  const deps = {
+    quote: async () => 0n,
+    jup: async () => [],
+    fetch: () =>
+      (async (url: string, init?: { body?: string }) => {
+        const json = (x: unknown) => ({ ok: true, status: 200, json: async () => x }) as unknown as Response;
+        if (url.includes("binance")) return json([]);
+        if (url.includes("leaderboard")) return json({ leaderboardRows: [rowOf(A), { ethAddress: X, accountValue: "1200" }, { ethAddress: "bad", accountValue: "5" }] });
+        const body = JSON.parse(init!.body!) as { type: string; user?: string };
+        if (body.type === "allMids") return json({ SOL: "150", BTC: "90000" });
+        return json({ assetPositions: body.user === X ? posX : [] });
+      }) as unknown as typeof fetch,
+  };
+  let now = NOW;
+  const tick = async () => bucketsTick(deps as never, (now += 60_000));
+  const st = () => _bucketsTest.state();
+  B.setExtraTraders(() => [X, "not an address"]);
+  try {
+    await tick();
+    assert.deepEqual(st().hlTraders.map((t) => t.address), [A, X]);
+    assert.deepEqual(B.hlBoard(), [{ address: A, acct: 500000 }, { address: X, acct: 1200 }], "the whole board, small accounts too");
+    posX = [{ position: { coin: "SOL", szi: "-1000", positionValue: "150000" } }];
+    await tick();
+    assert.deepEqual(st().hlOpen.map((o) => [o.trader, o.coin]), [[X, "SOL"]], "copied on paper like a trader of the list");
+    assert.equal(B.traderListed(B.traderRule(X)), true);
+    assert.equal(B.traderMeetsBar(B.traderRecord(B.traderRule(X)), now), false, "linked is not a record: no copies closed, no bar");
+    // liked: 10+ closed copies, half won, ahead
+    assert.deepEqual(B.likedTraders(now), []);
+    for (let i = 0; i < 10; i++) st().hlTrades.push({ trader: A, coin: "BTC", dir: 1, at: now - 1000 - i, exitAt: now - i, net: i < 6 ? 0.02 : -0.01, why: "closed", worst: 0 } as never);
+    assert.deepEqual(B.likedTraders(now), [{ address: A, why: "paper" }]);
+  } finally {
+    B.setExtraTraders(() => []);
+  }
+});

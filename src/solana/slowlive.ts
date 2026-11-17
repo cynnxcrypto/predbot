@@ -45,6 +45,7 @@
  *    wallet). The public status gets numbers and the leaders' screen names only; coins, signatures, times and our
  *    address stay in data/ on the server.
  */
+import { SCALE_WALLET_SHARE } from "./realfirst.js";
 import { appendFileSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { DATA, ROOT } from "../config.js";
@@ -452,15 +453,20 @@ export function stepOf(rows: { name: string; wallet?: string; buy: string; t: nu
   const s = rows.filter((x) => (x.wallet && address ? x.wallet === address : x.name === name) && x.buy === "landed" && now - x.t < 30 * 86_400_000);
   const net = s.reduce((a, x) => a + x.netSol, 0);
   const won = s.filter((x) => x.netSol > 0).length;
-  let step = s.length >= STEP2_N && won * 2 >= s.length && net > 0 ? 2 : s.length >= STEP1_N && won * 2 >= s.length && net > 0 ? 1 : 0;
-  let why = step ? `step ${step}` : "learning";
+  // never on one lucky win (enrique, 17 Nov 2026 15:16 KST: "we have to be smart about how we scale up and down"): still ahead without its best copy
+  const best = s.length ? Math.max(0, ...s.map((x) => x.netSol)) : 0;
+  const steady = won * 2 >= s.length && net > 0 && net - best > 0;
+  let step = s.length >= STEP2_N && steady ? 2 : s.length >= STEP1_N && steady ? 1 : 0;
+  let why = step ? `step ${step}` : s.length >= STEP1_N && net > 0 && !(net - best > 0) ? "learning: ahead only through one big win" : "learning";
   if (step === 2 && leaderSol < STEP_LEADER_SOL) {
     step = 1;
     why = `step 1: the leader's buy is under ${STEP_LEADER_SOL} SOL`;
   }
-  if (step > 0 && s.slice(-REST_LAST).reduce((a, x) => a + x.netSol, 0) < 0) {
+  // down fast: its newest 5 behind, or its newest REST_LAST
+  const behind = (k: number) => s.slice(-k).reduce((a, x) => a + x.netSol, 0) < 0;
+  if (step > 0 && (behind(5) || behind(REST_LAST))) {
     step -= 1;
-    why = `one step down: its newest ${REST_LAST} are behind`;
+    why = `one step down: its newest ${behind(5) ? 5 : REST_LAST} are behind`;
   }
   return { mult: [1, 2, 4][step], why };
 }
@@ -699,7 +705,7 @@ async function buy(p: Pos) {
       state.note = `the wallet holds more than was agreed (${MAX_WALLET_SOL} SOL plus what this test has won): not buying until the extra is taken out`;
       return drop(() => state.missedLow++);
     }
-    const stakeSol = Math.min(HARD_STEP_STAKE_SOL, c.stakeSol * stepOf(state.rows, p.name, p.leaderSol, Date.now(), p.wallet).mult);
+    const stakeSol = Math.max(Math.min(c.stakeSol, bal), Math.min(HARD_STEP_STAKE_SOL, c.stakeSol * stepOf(state.rows, p.name, p.leaderSol, Date.now(), p.wallet).mult, SCALE_WALLET_SHARE * bal));
     if (bal < stakeSol + RENT_SOL + SELL_RESERVE_SOL * (out + 1)) {
       state.note = "wallet balance too low for a copy";
       miss(p.name, p.mint, p.seenMs, "low");

@@ -33,12 +33,14 @@ import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { DATA, ROOT } from "../config.js";
 import { saleRefused } from "./refused.js";
-import { CUT_MIN_TRADES, cutReason, realRecord, standing } from "./realfirst.js";
+import { CUT_MIN_TRADES, cutReason, realRecord, scaleOf, standing, SCALE_WALLET_SHARE } from "./realfirst.js";
 import { meetsBar, paperOpens, paperRecord, setBucketsRealSummary, spotRuleIds, REAL_MIN_TRADES, type Bucket } from "./buckets.js";
 import { namedWallet, signTransaction, type Wallet } from "./keys.js";
 import { SOL } from "./pools.js";
 
 export const HARD_STAKE_SOL = 0.02;
+/** The most a rule that scaled up on its own real record may put in one trade (enrique, 17 Nov 2026 15:16 KST). */
+export const HARD_SCALED_STAKE_SOL = 0.04;
 export const HARD_MAX_LOSS_SOL = 0.2;
 export const HARD_MAX_OPEN = 10;
 export const HARD_RULE_STOP_SOL = 0.05;
@@ -92,6 +94,8 @@ export function parseBucketsLive(text: string): BucketsLiveConfig {
 
 interface Pos {
   rule: string;
+  /** what this trade was bought with (a rule that scaled up buys more than stakeSol) */
+  stakeSol?: number;
   bucket: Bucket;
   mint: string;
   /** the paper trade it follows (its buy time) */
@@ -295,7 +299,10 @@ function fileCfg(): BucketsLiveConfig {
  * have several coins out, and one bought before the cut and sold after it belongs to the record that was cut, not to
  * the next one (a late winner must not make a cut rule real again without new paper trades).
  */
-const realOf = (rule: string) => realRecord(state.rows.filter((x) => x.rule === rule && x.buy === "landed" && boughtAt(x) > (state.demoted[rule] ?? 0)).map((x) => x.netSol));
+const realNetsOf = (rule: string) => state.rows.filter((x) => x.rule === rule && x.buy === "landed" && boughtAt(x) > (state.demoted[rule] ?? 0)).sort((a, b) => boughtAt(a) - boughtAt(b)).map((x) => x.netSol);
+const realOf = (rule: string) => realRecord(realNetsOf(rule));
+/** Its stake now: the base, scaled on its own real record (realfirst.ts scaleOf), at most a fifth of the wallet and the hard limit. */
+export const stakeOf = (rule: string, base: number, bal = Infinity) => (rule === TEST_RULE ? base : Math.max(Math.min(base, bal), Math.min(HARD_SCALED_STAKE_SOL, base * scaleOf(realNetsOf(rule), base).mult, SCALE_WALLET_SHARE * bal)));
 /**
  * When a real trade was bought: the paper buy it followed. A row of the build before 16 Nov 2026 has no buy time, so
  * for it the earliest buy its finish time and its held minutes allow (held minutes are rounded: half a minute more).
@@ -420,16 +427,17 @@ async function buy(d: LiveDeps, o: { rule: string; bucket: Bucket; mint: string;
       state.note = `the wallet holds more than was agreed (${MAX_WALLET_SOL} SOL): not buying until the extra is taken out`;
       return skip("wallet over the agreed size");
     }
-    if (bal < c.stakeSol + RENT_SOL + SELL_RESERVE_SOL * (state.opens.length + others.length + 1)) {
+    const stakeSol = stakeOf(o.rule, c.stakeSol, bal);
+    if (bal < stakeSol + RENT_SOL + SELL_RESERVE_SOL * (state.opens.length + others.length + 1)) {
       state.note = "wallet balance too low for a trade";
       return skip("too little SOL");
     }
     state.note = "";
-    const q = await d.kit.quote(SOL, o.mint, String(Math.round(c.stakeSol * LAMPORTS)), SLIPPAGE_BPS[o.bucket]);
+    const q = await d.kit.quote(SOL, o.mint, String(Math.round(stakeSol * LAMPORTS)), SLIPPAGE_BPS[o.bucket]);
     if (!q.outAmount || q.outAmount === "0") return skip("no price");
     const tx = signTransaction(await d.kit.swapTx(q, w.address, c.maxFeeLamports), w);
     // written down before it is sent: a restart must know of every transaction of a trade
-    p = { rule: o.rule, bucket: o.bucket, mint: o.mint, paperAt: o.at, stage: "buying", sigs: [d.kit.sigOf(tx)] };
+    p = { rule: o.rule, stakeSol, bucket: o.bucket, mint: o.mint, paperAt: o.at, stage: "buying", sigs: [d.kit.sigOf(tx)] };
     state.opens.push(p);
     save();
     const st = await sendUntil(d, tx, 60_000);
@@ -626,6 +634,12 @@ async function finish(d: LiveDeps, w: Wallet, p: Pos, buyState: Row["buy"]) {
 }
 /** Closed real trades by the Korean day they closed (t is written at the close), newest 30 days: count, won and the
  * net with every fee in (a buy that never landed counts its fees, not a trade). For the overview's day by day. */
+/** Coin symbols by mint, kept from the paper trades while they were open (a real position can outlive its paper one). */
+const SYMS = new Map<string, string>();
+function symOf(mint: string): string {
+  if (!SYMS.has(mint)) for (const o of paperOpens()) if (o.symbol) SYMS.set(o.mint, o.symbol);
+  return SYMS.get(mint) ?? "";
+}
 export function closeDays<R extends { t: number }>(rows: R[], net: (r: R) => number, counted: (r: R) => boolean) {
   const m: Record<string, { n: number; won: number; net: number }> = {};
   for (const r of rows) {
@@ -718,7 +732,7 @@ export async function bucketsLiveTick(d: LiveDeps, now = Date.now()): Promise<vo
       else if (now - o.at > BUY_WINDOW_MS) skip("paper buy too old");
       else if (state.opens.some((p) => p.mint === o.mint) || (state.stuck ?? []).some((p) => p.mint === o.mint)) skip("coin already held");
       else if (state.opens.length >= c.maxOpen) skip("too many out");
-      else if (loss() + (state.opens.length + 1) * (c.stakeSol + TRADE_ROOM_SOL) > c.maxLossSol + 1e-9) skip("no room under the cap");
+      else if (loss() + state.opens.reduce((a, p) => a + (p.stakeSol ?? c.stakeSol) + TRADE_ROOM_SOL, 0) + stakeOf(o.rule, c.stakeSol) + TRADE_ROOM_SOL > c.maxLossSol + 1e-9) skip("no room under the cap");
       else await buy(d, o, c, now);
     }
     save();
@@ -765,8 +779,8 @@ export function bucketsLiveSummary() {
     rentBackSol: r6(state.rentBackSol ?? 0),
     // SOL that sits in coins now: what was paid for them, and what they would bring at a sell quote read in the last minutes
     // (a coin not yet valued counts at what was paid). Not a loss and not a withdrawal until sold.
-    heldCostSol: r6(state.opens.length * c.stakeSol),
-    heldValueSol: r6(state.opens.reduce((a, p) => a + (p.valueSol ?? c.stakeSol), 0)),
+    heldCostSol: r6(state.opens.reduce((a, p) => a + (p.stakeSol ?? c.stakeSol), 0)),
+    heldValueSol: r6(state.opens.reduce((a, p) => a + (p.valueSol ?? p.stakeSol ?? c.stakeSol), 0)),
     skipped: state.skipped,
     lastError: state.lastError,
     // the real trades for the page: newest 40 closed and what is out now (rule and bucket only: no coin, no transaction,
@@ -774,7 +788,9 @@ export function bucketsLiveSummary() {
     rows: state.rows.slice(-40).reverse().map(({ at: _at, ...x }) => x),
     // every day's closed real trades in SOL, the test trade left out
     days: closeDays(state.rows.filter((x) => x.rule !== TEST_RULE), (x) => x.netSol, (x) => x.buy === "landed"),
-    opens: state.opens.map((p) => ({ rule: p.rule, bucket: p.bucket, stage: p.stage, since: p.paperAt })),
+    // for the tab (17 Nov 2026, enrique: "positions open thing with no data of size, pnl or anything"): the coin's
+    // symbol (never its mint), what it cost, what it would sell for now, since when held
+    opens: state.opens.map((p) => ({ rule: p.rule, bucket: p.bucket, stage: p.stage, since: p.paperAt, boughtMs: p.boughtMs ?? null, sym: symOf(p.mint), stakeSol: r6(p.stakeSol ?? c.stakeSol), valueSol: p.valueSol != null ? r6(p.valueSol) : null })),
     // the one-time test trade: its name, when, where it stands and what it did to the wallet (every fee in)
     test: state.test ? { ...state.test, open: state.opens.filter((p) => p.rule === TEST_RULE).map((p) => p.stage), rows: state.rows.filter((x) => x.rule === TEST_RULE).map((x) => ({ t: x.t, buy: x.buy, netSol: r6(x.netSol), heldMin: x.heldMin })) } : null,
     rulesReal: rules.filter((x) => x.real).length,

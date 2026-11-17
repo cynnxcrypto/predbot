@@ -14,22 +14,86 @@ const SOL = "So11111111111111111111111111111111111111112";
 const USDC = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
 const FILE = "worth-history.json";
 type Today = { usd: number; at: number; from?: number; est?: boolean } | null;
-type Worth = { today?: Record<string, Today>; at: number; total: number | null; cash: number | null; claim: number; bets: number; betsN: number; betsStake: number; days: Record<string, { n: number; stake: number; value: number; win: number; lose: number }>; solBal: number | null; coinsSol: number; coinsN: number; solUsd: number | null; rulesUsd: number | null; perpsUsd: number | null; rulesPos: number; perpsPos: number; parts?: Record<string, { sol: number | null; usdc: number | null; pos: number }> };
+type Worth = { today?: Record<string, Today>; at: number; total: number | null; cash: number | null; claim: number; bets: number; betsN: number; betsStake: number; days: Record<string, { n: number; stake: number; value: number; win: number; lose: number }>; solBal: number | null; coinsSol: number; coinsN: number; solUsd: number | null; rulesUsd: number | null; perpsUsd: number | null; hlUsd?: number | null; rulesPos: number; perpsPos: number; parts?: Record<string, { sol: number | null; usdc: number | null; pos: number } | { eth: number; usdc: number; account: number } | null> };
 /** Money put in or taken out: [time, dollars (+ in, - out), which wallet]. Not a gain or a loss. */
 export type Flow = [number, number, string];
 /** What each wallet held at the last sample, to tell a deposit from a result. */
-export type Comp = { pc: number | null; pk: number; pst: number; sol: number | null; coins: number; rules: number | null; perps: number | null; pkh?: number[] };
+export type Comp = { pc: number | null; pk: number; pst: number; sol: number | null; coins: number; rules: number | null; perps: number | null; pkh?: number[]; rulesPos?: number; perpsPos?: number; hl?: number | null; hlIn?: number | null };
 let flows: Flow[] = [];
+/**
+ * MONEY IN AND OUT OF THE TWO SOLANA STRATEGY WALLETS FROM THE CHAIN (17 Nov 2026). Opening and closing perps positions
+ * had been booked as deposits and withdrawals; dropping every small one (0e817998) then also dropped enrique's real
+ * deposits, made in parts on 15 Nov, and 15 Nov read +$100. The truth check reads every transfer of these wallets from
+ * the chain and keeps only those with a plain wallet that is not ours on the other side: that list is what was put in
+ * or taken out. Where it has been read, it replaces what the chart guessed for these two wallets; after its last read
+ * the chart's own detection (which no longer takes a position for a deposit) fills in. Set from status.ts.
+ */
+const CHAIN_WALLETS = new Set(["Solana perps", "Solana spot rules"]);
+export type ChainFix = { at: number; from: number; missing: { t: number; usd: number; wallet: string }[]; notOnChain: { t: number; usd: number; wallet: string }[] };
+let chainSrc: () => ChainFix | null = () => null;
+export const setChainFlows = (f: typeof chainSrc) => void (chainSrc = f);
+/** The chart's flows with, for the two strategy wallets, a flow the chain does not show taken out (a trade read as money
+ * in or out) and a transfer the chain shows that the chart missed put in. Matched ones keep the chart's own figure (SOL
+ * at that day's price). Only what the last chain read covered. Pure. */
+export function mergeChainFlows(fl: Flow[], ch: ChainFix | null): Flow[] {
+  if (!ch) return fl;
+  const span = (t: number) => t >= ch.from && t <= ch.at;
+  const drop = ch.notOnChain.filter((x) => CHAIN_WALLETS.has(x.wallet) && span(x.t));
+  const keep = fl.filter((f) => !(CHAIN_WALLETS.has(f[2]) && span(f[0]) && drop.some((x) => x.t === f[0] && x.wallet === f[2] && Math.abs(x.usd - f[1]) < 0.005)));
+  const add = ch.missing.filter((x) => CHAIN_WALLETS.has(x.wallet) && span(x.t)).map((x) => [x.t, Math.round(x.usd * 100) / 100, x.wallet] as Flow);
+  return [...keep, ...add].sort((a, b) => a[0] - b[0]);
+}
+/** Deposits seen at the last reading and not yet in a chart sample. */
+let pending: Flow[] = [];
+/**
+ * THE MONEY ENRIQUE PUT INTO THE SOLANA WALLETS (17 Nov 2026, MAIN's truth check: the flows booked for 15 Nov were not his
+ * confirmed deposits, and the chain read does not reach back to all of 15 Nov). His word, 15 Nov 17:38-17:47 KST: about
+ * $101 into Solana spot copy, $101 into Solana spot rules, $100 into Solana perps, and nothing else into these three
+ * wallets since. For these wallets exactly these are booked: at the time and figure the chart saw it (same wallet, same
+ * Korean day, within 15%), else on that day at 17:40 KST at his figure. Every other step on them is a result or a move
+ * inside the wallet. Hyperliquid keeps its own ledger of ETH that arrived; Polymarket keeps its own detection.
+ */
+export const CONFIRMED: { wallet: string; day: string; usd: number }[] = [
+  { wallet: "Solana spot copy", day: "2026-11-15", usd: 101 },
+  { wallet: "Solana spot rules", day: "2026-11-15", usd: 101 },
+  { wallet: "Solana perps", day: "2026-11-15", usd: 100 },
+];
+const CONFIRMED_WALLETS = new Set(CONFIRMED.map((c) => c.wallet));
+const kday = (t: number) => new Date(t + 9 * 3_600_000).toISOString().slice(0, 10);
+/** The flows with, for the three Solana wallets, exactly the confirmed deposits. Pure. */
+export function withConfirmed(fl: Flow[]): Flow[] {
+  const keep = fl.filter((f) => !CONFIRMED_WALLETS.has(f[2]));
+  for (const c of CONFIRMED) {
+    const seen = fl.filter((f) => f[2] === c.wallet && kday(f[0]) === c.day && Math.abs(f[1] - c.usd) <= 0.15 * c.usd).sort((a, b) => Math.abs(a[1] - c.usd) - Math.abs(b[1] - c.usd))[0];
+    keep.push(seen ?? [Date.parse(c.day + "T17:40:00+09:00"), c.usd, c.wallet]);
+  }
+  return keep.sort((a, b) => a[0] - b[0]);
+}
+/** For the public status: per wallet, how many flows the chart booked against the confirmed ones, and by how much the
+ * booked money differs (dollars, positive = the chart took out more than was confirmed). No amount of a deposit itself. */
+export function depositCheck(fl: Flow[], since: number) {
+  const out: Record<string, { booked: number; confirmed: number; offUsd: number }> = {};
+  for (const w of CONFIRMED_WALLETS) {
+    const b = fl.filter((f) => f[2] === w && f[0] >= since);
+    const c = withConfirmed(fl).filter((f) => f[2] === w && f[0] >= since);
+    out[w] = { booked: b.length, confirmed: c.length, offUsd: Math.round((b.reduce((a, f) => a + f[1], 0) - c.reduce((a, f) => a + f[1], 0)) * 100) / 100 };
+  }
+  const other = fl.filter((f) => f[0] >= since && !CONFIRMED_WALLETS.has(f[2]));
+  return { ...out, otherFlows: other.map((f) => ({ at: f[0], wallet: f[2] })) };
+}
+const effFlows = () => withConfirmed(mergeChainFlows(pending.length ? [...flows, ...pending] : flows, chainSrc()));
 let comp: Comp | null = null;
 /**
  * Each wallet's own worth at every sample (16 Nov 2026, MAIN for enrique: every card's "today" is that wallet's real
  * worth change since 00:00 KST): [time, Polymarket (cash + claims + open bets), Solana spot copy (SOL + coins),
  * Solana spot rules, Solana perps], dollars, null = not read.
  */
-export type WalletPoint = [number, number | null, number | null, number | null, number | null];
+export type WalletPoint = [number, number | null, number | null, number | null, number | null, (number | null)?];
 let wallHist: WalletPoint[] = [];
 /** The wallets in WalletPoint order, with the label their deposits and withdrawals carry. */
-export const WALLETS = [["poly", "Polymarket"], ["sc", "Solana spot copy"], ["sr", "Solana spot rules"], ["pp", "Solana perps"]] as const;
+export const WALLETS = [["poly", "Polymarket"], ["sc", "Solana spot copy"], ["sr", "Solana spot rules"], ["pp", "Solana perps"], ["hl", "Hyperliquid"]] as const;
+/** A wallet the overview's sum can do without while it has no reading from 00:00 (Hyperliquid, 17 Nov 2026: new). */
+const OPTIONAL = new Set<string>(["hl"]);
 /**
  * TODAY FOR EACH WALLET: its worth now against its last sample at or before 00:00 KST (the first sample of the day when
  * none is older, as just after this began), less what was put in or taken out of that wallet since. at = the sample
@@ -77,13 +141,26 @@ export function flowsBetween(a: Comp | null, b: Comp, px: number | null, t: numb
       const dc = (b.coins - a.coins) * px;
       if (Math.abs(d) >= 5 && !(Math.sign(dc) === -Math.sign(d) && Math.abs(dc) >= 0.5 * Math.abs(d))) out.push([t, r2(d), "Solana spot copy"]);
     }
-    for (const [k, label] of [["rules", "Solana spot rules"], ["perps", "Solana perps"]] as const) {
+    for (const [k, label, pk] of [["rules", "Solana spot rules", "rulesPos"], ["perps", "Solana perps", "perpsPos"]] as const) {
       const now = b[k];
       if (now == null) continue;
       const was = a ? a[k] : null;
       const d = was == null ? now : now - was;
-      if (was == null ? d >= 0.5 : Math.abs(d) >= 5) out.push([t, r2(d), label]);
+      // a position opened or closed between the two readings moves money between the wallet's cash and the position,
+      // and the two are read at slightly different times: not a deposit or a withdrawal (17 Nov 2026, enrique: "didnt
+      // do those deposits", a perps open read as +$11.06 deposited and its close as -$11.98 withdrawn)
+      const moved = a != null && Math.abs((b[pk] ?? 0) - (a[pk] ?? 0)) >= 0.5;
+      if (was == null ? d >= 0.5 : Math.abs(d) >= 5 && !moved) out.push([t, r2(d), label]);
     }
+  }
+  // Hyperliquid (17 Nov 2026): money comes in only as ETH enrique sends on Arbitrum, and the bot only ever spends ETH
+  // (swap, gas), so its funding run keeps a running total of every rise in the ETH held (hlIn, dollars). A rise of that
+  // total is a deposit; swapping, moving USDC into Hyperliquid and trading move money inside the wallet. A wallet seen
+  // for the first time counts whole.
+  if (b.hl != null) {
+    if (a?.hl == null) {
+      if (b.hl >= 0.5) out.push([t, r2(b.hl), "Hyperliquid"]);
+    } else if (a.hlIn != null && b.hlIn != null && b.hlIn - a.hlIn >= 0.5) out.push([t, r2(b.hlIn - a.hlIn), "Hyperliquid"]);
   }
   return out;
 }
@@ -150,7 +227,7 @@ function pageSeries(): Point[] {
   const step = Math.max(1, Math.ceil(hist.length / 300));
   const first = hist.length ? hist[0][0] : Infinity;
   const series: Point[] = [...back.filter((p) => p[0] < first), ...despike(hist).filter((_, i, a) => i % step === 0 || i === a.length - 1)];
-  return netOfFlows(series, flows);
+  return netOfFlows(series, effFlows());
 }
 /**
  * The windows of the page's "estimated total worth" panel (1 h, 24 h, 7 d, then "since" its first point), worked out
@@ -256,17 +333,28 @@ let dayMemo: { at: number; v: { worthDays: ReturnType<typeof worthDays>; walletD
  * wallet cards agree to the cent (16 Nov 2026, enrique: "not even this sums up properly"). Pure.
  */
 export function sumOfWallets<T extends { usd: number }>(all: T | null, w: Record<string, { usd: number } | null>): T | null {
-  if (!all || !WALLETS.every(([k]) => w[k] != null)) return all;
-  return { ...all, usd: Math.round(WALLETS.reduce((a, [k]) => a + (w[k] as { usd: number }).usd, 0) * 100) / 100 };
+  if (!all || !WALLETS.every(([k]) => w[k] != null || OPTIONAL.has(k))) return all;
+  return { ...all, usd: Math.round(WALLETS.reduce((a, [k]) => a + (w[k]?.usd ?? 0), 0) * 100) / 100 };
 }
 export function daySum<T extends { usd: number }>(d: T, w: Record<string, { usd: number }> | undefined): T & { summed?: boolean } {
   const s = sumOfWallets(d, w ?? {});
   return s === d ? d : { ...(s as T), summed: true };
 }
+/** Each open coin's worth for the total: its quote now, else its last quote (mem, updated here), else its cost once held
+ * 30 min (a coin that never had a sale route). Only a fresh coin with no quote yet stays unpriced. */
+export function priceCoins<C extends { worthSol: number | null; stakeSol?: number | null; name?: string; t?: number }>(open: C[], mem: Map<string, number>, now: number): C[] {
+  return open.map((c) => {
+    const k = `${c.name ?? ""}|${c.t ?? ""}`;
+    if (c.worthSol != null) mem.set(k, c.worthSol);
+    const last = mem.get(k);
+    const old = c.t != null && now - c.t > 30 * 60_000;
+    return { ...c, worthSol: c.worthSol ?? last ?? (old ? (c.stakeSol ?? 0.01) : null) };
+  });
+}
 function dayView() {
   if (dayMemo && Date.now() - dayMemo.at < 60_000) return dayMemo.v;
   const w = wallHist[wallHist.length - 1];
-  const wd = w ? walletDays(wallHist, flows, w.slice(1) as (number | null)[], Date.now()) : {};
+  const wd = w ? walletDays(wallHist, effFlows(), w.slice(1) as (number | null)[], Date.now()) : {};
   const v = { worthDays: worthDays(fullSeries(), null, Date.now()).map((d) => daySum(d, wd[d.day])), walletDays: wd };
   dayMemo = { at: Date.now(), v };
   return v;
@@ -275,13 +363,13 @@ function dayView() {
 function fullSeries(): Point[] {
   if (!hist) return [];
   const first = hist.length ? hist[0][0] : Infinity;
-  return netOfFlows<Point>([...back.filter((p) => p[0] < first), ...despike(hist)], flows);
+  return netOfFlows<Point>([...back.filter((p) => p[0] < first), ...despike(hist)], effFlows());
 }
 /** For the public status: no balance and no deposit in it, only what the repair took off and the results (changes in
  * dollars, never the worth itself and never a percentage, which would give the worth away). */
 export function worthCheck() {
   if (!hist || !memo?.v.total) return null;
-  const series = netOfFlows([...back.filter((p) => p[0] < (hist![0]?.[0] ?? Infinity)), ...hist] as [number, number][], flows);
+  const series = netOfFlows([...back.filter((p) => p[0] < (hist![0]?.[0] ?? Infinity)), ...hist] as [number, number][], effFlows());
   const T = Date.now() - 86_400_000;
   const base = [...series].reverse().find((p) => p[0] <= T);
   // the windows are measured from the last FULL reading (bets and coins priced, SOL balance read), never from a partial
@@ -293,12 +381,12 @@ export function worthCheck() {
   if (today) windows.today = today as { usd: number; est: boolean; from: number; at: number };
   const tw = memo.v.today ?? {};
   const todayByWallet = Object.fromEntries(WALLETS.map(([k, label]) => [label, tw[k] ? { usd: tw[k]!.usd, at: tw[k]!.at } : null]));
-  return { todayByWallet, claimStepsTakenForDeposits: fix?.removed ?? null, thatWasUsd: fix?.removedUsd ?? null, wonWaitingForClaimUsd: unclaimedAt(loadSpans(), Date.now()), change24hUsd: base && now != null ? Math.round((now - base[1]) * 100) / 100 : null, flows24h: flows.filter((f) => f[0] > T).length, windows, worthAt: full?.at ?? null };
+  return { deposits: depositCheck(mergeChainFlows(flows, chainSrc()), Date.now() - 8 * 86_400_000), todayByWallet, claimStepsTakenForDeposits: fix?.removed ?? null, thatWasUsd: fix?.removedUsd ?? null, wonWaitingForClaimUsd: unclaimedAt(loadSpans(), Date.now()), change24hUsd: base && now != null ? Math.round((now - base[1]) * 100) / 100 : null, flows24h: flows.filter((f) => f[0] > T).length, windows, worthAt: full?.at ?? null };
 }
 let memo: { at: number; v: Worth } | null = null;
 /** The dashboard's last worth reading and the deposits and withdrawals it takes out of its windows (src/truthcheck.ts). */
 export const worthLast = () => memo?.v ?? null;
-export const worthFlows = () => flows.slice();
+export const worthFlows = () => flows.slice(); // the chart's own detection, for the truth check to judge
 /** The last full reading's total (see worthCheck). */
 let full: { at: number; total: number } | null = null;
 let solPx: { at: number; v: number | null } = { at: 0, v: null };
@@ -368,21 +456,24 @@ const r2w = (v: number | null) => (v == null ? null : Math.round(v * 100) / 100)
  * real sample are taken, so a seed never overrides a reading.
  */
 const SEED = "wallet-seed.json";
+const COINS = "worth-coins.json";
+const coinPx = new Map<string, number>(Object.entries(loadJson<Record<string, number>>(COINS, {})).filter(([, v]) => Number.isFinite(v)));
+let coinPxSaved = 0;
 export function withSeed(wh: WalletPoint[], seed: unknown): WalletPoint[] {
   if (!Array.isArray(seed)) return wh;
   const first = wh.length ? wh[0][0] : Infinity;
   const ok = (x: unknown) => x == null || (typeof x === "number" && Number.isFinite(x));
-  const add = seed.filter((p): p is WalletPoint => Array.isArray(p) && p.length === 5 && typeof p[0] === "number" && Number.isFinite(p[0]) && p[0] < first && p.slice(1).every(ok))
-    .map((p) => [p[0], p[1] ?? null, p[2] ?? null, p[3] ?? null, p[4] ?? null] as WalletPoint)
+  const add = seed.filter((p): p is WalletPoint => Array.isArray(p) && (p.length === 5 || p.length === 6) && typeof p[0] === "number" && Number.isFinite(p[0]) && p[0] < first && p.slice(1).every(ok))
+    .map((p) => [p[0], p[1] ?? null, p[2] ?? null, p[3] ?? null, p[4] ?? null, p[5] ?? null] as WalletPoint)
     .sort((a, b) => a[0] - b[0]);
   return add.length ? [...add, ...wh] : wh;
 }
 /** Each wallet's worth in WalletPoint order. */
-function wallNow(cash: number | null, claim: number, bets: number, sol: number | null, rules: number | null, perps: number | null): [number | null, number | null, number | null, number | null] {
-  return [cash == null ? null : r2w(cash + claim + bets), r2w(sol), r2w(rules), r2w(perps)];
+function wallNow(cash: number | null, claim: number, bets: number, sol: number | null, rules: number | null, perps: number | null, hl: number | null): [number | null, number | null, number | null, number | null, number | null] {
+  return [cash == null ? null : r2w(cash + claim + bets), r2w(sol), r2w(rules), r2w(perps), r2w(hl)];
 }
 /** rules / perps = what the two strategy wallets hold in dollars (null = not read). */
-export async function worthView(cash: number | null, claim: number, solBal: number | null, extra: { rulesSol?: number | null; rulesUsdc?: number | null; perpsSol?: number | null; perpsUsdc?: number | null; rulesHeldSol?: number; perpsPosUsd?: number } = {}): Promise<Worth & { age: number; hist: ([number, number] | [number, number, 1])[]; flows: Flow[] }> {
+export async function worthView(cash: number | null, claim: number, solBal: number | null, extra: { rulesSol?: number | null; rulesUsdc?: number | null; perpsSol?: number | null; perpsUsdc?: number | null; rulesHeldSol?: number; perpsPosUsd?: number; hl?: { eth: number; usdc: number; hlUsd: number; ethUsd: number; inTransitUsdc: number; ethInUsd: number } | null } = {}): Promise<Worth & { age: number; hist: ([number, number] | [number, number, 1])[]; flows: Flow[] }> {
   if (!hist) {
     const f = loadJson<[number, number][] | { hist?: [number, number][]; back?: [number, number, 1][]; flows?: Flow[]; comp?: Comp | null; v?: number; fix?: { removed: number; removedUsd: number } | null; wall?: WalletPoint[] }>(FILE, []);
     wallHist = Array.isArray(f) ? [] : (f.wall ?? []).filter((p) => Array.isArray(p) && Number.isFinite(p[0]));
@@ -412,7 +503,17 @@ export async function worthView(cash: number | null, claim: number, solBal: numb
   claim += unclaimedAt(loadSpans(), Date.now());
   if (!memo || Date.now() - memo.at > 15_000) {
     const [bets, px, slow] = await Promise.all([openWorth().catch(() => ({ n: 0, stake: 0, value: 0, priced: 0, days: {} })), solUsd(), solSlowView().catch(() => null)]);
-    const open = ((slow as { open?: { stage: string; worthSol: number | null; stakeSol?: number | null }[] } | null)?.open ?? []).filter((c) => c.stage !== "waiting");
+    const open0 = ((slow as { open?: { stage: string; worthSol: number | null; stakeSol?: number | null; name?: string; t?: number }[] } | null)?.open ?? []).filter((c) => c.stage !== "waiting");
+    // A coin whose quote fails this time keeps its last price (kept across restarts); one never priced at all and held
+    // over 30 min counts at cost, as it has every time, so it moves nothing. 17 Nov 2026: dead coins with no sale route
+    // kept every reading "partial", so after a restart no today showed anywhere for hours.
+    const open = priceCoins(open0, coinPx, Date.now());
+    if (Date.now() - coinPxSaved > 120_000) {
+      coinPxSaved = Date.now();
+      const keep = new Set(open0.map((c) => `${c.name ?? ""}|${c.t ?? ""}`));
+      for (const k of [...coinPx.keys()]) if (!keep.has(k)) coinPx.delete(k);
+      saveJson(COINS, Object.fromEntries(coinPx));
+    }
     // A coin whose sale could not be priced this time counts at what it cost, and a SOL balance that could not be read
     // keeps its last reading. Both used to count as nothing: after the 17:25 restart on 16 Nov 2026 the coins' quotes
     // were refused for a while and the worth read $58 lower in one sample, with about $3 really lost.
@@ -439,27 +540,42 @@ export async function worthView(cash: number | null, claim: number, solBal: numb
       rules: { sol: d2(extra.rulesSol == null || px == null ? null : extra.rulesSol * px), usdc: d2(extra.rulesUsdc), pos: rulesPos },
       perps: { sol: d2(extra.perpsSol == null || px == null ? null : extra.perpsSol * px), usdc: d2(extra.perpsUsdc), pos: perpsPos },
     };
-    const total = cash != null ? Math.round((cash + claim + bets.value + solPart + (rulesUsd ?? 0) + (perpsUsd ?? 0)) * 100) / 100 : null;
-    const wn = wallNow(cash, claim, bets.value, px != null ? solPart : null, rulesUsd, perpsUsd);
+    // Hyperliquid: the account there (positions at their value) + USDC + money on its way there + ETH at its price; a
+    // failed read keeps the last one
+    const h = extra.hl;
+    const hlUsd = h && h.ethUsd > 0 ? Math.round((h.hlUsd + h.usdc + h.inTransitUsdc + h.eth * h.ethUsd) * 100) / 100 : (comp?.hl ?? null);
+    const total = cash != null ? Math.round((cash + claim + bets.value + solPart + (rulesUsd ?? 0) + (perpsUsd ?? 0) + (hlUsd ?? 0)) * 100) / 100 : null;
+    const wn = wallNow(cash, claim, bets.value, px != null ? solPart : null, rulesUsd, perpsUsd, hlUsd);
+    // Money put in shows in the total at once, but was booked as a deposit only with the next chart sample (up to 2 min
+    // later): in between, every window read it as a gain (17 Nov 2026: enrique's $46.70 into Hyperliquid read as 1 h
+    // +$52.97). The deposits since the last sample are now worked out at every reading and taken out at once.
+    const hadPending = pending.length > 0;
+    pending = [];
+    if (total != null && priced) {
+      const c0: Comp = { pc: cash, pk: claim + bets.value, pst: bets.stake, sol: solBal ?? comp?.sol ?? null, coins: coinsSol, rules: rulesUsd, perps: perpsUsd, pkh: comp ? [...(comp.pkh ?? []), comp.pk].slice(-10) : [], rulesPos, perpsPos, hl: hlUsd, hlIn: h && h.ethUsd > 0 ? h.ethInUsd : (comp?.hlIn ?? null) };
+      pending = [...flowsBetween(comp ? { ...comp, rules: null, perps: null, hl: null } : null, { ...c0, rules: null, perps: null, hl: null }, px, Date.now()), ...flowsBetween(comp ? { ...comp, pc: null, sol: null } : { pc: null, pk: 0, pst: 0, sol: null, coins: 0, rules: null, perps: null }, { ...c0, pc: null, sol: null }, 1, Date.now())];
+    }
+    if (pending.length || hadPending) dayMemo = null;
     const all = total != null ? worthToday(fullSeries(), total, Date.now()) : null;
     // a partial reading (bets or coins not priced, the SOL balance not read) gives no new "today": the last full one is
     // kept, as the chart keeps no sample from it (16 Nov 2026: after a restart unpriced coins read as -$84 today)
-    const wt = priced ? walletsToday(wallHist, flows, wn, Date.now()) : null;
+    const wt = priced ? walletsToday(wallHist, effFlows(), wn, Date.now()) : null;
     const today = wt ? { all: sumOfWallets(all, wt), ...wt } : (memo?.v.today ?? undefined);
-    memo = { at: Date.now(), v: { at: Date.now(), total, cash, claim, bets: bets.value, betsN: bets.n, betsStake: bets.stake, days: bets.days, solBal, coinsSol: Math.round(coinsSol * 1e4) / 1e4, coinsN: open.length, solUsd: px, rulesUsd, perpsUsd, parts, rulesPos, perpsPos, today } };
+    memo = { at: Date.now(), v: { at: Date.now(), total, cash, claim, bets: bets.value, betsN: bets.n, betsStake: bets.stake, days: bets.days, solBal, coinsSol: Math.round(coinsSol * 1e4) / 1e4, coinsN: open.length, solUsd: px, rulesUsd, perpsUsd, hlUsd, parts: { ...parts, hl: h && h.ethUsd > 0 ? { eth: Math.round(h.eth * h.ethUsd * 100) / 100, usdc: Math.round((h.usdc + h.inTransitUsdc) * 100) / 100, account: h.hlUsd } : null }, rulesPos, perpsPos, today } };
     if (total != null && priced) full = { at: Date.now(), total };
     const last = hist[hist.length - 1];
     if (total != null && priced && (!last || Date.now() - last[0] >= 120_000)) {
+      pending = [];
       // rules / perps are kept in dollars here, so their px is 1; the SOL wallet is kept in SOL
-      const nowC: Comp = { pc: cash, pk: claim + bets.value, pst: bets.stake, sol: solBal ?? comp?.sol ?? null, coins: coinsSol, rules: rulesUsd, perps: perpsUsd, pkh: comp ? [...(comp.pkh ?? []), comp.pk].slice(-10) : [] };
-      const solOnly = flowsBetween(comp ? { ...comp, rules: null, perps: null } : null, { ...nowC, rules: null, perps: null }, px, Date.now());
+      const nowC: Comp = { pc: cash, pk: claim + bets.value, pst: bets.stake, sol: solBal ?? comp?.sol ?? null, coins: coinsSol, rules: rulesUsd, perps: perpsUsd, pkh: comp ? [...(comp.pkh ?? []), comp.pk].slice(-10) : [], rulesPos, perpsPos, hl: hlUsd, hlIn: h && h.ethUsd > 0 ? h.ethInUsd : (comp?.hlIn ?? null) };
+      const solOnly = flowsBetween(comp ? { ...comp, rules: null, perps: null, hl: null } : null, { ...nowC, rules: null, perps: null, hl: null }, px, Date.now());
       const extraOnly = flowsBetween(comp ? { ...comp, pc: null, sol: null } : { pc: null, pk: 0, pst: 0, sol: null, coins: 0, rules: null, perps: null }, { ...nowC, pc: null, sol: null }, 1, Date.now());
       flows.push(...solOnly, ...extraOnly);
       flows = flows.filter((f) => f[0] > Date.now() - 8 * 86_400_000);
       comp = nowC;
       hist.push([Date.now(), total]);
       if (hist.length > 5040) hist = hist.slice(-5040); // a week at one sample every two minutes
-      wallHist.push([Date.now(), ...wallNow(cash, claim, bets.value, px != null ? solPart : null, rulesUsd, perpsUsd)]);
+      wallHist.push([Date.now(), ...wallNow(cash, claim, bets.value, px != null ? solPart : null, rulesUsd, perpsUsd, hlUsd)]);
       if (wallHist.length > 1500) wallHist = wallHist.slice(-1500); // two days
       if (!back.length) {
         try {
@@ -471,5 +587,5 @@ export async function worthView(cash: number | null, claim: number, solBal: numb
       saveJson(FILE, { hist, back, flows, comp, fix, wall: wallHist, v: 3 });
     }
   }
-  return { ...memo.v, age: Date.now() - memo.at, hist: pageSeries(), flows, ...dayView() };
+  return { ...memo.v, age: Date.now() - memo.at, hist: pageSeries(), flows: effFlows(), ...dayView() };
 }

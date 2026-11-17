@@ -266,3 +266,11 @@ test("day by day in a run: the public copy lists only wrong lines, as difference
   assert.ok(!/"served"|"recount"|1\.25/.test(JSON.stringify(pub.days)));
   T._truthTest.setDeps(null);
 });
+
+test("flows enrique did not confirm are flagged", async () => {
+  const { unconfirmedFlows } = await import("./truthcheck.js");
+  const t15 = Date.UTC(2026, 10, 15, 3);
+  const t17 = Date.UTC(2026, 10, 17, 6);
+  const out = unconfirmedFlows([[t15, 101, "spot rules"], [t17, 11.06, "perps"], [t17, -11.98, "perps"], [t17, 50, "Polymarket"]]);
+  assert.deepEqual(out.map((f) => f[1]), [11.06, -11.98]);
+});
