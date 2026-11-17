@@ -491,6 +491,11 @@ export async function truthRun(now = Date.now()): Promise<typeof last> {
         if (!cursor || !j.data.length) break;
       }
       pos = splitPositions(rows);
+      // an empty answer while the dashboard holds bets is a failed read, not $0 of bets (17 Nov 2026: srcOpen 0 vs 39 open)
+      if (!rows.length && (d?.betsN ?? 0) > 0) {
+        pos = null;
+        errors.push(`positions: Polymarket answered with no positions while we hold ${d?.betsN}: not read`);
+      }
     } catch (e) {
       errors.push(`positions: ${(e as Error).message}`);
     }
