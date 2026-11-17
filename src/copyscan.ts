@@ -4,8 +4,9 @@
  *
  * Runs inside the paper process (src/eventpaper.ts), once a day, on the server: no Claude round.
  *  1. Candidates: the Polymarket profit leaderboards (month, top 100) of every category.
- *  2. Screen (copyScreen): up in each of its last 4 weeks, no single week over half of the 4 weeks' profit; at least
- *     14 buys in the last 7 days (about 2 a day, so copies happen); median buy $100 or less (copyable at $3-$10); at
+ *  2. Screen (copyScreen): up in each of its last 4 weeks, no single week over half of the 4 weeks' profit, $2,000+
+ *     made in them; at least 14 buys in the last 7 days (about 2 a day, so copies happen); usual buy $20 or more and
+ *     $5,000+ in open positions (17 Nov 2026: money at stake; until then a usual buy over $100 was refused); at
  *     most a third of its buys in crypto "Up or Down" markets (that is the race we lose).
  *  3. At most ADD_PER_DAY new wallets a day go to PAPER copy (rules copy-rest/take/any-<name>), at most MAX_ACTIVE
  *     auto wallets followed at once.
@@ -38,7 +39,7 @@ const DATA = "https://data-api.polymarket.com";
 const CATS = ["overall", "crypto", "sports", "esports", "weather", "politics", "economics", "economy", "finance", "tech", "culture", "mentions"];
 
 export type AutoWallet = { name: string; address: string; addedAt: number; stage: "paper" | "real" | "dropped"; why: string; promotedAt?: number; droppedAt?: number; demotedAt?: number };
-export type AutoState = { lastScan: number; scans: number; lastError: string | null; screened: number; passed: number; candidates?: number; failedAt?: Record<string, number>; runStart?: number; ver?: number; wallets: AutoWallet[]; log: { t: number; text: string }[] };
+export type AutoState = { lastScan: number; scans: number; lastError: string | null; screened: number; passed: number; candidates?: number; failedAt?: Record<string, number>; runStart?: number; ver?: number; sizes?: Record<string, WalletSize>; wallets: AutoWallet[]; log: { t: number; text: string }[] };
 const EMPTY: AutoState = { lastScan: 0, scans: 0, lastError: null, screened: 0, passed: 0, wallets: [], log: [] };
 
 export function autoState(): AutoState {
@@ -76,17 +77,47 @@ export function weeklyPnl(points: PnlPoint[], now: number): number[] | null {
   return out;
 }
 
+/**
+ * enrique, 17 Nov 2026 23:10 KST: "they're playing with nothing", "i dont care about someone that has done a few
+ * good trades on a 500 dollar wallet", "find plenty of traders, with good track records, possibility to copy them,
+ * and balances that are not trivial". The screen had it backwards: it REFUSED wallets whose usual buy was over $100.
+ * Now a wallet needs money at stake: $2,000+ made over the 4 weeks, a usual buy of $20 or more (no upper limit: the
+ * 5c price check decides whether a copy behind a big buy is still worth taking), and $5,000+ in open positions.
+ */
+export const MIN_MONTH_USD = 2000;
+export const MIN_MED_BUY = 20;
+export const MIN_VALUE_USD = 5000;
+const tsMs = (r: Act) => (Number(r.timestamp) > 1e12 ? Number(r.timestamp) : Number(r.timestamp) * 1000);
+/** Median size in dollars of the wallet's buys of the last 7 days; null when it made none. */
+export function medianBuy(acts: Act[], now: number): number | null {
+  const usd = acts
+    .filter((r) => r.type === "TRADE" && String(r.side ?? "").toUpperCase() === "BUY" && tsMs(r) >= now - 7 * 86400_000)
+    .map((r) => Number(r.usdc_size ?? r.usdcSize ?? Number(r.price) * Number(r.size)))
+    .filter((x) => x > 0)
+    .sort((a, b) => a - b);
+  return usd.length ? usd[usd.length >> 1] : null;
+}
+/** Dollars in open positions out of a data API value answer; null when unreadable. */
+export function valueOf(j: unknown): number | null {
+  const x = Array.isArray(j) ? j[0] : ((j as { data?: unknown } | null)?.data ?? j);
+  const n = Number((Array.isArray(x) ? x[0] : (x as { value?: unknown } | null))?.value);
+  return Number.isFinite(n) && n >= 0 ? n : null;
+}
+/** Is a followed wallet too small to keep on paper: known numbers under the floors (unknown is not small). */
+export const tooSmall = (z: WalletSize | undefined) => Boolean(z && ((z.valueUsd != null && z.valueUsd < MIN_VALUE_USD) || (z.medBuyUsd != null && z.medBuyUsd < MIN_MED_BUY)));
+export type WalletSize = { valueUsd: number | null; medBuyUsd: number | null; at: number };
+
 /** The screen; returns null when the wallet passes, else why not. Pure. */
 export function copyScreen(weeks: number[] | null, acts: Act[], now: number): string | null {
   if (!weeks) return "no 4-week profit history";
   if (!weeks.every((w) => w > 0)) return "a losing week in the last 4";
   const sum = weeks.reduce((a, b) => a + b, 0);
   if (Math.max(...weeks) > 0.5 * sum) return "one week made over half the profit";
+  if (sum < MIN_MONTH_USD) return `made $${Math.round(sum)} in 4 weeks (needs $${MIN_MONTH_USD})`;
   const buys = acts.filter((r) => r.type === "TRADE" && String(r.side ?? "").toUpperCase() === "BUY" && (Number(r.timestamp) > 1e12 ? Number(r.timestamp) : Number(r.timestamp) * 1000) >= now - 7 * 86400_000);
   if (buys.length < 14) return `${buys.length} buys in 7 days (needs 14)`;
-  const usd = buys.map((r) => Number(r.usdc_size ?? r.usdcSize ?? Number(r.price) * Number(r.size))).filter((x) => x > 0).sort((a, b) => a - b);
-  const med = usd.length ? usd[usd.length >> 1] : Infinity;
-  if (!(med <= 100)) return `median buy $${Math.round(med)} (over $100)`;
+  const med = medianBuy(acts, now) ?? 0;
+  if (!(med >= MIN_MED_BUY)) return `median buy $${Math.round(med)} (under $${MIN_MED_BUY})`;
   const crypto = buys.filter((r) => /up or down/i.test(String(r.title ?? ""))).length;
   if (crypto > buys.length / 3) return "mostly crypto up/down";
   return null;
@@ -155,7 +186,7 @@ const nameFor = (user: string | undefined, address: string, taken: Set<string>) 
  * `get` = the JSON fetcher. Adds at most ADD_PER_DAY wallets. Never throws.
  */
 /** Is a scan due: a day since the last finished one, or the first one of this (wider) version. */
-export const SCAN_VER = 2;
+export const SCAN_VER = 3;
 export const scanDue = (now = Date.now(), s = autoState()) => s.ver !== SCAN_VER || now - s.lastScan > 24 * 3600_000;
 /** Load the file fresh, change it, save it: the scan runs for a long time next to the promotions. */
 function commit(f: (s: AutoState) => void) {
@@ -194,9 +225,33 @@ export async function copyScan(followed: { name: string; address: string }[], ow
         }
       }
     }
+    // every wallet already followed is measured first (positions and usual buy, 2 calls each), so the status shows
+    // what each one has at stake; a rescan wallet still on PAPER that is too small is dropped, which frees its place.
+    // Wallets copied with real money are only measured: cutting one is decided on its real record or by enrique.
+    for (const w of [...followed, ...autoFollowed(s0)]) {
+      await wait(350);
+      const value = valueOf(await get<unknown>(`${DATA}/v2/value?user=${w.address}`).catch(() => null));
+      await wait(350);
+      const got = await get<{ data?: Act[] }>(`${DATA}/v2/activity?user=${w.address}&limit=500`).catch(() => null);
+      const med = got ? medianBuy(got.data ?? [], now) : null;
+      if (value == null && !got) continue;
+      const size: WalletSize = { valueUsd: value == null ? null : Math.round(value), medBuyUsd: med == null ? null : Math.round(med), at: Date.now() };
+      commit((s) => {
+        s.sizes = { ...(s.sizes ?? {}), [w.name]: size };
+        const a = s.wallets.find((x) => x.address === w.address && x.stage === "paper");
+        if (a && tooSmall(size)) {
+          a.stage = "dropped";
+          a.droppedAt = Date.now();
+          const text = `${a.name} dropped: too small ($${size.valueUsd ?? "?"} in positions, usual buy $${size.medBuyUsd ?? "?"})`;
+          s.log.push({ t: Date.now(), text });
+          s.log = s.log.slice(-60);
+          out.push(text);
+        }
+      });
+    }
     const day = 86400_000;
     const addedToday = s0.wallets.filter((w) => now - w.addedAt < day).length;
-    let room = Math.max(0, Math.min(ADD_PER_DAY - addedToday, MAX_ACTIVE - autoFollowed(s0).length));
+    let room = Math.max(0, Math.min(ADD_PER_DAY - addedToday, MAX_ACTIVE - autoFollowed().length));
     let screened = 0;
     let passed = 0;
     let unsaved = 0;
@@ -232,13 +287,22 @@ export async function copyScan(followed: { name: string; address: string }[], ow
         failedAt[address] = now;
         continue;
       }
+      await wait(350);
+      const value = valueOf(await get<unknown>(`${DATA}/v2/value?user=${address}`).catch(() => null));
+      if (value == null) continue; // not read: tried again next time
+      if (value < MIN_VALUE_USD) {
+        failedAt[address] = now;
+        continue;
+      }
+      const med = medianBuy(got.data ?? [], now);
       passed += 1;
       const name = nameFor(c.user, address, names);
       names.add(name);
       const text = `${name} added to paper copy (weeks ${weeks.map((w) => `$${Math.round(w)}`).join(", ")})`;
       const t = Date.now();
       commit((s) => {
-        s.wallets.push({ name, address, addedAt: t, stage: "paper", why: `weeks ${weeks.map((w) => Math.round(w)).join("/")}, month +$${Math.round(c.pnl)}` });
+        s.wallets.push({ name, address, addedAt: t, stage: "paper", why: `weeks ${weeks.map((w) => Math.round(w)).join("/")}, month +$${Math.round(c.pnl)}, usual buy $${Math.round(med ?? 0)}, $${Math.round(value)} in positions` });
+        s.sizes = { ...(s.sizes ?? {}), [name]: { valueUsd: Math.round(value), medBuyUsd: med == null ? null : Math.round(med), at: t } };
         s.log.push({ t, text });
         s.log = s.log.slice(-60);
       });
@@ -264,7 +328,10 @@ export function autoSummary(trades: PaperTrade[]) {
     screened: s.screened,
     passed: s.passed,
     lastError: s.lastError,
-    bar: `added: up each of its last 4 weeks (no week over half), 14+ buys in 7 days, median buy <= $100, under a third crypto up/down; ${ADD_PER_DAY} a day at most, ${MAX_ACTIVE} followed at most. REAL when paper copy-take has ${PROMOTE_N}+ settled, half won, net > 0, after a day on paper; back to paper when that no longer holds. Dropped after ${DROP_DAYS} days with ${DROP_N}+ settled and behind.`,
+    // what every followed wallet has at stake (hand-picked and rescan wallets, by name), read at the daily scan
+    sizes: s.sizes ?? {},
+    floors: { monthUsd: MIN_MONTH_USD, usualBuyUsd: MIN_MED_BUY, positionsUsd: MIN_VALUE_USD },
+    bar: `added: up each of its last 4 weeks (no week over half) and $${MIN_MONTH_USD}+ made in them, 14+ buys in 7 days, usual buy $${MIN_MED_BUY}+ (no upper limit), $${MIN_VALUE_USD}+ in open positions, under a third crypto up/down; a paper wallet under the size floors is dropped; ${ADD_PER_DAY} a day at most, ${MAX_ACTIVE} followed at most. REAL when paper copy-take has ${PROMOTE_N}+ settled, half won, net > 0, after a day on paper; back to paper when that no longer holds. Dropped after ${DROP_DAYS} days with ${DROP_N}+ settled and behind.`,
     wallets: s.wallets.map((w) => ({ name: w.name, stage: w.stage, addedAt: w.addedAt, promotedAt: w.promotedAt ?? null, demotedAt: w.demotedAt ?? null, paper: paperResult(trades, `copy-take-${w.name}`) })),
     log: s.log.slice(-30).reverse(),
   };
