@@ -139,8 +139,10 @@ export const VERIFIED_MIN_VOL_USD = 50_000;
  * replayed as our real copy makes them: in CAP_DELAY_SEC s after its first buy, out CAP_DELAY_SEC s after its first
  * sale, each priced from other people's trades of the coin, CAP_COST off for swap fees, price impact and network fees.
  */
-export const CAP_MIN_USD = 50_000_000;
-export const CAP_MIN_LIQ_USD = 500_000;
+// 18 Nov 2026 21:00 KST, enrique's tap "$20M cap, $200k liquidity" (was $50M / $500k: 83 coins over $50M on our
+// lists, but only 24 counted, 23 of them left out as thin, and only 121 wallets traded them at all)
+export const CAP_MIN_USD = 20_000_000;
+export const CAP_MIN_LIQ_USD = 200_000;
 export const CAP_MIN_AGE_D = 30;
 export const CAP_MIN_TRIPS = 8;
 export const CAP_REPLAY_TRIPS = 30;

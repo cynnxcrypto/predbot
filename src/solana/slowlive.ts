@@ -158,8 +158,8 @@ export interface SlowLiveConfig {
   /**
    * Mid and high caps only (enrique, 17 Nov 2026: "dont focus on memecoins then" / "focus on mid to high caps" /
    * "50m mcap sounds fine" / "why do we need them to do new trades, dont they have a history?"): a buy is copied only
-   * in a coin the scan counts as a mid or high cap (slow.ts capOk: $50M+ market value, $500k+ liquidity, 30+ days
-   * old), and the wallets come from the replay of their past cap trips (slow.ts capWallets) instead of paper's proven
+   * in a coin the scan counts as a mid or high cap (slow.ts capOk: $20M+ market value, $200k+ liquidity, 30+ days
+   * old; $50M / $500k until his tap of 18 Nov 2026), and the wallets come from the replay of their past cap trips (slow.ts capWallets) instead of paper's proven
    * list. The real record still rests a wallet that falls behind. Off unless the file says "capOnly": true.
    */
   capOnly?: boolean;

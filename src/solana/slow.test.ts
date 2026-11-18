@@ -810,7 +810,7 @@ test("mid and high caps: coins sized by Jupiter, a wallet's past cap trips repla
   _test.reset();
 });
 
-test("mid and high caps: the floor is $50M, $500k liquidity, 30 days; stocks and pool shares are not caps", () => {
+test("mid and high caps: the floor is $20M, $200k liquidity, 30 days; stocks and pool shares are not caps", () => {
   const now = Date.now();
   const got = jupCoins([
     { id: "A", symbol: "AAA", mcap: 5e7, liquidity: 5e5, firstPool: { createdAt: new Date(now - 40 * DAY).toISOString() } },
