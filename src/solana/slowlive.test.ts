@@ -1252,3 +1252,41 @@ test("real day-holder copy, caps only: wallets from the replay of their past mid
   _test.reset();
   slow._test.reset();
 });
+
+test("real day-holder copy, caps only: a bigger stake ceiling, and SOL kept back for gas is never spent", async () => {
+  // the stake ceiling: 0.1 SOL on caps only, 0.05 otherwise
+  assert.equal(parseSlowLive(JSON.stringify({ solanaSlow: { on: true, maxLossSol: 1, stakeSol: 0.1, capOnly: true, gasKeepSol: 0.05, maxOpen: 8 } })).stakeSol, 0.1);
+  assert.equal(parseSlowLive(JSON.stringify({ solanaSlow: { on: true, maxLossSol: 1, stakeSol: 0.1 } })).stakeSol, 0.05);
+  assert.equal(parseSlowLive(JSON.stringify({ solanaSlow: { on: true, maxLossSol: 1, stakeSol: 0.5, capOnly: true } })).stakeSol, 0.1);
+  assert.equal(parseSlowLive(JSON.stringify({ solanaSlow: { on: true, maxLossSol: 1, stakeSol: 0.1, capOnly: true, gasKeepSol: 5 } })).gasKeepSol, 0.2);
+  assert.equal(parseSlowLive(JSON.stringify({ solanaSlow: { on: true, maxLossSol: 1, stakeSol: 0.1, capOnly: true, maxOpen: 8 } })).maxOpen, 8);
+  const run = async (gasKeepSol: number) => {
+    fresh({ ...CFG, follow: "proven", capOnly: true, gasKeepSol });
+    chain(() => 0.012); // 0.08 SOL in the wallet
+    slow._test.reset();
+    const CW = "CapW1111111111111111111111111111111111111111";
+    const CAP = "CapA1111111111111111111111111111111111111";
+    const st = slow._test.state();
+    const now = Date.now();
+    const t = Math.floor(now / 1000) - 20 * 86_400;
+    st.caps = { [CAP]: { mcap: 2e8, liq: 3e6, createdMs: now - 100 * 86_400_000, at: now } };
+    const swaps: [number, number, string, 0 | 1, number, number][] = [];
+    const late: Record<string, { e5: number; x5: number }> = {};
+    for (let i = 0; i < 12; i++) {
+      swaps.push([t + i * 40_000, 1000 + i * 100, CAP, 1, 1, 1000], [t + i * 40_000 + 7200, 1050 + i * 100, CAP, 0, 1.1, 1000]);
+      late[`${CAP}|${1000 + i * 100}`] = { e5: 0.001, x5: i % 4 === 3 ? 0.00095 : 0.00115 };
+    }
+    st.wallets[CW] = { name: "coin buyer CapW", doneAt: now, newest: t + 12 * 40_000, txPerDay: 2, buysPerDay: 1, spanDays: 30, swaps, late };
+    st.candidates.push({ name: "coin buyer CapW", address: CW, source: "coin" });
+    onSwap(swap(CW, CAP, true));
+    await wait(1500);
+    const s = _test.state();
+    const r = { opens: s.opens.length, low: s.missedLow };
+    _test.reset();
+    slow._test.reset();
+    return r;
+  };
+  // 0.08 SOL: a 0.01 copy with its rent and sale reserve fits, but not with 0.075 kept for gas
+  assert.deepEqual(await run(0.075), { opens: 0, low: 1 });
+  assert.deepEqual(await run(0.05), { opens: 1, low: 0 });
+});

@@ -59,6 +59,14 @@ import { setExitSource, slowExitsSummary } from "./slowexits.js";
 import { capOk, capWallets, copySafe, onSlowSwap, paperAddresses, paperResults, provenWallets, setSlowRealSummary, STAKE_SOL as PAPER_STAKE_SOL, top5Sol, type SlowSwap } from "./slow.js";
 
 export const HARD_STAKE_SOL = 0.05;
+/**
+ * The stake ceiling on caps only (enrique, 18 Nov 2026 21:19 KST: "just let it go to real trading when they qualify",
+ * "i hate having a wallet inactive"; relayed as 0.1 SOL a buy, up to 8 open, 0.05 SOL kept for gas): mid and high
+ * caps are deep enough for a bigger copy.
+ */
+export const HARD_CAP_STAKE_SOL = 0.1;
+/** the most SOL the file may keep back for network fees, never spent on a copy */
+export const HARD_GAS_KEEP_SOL = 0.2;
 /** when the stake went from 0.01 to 0.035 SOL (the restart of 18:00 KST 15 Nov 2026) */
 export const STAKE_RAISED_MS = Date.UTC(2026, 10, 15, 9, 0, 0);
 /** the most one stepped-up copy may be (stake x the top step, never above this) */
@@ -163,6 +171,8 @@ export interface SlowLiveConfig {
    * list. The real record still rests a wallet that falls behind. Off unless the file says "capOnly": true.
    */
   capOnly?: boolean;
+  /** SOL never spent on a copy, kept for the network fees of every sale (0 unless the file says "gasKeepSol") */
+  gasKeepSol?: number;
   /**
    * Sell the open copies of a wallet as soon as it is cut on its real record (at two sweeps, see cutClearly), instead of
    * leaving them to the 6 h dropped-wallet clock. Off unless the file says "sellCut": true: a real sale rule, enrique's
@@ -180,7 +190,7 @@ export function parseSlowLive(text: string): SlowLiveConfig {
     const p = (JSON.parse(text) as { solanaSlow?: Record<string, unknown> }).solanaSlow;
     if (!p || p.on !== true) return OFF;
     const maxLossSol = clamp(num(p.maxLossSol, 0), 0, HARD_MAX_LOSS_SOL);
-    const stakeSol = clamp(num(p.stakeSol, 0.01), 0, HARD_STAKE_SOL);
+    const stakeSol = clamp(num(p.stakeSol, 0.01), 0, p.capOnly === true ? HARD_CAP_STAKE_SOL : HARD_STAKE_SOL);
     if (!(maxLossSol > 0) || !(stakeSol >= 0.005)) return OFF;
     return {
       on: true, stakeSol, maxLossSol, stopLossSol: clamp(num(p.stopLossSol, 0), 0, HARD_STOP_LOSS_SOL),
@@ -194,6 +204,7 @@ export function parseSlowLive(text: string): SlowLiveConfig {
       follow: p.wallets === "fixed" ? "fixed" : "proven",
       sellCut: p.sellCut === true,
       capOnly: p.capOnly === true,
+      gasKeepSol: clamp(num(p.gasKeepSol, 0), 0, HARD_GAS_KEEP_SOL),
     };
   } catch {
     return OFF;
@@ -719,7 +730,7 @@ async function buy(p: Pos) {
       return drop(() => state.missedLow++);
     }
     const stakeSol = Math.max(Math.min(c.stakeSol, bal), Math.min(HARD_STEP_STAKE_SOL, c.stakeSol * stepOf(state.rows, p.name, p.leaderSol, Date.now(), p.wallet).mult, SCALE_WALLET_SHARE * bal));
-    if (bal < stakeSol + RENT_SOL + SELL_RESERVE_SOL * (out + 1)) {
+    if (bal < stakeSol + RENT_SOL + SELL_RESERVE_SOL * (out + 1) + (c.gasKeepSol ?? 0)) {
       state.note = "wallet balance too low for a copy";
       miss(p.name, p.mint, p.seenMs, "low");
       return drop(() => state.missedLow++);
@@ -1236,6 +1247,7 @@ export function slowLiveSummary() {
     missedLow: state.missedLow,
     capOnly: c.capOnly === true,
     notCap: state.notCap ?? 0,
+    gasKeepSol: c.gasKeepSol ?? 0,
     skippedSold: state.skippedSold,
     notSent: state.notSent,
     /** buy quotes refused for asking too fast (every refusal counted; a refused quote is asked again twice) */
