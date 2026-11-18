@@ -153,6 +153,23 @@ export const CAP_LIST_MIN = 10;
 export const CAP_LIST_MAX = 25;
 const CAP_TTL_MS = 3 * 86_400_000;
 const CAP_RESAMPLE_MS = 86_400_000;
+/**
+ * Credits of the day only mid and high cap work may spend (18 Nov 2026: the $20M floor went live with the day's
+ * credits spent, and 604 cap trips waited a whole night for their replay). Sampling 54 cap coins is about 54,000,
+ * the replay about 20 a trip.
+ */
+export const CAP_CREDIT_RESERVE = 80_000;
+let capWork = false;
+/** Runs `f` as mid and high cap work: it may spend the reserved credits. */
+async function asCapWork<T>(f: () => Promise<T>): Promise<T> {
+  const was = capWork;
+  capWork = true;
+  try {
+    return await f();
+  } finally {
+    capWork = was;
+  }
+}
 /** Jupiter searches (100 coins each) a pass for coins our wallets traded that no list described */
 const CAP_LOOKUPS = 5;
 const CAP_WALLETS_PER_PASS = 20;
@@ -611,7 +628,8 @@ function today() {
 const page = makeReader({
   url: () => cfg?.rpcUrl(),
   fetch: () => cfg!.fetch(),
-  canSpend: () => (today(), state.credits < creditsDay()),
+  // the last CAP_CREDIT_RESERVE of the day are kept for the mid and high cap work (sampling, reading, replay)
+  canSpend: () => (today(), state.credits < creditsDay() - (capWork ? 0 : CAP_CREDIT_RESERVE)),
   spent: (c) => (state.credits += c),
   called: () => health.calls++,
 });
@@ -899,7 +917,7 @@ async function coinStep(max = COINS_PER_PASS): Promise<boolean> {
   for (const [m, c] of due) {
     if (stopped) break;
     health.working = `coin ${c.symbol}`;
-    if (!(await sampleCoin(m))) {
+    if (!(await (capOk(m, now) ? asCapWork(() => sampleCoin(m)) : sampleCoin(m)))) {
       ok = false;
       break;
     }
@@ -1073,7 +1091,7 @@ async function capStep(): Promise<boolean> {
   for (const a of capDue()) {
     if (stopped) break;
     health.working = `replay ${state.wallets[a]?.name ?? a.slice(0, 4)}`;
-    const all = await checkCap(a);
+    const all = await asCapWork(() => checkCap(a));
     cache = null;
     if (!all) return false;
     saveScreen();
@@ -1367,7 +1385,7 @@ async function loop() {
       if (stopped) return;
       health.working = c.name;
       try {
-        const read = await readWallet(c);
+        const read = await (c.cap ? asCapWork(() => readWallet(c)) : readWallet(c));
         cache = null;
         if (!read) {
           health.state = cfg?.rpcUrl() ? "resting until tomorrow (daily credit cap)" : "waiting for the Helius key";

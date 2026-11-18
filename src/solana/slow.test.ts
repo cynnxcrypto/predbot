@@ -914,3 +914,26 @@ test("mid and high caps: a candidate seen again buying a cap coin is marked a ca
   assert.equal(_test.dueWallets(300)[0].address, "w7");
   _test.reset();
 });
+
+test("mid and high caps: the last credits of the day are kept for the cap replay", async () => {
+  _test.reset();
+  process.env.SOLANA_SLOW_CREDITS_DAY = "100000";
+  try {
+    const now = Date.now();
+    const st = _test.state();
+    st.day = new Date().toISOString().slice(0, 10);
+    st.credits = 100_000 - 50_000; // 50,000 left: inside the 80,000 kept for cap work
+    const fake = (async () => new Response(JSON.stringify({ result: { data: [], paginationToken: null } }), { status: 200 })) as unknown as typeof fetch;
+    _test.setCfg({ rpcUrl: () => "https://rpc.test/?api-key=k", fetch: () => fake, listed: () => [], busy: () => [], quote: async () => null });
+    // a wallet read that is not cap work stops at the reserve
+    assert.equal(await _test.readWallet({ name: "w", address: W }), false);
+    // a cap coin's sampling goes on
+    st.coins.CapOld111111 = { symbol: "CAP", from: "jupiter", days: ["d1", "d2"], createdMs: now - 400 * DAY };
+    st.caps = { CapOld111111: { mcap: 3e8, liq: 2e6, createdMs: now - 400 * DAY, at: now } };
+    assert.equal(await _test.coinStep(5), true);
+    assert.ok(st.coins.CapOld111111.sampledAt! > now - 60_000);
+  } finally {
+    delete process.env.SOLANA_SLOW_CREDITS_DAY;
+    _test.reset();
+  }
+});
