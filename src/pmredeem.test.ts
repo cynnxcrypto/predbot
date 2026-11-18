@@ -63,3 +63,11 @@ test("dropClaimFlows: a Polymarket money-in just after a claim is not a deposit"
   const old = Date.UTC(2026, 10, 15, 1, 50);
   assert.equal(dropClaimFlows([[old + 60_000, 300, "deposit"], [old + 60_000, 30, "Polymarket"]], [old]).length, 2);
 });
+
+test("extraUnclaimed: a win claimed after Polymarket's list was read is not counted again", () => {
+  const pm = [{ c: C(2), v: 6, neg: false }, { c: C(3), v: 4, neg: false }];
+  const bets = [{ conditionId: C(2), shares: 6, pay: 1, settledAt: 1 }, { conditionId: C(3), shares: 4, pay: 1, settledAt: 1 }];
+  const claims = { [C(2)]: { tx: "0xa", at: 500 }, [C(3)]: { tx: "0xb", at: 50 } };
+  assert.equal(extraUnclaimed(pm, bets, claims, 100), 4, "C(2) claimed at 500, after the read at 100: already cash");
+  assert.equal(extraUnclaimed(pm, bets, claims), 10, "without a read time nothing is taken off");
+});
