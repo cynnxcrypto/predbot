@@ -511,6 +511,7 @@ test("buckets: a linked wallet is followed on paper off the list; liked traders 
     await tick();
     assert.deepEqual(st().hlTraders.map((t) => t.address), [A, X]);
     assert.deepEqual(B.hlBoard(), [{ address: A, acct: 500000 }, { address: X, acct: 1200 }], "the whole board, small accounts too");
+    assert.deepEqual(JSON.parse((await import("node:fs")).readFileSync(join(dir, "solana", "hl-board.json"), "utf8")), [[A, 500000], [X, 1200]], "kept for the next start");
     posX = [{ position: { coin: "SOL", szi: "-1000", positionValue: "150000" } }];
     await tick();
     assert.deepEqual(st().hlOpen.map((o) => [o.trader, o.coin]), [[X, "SOL"]], "copied on paper like a trader of the list");

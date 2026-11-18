@@ -838,9 +838,31 @@ export const setKeptTraders = (f: () => string[], who = "perps") => void keptBy.
  */
 let extraTraders: () => string[] = () => [];
 export const setExtraTraders = (f: () => string[]) => void (extraTraders = f);
-/** The whole leaderboard of the last daily read, address and account value only (not saved: empty until that read). */
+/** The whole leaderboard of the last daily read, address and account value only (saved beside the state). */
 let boardLite: { address: string; acct: number }[] = [];
-export const hlBoard = () => boardLite;
+/** Kept in a file of its own: the bot restarts at every deploy and the list is read once a day, so without the file the
+ *  wallet-link search had no leaderboard to look through (18 Nov 2026: 3 traders had moved out, 0 wallets were checked). */
+const BOARD_FILE = () => join(DATA, "solana", "hl-board.json");
+export const hlBoard = () => {
+  if (!boardLite.length) {
+    try {
+      const xs = JSON.parse(readFileSync(BOARD_FILE(), "utf8")) as [string, number][];
+      if (Array.isArray(xs)) boardLite = xs.filter((x) => Array.isArray(x) && typeof x[0] === "string" && x[1] > 0).map(([address, acct]) => ({ address, acct }));
+    } catch {
+      /* not read yet */
+    }
+  }
+  return boardLite;
+};
+function saveBoard() {
+  try {
+    mkdirSync(join(DATA, "solana"), { recursive: true });
+    writeFileSync(BOARD_FILE() + ".tmp", JSON.stringify(boardLite.map((x) => [x.address, Math.round(x.acct)])));
+    renameSync(BOARD_FILE() + ".tmp", BOARD_FILE());
+  } catch {
+    /* the next daily read writes it */
+  }
+}
 export function boardOf(board: unknown): { address: string; acct: number }[] {
   const rows = (board as { leaderboardRows?: unknown })?.leaderboardRows;
   if (!Array.isArray(rows)) return [];
@@ -876,7 +898,11 @@ async function hlTick(deps: BucketDeps, now: number) {
     if (!res) throw new Error("traders: no answer");
     if (!res.ok) throw new Error(`traders: http ${res.status}`);
     const raw = await res.json().catch(() => null);
-    boardLite = boardOf(raw);
+    const lite = boardOf(raw);
+    if (lite.length) {
+      boardLite = lite;
+      saveBoard();
+    }
     const board = hlPick(raw, Infinity);
     if (!board.length) throw new Error("traders: nothing usable");
     const tier = new Map(board.map((t) => [t.address, majorTier(t.address, now)]));
