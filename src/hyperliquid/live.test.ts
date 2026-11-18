@@ -170,7 +170,8 @@ test("an order that is refused opens nothing; limits are clamped; leverage is wh
   assert.equal(_test.state().opens.length, 0);
   assert.deepEqual(_test.state().skipped, { "order not filled": 1 });
   const c = parseHlLive('{"hyperliquid":{"trade":{"on":true,"collateralUsd":500,"maxOpen":99,"maxLossUsd":900,"traderStopUsd":80}}}');
-  assert.deepEqual(c, { on: true, collateralUsd: 25, maxOpen: 20, maxLossUsd: 50, traderStopUsd: 10, testOnce: "" });
+  assert.deepEqual(c, { on: true, collateralUsd: 25, maxOpen: 20, maxLossUsd: 50, traderStopUsd: 10, testOnce: "", lateWithin: 0 });
+  assert.equal(parseHlLive('{"hyperliquid":{"trade":{"on":true,"maxLossUsd":50,"lateWithinPct":7}}}').lateWithin, 0.01);
   assert.equal(parseHlLive('{"hyperliquid":{"trade":{"on":true}}}').on, false, "no loss cap, no trading");
   assert.equal(parseHlLive("{}").on, false);
   assert.deepEqual([leverageFor(25, COINS.BTC), leverageFor(25, COINS.HYPE), leverageFor(0.4, COINS.BTC), leverageFor(undefined, COINS.BTC)], [20, 5, 1, 2]);
@@ -201,4 +202,29 @@ test("one-minute in-and-out copies for cents never cut a trader; one cut on noth
   one.w.paper = [copy("copy-aaaa1111", "HYPE", 1, T0, 1)];
   await hlLiveTick(one.d, T0 + 1000);
   assert.deepEqual(one.w.orders, [{ coin: 5, buy: true, sz: 0.27, reduce: false }]); // $11 at $40, not $10
+});
+
+test("late copies: a position a real trader still holds is copied while the price is within 1% of its entry, never one we already held", async () => {
+  const LATE: HlLiveConfig = { ...ON, lateWithin: 0.01 };
+  const { w, d } = world({ cfg: LATE, free: 25 });
+  const old = (coin: string, px: number, rule = "copy-aaaa1111"): PaperOpen => ({ ...copy(rule, coin, 1, T0 - 3_600_000, 2), px });
+  w.paper = [old("HYPE", 41), old("DOGE", 0.2), old("BTC", 100_500, "copy-bbbb2222")];
+  await hlLiveTick(d, T0);
+  // HYPE is 2.4% under its entry: not copied; DOGE at its entry: copied; BTC's trader is not real
+  assert.deepEqual(hlLiveSummary(LATE).opens.map((x) => [x.coin, x.late]), [["DOGE", true]]);
+  w.mids.HYPE = 40.8; // back within 1%: copied now
+  w.acct.freeUsd = 25;
+  await hlLiveTick(d, T0 + 20_000);
+  assert.deepEqual(hlLiveSummary(LATE).opens.map((x) => x.coin), ["DOGE", "HYPE"]);
+  // liquidated (gone from the account) while the trader still holds: booked, and never opened again
+  delete w.acct.positions.DOGE;
+  for (let i = 1; i <= 4; i++) await hlLiveTick(d, T0 + 20_000 + i * 20_000);
+  assert.deepEqual(hlLiveSummary(LATE).opens.map((x) => x.coin), ["HYPE"]);
+  assert.equal(w.orders.filter((x) => x.coin === COINS.DOGE.index && !x.reduce).length, 1);
+  // without the switch nothing old is copied
+  _test.reset();
+  const off = world();
+  off.w.paper = [old("DOGE", 0.2)];
+  await hlLiveTick(off.d, T0);
+  assert.equal(hlLiveSummary(ON).opens.length, 0);
 });

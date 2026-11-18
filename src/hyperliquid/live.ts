@@ -13,7 +13,12 @@
  *     money and maxOpen allow;
  *   - the trader's own leverage, whole numbers, at most half of what Hyperliquid allows for the coin; ISOLATED
  *     margin, so one position can lose its own collateral and nothing more;
- *   - the copy is opened only in the first OPEN_WINDOW_MS after the paper copy, and closed when the paper copy closes.
+ *   - the copy is opened in the first OPEN_WINDOW_MS after the paper copy, and closed when the paper copy closes;
+ *   - LATE COPIES (enrique, 18 Nov 2026, after 26 copies were missed for no free money; asked "also copy positions
+ *     those traders still hold, when the price is still within 1% of their entry?", he: "ah yea that makes sense"):
+ *     a position a real trader still holds and we never held is copied later too, while Hyperliquid's price is within
+ *     lateWithinPct (at most HARD_LATE_PCT) of the price the paper copy was opened at, either way. Never one we
+ *     already held (closed, liquidated, at max hold): that one is over.
  *
  * deploy/live-rules.json "hyperliquid": { "trade": { "on": true, "collateralUsd": 10, "maxOpen": 5, "maxLossUsd": 50,
  * "traderStopUsd": 9, "testOnce": "<name>" } }. No block or on != true: nothing is opened (open positions are still
@@ -34,6 +39,8 @@ export const MIN_COLLATERAL_USD = 10;
 export const HARD_MAX_LOSS_USD = 50;
 export const HARD_MAX_OPEN = 20;
 export const HARD_TRADER_STOP_USD = 10;
+/** a late copy is never made further than this many percent from the paper copy's entry price */
+export const HARD_LATE_PCT = 1;
 /** Hyperliquid turns down an order worth under $10; ours are never under this */
 export const MIN_ORDER_USD = 11;
 export const OPEN_WINDOW_MS = 120_000;
@@ -56,6 +63,8 @@ export interface HlLiveConfig {
   maxLossUsd: number;
   traderStopUsd: number;
   testOnce: string;
+  /** late copies: how far (a fraction) the price may be from the paper entry; 0 or none = no late copies */
+  lateWithin?: number;
 }
 const OFF: HlLiveConfig = { on: false, collateralUsd: MIN_COLLATERAL_USD, maxOpen: 0, maxLossUsd: 0, traderStopUsd: 0, testOnce: "" };
 /** Parse the "hyperliquid.trade" block of deploy/live-rules.json. Hard limits are applied here; anything odd means off. */
@@ -67,7 +76,8 @@ export function parseHlLive(text: string): HlLiveConfig {
     const maxLossUsd = clamp(num(p.maxLossUsd, 0), 0, HARD_MAX_LOSS_USD);
     const collateralUsd = clamp(num(p.collateralUsd, MIN_COLLATERAL_USD), MIN_COLLATERAL_USD, HARD_COLLATERAL_USD);
     if (p.on !== true || !(maxLossUsd > 0)) return { ...OFF, collateralUsd, testOnce };
-    return { on: true, collateralUsd, maxLossUsd, testOnce, maxOpen: Math.floor(clamp(num(p.maxOpen, 5), 1, HARD_MAX_OPEN)), traderStopUsd: clamp(num(p.traderStopUsd, 9), 1, HARD_TRADER_STOP_USD) };
+    const lateWithin = clamp(num(p.lateWithinPct, 0), 0, HARD_LATE_PCT) / 100;
+    return { on: true, collateralUsd, maxLossUsd, testOnce, lateWithin, maxOpen: Math.floor(clamp(num(p.maxOpen, 5), 1, HARD_MAX_OPEN)), traderStopUsd: clamp(num(p.traderStopUsd, 9), 1, HARD_TRADER_STOP_USD) };
   } catch {
     return OFF;
   }
@@ -104,6 +114,8 @@ export interface PaperOpen {
   dir: number;
   at: number;
   lev?: number;
+  /** the price the paper copy was opened at */
+  px?: number;
 }
 export interface HlDeps {
   cfg(): HlLiveConfig;
@@ -129,6 +141,8 @@ interface Pos {
   closeOids?: number[];
   openedMs: number;
   closeTries: number;
+  /** opened later than the paper copy (a late copy) */
+  late?: boolean;
   goneLooks?: number;
   unrealUsd?: number;
   markMs?: number;
@@ -152,18 +166,22 @@ interface State {
   demoted: Record<string, number>;
   demotedWhy: Record<string, string>;
   seen: string[];
+  /** every paper copy we ever held a real copy of, and the late copies that failed once: never (re)opened late */
+  held: string[];
+  lateOff: string[];
   skipped: Record<string, number>;
   test?: { id: string; at: number; result: string };
   agentOk?: boolean;
   lastError: string;
   account?: { at: number; valueUsd: number; freeUsd: number };
 }
-const fresh = (): State => ({ netUsd: 0, opens: [], rows: [], demoted: {}, demotedWhy: {}, seen: [], skipped: {}, lastError: "" });
+const fresh = (): State => ({ netUsd: 0, opens: [], rows: [], demoted: {}, demotedWhy: {}, seen: [], held: [], lateOff: [], skipped: {}, lastError: "" });
 let state: State = fresh();
 let loaded = false;
 const load = () => {
   loaded = true;
   state = { ...fresh(), ...loadJson<Partial<State>>(FILE, {}) };
+  for (const o of state.opens) if (!state.held.includes(o.paperId)) state.held.push(o.paperId);
   // a trader cut on nothing but such rows is put back (copy-05a42708, 17 Nov 2026: three one-minute ATOM shorts)
   for (const rule of Object.keys(state.demoted)) {
     const before = state.rows.filter((x) => x.rule === rule && x.t <= state.demoted[rule]);
@@ -294,6 +312,24 @@ export async function hlLiveTick(d: HlDeps, now = Date.now()): Promise<void> {
         }
       }
     }
+
+    // ---- late copies: what a real trader still holds and we never held, while the price is still near its entry ----
+    if (cfg.on && (cfg.lateWithin ?? 0) > 0 && loss() < cfg.maxLossUsd) {
+      for (const x of paper) {
+        if (state.opens.length >= cfg.maxOpen || acct.freeUsd < cfg.collateralUsd + 1) break;
+        if (now - x.at <= OPEN_WINDOW_MS || !(x.px && x.px > 0)) continue;
+        if (state.held.includes(x.id) || state.lateOff.includes(x.id)) continue;
+        if (!isReal(x.rule) || !d.listed(x.rule)) continue;
+        if (state.opens.some((o) => o.coin === x.coin) || acct.positions[x.coin]) continue;
+        const px = mids[x.coin];
+        if (!(px > 0) || Math.abs(px / x.px - 1) > (cfg.lateWithin ?? 0)) continue;
+        const why = await open(d, x, cfg.collateralUsd, coins, mids, acct, now, true);
+        if (why) {
+          skip(`late copy: ${why}`);
+          state.lateOff = [...state.lateOff, x.id].slice(-500);
+        }
+      }
+    }
     state.lastError = "";
   } catch (e) {
     state.lastError = String((e as Error)?.message ?? e).replace(/0x[0-9a-fA-F]{40,}/g, "…").slice(0, 160);
@@ -304,7 +340,7 @@ export async function hlLiveTick(d: HlDeps, now = Date.now()): Promise<void> {
 }
 
 /** Open one copy. Returns "" when it is open, else why not. */
-async function open(d: HlDeps, x: PaperOpen, collateralUsd: number, coins: Record<string, Coin>, mids: Record<string, number>, acct: Account, now: number): Promise<string> {
+async function open(d: HlDeps, x: PaperOpen, collateralUsd: number, coins: Record<string, Coin>, mids: Record<string, number>, acct: Account, now: number, late = false): Promise<string> {
   const coin = coins[x.coin];
   const px = mids[x.coin];
   if (!coin || !(px > 0)) return "coin not on Hyperliquid's list";
@@ -323,7 +359,8 @@ async function open(d: HlDeps, x: PaperOpen, collateralUsd: number, coins: Recor
     return "order not filled";
   }
   acct.freeUsd -= (f.sz * f.px) / lev;
-  state.opens.push({ rule: x.rule, coin: x.coin, paperId: x.id, dir: x.dir, lev, sz: f.sz, entryPx: f.px, collUsd: r2((f.sz * f.px) / lev), openOid: f.oid, openedMs: now, closeTries: 0 });
+  state.opens.push({ rule: x.rule, coin: x.coin, paperId: x.id, dir: x.dir, lev, sz: f.sz, entryPx: f.px, collUsd: r2((f.sz * f.px) / lev), openOid: f.oid, openedMs: now, closeTries: 0, ...(late ? { late: true } : {}) });
+  state.held = [...state.held, x.id].slice(-4000);
   save();
   return "";
 }
@@ -343,13 +380,13 @@ export function hlLiveSummary(cfg: HlLiveConfig = fileCfg(), meetsBar: (rule: st
   return {
     on: cfg.on,
     note: "REAL. Copies of Hyperliquid traders on Hyperliquid itself, every coin; isolated margin; a trader is real on its own paper record, then on its real record.",
-    limits: { collateralUsd: cfg.collateralUsd, maxOpen: cfg.maxOpen, maxLossUsd: cfg.maxLossUsd, traderStopUsd: cfg.traderStopUsd },
+    limits: { collateralUsd: cfg.collateralUsd, maxOpen: cfg.maxOpen, maxLossUsd: cfg.maxLossUsd, traderStopUsd: cfg.traderStopUsd, lateWithinPct: Math.round((cfg.lateWithin ?? 0) * 10000) / 100 },
     account: state.account ?? null,
     netUsd: state.netUsd,
     trades: state.rows.length,
     won: state.rows.filter((x) => x.netUsd > 0).length,
     halted: cfg.on && loss() >= cfg.maxLossUsd ? "loss cap reached: nothing new is opened" : "",
-    opens: state.opens.map((p) => ({ trader: p.rule, coin: p.coin, side: p.dir > 0 ? "long" : "short", leverage: p.lev, collateralUsd: p.collUsd, entryPx: p.entryPx, unrealUsd: p.unrealUsd ?? null, openedAt: p.openedMs })),
+    opens: state.opens.map((p) => ({ trader: p.rule, coin: p.coin, side: p.dir > 0 ? "long" : "short", leverage: p.lev, collateralUsd: p.collUsd, entryPx: p.entryPx, unrealUsd: p.unrealUsd ?? null, openedAt: p.openedMs, late: !!p.late })),
     traders: rules.map((rule) => {
       const real = realOf(rule);
       const st = standing(real, meetsBar(rule, state.demoted[rule] ?? 0, now), state.demotedWhy[rule]);

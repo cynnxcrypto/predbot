@@ -1230,9 +1230,9 @@ export function perpPaperOpens(): { id: string; rule: string; coin: string; dir:
   ];
 }
 /** Every copied trader's open paper copy, on EVERY coin (the Hyperliquid front trades them all; Solana perps only three). */
-export function hlPaperOpens(): { id: string; rule: string; coin: string; dir: number; at: number; lev?: number }[] {
+export function hlPaperOpens(): { id: string; rule: string; coin: string; dir: number; at: number; lev?: number; px?: number }[] {
   if (!loaded) load();
-  return state.hlOpen.map((o) => ({ id: `${traderRule(o.trader)}:${o.coin}:${o.at}`, rule: traderRule(o.trader), coin: o.coin, dir: o.dir, at: o.at, lev: o.lev }));
+  return state.hlOpen.map((o) => ({ id: `${traderRule(o.trader)}:${o.coin}:${o.at}`, rule: traderRule(o.trader), coin: o.coin, dir: o.dir, at: o.at, lev: o.lev, px: o.entry }));
 }
 /**
  * Jupiter's order-book coins (gumlive.ts, 17 Nov 2026): a copied trader's open position on one of `coins` (never SOL,
