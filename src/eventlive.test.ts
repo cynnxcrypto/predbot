@@ -295,7 +295,11 @@ test("daily wallet rescan: the screen, weekly profit, promotion to real and drop
   assert.equal(copyScreen([700, 700, 700, 700], Array.from({ length: 20 }, (_, i) => buy(i, 5000)), NOW6), null, "a big bettor is no longer refused");
   assert.match(copyScreen([700, 700, 700, 700], Array.from({ length: 20 }, (_, i) => buy(i, 3, `Highest temperature in city ${i}`)), NOW6)!, /median buy \$3 \(under/);
   assert.match(copyScreen([300, 300, 300, 300], acts, NOW6)!, /made \$1200 in 4 weeks/);
-  const { valueOf, tooSmall, medianBuy } = await import("./copyscan.js");
+  const { valueOf, tooSmall, medianBuy, historyOf } = await import("./copyscan.js");
+  // 100 days: +$10 a day for 60 days, then a fall of $200 over 10 days, then +$20 a day for 30 days
+  const curve = Array.from({ length: 101 }, (_, i) => ({ timestamp: (NOW6 - (100 - i) * day) / 1000, economic_pnl: i <= 60 ? 10 * i : i <= 70 ? 600 - 20 * (i - 60) : 400 + 20 * (i - 70), unrealized_pnl: 0 }));
+  assert.deepEqual(historyOf(curve, NOW6), { allUsd: 1000, months: 4, greenMonths: 3, bestMonthSharePct: 60, drawdownUsd: 200, last3mUsd: 900 });
+  assert.equal(historyOf([], NOW6), null);
   assert.equal(valueOf([{ user: "0x1", value: 6100.5 }]), 6100.5);
   assert.equal(valueOf({ data: [{ value: "12" }] }), 12);
   assert.equal(valueOf(null), null);

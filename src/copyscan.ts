@@ -23,8 +23,11 @@ export const AUTO_FILE = "copy-auto.json";
 // 15 Nov 2026 00:52 KST, enrique: "if its possible do it" (widen this scan like the Solana one): every leaderboard
 // window (week, month, all time), up to 300 rows a board, up to SCREEN_PER_DAY wallets read a day, 25 a day onto
 // paper, 60 followed. Paper wallets are read in turns (src/eventpaper.ts), so the data API load stays near 2 calls/s.
-export const ADD_PER_DAY = 25;
-export const MAX_ACTIVE = 60;
+// 18 Nov 2026 10:20 KST, enrique: "we definitely need to see those and more wallets". 60 -> 120 followed, 25 -> 40 a
+// day. Paper only: who goes real is still each wallet's own paper record. The live trade stream sees their buys; the
+// poll behind it reads each paper wallet about every 3 minutes at 120.
+export const ADD_PER_DAY = 40;
+export const MAX_ACTIVE = 120;
 export const SCREEN_PER_DAY = 1500;
 /** A wallet that failed the screen is not read again for this long. */
 export const RESCREEN_DAYS = 7;
@@ -113,7 +116,43 @@ export function valueOf(j: unknown): number | null {
 }
 /** Is a followed wallet too small to keep on paper: known numbers under the floors (unknown is not small). */
 export const tooSmall = (z: WalletSize | undefined) => Boolean(z && ((z.valueUsd != null && z.valueUsd < MIN_VALUE_USD) || (z.medBuyUsd != null && z.medBuyUsd < MIN_MED_BUY)));
-export type WalletSize = { valueUsd: number | null; medBuyUsd: number | null; at: number };
+export type WalletSize = { valueUsd: number | null; medBuyUsd: number | null; at: number; hist?: WalletHist | null };
+/**
+ * A wallet's whole record from its daily profit curve (enrique, 18 Nov 2026: he asked for the full all-time record
+ * beside each wallet). Months are 30-day steps back from now. bestMonthSharePct = the best month's part of all the
+ * profit (high = one lucky month); drawdownUsd = the biggest fall from a high. Win rate per bet is not in this data.
+ */
+export type WalletHist = { allUsd: number; months: number; greenMonths: number; bestMonthSharePct: number | null; drawdownUsd: number; last3mUsd: number };
+export function historyOf(points: PnlPoint[], now: number): WalletHist | null {
+  const pts = points
+    .map((p) => ({ t: Number(p.timestamp) * 1000, v: Number(p.economic_pnl ?? 0) + Number(p.unrealized_pnl ?? 0) }))
+    .filter((p) => Number.isFinite(p.t) && Number.isFinite(p.v) && p.t <= now)
+    .sort((a, b) => a.t - b.t);
+  if (pts.length < 2) return null;
+  const M = 30 * 86400_000;
+  const at = (t: number) => {
+    let v = 0; // before its first point the wallet had made nothing
+    for (const p of pts) if (p.t <= t) v = p.v;
+    return v;
+  };
+  const months = Math.max(1, Math.ceil((now - pts[0].t) / M));
+  const per = Array.from({ length: months }, (_, k) => at(now - k * M) - at(now - (k + 1) * M));
+  const allUsd = pts[pts.length - 1].v;
+  let high = -Infinity;
+  let dd = 0;
+  for (const p of pts) {
+    high = Math.max(high, p.v);
+    dd = Math.max(dd, high - p.v);
+  }
+  return {
+    allUsd: Math.round(allUsd),
+    months,
+    greenMonths: per.filter((x) => x > 0).length,
+    bestMonthSharePct: allUsd > 0 ? Math.round((Math.max(...per) / allUsd) * 100) : null,
+    drawdownUsd: Math.round(dd),
+    last3mUsd: Math.round(per.slice(0, 3).reduce((a, x) => a + x, 0)),
+  };
+}
 
 /** The screen; returns null when the wallet passes, else why not. Pure. */
 export function copyScreen(weeks: number[] | null, acts: Act[], now: number): string | null {
@@ -194,7 +233,7 @@ const nameFor = (user: string | undefined, address: string, taken: Set<string>) 
  * `get` = the JSON fetcher. Adds at most ADD_PER_DAY wallets. Never throws.
  */
 /** Is a scan due: a day since the last finished one, or the first one of this (wider) version. */
-export const SCAN_VER = 4;
+export const SCAN_VER = 5;
 export const scanDue = (now = Date.now(), s = autoState()) => s.ver !== SCAN_VER || now - s.lastScan > 24 * 3600_000;
 /** Load the file fresh, change it, save it: the scan runs for a long time next to the promotions. */
 function commit(f: (s: AutoState) => void) {
@@ -244,7 +283,10 @@ export async function copyScan(followed: { name: string; address: string }[], ow
       const got = await get<{ data?: Act[] }>(`${DATA}/v2/activity?user=${w.address}&limit=500`).catch(() => null);
       const med = got ? medianBuy(got.data ?? [], now) : null;
       if (value == null && !got) continue;
-      const size: WalletSize = { valueUsd: value == null ? null : Math.round(value), medBuyUsd: med == null ? null : Math.round(med), at: Date.now() };
+      await wait(350);
+      const all = await get<{ data?: { points?: PnlPoint[] } }>(`${DATA}/v2/user-pnl?user=${w.address}&interval=all&fidelity=1d`).catch(() => null);
+      const hist = all ? historyOf(all?.data?.points ?? [], now) : (s0.sizes?.[w.name]?.hist ?? null);
+      const size: WalletSize = { valueUsd: value == null ? null : Math.round(value), medBuyUsd: med == null ? null : Math.round(med), at: Date.now(), hist };
       commit((s) => {
         s.sizes = { ...(s.sizes ?? {}), [w.name]: size };
         const back = again.some((y) => y.address === w.address) ? s.wallets.find((x) => x.address === w.address && x.stage === "dropped") : undefined;
@@ -313,6 +355,9 @@ export async function copyScan(followed: { name: string; address: string }[], ow
         continue;
       }
       const med = medianBuy(got.data ?? [], now);
+      await wait(350);
+      const all = await get<{ data?: { points?: PnlPoint[] } }>(`${DATA}/v2/user-pnl?user=${address}&interval=all&fidelity=1d`).catch(() => null);
+      const hist = all ? historyOf(all?.data?.points ?? [], now) : null;
       passed += 1;
       const name = nameFor(c.user, address, names);
       names.add(name);
@@ -320,7 +365,7 @@ export async function copyScan(followed: { name: string; address: string }[], ow
       const t = Date.now();
       commit((s) => {
         s.wallets.push({ name, address, addedAt: t, stage: "paper", why: `weeks ${weeks.map((w) => Math.round(w)).join("/")}, month +$${Math.round(c.pnl)}, usual buy $${Math.round(med ?? 0)}, $${Math.round(value)} in positions` });
-        s.sizes = { ...(s.sizes ?? {}), [name]: { valueUsd: Math.round(value), medBuyUsd: med == null ? null : Math.round(med), at: t } };
+        s.sizes = { ...(s.sizes ?? {}), [name]: { valueUsd: Math.round(value), medBuyUsd: med == null ? null : Math.round(med), at: t, hist } };
         s.log.push({ t, text });
         s.log = s.log.slice(-60);
       });
