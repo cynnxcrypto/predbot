@@ -425,6 +425,8 @@ interface Cand {
   name: string;
   address: string;
   source?: Source;
+  /** bought a mid or high cap in the coin samples: read before the other new candidates */
+  cap?: true;
 }
 const srcOf = (c: Cand): Source => c.source ?? (c.name.startsWith("seen ") ? "busy" : "list");
 /** A coin that trades for days: where it came from, the days it was on a list, when its buyers were sampled. */
@@ -842,10 +844,16 @@ async function sampleCoin(mint: string): Promise<boolean> {
  * a buyer of several coins found later still comes before the one-coin buyers, up to MAX_COIN_BUYERS in all.
  */
 function promote(max = PROMOTE_PER_PASS) {
-  const have = new Set(state.candidates.map((c) => c.address));
-  for (const w of Object.keys(state.pool)) if (have.has(w)) delete state.pool[w];
+  const have = new Map(state.candidates.map((c) => [c.address, c]));
   const now = Date.now();
   const capKeys = new Set(Object.keys(state.caps ?? {}).filter((m) => capOk(m, now)).map((m) => m.slice(0, 6)));
+  for (const [w, [k]] of Object.entries(state.pool)) {
+    const c = have.get(w);
+    if (!c) continue;
+    // a candidate seen again buying a cap coin is marked as a cap buyer (read first while it is still unread)
+    if (!c.cap && k.split(",").some((x) => capKeys.has(x))) c.cap = true;
+    delete state.pool[w];
+  }
   let n = state.candidates.filter((c) => srcOf(c) === "coin").length;
   const ranked = Object.entries(state.pool)
     .filter(([w]) => !have.has(w))
@@ -857,7 +865,7 @@ function promote(max = PROMOTE_PER_PASS) {
     if (added >= max) break;
     // the coin buyers are capped, except buyers of a mid or high cap (the wallets wanted since 17 Nov 2026)
     if (n >= MAX_COIN_BUYERS && !x.cap) continue;
-    state.candidates.push({ name: `coin buyer ${x.w.slice(0, 4)}`, address: x.w, source: "coin" });
+    state.candidates.push({ name: `coin buyer ${x.w.slice(0, 4)}`, address: x.w, source: "coin", ...(x.cap ? { cap: true as const } : {}) });
     delete state.pool[x.w];
     n++;
     added++;
@@ -1412,7 +1420,8 @@ function dueWallets(max = WALLETS_PER_PASS): Cand[] {
   }
   const rank = (c: Cand) => {
     const st = state.wallets[c.address];
-    return real.has(c.address) ? 0 : !st ? 1 : (st.bot || st.fast || st.out) && !st.redo ? 2 : 0;
+    // a buyer of a mid or high cap never read comes first among the new (18 Nov 2026: they waited behind 13,000)
+    return real.has(c.address) ? 0 : !st ? (c.cap ? 0 : 1) : (st.bot || st.fast || st.out) && !st.redo ? 2 : 0;
   };
   return state.candidates
     .filter((c) => dueNow(state.wallets[c.address], now, real.has(c.address)))

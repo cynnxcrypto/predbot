@@ -890,3 +890,27 @@ test("mid and high caps: a cap coin is sampled daily even when the weekly coin b
   assert.ok(st.coins.Meme99.sampledAt! < now - DAY, "the budget still holds the rest");
   _test.reset();
 });
+
+test("mid and high caps: a cap buyer is read before the other new candidates", () => {
+  _test.reset();
+  const st = _test.state();
+  st.caps = { CapOld111111: { mcap: 3e8, liq: 2e6, createdMs: null, at: Date.now() } };
+  for (let i = 0; i < 400; i++) st.candidates.push({ name: `coin buyer ${i}`, address: `w${i}`, source: "coin" });
+  st.pool = { capBuyer: ["CapOld", 0.3] };
+  _test.promote(5);
+  assert.equal(_test.dueWallets(300)[0].address, "capBuyer");
+  _test.reset();
+});
+
+test("mid and high caps: a candidate seen again buying a cap coin is marked a cap buyer", () => {
+  _test.reset();
+  const st = _test.state();
+  st.caps = { CapOld111111: { mcap: 3e8, liq: 2e6, createdMs: null, at: Date.now() } };
+  for (let i = 0; i < 10; i++) st.candidates.push({ name: `coin buyer ${i}`, address: `w${i}`, source: "coin" });
+  st.pool = { w7: ["CapOld", 0.3], w3: ["Meme01", 0.3] };
+  _test.promote(5);
+  assert.deepEqual(st.candidates.filter((c) => c.cap).map((c) => c.address), ["w7"]);
+  assert.deepEqual(st.pool, {});
+  assert.equal(_test.dueWallets(300)[0].address, "w7");
+  _test.reset();
+});
