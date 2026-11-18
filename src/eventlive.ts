@@ -482,10 +482,14 @@ export async function eventRestBid(group: string, p: { rule: string; marketId: s
     const g = cfg.groups[group];
     const rows = eventLiveRows();
     // a rule that has proved itself with real bets bids bigger (sizeStep)
-    const mult = g.steps ? sizeStep(g, rows.filter((r) => r.group === group), p.rule).mult : 1;
-    const shares = restShares(Math.round(g.size * mult * 100) / 100, p.price);
+    // with a ladder (18 Nov 2026, enrique: tennis resting bids on the copy ladder, "somewhere in the middle" = up to $7)
+    // the bid size comes from the rule's own real record alone (ladderStake), as for the wallet copies
+    const lad = g.ladder.length ? ladderStake(g, realRecordOf(rows.filter((r) => r.group === group), p.rule)) : 0;
+    const mult = lad ? 1 : g.steps ? sizeStep(g, rows.filter((r) => r.group === group), p.rule).mult : 1;
+    const shares = restShares(Math.round((lad || g.size) * mult * 100) / 100, p.price);
     const stake = Math.round(shares * p.price * 100) / 100;
-    if (stake > g.maxSize * mult + 1e-9) return `5-share minimum costs $${stake.toFixed(2)} (over $${g.maxSize})`;
+    const top = lad ? Math.max(g.maxSize, lad) : g.maxSize * mult;
+    if (stake > top + 1e-9) return `5-share minimum costs $${stake.toFixed(2)} (over $${top})`;
     const why = eventLiveBlock(cfg, group, p.rule, p.marketId, p.price, Infinity, true, rows, Date.now(), stake, p.resolveAt, p.idx);
     if (why) return why;
     if (!p.conditionId || !/^0x[0-9a-fA-F]{64}$/.test(p.conditionId)) return "market type the bot cannot claim";
