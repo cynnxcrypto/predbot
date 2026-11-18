@@ -44,3 +44,13 @@ test("scaleOf: up only on a steady real record, never on one lucky win; down fas
   assert.equal(scaleOf([1, 1, 1, 1, 1, 1, 1, 1, -1, -1], 1).mult, 2, "newest 3 behind: one step down");
   assert.equal(scaleOf([3, 3, 3, 3, 3, 1, -1, -1, -1, -1], 1).mult, 1, "newest 5 behind too: back to x1");
 });
+
+test("perps ladder: $15/$20/$30 on its own real record, never on one lucky win", async () => {
+  const { perpLadder } = await import("./realfirst.js");
+  assert.equal(perpLadder([], 10).usd, 10);
+  assert.equal(perpLadder([1, 0.5, 0.6], 10).usd, 15, "3 trades, $2.10 ahead, $1.10 without the best");
+  assert.equal(perpLadder([5, -0.5, -0.5], 10).usd, 10, "ahead only through one win");
+  assert.equal(perpLadder([1, 1, 1, 1, 1], 10).usd, 20);
+  assert.equal(perpLadder([2, 2, 2, 2, 2, 2, 1, 1], 10).usd, 30);
+  assert.equal(perpLadder([2, 2, 2, 2, 2, 2, 2, 2, 2, -1, -1, -1], 10).usd, 20, "newest 3 behind: one row down");
+});

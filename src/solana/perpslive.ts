@@ -42,7 +42,7 @@ import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { DATA, ROOT } from "../config.js";
 import { perpMeetsBar, perpPaperOpens, perpPaperRecord, perpRuleIds, setKeptTraders, setPerpsRealSummary, traderListed, REAL_MIN_TRADES, TRADER_MIN_COPIES } from "./buckets.js";
-import { CUT_MIN_TRADES, cutReason, realRecord, scaleOf, standing, SCALE_WALLET_SHARE } from "./realfirst.js";
+import { CUT_MIN_TRADES, cutReason, perpLadder, realRecord, scaleOf, standing, SCALE_WALLET_SHARE } from "./realfirst.js";
 import { gumProbeOnce, gumProbeResult } from "./gumprobe.js";
 import { base58decode, namedWallet, signTransaction, type Wallet } from "./keys.js";
 import { USDC } from "./pools.js";
@@ -74,7 +74,7 @@ export const MIN_LEVERAGE = 1.1;
 
 export const TEST_RULE = "test-once";
 export const HARD_LEVERAGE = 2;
-export const HARD_COLLATERAL_USD = 25;
+export const HARD_COLLATERAL_USD = 30;
 export const HARD_MAX_LOSS_USD = 50;
 export const HARD_RULE_STOP_USD = 10;
 export const MIN_COLLATERAL_USD = 10;
@@ -381,7 +381,7 @@ export function cutRule(rule: string, why: string) {
  * Its collateral now (enrique, 17 Nov 2026 15:16 KST: winners scale up, "smart about how we scale up and down"): the base,
  * scaled on its own real record (realfirst.ts scaleOf), at most a fifth of the wallet's USDC and HARD_COLLATERAL_USD.
  */
-export const collateralOf = (rule: string, base: number, usdc = Infinity) => (rule === TEST_RULE ? base : Math.max(base, Math.min(HARD_COLLATERAL_USD, base * scaleOf(realNetsOf(rule), base).mult, SCALE_WALLET_SHARE * usdc)));
+export const collateralOf = (rule: string, base: number, usdc = Infinity) => (rule === TEST_RULE ? base : Math.max(base, Math.min(HARD_COLLATERAL_USD, perpLadder(realNetsOf(rule), base).usd, SCALE_WALLET_SHARE * usdc)));
 /** Real results first (realfirst.ts): real record ahead or level = real; no real trades yet, or behind on fewer than three = the paper bar decides. */
 export const standingOf = (rule: string) => standing(realOf(rule), perpMeetsBar(rule, state.demoted[rule] ?? 0, Date.now(), liveCfg().traderMinOurs ?? 0), state.demotedWhy?.[rule]);
 export const promoted = (rule: string) => standingOf(rule).real;

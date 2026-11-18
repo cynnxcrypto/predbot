@@ -38,7 +38,7 @@ import { meetsBar, paperOpens, paperRecord, setBucketsRealSummary, spotRuleIds, 
 import { namedWallet, signTransaction, type Wallet } from "./keys.js";
 import { SOL } from "./pools.js";
 
-export const HARD_STAKE_SOL = 0.02;
+export const HARD_STAKE_SOL = 0.03; // 18 Nov 2026, enrique: 'spot rules 0.03 SOL 10 open'
 /** The most a rule that scaled up on its own real record may put in one trade (enrique, 17 Nov 2026 15:16 KST). */
 export const HARD_SCALED_STAKE_SOL = 0.04;
 export const HARD_MAX_LOSS_SOL = 0.2;

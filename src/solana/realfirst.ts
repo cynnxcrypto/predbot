@@ -42,6 +42,30 @@ export function standing(real: RealRecord, paperAtBar: boolean, cutWhy = ""): { 
  *  - down fast: one step down when its newest 3 are behind, back to x1 when its newest 5 are behind too.
  * The caller caps the stake at a share of the wallet (SCALE_WALLET_SHARE) and at its hard limits; cuts are unchanged.
  */
+/**
+ * THE PERPS LADDER (enrique, 18 Nov 2026 14:43 KST: "push ... the HL and perps ladder"; "there has to be a way to
+ * scale up with winners"): Hyperliquid copies and Solana perps rules size each position from the trader's or rule's
+ * OWN real trades since its last cut, as the Polymarket copies do. Rows [real trades, $ ahead, position $]: $15 at 3
+ * trades and $1 ahead, $20 at 5 and $3, $30 at 8 and $6. A row holds only while it is still met without the single
+ * best trade; one row off while the newest 3 are behind. Cuts and loss caps are unchanged.
+ */
+export const PERP_LADDER: [number, number, number][] = [
+  [3, 1, 15],
+  [5, 3, 20],
+  [8, 6, 30],
+];
+export function perpLadder(nets: number[], base: number): { usd: number; why: string } {
+  const n = nets.length;
+  const net = nets.reduce((a, x) => a + x, 0);
+  const best = n ? Math.max(0, ...nets) : 0;
+  const rows = PERP_LADDER.filter(([k, ahead]) => n >= k && net >= ahead - 1e-9 && net - best >= ahead - 1e-9).map((r) => r[2]);
+  let why = rows.length ? `$${rows[rows.length - 1]}: ${n} real trades, $${net.toFixed(2)} ahead without its best trade` : "base: learning";
+  if (rows.length && n >= 3 && nets.slice(-3).reduce((a, x) => a + x, 0) < 0) {
+    rows.pop();
+    why = `${rows.length ? `$${rows[rows.length - 1]}` : "base"}: one row down, its newest 3 real trades are behind`;
+  }
+  return { usd: Math.max(base, ...rows), why };
+}
 export const SCALE_STEPS = [1, 2, 3];
 export const SCALE_WALLET_SHARE = 0.2;
 export function scaleOf(nets: number[], base: number): { mult: number; step: number; why: string } {

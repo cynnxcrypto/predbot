@@ -30,11 +30,11 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { ROOT } from "../config.js";
 import { loadJson, saveJson } from "../store.js";
-import { cutReason, realRecord, standing } from "../solana/realfirst.js";
+import { cutReason, perpLadder, realRecord, standing } from "../solana/realfirst.js";
 import type { Coin, Fill } from "./exchange.js";
 import { roundSz } from "./exchange.js";
 
-export const HARD_COLLATERAL_USD = 25;
+export const HARD_COLLATERAL_USD = 30;
 export const MIN_COLLATERAL_USD = 10;
 export const HARD_MAX_LOSS_USD = 50;
 export const HARD_MAX_OPEN = 20;
@@ -199,7 +199,10 @@ const skip = (why: string) => void (state.skipped[why] = (state.skipped[why] ?? 
  * in the money count, but no trader is kept or cut on them.
  */
 export const isFlip = (x: { heldH: number; netUsd: number }) => x.heldH <= 0.05 && Math.abs(x.netUsd) < 0.15;
-const realOf = (rule: string) => realRecord(state.rows.filter((x) => x.rule === rule && x.t > (state.demoted[rule] ?? 0) && !isFlip(x)).map((x) => x.netUsd));
+const realNetsOf = (rule: string) => state.rows.filter((x) => x.rule === rule && x.t > (state.demoted[rule] ?? 0) && !isFlip(x)).map((x) => x.netUsd);
+const realOf = (rule: string) => realRecord(realNetsOf(rule));
+/** A trader's position size: the base, up the perps ladder on its own real record (realfirst.ts perpLadder), never past the hard limit. */
+export const hlCollateral = (rule: string, base: number) => Math.min(HARD_COLLATERAL_USD, perpLadder(realNetsOf(rule), base).usd);
 const loss = () => Math.max(0, -state.netUsd);
 
 /** The traders the paper side must keep following even off the daily list: a real position open here, or real copies ahead. */
@@ -307,7 +310,7 @@ export async function hlLiveTick(d: HlDeps, now = Date.now()): Promise<void> {
         else if (state.opens.length >= cfg.maxOpen) skip("all positions in use");
         else if (state.opens.some((o) => o.coin === x.coin) || acct.positions[x.coin]) skip("coin already held");
         else {
-          const why = await open(d, x, cfg.collateralUsd, coins, mids, acct, now);
+          const why = await open(d, x, hlCollateral(x.rule, cfg.collateralUsd), coins, mids, acct, now);
           if (why) skip(why);
         }
       }
@@ -323,7 +326,7 @@ export async function hlLiveTick(d: HlDeps, now = Date.now()): Promise<void> {
         if (state.opens.some((o) => o.coin === x.coin) || acct.positions[x.coin]) continue;
         const px = mids[x.coin];
         if (!(px > 0) || Math.abs(px / x.px - 1) > (cfg.lateWithin ?? 0)) continue;
-        const why = await open(d, x, cfg.collateralUsd, coins, mids, acct, now, true);
+        const why = await open(d, x, hlCollateral(x.rule, cfg.collateralUsd), coins, mids, acct, now, true);
         if (why) {
           skip(`late copy: ${why}`);
           state.lateOff = [...state.lateOff, x.id].slice(-500);

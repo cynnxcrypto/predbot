@@ -15,9 +15,10 @@
   "solanaBuckets": {
     "note": "15 Nov 2026 08:40 KST, enrique: 'yes to both' (switch the spot bucket real side on so rules promote themselves) and 'so we separate budgets of different things' (its own wallet, funded by him 15 Nov ~11:00 KST). A spot bucket rule trades for real only while its paper record meets the bar (100+ paper trades, half won, ahead); 0.01 SOL a trade, a rule goes back to paper at -0.03 SOL, 5 coins out at most, total loss cap 0.1 SOL. Code src/solana/bucketslive.ts. Perps real stays off (no solanaPerps block).",
     "on": true,
-    "stakeSol": 0.01,
+    "stakeNote": "18 Nov 2026 14:43 KST, enrique: 'push ... spot rules 0.03 SOL 10 open' (more of the wallet in use). 0.01 -> 0.03 SOL a buy, 5 -> 10 open; stops and cuts unchanged.",
+    "stakeSol": 0.03,
     "ruleStopSol": 0.03,
-    "maxOpen": 5,
+    "maxOpen": 10,
     "maxLossSol": 0.1,
     "testOnce": "test-15nov-c",
     "realNow": ["meme-dip1h"],
