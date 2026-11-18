@@ -21,7 +21,8 @@ export function readAccount(answer: unknown): Account {
     const p = x?.position;
     const szi = Number(p?.szi);
     if (typeof p?.coin !== "string" || !Number.isFinite(szi) || szi === 0) continue;
-    positions[p.coin] = { szi, entryPx: Number(p.entryPx) || 0, unrealUsd: Number(p.unrealizedPnl) || 0, marginUsd: Number(p.marginUsed) || 0 };
+    const lv = p.leverage as { type?: unknown; value?: unknown } | undefined;
+    positions[p.coin] = { szi, entryPx: Number(p.entryPx) || 0, unrealUsd: Number(p.unrealizedPnl) || 0, marginUsd: Number(p.marginUsed) || 0, ...(Number(lv?.value) > 0 ? { lev: Number(lv?.value), isolated: lv?.type === "isolated" } : {}) };
   }
   return { valueUsd, freeUsd: Number(a.withdrawable) || 0, positions };
 }

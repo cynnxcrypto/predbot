@@ -88,6 +88,9 @@ export interface VenuePos {
   entryPx: number;
   unrealUsd: number;
   marginUsd: number;
+  /** the leverage Hyperliquid's own account record has on the position, and whether its margin is isolated */
+  lev?: number;
+  isolated?: boolean;
 }
 export interface Account {
   valueUsd: number;
@@ -146,6 +149,10 @@ interface Pos {
   goneLooks?: number;
   unrealUsd?: number;
   markMs?: number;
+  /** read back from Hyperliquid's account at every look: its leverage on the position, isolated or not, margin held */
+  venueLev?: number;
+  venueIsolated?: boolean;
+  venueMarginUsd?: number;
 }
 interface Row {
   t: number;
@@ -265,6 +272,9 @@ export async function hlLiveTick(d: HlDeps, now = Date.now()): Promise<void> {
       p.goneLooks = 0;
       p.unrealUsd = r2(held.unrealUsd);
       p.markMs = now;
+      p.venueLev = held.lev;
+      p.venueIsolated = held.isolated;
+      p.venueMarginUsd = r2(held.marginUsd);
       const why = p.rule === TEST_RULE ? "test" : !paper.some((x) => x.id === p.paperId) ? "the trader closed" : now - p.openedMs > MAX_HOLD_H * 3_600_000 ? "max hold" : "";
       if (!why) continue;
       const px = mids[p.coin];
@@ -389,7 +399,7 @@ export function hlLiveSummary(cfg: HlLiveConfig = fileCfg(), meetsBar: (rule: st
     trades: state.rows.length,
     won: state.rows.filter((x) => x.netUsd > 0).length,
     halted: cfg.on && loss() >= cfg.maxLossUsd ? "loss cap reached: nothing new is opened" : "",
-    opens: state.opens.map((p) => ({ trader: p.rule, coin: p.coin, side: p.dir > 0 ? "long" : "short", leverage: p.lev, collateralUsd: p.collUsd, entryPx: p.entryPx, unrealUsd: p.unrealUsd ?? null, openedAt: p.openedMs, late: !!p.late })),
+    opens: state.opens.map((p) => ({ trader: p.rule, coin: p.coin, side: p.dir > 0 ? "long" : "short", leverage: p.lev, collateralUsd: p.collUsd, entryPx: p.entryPx, unrealUsd: p.unrealUsd ?? null, openedAt: p.openedMs, late: !!p.late, onHyperliquid: p.venueLev == null ? null : { leverage: p.venueLev, isolated: !!p.venueIsolated, marginUsd: p.venueMarginUsd ?? null, same: p.venueLev === p.lev && !!p.venueIsolated } })),
     traders: rules.map((rule) => {
       const real = realOf(rule);
       const st = standing(real, meetsBar(rule, state.demoted[rule] ?? 0, now), state.demotedWhy[rule]);
