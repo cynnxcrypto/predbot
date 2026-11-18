@@ -74,6 +74,8 @@
       ],
       "smallWalletsNote": "18 Nov 2026 02:09 KST, enrique tapped 'Keep the ones ahead for us' on the small Polymarket wallets card: copy-take-alexd87, hightemptation, wx-65f7, lex-tang and 0xyahn are off the real list (no new real copies; open ones settle as usual) and do not come back to real while under the size floors (autoReal stays false). bilberry, 0bot, hello67, windy-weather and taemaxx stay real under the usual cut rule.",
       "negRisk": true,
+      "aheadSizeNote": "18 Nov 2026 09:55 KST, enrique: 'okay lets try 1' (raise the copy base bet from $3 to $5 for wallets that are ahead on real money; the ladder still adds on top, cuts unchanged). A wallet whose settled real bets are ahead bets $5; one behind or new bets $3.",
+      "aheadSize": 5,
       "size": 3,
       "maxSize": 10,
       "maxDays": 14,

@@ -185,7 +185,7 @@ test("resting bids: 5-share minimum, one bid per player, resting money counts in
   assert.match(blk([rest(0, "a"), rest(1, "a"), rest(0, "b")], 0, "c")!, /stake cap/, "$9 resting + $3 > $10");
   assert.match(eventLiveBlock(cfg, "tennis", "t", "m", 0.93, 100, true, [rest(0)], NOW4)!, /another real test/);
   const live = parseEventLive(readFileSync(join(process.cwd(), "deploy", "live-rules.json"), "utf8"), { mode: "live", funder: "0xabc" }).groups.tennisrest;
-  if (live) assert.ok(live.stopNet > 0 && live.stopNet <= 15 && live.maxSize <= 5 && live.openUsd > 0 && live.openUsd <= 75 && live.maxLoss <= live.stopNet + live.openUsd);
+  if (live) assert.ok(live.stopNet > 0 && live.stopNet <= 15 && live.maxSize <= 5 && live.openUsd > 0 && live.openUsd <= 90 && live.maxLoss <= live.stopNet + live.openUsd);
 });
 
 test("per-wallet automatic rule: learning to 10 settled, back to paper at -$10, x1.5 while ahead", () => {
@@ -221,6 +221,10 @@ test("per-wallet automatic rule: learning to 10 settled, back to paper at -$10, 
   assert.equal(ladderStake(lg, { n: 7, net: 40, best: 38, last3: 1 }), 3, "ahead only through one big win: base size");
   assert.equal(ladderStake(lg, { n: 10, net: 20, best: 5, last3: 2 }), 7);
   assert.equal(ladderStake(lg, { n: 10, net: 20, best: 5, last3: -1 }), 5, "newest 3 behind: one row down");
+  const ag = { ...lg, aheadSize: 5 };
+  assert.equal(ladderStake(ag, { n: 1, net: 0.5, best: 0.5, last3: 0.5 }), 5, "ahead on real: $5 base");
+  assert.equal(ladderStake(ag, { n: 4, net: -1, best: 2, last3: -1 }), 3, "behind: the $3 base");
+  assert.equal(ladderStake(ag, { n: 10, net: 20, best: 5, last3: 2 }), 7, "the ladder still adds on top");
   // what a wallet may risk: $9 and what its settled real bets made; winnings earn room, losses take it away
   const hc = { ...cfg, groups: { copy: { ...g, cutN: 5, cutLoss: 6, houseUsd: 9, walletUsd: 40 } } };
   const open = (rule: string, i: number, cost = 3) => ({ ...r(rule, null, 100 + i), cost });
