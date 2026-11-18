@@ -514,7 +514,7 @@ export function balanceOf(result: unknown): { sol: number; usd: number | null } 
 }
 /** Reads the balance of up to BAL_PER_LOOP followed wallets not read for a day. false = out of credits or no key. */
 async function balanceStep(now = Date.now()): Promise<boolean> {
-  const due = followed().filter((w) => now - (state.bal?.[w.address]?.at ?? 0) > BAL_REFRESH_MS).slice(0, BAL_PER_LOOP);
+  const due = followedAll().filter((w) => now - (state.bal?.[w.address]?.at ?? 0) > BAL_REFRESH_MS).slice(0, BAL_PER_LOOP);
   for (const w of due) {
     const url = cfg?.rpcUrl();
     today();
@@ -532,7 +532,7 @@ async function balanceStep(now = Date.now()): Promise<boolean> {
     saveScreen();
   }
   // wallets no longer followed are forgotten
-  const keep = new Set(followed().map((w) => w.address));
+  const keep = new Set(followedAll().map((w) => w.address));
   for (const a of Object.keys(state.bal ?? {})) if (!keep.has(a)) delete state.bal![a];
   return true;
 }
@@ -1123,7 +1123,8 @@ const lateWin = (x: { late: { in30s: { n: number; won: number }; in5min: { n: nu
  * Wallets followed on paper: those that pass and are not shown uncopyable by their late copies; most late copies won
  * first (unchecked last). The share won, not the average: one mispriced coin moves an average, not a share.
  */
-export function followed(): { name: string; address: string }[] {
+/** Every wallet the screen would follow, before the balance floor (their balances are read from this list). */
+function followedAll(): { name: string; address: string }[] {
   const v = reports()
     .filter((x) => x.pass && x.copyable !== false)
     .sort((a, b) => lateWin(b) - lateWin(a) || (b.late.in5min.medianPct ?? -1e9) - (a.late.in5min.medianPct ?? -1e9) || (b.realisedSol ?? 0) - (a.realisedSol ?? 0))
@@ -1132,6 +1133,16 @@ export function followed(): { name: string; address: string }[] {
   // and the cap shortlist, followed on paper as a live check of its replay
   for (const c of capWallets()) if (!v.some((x) => x.address === c.address)) v.push({ name: c.name, address: c.address });
   return v;
+}
+/** A wallet whose balance was read and is under MIN_BAL_USD is not followed (unknown is not small). SOLANA_SLOW_MIN_BAL_USD overrides. */
+export const MIN_BAL_USD = 5000;
+const minBalUsd = () => (process.env.SOLANA_SLOW_MIN_BAL_USD === undefined ? MIN_BAL_USD : Number(process.env.SOLANA_SLOW_MIN_BAL_USD));
+const balSmall = (address: string) => {
+  const b = state.bal?.[address];
+  return Boolean(b && b.usd != null && b.usd < minBalUsd());
+};
+export function followed(): { name: string; address: string }[] {
+  return followedAll().filter((w) => !balSmall(w.address));
 }
 /**
  * Wallets proven on paper at the entry the real copy makes (5 s in, 5 s out): followed now (so it still passes the
@@ -1335,6 +1346,7 @@ async function loop() {
     }
     try {
       await balanceStep();
+      refreshFollow();
     } catch (e) {
       health.errors++;
       health.lastError = scrub(String((e as Error)?.message ?? e));
@@ -1641,6 +1653,9 @@ export function slowSummary() {
     followed: fol.map((x) => x.name),
     /** each followed wallet's own size: SOL held and dollars in SOL and priced coins (a floor; null = not read yet),
      *  beside what it made over the window and its usual first buy */
+    /** passing wallets not followed because their balance is under the floor: name and dollars */
+    leftOutSmall: followedAll().filter((w) => balSmall(w.address)).map((w) => ({ name: w.name, usd: state.bal?.[w.address]?.usd ?? null })),
+    minBalanceUsd: minBalUsd(),
     followedSizes: fol.map((x) => {
       const b = state.bal?.[x.address];
       const rep = reportOf(x.address);
