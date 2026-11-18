@@ -176,6 +176,7 @@ test("a trader that cannot be read keeps the last result and is tried again; one
   _test.set({ fetch: () => f, liked: () => liked, board: () => [], record: () => ({ trades: 0, won: 0, netUsd: 0 }), wait: async () => undefined, now: () => now });
   await linksTick();
   assert.ok(_test.state().traders[TRADER].links.length > 0);
+  assert.equal(_test.state().traders[TRADER].at, NOW - 23 * H, "moved out and no leaderboard yet: read again in an hour");
   fail = true;
   now = NOW + 25 * H;
   await linksTick();

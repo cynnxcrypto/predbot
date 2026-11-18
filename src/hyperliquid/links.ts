@@ -395,7 +395,9 @@ async function doTrader(address: string, why: string, now: number): Promise<Trad
     if (m.length) add(a, how.get(a) ?? "match", { match: m });
   }
   let poolChecked = 0;
+  let poolMissing = false;
   if (mv.moved) {
+    poolMissing = !deps!.board().length;
     const pool = deps!.board().filter((x) => x.address !== address && !got.has(x.address) && !liked.has(x.address) && x.acct > 0).sort((x, y) => Math.abs(Math.log(x.acct / mv.net30)) - Math.abs(Math.log(y.acct / mv.net30))).slice(0, MAX_POOL);
     for (const p of pool) {
       const w = await readWallet(p.address, now, false).catch(() => null);
@@ -416,7 +418,8 @@ async function doTrader(address: string, why: string, now: number): Promise<Trad
   }
   links.sort((x, y) => y.score - x.score);
   for (const l of links) if (l.score >= POSSIBLE) state.since[l.address] ??= now;
-  return { at: now, why, acct: T.acct, out30: mv.out30, net30: mv.net30, moved: mv.moved, lastOutAt: mv.lastOutAt, full: T.full, counterparts: Object.keys(T.cps).length, checked: got.size, poolChecked, links: links.slice(0, 12) };
+  // moved out and no leaderboard to look through yet: read again in an hour, not tomorrow
+  return { at: poolMissing ? now - REFRESH_MS + 3_600_000 : now, why, acct: T.acct, out30: mv.out30, net30: mv.net30, moved: mv.moved, lastOutAt: mv.lastOutAt, full: T.full, counterparts: Object.keys(T.cps).length, checked: got.size, poolChecked, links: links.slice(0, 12) };
 }
 
 let busy = false;
