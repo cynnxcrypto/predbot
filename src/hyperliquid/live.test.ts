@@ -91,8 +91,8 @@ test("not copied: under the bar, too late, a second copy of a trader or a coin, 
   assert.equal(w.orders.length, 0);
   w.paper = [copy("copy-aaaa1111", "BTC", 1, T0), copy("copy-aaaa1111", "HYPE", 1, T0), copy("copy-bbbb2222", "BTC", -1, T0)];
   await hlLiveTick(d, T0 + 2000);
-  assert.equal(w.orders.length, 1);
-  assert.deepEqual(_test.state().skipped, { "trader already has a copy open": 1, "coin already held": 1 });
+  assert.equal(w.orders.length, 2, "both of the first trader's positions are copied");
+  assert.deepEqual(_test.state().skipped, { "coin already held": 1 });
   const poor = world({ free: 6 });
   poor.w.paper = [copy("copy-aaaa1111", "BTC", 1, T0)];
   await (_test.reset(), hlLiveTick(poor.d, T0 + 1000));
@@ -119,6 +119,10 @@ test("real results first: behind after three real trades is cut even with paper 
   }
   assert.equal(hlLiveSummary(ON).trades, 3);
   assert.match(_test.state().demotedWhy["copy-aaaa1111"], /behind after 3 trades/);
+  const tr = hlLiveSummary(ON).traders[0];
+  assert.deepEqual([tr.trades, tr.won, tr.sinceCut.trades, tr.real], [3, 0, 0, false], "a cut trader keeps its real count and net in the status");
+  assert.ok(tr.netUsd < 0 && tr.cutAt);
+  assert.equal(hlLiveSummary(ON).recent[0].collateralUsd, 10);
   // the bar now counts only paper trades made after the cut: here it says no
   const after = world({ bar: [] });
   after.w.paper = [copy("copy-aaaa1111", "DOGE", 1, T0 + 3_000_000)];
@@ -170,4 +174,31 @@ test("an order that is refused opens nothing; limits are clamped; leverage is wh
   assert.equal(parseHlLive('{"hyperliquid":{"trade":{"on":true}}}').on, false, "no loss cap, no trading");
   assert.equal(parseHlLive("{}").on, false);
   assert.deepEqual([leverageFor(25, COINS.BTC), leverageFor(25, COINS.HYPE), leverageFor(0.4, COINS.BTC), leverageFor(undefined, COINS.BTC)], [20, 5, 1, 2]);
+});
+
+test("one-minute in-and-out copies for cents never cut a trader; one cut on nothing else is put back; a 1x copy is made", async () => {
+  const { saveJson } = await import("../store.js");
+  const { w, d } = world();
+  for (let i = 0; i < 3; i++) {
+    const at = T0 + i * 600_000;
+    w.paper = [copy("copy-aaaa1111", "DOGE", -1, at, 2)];
+    w.mids.DOGE = 0.2;
+    await hlLiveTick(d, at + 1000);
+    w.paper = [];
+    w.mids.DOGE = 0.2001; // nothing moved: the loss is the fee
+    await hlLiveTick(d, at + 61_000);
+  }
+  const tr = hlLiveSummary(ON, () => true).traders[0];
+  assert.deepEqual([tr.trades, tr.sinceCut.trades, tr.cutAt, tr.real], [3, 0, null, true]);
+  assert.ok(tr.netUsd < 0, "the cents still count as money");
+  // the state as the server has it: cut on three such rows
+  const rows = _test.state().rows;
+  saveJson("hyperliquid-live.json", { ..._test.state(), demoted: { "copy-aaaa1111": rows[2].t }, demotedWhy: { "copy-aaaa1111": "cut: real record behind after 3 trades" } });
+  _test.reload();
+  assert.deepEqual(_test.state().demoted, {});
+  _test.reset();
+  const one = world();
+  one.w.paper = [copy("copy-aaaa1111", "HYPE", 1, T0, 1)];
+  await hlLiveTick(one.d, T0 + 1000);
+  assert.deepEqual(one.w.orders, [{ coin: 5, buy: true, sz: 0.27, reduce: false }]); // $11 at $40, not $10
 });

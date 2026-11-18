@@ -31,7 +31,7 @@ if (cmd === "wallet") {
   console.log(go ? "FUNDING (real)" : "FUNDING DRY RUN (nothing signed)");
   for (const p of r.problems) console.log(`  STOPPED: ${p}`);
   for (const s of r.steps) console.log(`  - ${s}`);
-  console.log(`  wallet: ${r.eth} ETH, ${r.usdc} USDC on Arbitrum; Hyperliquid account: ${r.hlUsd} USD${r.done ? "; all moved" : ""}`);
+  console.log(`  wallet: ${r.eth} ETH, ${r.usdc} USDC on Arbitrum; Hyperliquid account: ${r.hlUsd === null ? "not reachable" : r.hlUsd + " USD"}${r.done ? "; all moved" : ""}`);
   if (r.problems.length) process.exitCode = 2;
 } else {
   console.log("usage: npm run hyperliquid -- wallet | fund [--go]");

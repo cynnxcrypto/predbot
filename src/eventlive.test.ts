@@ -185,7 +185,7 @@ test("resting bids: 5-share minimum, one bid per player, resting money counts in
   assert.match(blk([rest(0, "a"), rest(1, "a"), rest(0, "b")], 0, "c")!, /stake cap/, "$9 resting + $3 > $10");
   assert.match(eventLiveBlock(cfg, "tennis", "t", "m", 0.93, 100, true, [rest(0)], NOW4)!, /another real test/);
   const live = parseEventLive(readFileSync(join(process.cwd(), "deploy", "live-rules.json"), "utf8"), { mode: "live", funder: "0xabc" }).groups.tennisrest;
-  if (live) assert.ok(live.stopNet > 0 && live.stopNet <= 15 && live.maxSize <= 5 && live.openUsd > 0 && live.openUsd <= 75 && live.maxLoss <= live.stopNet + live.openUsd);
+  if (live) assert.ok(live.stopNet > 0 && live.stopNet <= 15 && live.maxSize <= 5 && live.openUsd > 0 && live.openUsd <= 90 && live.maxLoss <= live.stopNet + live.openUsd);
 });
 
 test("per-wallet automatic rule: learning to 10 settled, back to paper at -$10, x1.5 while ahead", () => {
@@ -221,6 +221,10 @@ test("per-wallet automatic rule: learning to 10 settled, back to paper at -$10, 
   assert.equal(ladderStake(lg, { n: 7, net: 40, best: 38, last3: 1 }), 3, "ahead only through one big win: base size");
   assert.equal(ladderStake(lg, { n: 10, net: 20, best: 5, last3: 2 }), 7);
   assert.equal(ladderStake(lg, { n: 10, net: 20, best: 5, last3: -1 }), 5, "newest 3 behind: one row down");
+  const ag = { ...lg, aheadSize: 5 };
+  assert.equal(ladderStake(ag, { n: 1, net: 0.5, best: 0.5, last3: 0.5 }), 5, "ahead on real: $5 base");
+  assert.equal(ladderStake(ag, { n: 4, net: -1, best: 2, last3: -1 }), 3, "behind: the $3 base");
+  assert.equal(ladderStake(ag, { n: 10, net: 20, best: 5, last3: 2 }), 7, "the ladder still adds on top");
   // what a wallet may risk: $9 and what its settled real bets made; winnings earn room, losses take it away
   const hc = { ...cfg, groups: { copy: { ...g, cutN: 5, cutLoss: 6, houseUsd: 9, walletUsd: 40 } } };
   const open = (rule: string, i: number, cost = 3) => ({ ...r(rule, null, 100 + i), cost });
@@ -288,7 +292,23 @@ test("daily wallet rescan: the screen, weekly profit, promotion to real and drop
   assert.match(copyScreen([700, -1, 700, 700], acts, NOW6)!, /losing week/);
   assert.match(copyScreen([100, 100, 100, 2000], acts, NOW6)!, /over half/);
   assert.match(copyScreen([700, 700, 700, 700], acts.slice(0, 5), NOW6)!, /5 buys/);
-  assert.match(copyScreen([700, 700, 700, 700], Array.from({ length: 20 }, (_, i) => buy(i, 500)), NOW6)!, /median buy/);
+  assert.equal(copyScreen([700, 700, 700, 700], Array.from({ length: 20 }, (_, i) => buy(i, 5000)), NOW6), null, "a big bettor is no longer refused");
+  assert.match(copyScreen([700, 700, 700, 700], Array.from({ length: 20 }, (_, i) => buy(i, 3, `Highest temperature in city ${i}`)), NOW6)!, /median buy \$3 \(under/);
+  assert.match(copyScreen([300, 300, 300, 300], acts, NOW6)!, /made \$1200 in 4 weeks/);
+  const { valueOf, tooSmall, medianBuy, historyOf } = await import("./copyscan.js");
+  // 100 days: +$10 a day for 60 days, then a fall of $200 over 10 days, then +$20 a day for 30 days
+  const curve = Array.from({ length: 101 }, (_, i) => ({ timestamp: (NOW6 - (100 - i) * day) / 1000, economic_pnl: i <= 60 ? 10 * i : i <= 70 ? 600 - 20 * (i - 60) : 400 + 20 * (i - 70), unrealized_pnl: 0 }));
+  assert.deepEqual(historyOf(curve, NOW6), { allUsd: 1000, months: 4, greenMonths: 3, bestMonthSharePct: 60, drawdownUsd: 200, last3mUsd: 900 });
+  assert.equal(historyOf([], NOW6), null);
+  assert.equal(valueOf([{ user: "0x1", value: 6100.5 }]), 6100.5);
+  assert.equal(valueOf({ data: [{ value: "12" }] }), 12);
+  assert.equal(valueOf(null), null);
+  assert.equal(medianBuy(acts, NOW6), 400, "20 fills of $20 in one market are one $400 bet");
+  assert.equal(medianBuy([buy(1, 30, "A"), buy(2, 30, "A"), buy(3, 10, "B"), buy(4, 500, "C")], NOW6), 60);
+  assert.equal(tooSmall({ valueUsd: 900, medBuyUsd: 50, at: 0 }), true);
+  assert.equal(tooSmall({ valueUsd: 9000, medBuyUsd: 5, at: 0 }), true);
+  assert.equal(tooSmall({ valueUsd: null, medBuyUsd: 50, at: 0 }), false, "unknown is not small");
+  assert.equal(tooSmall(undefined), false);
   assert.match(copyScreen([700, 700, 700, 700], Array.from({ length: 20 }, (_, i) => buy(i, 20, "Bitcoin Up or Down")), NOW6)!, /crypto/);
   const st = { lastScan: 0, scans: 0, lastError: null, screened: 0, passed: 0, log: [], wallets: [
     { name: "good", address: "0x1", addedAt: NOW6 - 3 * day, stage: "paper" as const, why: "" },

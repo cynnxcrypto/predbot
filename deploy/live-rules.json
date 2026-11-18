@@ -1,7 +1,8 @@
 {
   "solanaSlow": {
     "note": "14 Nov 2026 14:40 KST, enrique: 'since we have very little in the sol wallet anyways, just real trade those 3 wallets, lets see'. Real copy of the 3 day-holding Solana wallets (paper slow-e5-x5): 0.01 SOL a copy 5 s after one of them buys a coin for 0.1+ SOL, sold 5 s after its first sale or after 72 h; hard loss cap 0.1 SOL, a copy only goes in if the cap holds with every open copy lost; stops for good when none fits. Code src/solana/slowlive.ts. 14 Nov 2026 23:21 KST, enrique: 'the solana wallet for trading can use the whole wallet, there's almost no money there so no worries': maxLossSol 0.1 -> 0.6 (= MAX_WALLET_SOL, so SOL added later is never at stake), no maxOpen; the balance check before each buy is the limit.",
-    "on": true,
+    "offNote": "17 Nov 2026 19:07 KST, enrique: 'dont focus on memecoins then', 'focus on mid to high caps', 'copy successful traders in mid to high caps'. No new real meme copies (on false); copies already held are still sold by the usual triggers. Paper copying goes on; a mid/high cap copier replaces this.",
+    "on": false,
     "note2": "15 Nov 2026 17:38 KST, enrique: 'these are the final funding numbers ... make it all grow' (this wallet about $101). maxLossSol 0.6 -> 1.4: up to that much may be out in copies at once (was 0.5 of 0.6). stopLossSol: new copies stop when that much SOL is really lost (review decides); 0.3, then 0.7 on his word 17:59 KST ('yeah thats fine lets try that'). Stake stays 0.01 until the sizing plan has his yes.",
     "maxLossSol": 1.4,
     "stopLossSol": 0.7,
@@ -21,6 +22,12 @@
     "testOnce": "test-15nov-c",
     "realNow": ["meme-dip1h"],
     "realNowNote": "17 Nov 2026 14:55 KST, enrique: 'try that spot rule on'. meme-dip1h trades for real now (paper 96 trades, 66 won, ahead), before its 100-trade bar, at the usual stakeSol. Usual cut: behind after 3 real trades, or its rule stop, sends it back to paper and then only the paper bar brings it back. src/solana/bucketslive.ts readRealNow."
+  },
+  "solanaGum": {
+    "note": "17 Nov 2026 16:24 KST, enrique: 'do both hyperliquid and jupiter perps'. Real copies on Jupiter's order book (Gum: HYPE, ZEC, JUP, BNB, NEAR), same traders, one record with the JLP side (src/solana/gumlive.ts). Steps one at a time, each checked in the status: createAccount, deposit dep-1 $20, dryRun dry-1, test t-1 (HYPE long $5), then on with collateralUsd 10, maxLossUsd 30, ruleStopUsd 9, maxOpen 3.",
+    "on": false,
+    "createAccount": false,
+    "droppedNote": "17 Nov 2026 23:08 KST: Gum dropped. Its deposit needs USDC bridged to Jupnet; Hyperliquid covers those coins. No deposit, no bridge: the $20 stays in the perps wallet."
   },
   "solanaPerps": {
     "note": "OFF. Real perps trading needs a perp rule at the bar and enrique's own yes. testOnce: 15 Nov 2026 12:28 KST, enrique: 'feel free to do one test in each of the new things so we know everything works, try to not lose money of course' - ONE smallest SOL short ($10 collateral, $20 size), opened and closed at the next look, once per name; the same name on solanaBuckets buys and sells 0.01 SOL of JUP once.",
@@ -46,19 +53,14 @@
       "rules": [
         "copy-take-betty4",
         "copy-take-perfectnostalgia",
-        "copy-take-lex-tang",
         "copy-take-taemaxx",
         "copy-take-ecash",
         "copy-take-paddaa",
         "copy-take-yesmate",
         "copy-take-youngalphagoat",
-        "copy-take-wx-65f7",
         "copy-take-hello67",
         "copy-take-wx-241532",
-        "copy-take-0xyahn",
-        "copy-take-hightemptation",
         "copy-take-sylar012",
-        "copy-take-alexd87",
         "copy-take-bilberry",
         "copy-take-windy-weather",
         "copy-take-beefslayer",
@@ -70,7 +72,10 @@
         "copy-take-0bot",
         "wx-copy-take"
       ],
+      "smallWalletsNote": "18 Nov 2026 02:09 KST, enrique tapped 'Keep the ones ahead for us' on the small Polymarket wallets card: copy-take-alexd87, hightemptation, wx-65f7, lex-tang and 0xyahn are off the real list (no new real copies; open ones settle as usual) and do not come back to real while under the size floors (autoReal stays false). bilberry, 0bot, hello67, windy-weather and taemaxx stay real under the usual cut rule.",
       "negRisk": true,
+      "aheadSizeNote": "18 Nov 2026 09:55 KST, enrique: 'okay lets try 1' (raise the copy base bet from $3 to $5 for wallets that are ahead on real money; the ladder still adds on top, cuts unchanged). A wallet whose settled real bets are ahead bets $5; one behind or new bets $3.",
+      "aheadSize": 5,
       "size": 3,
       "maxSize": 10,
       "maxDays": 14,
@@ -103,17 +108,18 @@
     "tennisrest": {
       "note": "14 Nov 2026 01:26 KST, enrique: more real bets 'on anything that might be good and looks good on past data and paper'. The one paper rule over the bar, prematch-rest-clv-tennis (171 settled, 88 won, +$107.39 on $3 bids at 13 Nov 2026; about 4 days of paper, no order-book history to test it further), now with real money: from 6 h before a tennis match a post-only bid at the best bid on BOTH players, about $3 (at least the exchange's 5-share minimum, so up to $4.85), cancelled 20 min before the start. Its own stop: no new bid once the settled real result is -$15 (stopNet 15), for good until his word. Stake cap $40 in bids resting or filled and open (openUsd); no count limit. Code src/eventlive.ts eventRestBid / eventRestSync. 14 Nov 2026 23:25 KST, enrique: the idle wallet cash (~$45) 'for whatever u think might do better based on closed trades and what open trades look like': openUsd 40 -> 75 (it was full: 2 open + 9 resting), maxLoss 60 -> 90 only so 75 open fit next to the unchanged -$15 stop. Why this one: the only rule with evidence (paper 192 settled, 97 won, +$108.82; real 5 settled, 3 won, +$1.37); wallet copies are -$31.48 on 29 real and already have their $120.",
       "rules": ["prematch-rest-clv-tennis"],
+      "ladderNote": "18 Nov 2026 09:25 KST, enrique: tennis resting bids on the copy ladder, 'maybe somewhere in the middle', then 'yea' to $7: [bets, ahead $, bid $] = $5 at 3 settled +$2, $7 at 5 settled +$5, with the copy ladder's checks (still met without the single best bet; the newest 3 behind take a row off). Replaces steps 'rule'. Cap $7 until his word.",
+      "ladder": [[3, 2, 5], [5, 5, 7]],
       "size": 3,
       "maxSize": 5,
       "maxAsk": 0.97,
       "minDepth": 0,
       "dayLosses": 99,
       "maxOpen": 999,
-      "steps": "rule",
       "capNote2": "16 Nov 2026 17:50 KST, MAIN (leak-hunt review): back to openUsd 40, maxLoss 55 by capNote's own rule ('Back to 40 if its real record turns behind'): the real record turned behind at 15:55 KST (24 settled, 13 won, -$0.88), an hour before the $75 cap went live at 16:55. enrique cut $75 to $40 himself on 15 Nov ('reduce max resting bids, allocate to the copys that work i guess'). The closing-price check on 52 paper fills is 0.0c, so a bigger cap adds swing, not expected money.",
-      "capNote": "16 Nov 2026 14:35 KST review (MAIN; enrique 14:24 KST: 'please figure out everything that can help us trade better and make more money', and 15 Nov 17:38 KST: each wallet may use its whole balance). openUsd 40 -> 75, maxLoss 55 -> 90 (stop 15 + open 75; the stop itself is unchanged). Why: the $40 cap was refusing bids (4 at 14:02 KST: $38.63 in resting and open bids) while this is the one Polymarket rule ahead on its REAL record (23 settled, 13 won, +$2.12; today +$9.94). A resting bid costs nothing until it fills, and the cap counts every unfilled bid in full. Back to 40 if its real record turns behind.", "openUsd": 40,
+      "capNote": "16 Nov 2026 14:35 KST review (MAIN; enrique 14:24 KST: 'please figure out everything that can help us trade better and make more money', and 15 Nov 17:38 KST: each wallet may use its whole balance). openUsd 40 -> 75, maxLoss 55 -> 90 (stop 15 + open 75; the stop itself is unchanged). Why: the $40 cap was refusing bids (4 at 14:02 KST: $38.63 in resting and open bids) while this is the one Polymarket rule ahead on its REAL record (23 settled, 13 won, +$2.12; today +$9.94). A resting bid costs nothing until it fills, and the cap counts every unfilled bid in full. Back to 40 if its real record turns behind.", "capNote3": "18 Nov 2026 09:32 KST, enrique: 'sure' to raising the cap on money out in resting bids from $40 to $90, so about as many bids stay out at the $7 ladder size. maxLoss 55 -> 105 only so 90 out fits next to the unchanged -$15 stop.", "openUsd": 90,
       "stopNet": 15,
-      "maxLoss": 55
+      "maxLoss": 105
     },
     "tennis": {
       "note": "10 Nov 2026 17:28 KST, enrique: start tennis. Real copy of the paper tennis favourite rules (mid 90-95c, 10 min before the start, ask within 2c of mid). $3 a bet, Jev sizing off, only when $25+ rests within 2c of the ask. Guards: 2 losses in a KST day stop it until the next day, 4 bets open at most, its own budget of $10 (enrique 17:56 KST: 10usd for tennis is totally fine, outside of what i said for crypto; lost + open stakes), separate from the crypto $70 cap (enrique 17:45 KST: tennis should have its own little budget). 11 Nov 2026 19:46 KST, enrique: extend tennis budget risk to 30 so there can be 10 different bets online instead of just 3: budget $10 -> $30, bets open at most 4 -> 10; $3 a bet and the 2-losses-a-day stop unchanged. 13 Nov 2026 14:06 KST, enrique: 'it makes literal no sense to just do trades until we lose twice and stop until next day, u have to either decide to stop for good or continue': the 2-losses-a-day pause is gone (dayLosses 99 = not a stop); the $30 budget is the only stop and ends it for good. 13 Nov 2026 17:10 KST, enrique: 'okay if tennis goes -10 then stop it': stopNet 10 = no new tennis bet once the settled real result is -$10 or worse, for good until his word; open bets settle. maxLoss 30 -> 45 only so that 10 open bets still fit next to that stop (it is no longer the stop). Code src/eventlive.ts.",
@@ -239,14 +245,18 @@
   },
   "hyperliquid": {
     "note": "17 Nov 2026 15:22-15:24 KST, enrique: 'new tab for hyperliquid', 'lets not mix it', 'and it is it's own wallet', 'how about i send eth to the arbitrum wallet', 'and u manage the swap too'. fund: 'dry' = the bot only says what it would do with the ETH in the wallet (status hyperliquid.funding.steps); 'go' = it keeps about $3 of ETH for gas, swaps the rest to USDC and deposits it into Hyperliquid (6 USDC test first). Turn to 'go' only after a dry run on the server shows no problems.",
-    "fund": "dry",
+    "fundNote": "17 Nov 2026 19:33 KST: go on enrique's word (15:24 KST \"and u manage the swap too\"; 19:10 KST \"why isnt hl trading on\"), after a clean dry run: swap 0.023838 ETH for about 42.73 USDC keeping 0.001673 ETH for gas, deposit 6 USDC test then 36.73.",
+    "fund": "go",
     "trade": {
       "note": "OFF. Real copies of Hyperliquid traders on Hyperliquid, every coin (src/hyperliquid/live.ts). Same rules as the Solana perps copies: a trader is real on its own paper record (20+ closed copies, half won, ahead, a day old), then on its real record (cut when behind after 3 real trades or at traderStopUsd); its own leverage up to half of Hyperliquid's limit for the coin, isolated margin; one position per trader and per coin. To make the one test trade (smallest BTC long, about $11, closed at the next look) add \"testOnce\": \"<a new name>\". To trade, set on to true.",
-      "on": false,
+      "onNote": "17 Nov 2026 20:04 KST: on, on enrique's word 19:10 KST \"why isnt hl trading on, it's based on the same perp traders as in the sol perps tab\", after funding finished and test t1 opened and closed (-$0.01). Same real-record rules as the Solana perps copies.",
+      "on": true,
       "collateralUsd": 10,
-      "maxOpen": 5,
+      "maxOpenNote": "17 Nov 2026 23:08 KST, enrique: 'yes allow more than one HL copy per trader, wtf'. Every open position of a real trader is copied (one per coin). Up to 10 at once; what really bounds it is the wallet's free money at $10 a position. Loss cap $50 unchanged.",
+      "maxOpen": 10,
       "maxLossUsd": 50,
-      "traderStopUsd": 9
+      "traderStopUsd": 9,
+      "testOnce": "t1"
     }
   }
 }

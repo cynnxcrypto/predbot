@@ -634,6 +634,12 @@ async function finish(d: LiveDeps, w: Wallet, p: Pos, buyState: Row["buy"]) {
 }
 /** Closed real trades by the Korean day they closed (t is written at the close), newest 30 days: count, won and the
  * net with every fee in (a buy that never landed counts its fees, not a trade). For the overview's day by day. */
+/** Coin symbols by mint, kept from the paper trades while they were open (a real position can outlive its paper one). */
+const SYMS = new Map<string, string>();
+function symOf(mint: string): string {
+  if (!SYMS.has(mint)) for (const o of paperOpens()) if (o.symbol) SYMS.set(o.mint, o.symbol);
+  return SYMS.get(mint) ?? "";
+}
 export function closeDays<R extends { t: number }>(rows: R[], net: (r: R) => number, counted: (r: R) => boolean) {
   const m: Record<string, { n: number; won: number; net: number }> = {};
   for (const r of rows) {
@@ -782,7 +788,9 @@ export function bucketsLiveSummary() {
     rows: state.rows.slice(-40).reverse().map(({ at: _at, ...x }) => x),
     // every day's closed real trades in SOL, the test trade left out
     days: closeDays(state.rows.filter((x) => x.rule !== TEST_RULE), (x) => x.netSol, (x) => x.buy === "landed"),
-    opens: state.opens.map((p) => ({ rule: p.rule, bucket: p.bucket, stage: p.stage, since: p.paperAt })),
+    // for the tab (17 Nov 2026, enrique: "positions open thing with no data of size, pnl or anything"): the coin's
+    // symbol (never its mint), what it cost, what it would sell for now, since when held
+    opens: state.opens.map((p) => ({ rule: p.rule, bucket: p.bucket, stage: p.stage, since: p.paperAt, boughtMs: p.boughtMs ?? null, sym: symOf(p.mint), stakeSol: r6(p.stakeSol ?? c.stakeSol), valueSol: p.valueSol != null ? r6(p.valueSol) : null })),
     // the one-time test trade: its name, when, where it stands and what it did to the wallet (every fee in)
     test: state.test ? { ...state.test, open: state.opens.filter((p) => p.rule === TEST_RULE).map((p) => p.stage), rows: state.rows.filter((x) => x.rule === TEST_RULE).map((x) => ({ t: x.t, buy: x.buy, netSol: r6(x.netSol), heldMin: x.heldMin })) } : null,
     rulesReal: rules.filter((x) => x.real).length,

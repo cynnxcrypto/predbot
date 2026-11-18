@@ -107,16 +107,18 @@ test("buckets: perp traders are picked from the leaderboard and their position c
   const A = (n: number) => "0x" + String(n).padStart(40, "0");
   const picked = hlPick({
     leaderboardRows: [
-      { ethAddress: A(1), accountValue: "500000", windowPerformances: perf(10, 100_000, 5, 0.3, 5_000_000) },
-      { ethAddress: A(2), accountValue: "500000", windowPerformances: perf(-10, 100_000, 5, 0.3, 5_000_000) },
-      { ethAddress: A(3), accountValue: "5000", windowPerformances: perf(10, 100_000, 5, 0.3, 50_000) },
-      { ethAddress: A(4), accountValue: "500000", windowPerformances: perf(10, 100_000, 5, 0.3, 500_000_000) },
-      { ethAddress: A(5), accountValue: "500000", windowPerformances: perf(10, 200_000, 5, 0.05, 5_000_000) },
-      { ethAddress: A(6), accountValue: "900000", windowPerformances: perf(10, 300_000, 5, 0.4, 5_000_000) },
+      { ethAddress: A(1), accountValue: "500000", windowPerformances: perf(10, 100_000, 60_000, 0.3, 5_000_000) },
+      { ethAddress: A(2), accountValue: "500000", windowPerformances: perf(-10, 100_000, 60_000, 0.3, 5_000_000) },
+      { ethAddress: A(3), accountValue: "50000", windowPerformances: perf(10, 100_000, 60_000, 0.3, 500_000) },
+      { ethAddress: A(4), accountValue: "500000", windowPerformances: perf(10, 100_000, 60_000, 0.3, 500_000_000) },
+      { ethAddress: A(5), accountValue: "500000", windowPerformances: perf(10, 200_000, 60_000, 0.01, 5_000_000) },
+      { ethAddress: A(6), accountValue: "900000", windowPerformances: perf(10, 300_000, 60_000, 0.4, 5_000_000) },
+      { ethAddress: A(7), accountValue: "500000", windowPerformances: perf(10, 5_000, 60_000, 0.3, 5_000_000) },
+      { ethAddress: A(8), accountValue: "500000", windowPerformances: perf(10, 100_000, 5_000, 0.3, 5_000_000) },
       { ethAddress: "nope", accountValue: "900000", windowPerformances: perf(10, 300_000, 5, 0.4, 5_000_000) },
     ],
   });
-  assert.deepEqual(picked.map((t) => t.address), [A(6), A(1)], "down on the week, small, market maker and low return are out; biggest month first");
+  assert.deepEqual(picked.map((t) => t.address), [A(6), A(1)], "down on the week, small account, small month or all-time profit, market maker and low return are out; biggest month first");
   assert.deepEqual(hlPick(null), []);
   const pos = hlPositions({ assetPositions: [{ position: { coin: "SOL", szi: "-500", positionValue: "41000" } }, { position: { coin: "BTC", szi: "0.01", positionValue: "900" } }, { position: { coin: "bad coin!", szi: "1", positionValue: "90000" } }] });
   assert.deepEqual(pos, { SOL: -41000 }, "small positions and odd names are ignored");
@@ -161,7 +163,7 @@ test("buckets: a full paper walk: spot buy and sell at quotes, a perp short, a c
           const n = 800;
           return json(Array.from({ length: n + 1 }, (_, i) => [(hour0 - n + i) * H, "0", String(300 - i * 0.2 + 0.1), String(300 - i * 0.2 - 0.1), String(i === n ? perpPx : 300 - i * 0.2)]));
         }
-        if (url.includes("leaderboard")) return json({ leaderboardRows: [{ ethAddress: trader, accountValue: "500000", windowPerformances: [["week", { pnl: "1", roi: "1", vlm: "1" }], ["month", { pnl: "9", roi: "0.5", vlm: "5000000" }], ["allTime", { pnl: "1", roi: "1", vlm: "1" }]] }] });
+        if (url.includes("leaderboard")) return json({ leaderboardRows: [{ ethAddress: trader, accountValue: "500000", windowPerformances: [["week", { pnl: "1", roi: "1", vlm: "1" }], ["month", { pnl: "90000", roi: "0.5", vlm: "5000000" }], ["allTime", { pnl: "100000", roi: "1", vlm: "1" }]] }] });
         const body = JSON.parse(init!.body!) as { type: string };
         if (body.type === "allMids") return json({ SOL: String(solPx) });
         return json({ assetPositions: traderPos });
@@ -319,7 +321,7 @@ test("buckets: a trader the list dropped and took back is looked at afresh: what
   _bucketsTest.reset();
   const A = "0x" + "a".repeat(40);
   const B = "0x" + "b".repeat(40);
-  const rowOf = (a: string) => ({ ethAddress: a, accountValue: "500000", windowPerformances: [["week", { pnl: "1", roi: "1", vlm: "1" }], ["month", { pnl: "9", roi: "0.5", vlm: "5000000" }], ["allTime", { pnl: "1", roi: "1", vlm: "1" }]] });
+  const rowOf = (a: string) => ({ ethAddress: a, accountValue: "500000", windowPerformances: [["week", { pnl: "1", roi: "1", vlm: "1" }], ["month", { pnl: "90000", roi: "0.5", vlm: "5000000" }], ["allTime", { pnl: "100000", roi: "1", vlm: "1" }]] });
   let board = [A];
   let posA: unknown[] = [];
   const deps = {
@@ -367,7 +369,7 @@ test("buckets: a trader the real side names as a winner stays followed when the 
   _bucketsTest.reset();
   const A = "0x" + "c".repeat(40);
   const Bq = "0x" + "d".repeat(40);
-  const rowOf = (a: string) => ({ ethAddress: a, accountValue: "500000", windowPerformances: [["week", { pnl: "1", roi: "1", vlm: "1" }], ["month", { pnl: "9", roi: "0.5", vlm: "5000000" }], ["allTime", { pnl: "1", roi: "1", vlm: "1" }]] });
+  const rowOf = (a: string) => ({ ethAddress: a, accountValue: "500000", windowPerformances: [["week", { pnl: "1", roi: "1", vlm: "1" }], ["month", { pnl: "90000", roi: "0.5", vlm: "5000000" }], ["allTime", { pnl: "100000", roi: "1", vlm: "1" }]] });
   let board = [A];
   let posA: unknown[] = [];
   const deps = {
@@ -411,7 +413,7 @@ test("buckets: a trader the real side names as a winner stays followed when the 
 test("buckets: a trader's close seen in a look whose prices fail is not lost: no trader is looked at without prices", async () => {
   _bucketsTest.reset();
   const A = "0x" + "e".repeat(40);
-  const rowOf = (a: string) => ({ ethAddress: a, accountValue: "500000", windowPerformances: [["week", { pnl: "1", roi: "1", vlm: "1" }], ["month", { pnl: "9", roi: "0.5", vlm: "5000000" }], ["allTime", { pnl: "1", roi: "1", vlm: "1" }]] });
+  const rowOf = (a: string) => ({ ethAddress: a, accountValue: "500000", windowPerformances: [["week", { pnl: "1", roi: "1", vlm: "1" }], ["month", { pnl: "90000", roi: "0.5", vlm: "5000000" }], ["allTime", { pnl: "100000", roi: "1", vlm: "1" }]] });
   let posA: unknown[] = [];
   let midsFail = false;
   const deps = {
@@ -452,7 +454,7 @@ test("buckets: the trader list prefers traders on SOL, BTC and ETH, and leaves o
   const addr = (c: string) => "0x" + c.repeat(40);
   const [ON, OFF, NEW, SEEN] = [addr("1"), addr("2"), addr("3"), addr("4")];
   // month profit: OFF best, then NEW, SEEN, ON
-  const rowOf = (a: string, pnl: number) => ({ ethAddress: a, accountValue: "500000", windowPerformances: [["week", { pnl: "1", roi: "1", vlm: "1" }], ["month", { pnl: String(pnl), roi: "0.5", vlm: "5000000" }], ["allTime", { pnl: "1", roi: "1", vlm: "1" }]] });
+  const rowOf = (a: string, pnl: number) => ({ ethAddress: a, accountValue: "500000", windowPerformances: [["week", { pnl: "1", roi: "1", vlm: "1" }], ["month", { pnl: String(pnl * 10000), roi: "0.5", vlm: "5000000" }], ["allTime", { pnl: "100000", roi: "1", vlm: "1" }]] });
   const deps = {
     quote: async () => 0n,
     jup: async () => [],
@@ -469,7 +471,7 @@ test("buckets: the trader list prefers traders on SOL, BTC and ETH, and leaves o
   const st = _bucketsTest.state();
   const now = NOW + 3 * 86_400_000;
   const copy = (trader: string, coin: string, i: number) => ({ trader, coin, dir: 1, at: now - 5 * 86_400_000 + i, exitAt: now - 4 * 86_400_000, net: 0.01, why: "closed" as const });
-  st.hlTrades = [...Array.from({ length: 12 }, (_, i) => copy(OFF, "HYPE", i)), copy(ON, "SOL", 0), ...Array.from({ length: 11 }, (_, i) => copy(ON, "HYPE", i + 1))] as never;
+  st.hlTrades = [...Array.from({ length: 12 }, (_, i) => copy(OFF, "DOGE", i)), copy(ON, "SOL", 0), ...Array.from({ length: 11 }, (_, i) => copy(ON, "DOGE", i + 1))] as never;
   assert.equal(B.majorTier(ON, now), 0);
   assert.equal(B.majorTier(OFF, now), 2);
   assert.equal(B.majorTier(NEW, now), 1);
@@ -486,7 +488,7 @@ test("buckets: a linked wallet is followed on paper off the list; liked traders 
   _bucketsTest.reset();
   const A = "0x" + "a".repeat(40);
   const X = "0x" + "c".repeat(40);
-  const rowOf = (a: string) => ({ ethAddress: a, accountValue: "500000", windowPerformances: [["week", { pnl: "1", roi: "1", vlm: "1" }], ["month", { pnl: "9", roi: "0.5", vlm: "5000000" }], ["allTime", { pnl: "1", roi: "1", vlm: "1" }]] });
+  const rowOf = (a: string) => ({ ethAddress: a, accountValue: "500000", windowPerformances: [["week", { pnl: "1", roi: "1", vlm: "1" }], ["month", { pnl: "90000", roi: "0.5", vlm: "5000000" }], ["allTime", { pnl: "100000", roi: "1", vlm: "1" }]] });
   let posX: unknown[] = [];
   const deps = {
     quote: async () => 0n,
@@ -521,4 +523,15 @@ test("buckets: a linked wallet is followed on paper off the list; liked traders 
   } finally {
     B.setExtraTraders(() => []);
   }
+});
+
+test("a followed position stays followed while it is still held, even when it dips under the size to start following", async () => {
+  const { hlPositions, hlDiff, HL_MIN_POS_USD, HL_KEEP_POS_USD } = await import("./buckets.js");
+  const st = (v: number, szi = "-100") => ({ assetPositions: [{ position: { coin: "ATOM", szi, positionValue: String(v) } }] });
+  const a = hlPositions(st(HL_MIN_POS_USD + 50))!;
+  const b = hlPositions(st(HL_MIN_POS_USD - 80), a)!;
+  assert.deepEqual(hlDiff(a, b), { opened: [], closed: [] });
+  assert.deepEqual(hlPositions(st(HL_MIN_POS_USD - 80)), {}, "not followed yet: too small to start");
+  assert.deepEqual(hlDiff(b, hlPositions(st(HL_KEEP_POS_USD - 1), b)!), { opened: [], closed: ["ATOM"] });
+  assert.deepEqual(hlDiff(b, hlPositions(st(HL_MIN_POS_USD - 80, "100"), b)!), { opened: [], closed: ["ATOM"] }, "turned round under the size: closed, not followed as new");
 });

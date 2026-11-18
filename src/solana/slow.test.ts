@@ -5,8 +5,11 @@ import { join } from "node:path";
 import { mock, test } from "node:test";
 
 process.env.DATA_DIR = mkdtempSync(join(tmpdir(), "solslow-"));
+// the size floors (17 Nov 2026) are tested on their own below; the other tests use small wallets
+process.env.SOLANA_SLOW_MIN_SOL = "0";
+process.env.SOLANA_SLOW_MIN_BUY_SOL = "0";
 
-const { tripsOf, screen, lateRet, ownRet, priceAfter, posRet, paperRules, slowTx, slowSummary, reportOf, followed, copySafe, onSlowSwap, slowWatch, jupCoins, coinOld, creditsDay, copyableOf, provenWallets, crowdStudy, crowdOnePerCoin, top5Sol, provenThen, _test, STAKE_SOL, TX_SOL, DELAY_COST, MIN_TRIPS } = await import("./slow.js");
+const { balanceOf, tripsOf, screen, lateRet, ownRet, priceAfter, posRet, paperRules, slowTx, slowSummary, reportOf, followed, copySafe, onSlowSwap, slowWatch, jupCoins, coinOld, creditsDay, copyableOf, provenWallets, crowdStudy, crowdOnePerCoin, top5Sol, provenThen, _test, STAKE_SOL, TX_SOL, DELAY_COST, MIN_TRIPS } = await import("./slow.js");
 
 const W = "Wa11et1111111111111111111111111111111111111";
 const M = "M1nt11111111111111111111111111111111111111";
@@ -739,4 +742,135 @@ test("proven then: each closed paper copy by what its wallet's record said when 
   // a copy still out when the next one is bought does not count for it: 20 closed copies bought in the same hour are all "too few"
   const same = Array.from({ length: 21 }, (_, i) => ({ ...copy("burst", 0, 0.3), mint: `b${i}` }));
   assert.equal(provenThen(same).tooFew.n, 21);
+});
+
+test("mid and high caps: coins sized by Jupiter, a wallet's past cap trips replayed 5 s late with costs, the shortlist followed and named", async () => {
+  _test.reset();
+  const now = Date.now();
+  const sec = Math.floor(now / 1000);
+  const old = new Date(now - 100 * DAY).toISOString();
+  const caps = ["CapA1111111111111111111111111111111111111", "CapB1111111111111111111111111111111111111", "CapC1111111111111111111111111111111111111"];
+  const memes = Array.from({ length: 12 }, (_, i) => `Meme${i}111111111111111111111111111111111111`.slice(0, 43));
+  const own: ReturnType<typeof txOf>[] = [];
+  // 12 trips in the three caps (every fourth one loses), then 12 losing memecoin trips: its own record is behind
+  for (let i = 0; i < 24; i++) {
+    const t0 = sec - 20 * 86_400 + i * 40_000;
+    const mint = i < 12 ? caps[i % 3] : memes[i - 12];
+    own.push(txOf(W, mint, true, 1, 1000, 1000 + i * 100, t0));
+    own.push(txOf(W, mint, false, i < 12 ? 1.1 : 0.5, 1000, 1050 + i * 100, t0 + 7200));
+  }
+  const jupAsked: string[] = [];
+  const fake = (async (_url: string, init: { body: string }) => {
+    const { params } = JSON.parse(init.body) as { params: [string, { filters: { slot?: { gte: number } } }] };
+    if (params[0] === W) return new Response(JSON.stringify({ result: { data: own.slice().reverse(), paginationToken: null } }), { status: 200 });
+    // other people's trades 5 s (13 slots) after the wallet's: buyers at 1/1000 after its buy; sellers after its sale
+    // at 1.15/1000, or 0.95/1000 on every fourth trip
+    const gte = params[1].filters.slot!.gte;
+    const i = Math.floor((gte - 1000) / 100);
+    const entry = (gte - 1000) % 100 === 13;
+    const p = entry ? 1 : i % 4 === 3 ? 0.95 : 1.15;
+    const data = [txOf("other1", params[0], entry, p, 1000, gte), txOf("other2", params[0], entry, p, 1000, gte + 1)];
+    return new Response(JSON.stringify({ result: { data, paginationToken: null } }), { status: 200 });
+  }) as unknown as typeof fetch;
+  const row = (id: string, mcap: number, liq: number, created = old, extra: Record<string, unknown> = {}) => ({ id, symbol: id.slice(0, 4), mcap, liquidity: liq, firstPool: { createdAt: created }, ...extra });
+  const jup = async (path: string) => {
+    jupAsked.push(path);
+    if (!path.startsWith("/tokens/v2/search")) return [];
+    // the caps are sized; the memecoins are small; one is unknown to Jupiter
+    return [row(caps[0], 2e8, 3e6), row(caps[1], 6e7, 9e5), row(caps[2], 1e9, 5e7), ...memes.slice(1).map((m) => row(m, 3e6, 1e5))];
+  };
+  _test.setCfg({ rpcUrl: () => "https://rpc.test/?api-key=k", fetch: () => fake, listed: () => [], busy: () => [], quote: async () => null, jup });
+  _test.state().candidates.push({ name: "coin buyer Wa11", address: W, source: "coin" });
+  assert.equal(await _test.readWallet({ name: "coin buyer Wa11", address: W }), true);
+  // behind on its own record, but its coins were sized before it was filed: 12 cap trips keep its swaps
+  assert.equal(jupAsked.filter((p) => p.startsWith("/tokens/v2/search")).length, 1);
+  assert.deepEqual([_test.capOk(caps[0]), _test.capOk(caps[1]), _test.capOk(memes[1]), _test.capOk(memes[0])], [true, true, false, false]);
+  assert.equal(_test.state().caps![memes[0]], undefined, "not sized: remembered as asked, not written down");
+  assert.equal(_test.state().caps![memes[1]], undefined, "a small coin is not written down either");
+  assert.equal(slowSummary().caps.coinsAsked, 15);
+  const rep = reportOf(W)!;
+  assert.equal(rep.pass, false);
+  assert.equal(rep.cap!.trips, 12);
+  assert.equal(rep.cap!.toReplay, 12);
+  assert.ok(_test.state().wallets[W].swaps.length > 0);
+  // the replay: 9 trips at +15% and 3 at -5%, 1.5% off each
+  assert.equal(await _test.capStep(), true);
+  const cap = reportOf(W)!.cap!;
+  assert.deepEqual([cap.priced, cap.won, cap.toReplay, cap.pass], [12, 9, 0, true]);
+  assert.equal(cap.sumPct, Math.round((9 * 13.5 - 3 * 6.5) * 10) / 10);
+  const sum = slowSummary();
+  assert.equal(sum.caps.shortlist.length, 1);
+  assert.equal(sum.caps.shortlist[0].name, "coin buyer Wa11");
+  assert.ok(!JSON.stringify(sum.caps).includes(W), "names only");
+  assert.ok(followed().some((x) => x.address === W), "the shortlist is followed on paper");
+  // a second pass asks nothing again
+  const before = _test.state().credits;
+  assert.equal(await _test.capStep(), true);
+  assert.equal(_test.state().credits, before);
+  _test.reset();
+});
+
+test("mid and high caps: the floor is $50M, $500k liquidity, 30 days; stocks and pool shares are not caps", () => {
+  const now = Date.now();
+  const got = jupCoins([
+    { id: "A", symbol: "AAA", mcap: 5e7, liquidity: 5e5, firstPool: { createdAt: new Date(now - 40 * DAY).toISOString() } },
+    { id: "B", symbol: "NVDAx", name: "NVIDIA xStock", mcap: 1e9, liquidity: 1e7 },
+    { id: "C", symbol: "JLP", mcap: 1e9, liquidity: 1e7 },
+    { id: "D", symbol: "DDD" },
+  ]);
+  assert.deepEqual(got.map((x) => [x.mint, x.mcap, x.liq, x.stock]), [["A", 5e7, 5e5, false], ["B", 1e9, 1e7, true], ["C", 1e9, 1e7, true], ["D", null, null, false]]);
+});
+
+test("mid and high caps: a coin with no first pool given passes on size; buyers of a cap coin become candidates first", () => {
+  _test.reset();
+  const now = Date.now();
+  const st = _test.state();
+  st.caps = { CapOld111111: { mcap: 3e8, liq: 2e6, createdMs: null, at: now }, CapYoung1111: { mcap: 3e8, liq: 2e6, createdMs: now - 5 * DAY, at: now }, CapThin11111: { mcap: 3e8, liq: 1e5, createdMs: null, at: now } };
+  assert.deepEqual([_test.capOk("CapOld111111"), _test.capOk("CapYoung1111"), _test.capOk("CapThin11111")], [true, false, false]);
+  st.pool = { memeBuyer: ["Meme01,Meme02,Meme03", 9], capBuyer: ["CapOld", 0.3] };
+  _test.promote(1);
+  assert.deepEqual(st.candidates.map((c) => c.address), ["capBuyer"]);
+  assert.deepEqual(slowSummary().caps.coinsOverFloorLeftOut, { young: 1, thin: 1 });
+  _test.reset();
+});
+
+test("mid and high caps: a cap buyer is promoted past the coin buyer limit", () => {
+  _test.reset();
+  const st = _test.state();
+  st.caps = { CapOld111111: { mcap: 3e8, liq: 2e6, createdMs: null, at: Date.now() } };
+  for (let i = 0; i < 30_000; i++) st.candidates.push({ name: `coin buyer ${i}`, address: `w${i}`, source: "coin" });
+  st.pool = { memeBuyer: ["Meme01", 9], capBuyer: ["CapOld", 0.3] };
+  _test.promote(5);
+  assert.equal(st.candidates.at(-1)!.address, "capBuyer");
+  assert.ok(st.pool.memeBuyer, "a memecoin buyer waits at the limit");
+  _test.reset();
+});
+
+test("screen: money at stake: a wallet that made little, or whose usual buy is small, does not pass", () => {
+  const { SOLANA_SLOW_MIN_SOL: a, SOLANA_SLOW_MIN_BUY_SOL: b } = process.env;
+  delete process.env.SOLANA_SLOW_MIN_SOL;
+  delete process.env.SOLANA_SLOW_MIN_BUY_SOL;
+  try {
+    const small = screen(Array.from({ length: 24 }, (_, i) => trip(i, i % 2 ? 0.3 : -0.1)), meta);
+    assert.equal(small.pass, false);
+    assert.ok(small.why.includes("made 2.4 SOL"), small.why.join());
+    const tiny = screen(Array.from({ length: 24 }, (_, i) => trip(i, i % 2 ? 0.3 : -0.1, 7200, 0.3)), meta);
+    assert.ok(tiny.why.includes("usual buy 0.3 SOL"), tiny.why.join());
+    const big = screen(Array.from({ length: 24 }, (_, i) => trip(i, i % 2 ? 0.3 : -0.1, 7200, 20)), meta);
+    assert.equal(big.pass, true, big.why.join());
+  } finally {
+    process.env.SOLANA_SLOW_MIN_SOL = a;
+    process.env.SOLANA_SLOW_MIN_BUY_SOL = b;
+  }
+});
+
+test("a followed wallet's balance: SOL and priced coins from one answer; unpriced coins count as nothing", () => {
+  const b = balanceOf({
+    nativeBalance: { lamports: 12_340_000_000, price_per_sol: 70, total_price: 863.8 },
+    items: [{ token_info: { price_info: { total_price: 1500.4 } } }, { token_info: {} }, { token_info: { price_info: { total_price: "x" } } }],
+  });
+  assert.deepEqual(b, { sol: 12.34, usd: 2364 });
+  assert.deepEqual(balanceOf({ nativeBalance: { lamports: 1e9 }, items: [] }), { sol: 1, usd: null }, "no SOL price: dollars unknown");
+  assert.equal(balanceOf({ items: [] }), null);
+  assert.equal(balanceOf(null), null);
 });

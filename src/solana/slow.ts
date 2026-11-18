@@ -36,6 +36,7 @@ import { DATA } from "../config.js";
 import { swapOf, type Meta } from "./discover.js";
 import { makeReader, refused, scrub, type Item } from "./history.js";
 import type { Tracked } from "./wallets.js";
+import { isStock } from "./buckets.js";
 
 /**
  * enrique, 14 Nov 2026 23:52 KST, with the Helius and Jupiter usage pages (Helius 695k of 10M credits with 10 days
@@ -63,6 +64,14 @@ const COINS_PER_PASS = 25;
 const PROMOTE_PER_PASS = 400;
 const WALLETS_PER_PASS = 300;
 // the screen
+// enrique, 17 Nov 2026 23:10 KST: "they're playing with nothing", "balances that are not trivial". The screen judged
+// % and counts only: the median passing wallet had made about $640 in the month with a usual buy of $36. A wallet
+// now needs MIN_REALISED_SOL made over the window and a usual first buy of MIN_USUAL_SOL (also on the cap shortlist).
+export const MIN_REALISED_SOL = 20;
+/** the two floors in force; SOLANA_SLOW_MIN_SOL / SOLANA_SLOW_MIN_BUY_SOL override them (the tests use small wallets) */
+export const minRealisedSol = () => (process.env.SOLANA_SLOW_MIN_SOL === undefined ? MIN_REALISED_SOL : Number(process.env.SOLANA_SLOW_MIN_SOL));
+export const minUsualSol = () => (process.env.SOLANA_SLOW_MIN_BUY_SOL === undefined ? MIN_USUAL_SOL : Number(process.env.SOLANA_SLOW_MIN_BUY_SOL));
+export const MIN_USUAL_SOL = 1;
 export const MIN_TRIPS = 20;
 export const MIN_HOLD_MIN = 30;
 export const MIN_WIN = 0.4;
@@ -107,6 +116,9 @@ export const COIN_MIN_AGE_D = 3;
 export const SAMPLE_DAYS = [0.25, 1, 2, 3, 4, 5, 6, 8, 10, 13] as const;
 /** pages of 100 transactions read at each sample point */
 export const SAMPLE_PAGES = 3;
+/** a mid or high cap is sampled wider and deeper (few such coins, and their buyers are the wallets wanted): about 1,000 credits a coin */
+export const CAP_SAMPLE_DAYS = [0.1, 0.25, 0.5, 1, 1.5, 2, 3, 4, 5, 6, 8, 10, 13, 17, 21, 25, 29] as const;
+export const CAP_SAMPLE_PAGES = 6;
 /** a coin without a known first day: a sample whose first transaction comes this long after the point is its launch, or a dead stretch */
 const SAMPLE_GAP_S = 3 * 3600;
 export const MIN_BUYER_SOL = 0.2;
@@ -118,6 +130,30 @@ const MAX_POOL = 40_000;
 export const JUP_LISTS: readonly string[] = ["toptraded", "toporganicscore", "toptrending"].flatMap((c) => ["24h", "6h", "1h", "5m"].map((i) => `${c}/${i}`));
 /** Jupiter's verified coins: thousands, most of them quiet, so only those that traded this much in a day ($, both sides) */
 export const VERIFIED_MIN_VOL_USD = 50_000;
+/**
+ * MID AND HIGH CAPS (enrique, 17 Nov 2026 19:06 KST: "dont focus on memecoins then" / "focus on mid to high caps";
+ * 19:08 KST "50m mcap sounds fine"; "why do we need them to do new trades, dont they have a history?"). A coin counts
+ * when Jupiter gives it a market value of CAP_MIN_USD+, CAP_MIN_LIQ_USD+ of liquidity and a first pool CAP_MIN_AGE_D+
+ * days old (no stables, staked SOL, pool shares or tokenised shares). A coin Jupiter has not described is not one.
+ * REPLAY: for a wallet with CAP_MIN_TRIPS+ round trips in such coins over the month, its newest CAP_REPLAY_TRIPS are
+ * replayed as our real copy makes them: in CAP_DELAY_SEC s after its first buy, out CAP_DELAY_SEC s after its first
+ * sale, each priced from other people's trades of the coin, CAP_COST off for swap fees, price impact and network fees.
+ */
+export const CAP_MIN_USD = 50_000_000;
+export const CAP_MIN_LIQ_USD = 500_000;
+export const CAP_MIN_AGE_D = 30;
+export const CAP_MIN_TRIPS = 8;
+export const CAP_REPLAY_TRIPS = 30;
+export const CAP_DELAY_SEC = 5;
+export const CAP_COST = 0.015;
+/** the shortlist: CAP_LIST_MIN+ replayed trips priced, half or more won, ahead, ahead in both halves, no one trip half the gain */
+export const CAP_LIST_MIN = 10;
+export const CAP_LIST_MAX = 25;
+const CAP_TTL_MS = 3 * 86_400_000;
+const CAP_RESAMPLE_MS = 86_400_000;
+/** Jupiter searches (100 coins each) a pass for coins our wallets traded that no list described */
+const CAP_LOOKUPS = 5;
+const CAP_WALLETS_PER_PASS = 20;
 const LAMPORTS = 1e9;
 const SOL_MINT = "So11111111111111111111111111111111111111112";
 const STABLES = new Set(["EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB"]);
@@ -160,6 +196,9 @@ export interface Trip {
   e30?: number | null;
   e300?: number | null;
   x30?: number | null;
+  /** filled by the cap replay: prices CAP_DELAY_SEC s after the first buy and after the first sell */
+  e5?: number | null;
+  x5?: number | null;
 }
 
 /** A wallet's swaps turned into closed round trips per coin; a coin it held before the window, or still holds, is left out. */
@@ -215,6 +254,44 @@ export function lateRet(t: Trip, d: (typeof DELAY_SEC)[number]): number | null {
   if (off(t.x30, t.p1) || off(e, t.p0)) return null;
   return t.x30 / e - 1 - DELAY_COST;
 }
+/** Our copy of one past trip in a mid or high cap: in and out CAP_DELAY_SEC s after the wallet, CAP_COST off. null = not priced. */
+export function capRet(t: Trip): number | null {
+  if (!t.e5 || !t.x5) return null;
+  if (t.t1 - t.t0 <= CAP_DELAY_SEC) return null; // it sold before our entry: no copy
+  const off = (a: number, b: number) => !(a > 0 && b > 0) || a / b > LATE_OFF || b / a > LATE_OFF;
+  if (off(t.x5, t.p1) || off(t.e5, t.p0)) return null;
+  return t.x5 / t.e5 - 1 - CAP_COST;
+}
+/** A wallet's mid and high cap trips and their replay; pass = on the shortlist (see CAP_LIST_MIN). */
+export function capOf(trips: Trip[], ok: (mint: string) => boolean) {
+  const ts = trips.filter((t) => ok(t.mint));
+  const recent = ts.slice(-CAP_REPLAY_TRIPS);
+  const v = recent.map(capRet).filter((x): x is number => x !== null);
+  const won = v.filter((x) => x > 0).length;
+  const sum = v.reduce((a, x) => a + x, 0);
+  const half = Math.floor(v.length / 2);
+  const older = v.slice(0, half).reduce((a, x) => a + x, 0);
+  const newer = v.slice(half).reduce((a, x) => a + x, 0);
+  const best = v.reduce((a, x) => Math.max(a, x), 0);
+  const topShare = sum > 0 ? best / sum : null;
+  const priced = recent.filter((t) => capRet(t) !== null);
+  const own = priced.map(ownRet).filter(Number.isFinite);
+  return {
+    trips: ts.length,
+    toReplay: recent.filter((t) => t.x5 === undefined).length,
+    priced: v.length,
+    won,
+    avgPct: v.length ? r((sum / v.length) * 100) : null,
+    sumPct: r(sum * 100),
+    olderPct: r(older * 100),
+    newerPct: r(newer * 100),
+    topSharePct: topShare === null ? null : Math.round(topShare * 100),
+    ownAvgPct: r((avg(own) ?? NaN) * 100),
+    holdMinMedian: r(median(ts.map(holdMin)), 0),
+    usualSol: r(median(ts.map((t) => t.firstSol))),
+    pass: v.length >= CAP_LIST_MIN && won * 2 >= v.length && sum > 0 && older > 0 && newer > 0 && topShare !== null && topShare < MAX_TOP_SHARE && (median(ts.map((t) => t.firstSol)) ?? 0) >= minUsualSol(),
+  };
+}
 /**
  * Can a copier win with this wallet? Its late copies say: with NO_COPY_MIN+ checked (5 min late, else 30 s late) and
  * fewer than 1 in NO_COPY_ONE_IN won, no, however good its own record is. null = too few checked to say.
@@ -244,6 +321,8 @@ export function screen(trips: Trip[], o: { txPerDay: number; buysPerDay: number;
   if (bot) why.push("bot");
   if (n < MIN_TRIPS) why.push(`${n} trips`);
   if (hold === null || hold < MIN_HOLD_MIN) why.push(`holds ${r(hold, 0)} min`);
+  if (total < minRealisedSol() && total > 0) why.push(`made ${r(total)} SOL`);
+  if (usual !== null && usual < minUsualSol()) why.push(`usual buy ${r(usual)} SOL`);
   if (total <= 0) why.push("lost");
   else if (older <= 0 || newer <= 0) why.push("one half lost");
   if (n && won / n < MIN_WIN) why.push(`${Math.round((won / n) * 100)}% won`);
@@ -379,7 +458,15 @@ interface WState {
   redo?: boolean;
   swaps: Packed[];
   /** delay-check prices by `${mint}|${slot0}` */
-  late: Record<string, { e30: number | null; e300: number | null; x30: number | null }>;
+  late: Record<string, { e30?: number | null; e300?: number | null; x30?: number | null; e5?: number | null; x5?: number | null }>;
+}
+/** A coin's size by Jupiter: market value and liquidity ($), first pool, when asked. Only coins near the floor are kept. */
+interface CapRow {
+  mcap: number;
+  liq: number;
+  createdMs: number | null;
+  stock?: boolean;
+  at: number;
 }
 interface State {
   day: string;
@@ -393,9 +480,63 @@ interface State {
   coins: Record<string, Coin>;
   /** buyers seen in the coin samples, not yet candidates: [coin keys joined by commas, SOL bought] */
   pool: Record<string, [string, number]>;
+  /** coin sizes by mint (mid and high caps, see CAP_MIN_USD) */
+  caps?: Record<string, CapRow>;
+  /** what each followed wallet holds, by address (see balanceStep) */
+  bal?: Record<string, Balance>;
   open: Pos[];
   recent: Pos[];
 }
+/**
+ * What a followed wallet holds (enrique, 17 Nov 2026: "balances that are not trivial"): its SOL and the dollar value
+ * of its priced coins, read once a day with one Helius call (getAssetsByOwner, 10 credits). Coins Helius has no
+ * price for count as nothing, so the value is a floor.
+ */
+export interface Balance {
+  sol: number;
+  usd: number | null;
+  at: number;
+}
+export const BAL_REFRESH_MS = 24 * 3_600_000;
+const BAL_PER_LOOP = 5;
+/** A getAssetsByOwner answer -> SOL held and dollars in SOL and priced coins; null when unreadable. */
+export function balanceOf(result: unknown): { sol: number; usd: number | null } | null {
+  const x = result as { nativeBalance?: { lamports?: unknown; total_price?: unknown }; items?: unknown } | null;
+  const lamports = Number(x?.nativeBalance?.lamports);
+  if (!Number.isFinite(lamports) || lamports < 0) return null;
+  const native = Number(x?.nativeBalance?.total_price);
+  let coins = 0;
+  for (const it of Array.isArray(x?.items) ? (x!.items as { token_info?: { price_info?: { total_price?: unknown } } }[]) : []) {
+    const v = Number(it?.token_info?.price_info?.total_price);
+    if (Number.isFinite(v) && v > 0) coins += v;
+  }
+  return { sol: Math.round(lamports / 1e7) / 100, usd: Number.isFinite(native) ? Math.round(native + coins) : null };
+}
+/** Reads the balance of up to BAL_PER_LOOP followed wallets not read for a day. false = out of credits or no key. */
+async function balanceStep(now = Date.now()): Promise<boolean> {
+  const due = followedAll().filter((w) => now - (state.bal?.[w.address]?.at ?? 0) > BAL_REFRESH_MS).slice(0, BAL_PER_LOOP);
+  for (const w of due) {
+    const url = cfg?.rpcUrl();
+    today();
+    if (!url || state.credits >= creditsDay()) return false;
+    health.calls++;
+    const body = { jsonrpc: "2.0", id: 1, method: "getAssetsByOwner", params: { ownerAddress: w.address, page: 1, limit: 1000, displayOptions: { showFungible: true, showNativeBalance: true } } };
+    const res = await cfg!.fetch()(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body), signal: AbortSignal.timeout(20_000) });
+    state.credits += 10;
+    const j = (await res.json().catch(() => ({}))) as { result?: unknown; error?: { message: string } };
+    if (j.error || !res.ok) throw new Error(j.error?.message ?? `http ${res.status}`);
+    const b = balanceOf(j.result);
+    // an unreadable answer is not asked again for a day either: the wallet shows as unknown, not as empty
+    (state.bal ??= {})[w.address] = b ? { ...b, at: now } : { sol: state.bal?.[w.address]?.sol ?? -1, usd: state.bal?.[w.address]?.usd ?? null, at: now };
+    cache = null;
+    saveScreen();
+  }
+  // wallets no longer followed are forgotten
+  const keep = new Set(followedAll().map((w) => w.address));
+  for (const a of Object.keys(state.bal ?? {})) if (!keep.has(a)) delete state.bal![a];
+  return true;
+}
+
 /** The screen (large, saved at most every 5 minutes) and the paper copies (saved at most every 15 s) apart. */
 const FILE = () => join(DATA, "solana", "slow-wallets.json");
 const PAPER = () => join(DATA, "solana", "slow-paper.json");
@@ -499,9 +640,9 @@ function refreshCandidates() {
 
 // ---- day-holder candidates: buyers of coins that keep trading for days ---------------------------------------------
 /** Coins from one of Jupiter's token lists: no SOL, no stablecoins, no staked SOL. createdMs = its first pool, if given. */
-export function jupCoins(rows: unknown): { mint: string; symbol: string; createdMs: number | null; vol: number | null }[] {
+export function jupCoins(rows: unknown): { mint: string; symbol: string; createdMs: number | null; vol: number | null; mcap: number | null; liq: number | null; stock: boolean }[] {
   if (!Array.isArray(rows)) return [];
-  const out: { mint: string; symbol: string; createdMs: number | null; vol: number | null }[] = [];
+  const out: { mint: string; symbol: string; createdMs: number | null; vol: number | null; mcap: number | null; liq: number | null; stock: boolean }[] = [];
   for (const x of rows as Record<string, unknown>[]) {
     const mint = typeof x?.id === "string" ? x.id : typeof x?.address === "string" ? x.address : null;
     if (!mint || mint === SOL_MINT || STABLES.has(mint)) continue;
@@ -511,12 +652,97 @@ export function jupCoins(rows: unknown): { mint: string; symbol: string; created
     const created = Date.parse(String((x.firstPool as { createdAt?: unknown } | undefined)?.createdAt ?? ""));
     const st = x.stats24h as { buyVolume?: unknown; sellVolume?: unknown } | undefined;
     const vol = Number(st?.buyVolume) + Number(st?.sellVolume);
-    out.push({ mint, symbol, createdMs: Number.isFinite(created) ? created : null, vol: Number.isFinite(vol) ? vol : null });
+    const mcap = Number(x.mcap);
+    const liq = Number(x.liquidity);
+    const name = String(x.name ?? "");
+    // pool and vault shares are a basket with fees of their own, and a stablecoin by name is no mid cap
+    const stock = isStock(x) || /^JLP$|LP$/i.test(symbol) || /\blp\b|liquidity|\bpool\b|\bvault\b|stable|dollar/i.test(name) || tags.some((t) => /^lp$|stable/i.test(t));
+    out.push({ mint, symbol, createdMs: Number.isFinite(created) ? created : null, vol: Number.isFinite(vol) ? vol : null, mcap: Number.isFinite(mcap) && x.mcap != null ? mcap : null, liq: Number.isFinite(liq) && x.liquidity != null ? liq : null, stock });
   }
   return out;
 }
 /** Trades for days: its first pool is COIN_MIN_AGE_D+ days old, or (no date given) it was on a list on 2+ days, or ours. */
 export const coinOld = (c: Coin, nowMs: number) => c.from === "ours" || (c.createdMs !== null ? nowMs - c.createdMs >= COIN_MIN_AGE_D * 86_400_000 : c.days.length >= 2);
+/**
+ * Jupiter's description of a coin, good for CAP_TTL_MS. Written to the state file only for a coin of half the floor or
+ * more (thousands of memecoins are asked): the rest are only remembered as asked, in memory.
+ */
+function setCap(x: { mint: string; createdMs: number | null; mcap: number | null; liq: number | null; stock: boolean }, nowMs = Date.now()) {
+  const caps = (state.caps ??= {});
+  const was = caps[x.mint] ?? null;
+  const row: CapRow | null = x.mcap !== null && x.liq !== null && x.mcap >= CAP_MIN_USD / 2 ? { mcap: Math.round(x.mcap), liq: Math.round(x.liq), createdMs: x.createdMs, ...(x.stock ? { stock: true } : {}), at: nowMs } : null;
+  if (row) caps[x.mint] = row;
+  else delete caps[x.mint];
+  capAsked.set(x.mint, nowMs);
+  if (capOkRow(was, nowMs) !== capOkRow(row, nowMs)) capsMoved = true;
+}
+/** Asked of Jupiter within CAP_TTL_MS (a coin it sized, or did not know). */
+const capKnown = (m: string, nowMs = Date.now()) => nowMs - Math.max(state.caps?.[m]?.at ?? 0, capAsked.get(m) ?? 0) < CAP_TTL_MS;
+let capsMoved = false;
+/** Why a coin of CAP_MIN_USD+ is not a cap, or "" when it is. No first pool given: the old coins (Jupiter often has none for them) pass. */
+const capWhy = (c: CapRow, nowMs: number) => (c.stock ? "share" : c.liq < CAP_MIN_LIQ_USD ? "thin" : c.createdMs !== null && nowMs - c.createdMs < CAP_MIN_AGE_D * 86_400_000 ? "young" : "");
+const capOkRow = (c: CapRow | null, nowMs: number) => !!c && c.mcap >= CAP_MIN_USD && capWhy(c, nowMs) === "";
+/** A mid or high cap by its last description: CAP_MIN_USD+ market value, CAP_MIN_LIQ_USD+ liquidity, CAP_MIN_AGE_D+ days old. */
+export const capOk = (mint: string, nowMs = Date.now()) => capOkRow(state.caps?.[mint] ?? null, nowMs);
+/**
+ * Coins no list described lately, that our kept wallets traded or a paper copy holds: asked of Jupiter's search, 100
+ * a call, CAP_LOOKUPS calls a pass. Its answer says nothing of a coin it does not know: that one is written down as null.
+ */
+async function capLookup(nowMs = Date.now()): Promise<number> {
+  if (!cfg?.jup) return 0;
+  const want = new Map<string, number>();
+  const stale = (m: string) => m !== SOL_MINT && !STABLES.has(m) && !capKnown(m, nowMs);
+  for (const p of state.open) if (stale(p.mint)) want.set(p.mint, 1e9);
+  for (const w of Object.values(state.wallets)) for (const x of w.swaps) if (stale(x[2])) want.set(x[2], (want.get(x[2]) ?? 0) + 1);
+  const mints = [...want].sort((a, b) => b[1] - a[1]).map(([m]) => m).slice(0, CAP_LOOKUPS * 100);
+  let asked = 0;
+  for (let i = 0; i < mints.length && !stopped; i += 100) {
+    if (!(await askCaps(mints.slice(i, i + 100), nowMs))) break;
+    asked++;
+  }
+  return asked;
+}
+/** One Jupiter search for up to 100 coins. false = no answer (nothing written down). */
+async function askCaps(batch: string[], nowMs = Date.now()): Promise<boolean> {
+  if (!cfg?.jup || !batch.length) return false;
+  // the Jupiter key is shared with the real copy's quotes: one search every CAP_ASK_GAP_MS at most
+  const wait = capLastAsk + CAP_ASK_GAP_MS - Date.now();
+  if (wait > 0) await sleep(wait);
+  capLastAsk = Date.now();
+  let rows: ReturnType<typeof jupCoins>;
+  try {
+    rows = jupCoins(await cfg.jup(`/tokens/v2/search?query=${batch.join(",")}`));
+  } catch (e) {
+    coinHealth.lastError = scrub(String((e as Error)?.message ?? e));
+    return false;
+  }
+  capHealth.lookups++;
+  const got = new Set(rows.map((x) => x.mint));
+  for (const x of rows) if (batch.includes(x.mint)) setCap(x, nowMs);
+  for (const m of batch)
+    if (!got.has(m)) {
+      delete state.caps?.[m];
+      capAsked.set(m, nowMs);
+    }
+  return true;
+}
+let capLastAsk = 0;
+const CAP_ASK_GAP_MS = 1500;
+/**
+ * A wallet about to be filed as far from the bar (its swaps dropped) with CAP_MIN_TRIPS+ round trips in coins no list
+ * has sized: those coins are asked of Jupiter first (one search), so that a mid and high cap trader whose memecoin
+ * trades lose is not filed away before its cap trips are seen. true = asked.
+ */
+async function sizeCoins(swaps: SSwap[]): Promise<boolean> {
+  const now = Date.now();
+  const by = new Map<string, number>();
+  for (const t of tripsOf(swaps).trips) if (!capKnown(t.mint, now) && t.mint !== SOL_MINT && !STABLES.has(t.mint)) by.set(t.mint, (by.get(t.mint) ?? 0) + 1);
+  if ([...by.values()].reduce((a, n) => a + n, 0) < CAP_MIN_TRIPS) return false;
+  return askCaps([...by].sort((a, b) => b[1] - a[1]).slice(0, 100).map(([m]) => m));
+}
+/** when a coin Jupiter did not describe was asked (in memory: after a restart it is asked again once) */
+const capAsked = new Map<string, number>();
+const capHealth = { lookups: 0, replayed: 0 };
 /** Coins the read wallets traded on 3+ different days (free: from swaps already read). */
 function ourCoins(): string[] {
   const days = new Map<string, Set<number>>();
@@ -547,7 +773,10 @@ async function refreshCoins() {
     let ok = 0;
     for (const l of JUP_LISTS) {
       try {
-        for (const x of jupCoins(await cfg.jup(`/tokens/v2/${l}?limit=100`))) add(x.mint, x.symbol, x.createdMs, "jupiter", x.vol);
+        for (const x of jupCoins(await cfg.jup(`/tokens/v2/${l}?limit=100`))) {
+          add(x.mint, x.symbol, x.createdMs, "jupiter", x.vol);
+          setCap(x);
+        }
         ok++;
       } catch (e) {
         coinHealth.lastError = scrub(String((e as Error)?.message ?? e));
@@ -555,7 +784,11 @@ async function refreshCoins() {
     }
     // the verified coins: only the busy ones, and only where the list says how busy (else none of them)
     try {
-      for (const x of jupCoins(await cfg.jup("/tokens/v2/tag?query=verified"))) if ((x.vol ?? 0) >= VERIFIED_MIN_VOL_USD) add(x.mint, x.symbol, x.createdMs, "jupiter", x.vol);
+      for (const x of jupCoins(await cfg.jup("/tokens/v2/tag?query=verified"))) {
+        // every verified coin's size is written down (the mid and high caps); only the busy ones are sampled
+        if ((x.mcap ?? 0) >= CAP_MIN_USD / 2 || x.mint in (state.caps ?? {})) setCap(x);
+        if ((x.vol ?? 0) >= VERIFIED_MIN_VOL_USD) add(x.mint, x.symbol, x.createdMs, "jupiter", x.vol);
+      }
       ok++;
     } catch (e) {
       coinHealth.lastError = scrub(String((e as Error)?.message ?? e));
@@ -572,11 +805,12 @@ async function sampleCoin(mint: string): Promise<boolean> {
   const c = state.coins[mint];
   const now = Date.now();
   const seen = new Map<string, number>();
-  for (const d of SAMPLE_DAYS) {
+  const cap = capOk(mint, now);
+  for (const d of cap ? CAP_SAMPLE_DAYS : SAMPLE_DAYS) {
     const from = now - d * 86_400_000;
     if (c.createdMs !== null && from < c.createdMs + 86_400_000) continue; // launch-day buyers are snipers
     let token: string | null = null;
-    for (let i = 0; i < SAMPLE_PAGES; i++) {
+    for (let i = 0; i < (cap ? CAP_SAMPLE_PAGES : SAMPLE_PAGES); i++) {
       const pg = await page(mint, { blockTime: { gte: Math.floor(from / 1000) } }, "asc", token);
       if (!pg) return false;
       // no first day given: if nothing traded for hours after the point, what comes back is its launch (or a dead stretch)
@@ -610,14 +844,19 @@ async function sampleCoin(mint: string): Promise<boolean> {
 function promote(max = PROMOTE_PER_PASS) {
   const have = new Set(state.candidates.map((c) => c.address));
   for (const w of Object.keys(state.pool)) if (have.has(w)) delete state.pool[w];
+  const now = Date.now();
+  const capKeys = new Set(Object.keys(state.caps ?? {}).filter((m) => capOk(m, now)).map((m) => m.slice(0, 6)));
   let n = state.candidates.filter((c) => srcOf(c) === "coin").length;
   const ranked = Object.entries(state.pool)
     .filter(([w]) => !have.has(w))
-    .map(([w, [k, sol]]) => ({ w, coins: k.split(",").length, sol }))
-    .sort((a, b) => b.coins - a.coins || b.sol - a.sol);
+    .map(([w, [k, sol]]) => ({ w, coins: k.split(",").length, cap: k.split(",").some((x) => capKeys.has(x)), sol }))
+    // buyers of a mid or high cap first (enrique, 17 Nov 2026: "cant u find wallets that are good at spot trading of midcaps?")
+    .sort((a, b) => Number(b.cap) - Number(a.cap) || b.coins - a.coins || b.sol - a.sol);
   let added = 0;
   for (const x of ranked) {
-    if (n >= MAX_COIN_BUYERS || added >= max) break;
+    if (added >= max) break;
+    // the coin buyers are capped, except buyers of a mid or high cap (the wallets wanted since 17 Nov 2026)
+    if (n >= MAX_COIN_BUYERS && !x.cap) continue;
     state.candidates.push({ name: `coin buyer ${x.w.slice(0, 4)}`, address: x.w, source: "coin" });
     delete state.pool[x.w];
     n++;
@@ -636,8 +875,10 @@ async function coinStep(max = COINS_PER_PASS): Promise<boolean> {
   const now = Date.now();
   const recent = Object.values(state.coins).filter((c) => c.sampledAt && now - c.sampledAt < COIN_RESAMPLE_MS).length;
   const allDue = Object.entries(state.coins)
-    .filter(([, c]) => coinOld(c, now) && !(c.sampledAt && now - c.sampledAt < COIN_RESAMPLE_MS))
-    .sort((a, b) => (a[1].from === b[1].from ? b[1].days.length - a[1].days.length || (b[1].vol ?? 0) - (a[1].vol ?? 0) : a[1].from === "jupiter" ? -1 : 1))
+    // a mid or high cap is sampled again daily (new buyers of it every day), the rest weekly
+    .filter(([m, c]) => coinOld(c, now) && !(c.sampledAt && now - c.sampledAt < (capOk(m, now) ? CAP_RESAMPLE_MS : COIN_RESAMPLE_MS)))
+    // mid and high caps first (enrique, 17 Nov 2026: "focus on mid to high caps"): their buyers are the wallets wanted
+    .sort((a, b) => Number(capOk(b[0], now)) - Number(capOk(a[0], now)) || (a[1].from === b[1].from ? b[1].days.length - a[1].days.length || (b[1].vol ?? 0) - (a[1].vol ?? 0) : a[1].from === "jupiter" ? -1 : 1))
     .slice(0, Math.max(0, MAX_COINS - recent));
   const due = allDue.slice(0, max);
   coinHealth.due = allDue.length - due.length;
@@ -731,14 +972,18 @@ async function readWallet(c: { name: string; address: string }) {
   };
   // far from the bar: its numbers stay, its swaps do not (thousands of wallets would not fit the state file)
   if (!bot && !fast) {
-    const rep = reportOf(c.address)!;
+    let rep = reportOf(c.address)!;
+    if (!kept(rep) && (await sizeCoins(swaps))) {
+      memo.delete(state.wallets[c.address]);
+      rep = reportOf(c.address)!;
+    }
     if (!kept(rep)) state.wallets[c.address] = { ...state.wallets[c.address], swaps: [], out: { trips: rep.trips, tripsPerDay: rep.tripsPerDay, sol: rep.realisedSol, wonPct: rep.wonPct, holdMin: rep.holdMinMedian, why: rep.why, copyable: rep.copyable } };
   }
   return true;
 }
 /** Worth its swaps and a daily read: it passes, or is near (10+ trips, a median hold of MIN_HOLD_MIN+ min, and ahead). */
-export const kept = (x: { pass: boolean; trips: number; holdMinMedian: number | null; realisedSol: number | null }) =>
-  x.pass || (x.trips >= 10 && (x.holdMinMedian ?? 0) >= MIN_HOLD_MIN && (x.realisedSol ?? 0) > 0);
+export const kept = (x: { pass: boolean; trips: number; holdMinMedian: number | null; realisedSol: number | null; cap?: { trips: number } | null }) =>
+  x.pass || (x.trips >= 10 && (x.holdMinMedian ?? 0) >= MIN_HOLD_MIN && (x.realisedSol ?? 0) > 0) || (x.cap?.trips ?? 0) >= CAP_MIN_TRIPS;
 
 /** Step 2 for one wallet that passed the screen: its newest trips not yet checked. */
 async function checkLate(address: string) {
@@ -746,7 +991,7 @@ async function checkLate(address: string) {
   const { trips } = tripsOf(w.swaps.map(unpack));
   for (const t of trips.slice(-DELAY_TRIPS)) {
     const k = `${t.mint}|${t.slot0}`;
-    if (w.late[k] || stopped) continue;
+    if (w.late[k]?.x30 !== undefined || stopped) continue;
     const at = async (slot: number, side: "entry" | "exit") => {
       const pg = await page(t.mint, { slot: { gte: slot } }, "asc", null);
       if (!pg) throw new Error("cap");
@@ -756,6 +1001,7 @@ async function checkLate(address: string) {
     try {
       memo.delete(w);
       w.late[k] = {
+        ...w.late[k],
         e30: await at(t.slot0 + Math.round(30 * SLOTS_PER_SEC), "entry"),
         e300: t.t1 - t.t0 > 300 ? await at(t.slot0 + Math.round(300 * SLOTS_PER_SEC), "entry") : null,
         x30: await at(t.slot1 + Math.round(EXIT_SEC * SLOTS_PER_SEC), "exit"),
@@ -768,8 +1014,73 @@ async function checkLate(address: string) {
   return true;
 }
 
+/** The cap replay for one wallet: its newest CAP_REPLAY_TRIPS mid and high cap trips not yet priced. false = credit cap. */
+async function checkCap(address: string, nowMs = Date.now()) {
+  const w = state.wallets[address];
+  if (!w) return true;
+  const { trips } = tripsOf(w.swaps.map(unpack));
+  for (const t of trips.filter((x) => capOk(x.mint, nowMs)).slice(-CAP_REPLAY_TRIPS)) {
+    const k = `${t.mint}|${t.slot0}`;
+    if (w.late[k]?.x5 !== undefined || stopped) continue;
+    const at = async (slot: number, side: "entry" | "exit") => {
+      const pg = await page(t.mint, { slot: { gte: slot } }, "asc", null);
+      if (!pg) throw new Error("cap");
+      const swaps = pg.data.map((it) => swapOf(it.meta, payerOf(it), it.slot)).filter((s): s is NonNullable<typeof s> => !!s && s.mint === t.mint && s.wallet !== address);
+      return priceAfter(swaps, side);
+    };
+    try {
+      const steps = Math.round(CAP_DELAY_SEC * SLOTS_PER_SEC);
+      const e5 = t.t1 - t.t0 > CAP_DELAY_SEC ? await at(t.slot0 + steps, "entry") : null;
+      const x5 = await at(t.slot1 + steps, "exit");
+      memo.delete(w);
+      w.late[k] = { ...w.late[k], e5, x5 };
+      capHealth.replayed++;
+    } catch (e) {
+      if ((e as Error).message === "cap") return false;
+      throw e;
+    }
+  }
+  return true;
+}
+/** The wallets due a cap replay: CAP_MIN_TRIPS+ mid and high cap trips, some not priced; most of those first. */
+function capDue(max = CAP_WALLETS_PER_PASS): string[] {
+  return reports()
+    .filter((x) => !x.bot && !x.fast && x.cap && x.cap.trips >= CAP_MIN_TRIPS && x.cap.toReplay > 0)
+    .sort((a, b) => b.cap!.trips - a.cap!.trips)
+    .slice(0, max)
+    .map((x) => x.address);
+}
+/** One pass of the cap side: coin sizes looked up, then the replay. false = credit cap. */
+async function capStep(): Promise<boolean> {
+  await capLookup();
+  if (capsMoved) {
+    capsMoved = false;
+    memo = new WeakMap();
+    cache = null;
+  }
+  for (const a of capDue()) {
+    if (stopped) break;
+    health.working = `replay ${state.wallets[a]?.name ?? a.slice(0, 4)}`;
+    const all = await checkCap(a);
+    cache = null;
+    if (!all) return false;
+    saveScreen();
+  }
+  return true;
+}
+/**
+ * The cap shortlist (enrique, 17 Nov 2026): people (not programs, not flippers) whose replayed mid and high cap trips
+ * pass (see capOf), most replayed gain first. The real copy takes its wallets from here when it runs on caps only.
+ */
+export function capWallets(): { name: string; address: string; priced: number; won: number; avgPct: number | null; sumPct: number | null }[] {
+  return reports()
+    .filter((x) => !x.bot && !x.fast && x.cap?.pass && copySafe(x.address))
+    .sort((a, b) => (b.cap!.sumPct ?? 0) - (a.cap!.sumPct ?? 0))
+    .slice(0, CAP_LIST_MAX)
+    .map((x) => ({ name: x.name, address: x.address, priced: x.cap!.priced, won: x.cap!.won, avgPct: x.cap!.avgPct, sumPct: x.cap!.sumPct }));
+}
 /** A wallet's report by its stored state; a read replaces that object, a late check drops its entry. */
-const memo = new WeakMap<WState, ReturnType<typeof reportNow>>();
+let memo = new WeakMap<WState, ReturnType<typeof reportNow>>();
 export function reportOf(address: string) {
   const w = state.wallets[address];
   if (!w) return null;
@@ -782,17 +1093,18 @@ function reportNow(address: string, w: WState) {
   if (w.out) {
     const s = screen([], { ...o, open: 0 });
     const x = w.out;
-    return { name: w.name, address, ...s, trips: x.trips, tripsPerDay: x.tripsPerDay, realisedSol: x.sol, wonPct: x.wonPct, holdMinMedian: x.holdMin, fast: false, pass: false, why: x.why };
+    return { name: w.name, address, ...s, trips: x.trips, tripsPerDay: x.tripsPerDay, realisedSol: x.sol, wonPct: x.wonPct, holdMinMedian: x.holdMin, fast: false, pass: false, why: x.why, cap: null };
   }
   if (w.fast) {
     // a flipper read only as far as its newest pages: its own numbers from those, never a pass
     const s = screen([], { ...o, open: 0 });
     const f = w.fast;
-    return { name: w.name, address, ...s, trips: f.trips, realisedSol: f.sol, wonPct: f.wonPct, holdMinMedian: f.holdMin, bot: s.bot || f.holdMin < 2, fast: true, pass: false, why: [`holds ${f.holdMin} min`] };
+    return { name: w.name, address, ...s, trips: f.trips, realisedSol: f.sol, wonPct: f.wonPct, holdMinMedian: f.holdMin, bot: s.bot || f.holdMin < 2, fast: true, pass: false, why: [`holds ${f.holdMin} min`], cap: null };
   }
   const { trips, open } = tripsOf(w.swaps.map(unpack));
   for (const t of trips) Object.assign(t, w.late[`${t.mint}|${t.slot0}`] ?? {});
-  return { name: w.name, address, ...screen(trips, { ...o, open }), fast: false };
+  const now = Date.now();
+  return { name: w.name, address, ...screen(trips, { ...o, open }), fast: false, cap: w.bot ? null : capOf(trips, (m) => capOk(m, now)) };
 }
 type Report = NonNullable<ReturnType<typeof reportOf>> & { source: Source };
 let cache: Report[] | null = null;
@@ -811,12 +1123,26 @@ const lateWin = (x: { late: { in30s: { n: number; won: number }; in5min: { n: nu
  * Wallets followed on paper: those that pass and are not shown uncopyable by their late copies; most late copies won
  * first (unchecked last). The share won, not the average: one mispriced coin moves an average, not a share.
  */
-export function followed(): { name: string; address: string }[] {
-  return reports()
+/** Every wallet the screen would follow, before the balance floor (their balances are read from this list). */
+function followedAll(): { name: string; address: string }[] {
+  const v = reports()
     .filter((x) => x.pass && x.copyable !== false)
     .sort((a, b) => lateWin(b) - lateWin(a) || (b.late.in5min.medianPct ?? -1e9) - (a.late.in5min.medianPct ?? -1e9) || (b.realisedSol ?? 0) - (a.realisedSol ?? 0))
     .slice(0, FOLLOW_MAX)
     .map((x) => ({ name: x.name, address: x.address }));
+  // and the cap shortlist, followed on paper as a live check of its replay
+  for (const c of capWallets()) if (!v.some((x) => x.address === c.address)) v.push({ name: c.name, address: c.address });
+  return v;
+}
+/** A wallet whose balance was read and is under MIN_BAL_USD is not followed (unknown is not small). SOLANA_SLOW_MIN_BAL_USD overrides. */
+export const MIN_BAL_USD = 5000;
+const minBalUsd = () => (process.env.SOLANA_SLOW_MIN_BAL_USD === undefined ? MIN_BAL_USD : Number(process.env.SOLANA_SLOW_MIN_BAL_USD));
+const balSmall = (address: string) => {
+  const b = state.bal?.[address];
+  return Boolean(b && b.usd != null && b.usd < minBalUsd());
+};
+export function followed(): { name: string; address: string }[] {
+  return followedAll().filter((w) => !balSmall(w.address));
 }
 /**
  * Wallets proven on paper at the entry the real copy makes (5 s in, 5 s out): followed now (so it still passes the
@@ -1007,6 +1333,24 @@ async function loop() {
       coinHealth.lastError = scrub(String((e as Error)?.message ?? e));
     }
     if (coinHealth.sampled) did = true;
+    try {
+      const before = capHealth.replayed;
+      if (!(await capStep())) health.state = "resting until tomorrow (daily credit cap)";
+      if (capHealth.replayed > before) {
+        did = true;
+        refreshFollow();
+      }
+    } catch (e) {
+      health.errors++;
+      health.lastError = scrub(String((e as Error)?.message ?? e));
+    }
+    try {
+      await balanceStep();
+      refreshFollow();
+    } catch (e) {
+      health.errors++;
+      health.lastError = scrub(String((e as Error)?.message ?? e));
+    }
     for (const c of dueWallets()) {
       if (stopped) return;
       health.working = c.name;
@@ -1307,6 +1651,47 @@ export function slowSummary() {
     /** people with 10+ trips, most realised SOL first: a ranking, not a pick */
     near: people.filter((x) => !x.pass && x.trips >= 10).sort((a, b) => (b.realisedSol ?? 0) - (a.realisedSol ?? 0)).slice(0, 15).map(slim),
     followed: fol.map((x) => x.name),
+    /** each followed wallet's own size: SOL held and dollars in SOL and priced coins (a floor; null = not read yet),
+     *  beside what it made over the window and its usual first buy */
+    /** passing wallets not followed because their balance is under the floor: name and dollars */
+    leftOutSmall: followedAll().filter((w) => balSmall(w.address)).map((w) => ({ name: w.name, usd: state.bal?.[w.address]?.usd ?? null })),
+    minBalanceUsd: minBalUsd(),
+    followedSizes: fol.map((x) => {
+      const b = state.bal?.[x.address];
+      const rep = reportOf(x.address);
+      return { name: x.name, sol: b && b.sol >= 0 ? b.sol : null, usd: b?.usd ?? null, readAt: b?.at ?? null, realisedSol: rep?.realisedSol ?? null, buySolMedian: rep?.buySolMedian ?? null };
+    }),
+    /** mid and high caps (enrique, 17 Nov 2026): coin sizes, the replay of each wallet's past cap trips, the shortlist */
+    caps: (() => {
+      const now = Date.now();
+      const rows = Object.values(state.caps ?? {});
+      const withCap = people.filter((x) => x.cap && x.cap.trips > 0);
+      const capDone = done.filter((p) => capOk(p.mint, now));
+      const v = capDone.map((p) => posRet(p, 5, 5)).filter((y): y is number => y !== undefined);
+      return {
+        note: `A mid or high cap: Jupiter gives it $${CAP_MIN_USD / 1e6}M+ market value, $${CAP_MIN_LIQ_USD / 1e3}k+ liquidity and a first pool ${CAP_MIN_AGE_D}+ days old (no stables, staked SOL, pool or tokenised shares). REPLAY: a wallet with ${CAP_MIN_TRIPS}+ round trips in those coins over ${DAYS_BACK} days has its newest ${CAP_REPLAY_TRIPS} replayed as our real copy makes them: in ${CAP_DELAY_SEC} s after its first buy, out ${CAP_DELAY_SEC} s after its first sale, priced from other people's trades of the coin, ${CAP_COST * 100}% off for fees and price impact. SHORTLIST: ${CAP_LIST_MIN}+ priced, half or more won, ahead, ahead in both halves, no one trip half the gain, not a program or a flipper; most replayed gain first (sumPct = the replayed returns added up, in % of one stake). The shortlist is followed on paper too (paperCopies: its 5 s copies in these coins).`,
+        coinsSized: rows.length,
+        coinsAsked: capAsked.size,
+        coinsOk: Object.keys(state.caps ?? {}).filter((m) => capOk(m, now)).length,
+        /** coins of CAP_MIN_USD+ left out, by why: thin liquidity, younger than CAP_MIN_AGE_D days, a pool or tokenised share */
+        coinsOverFloorLeftOut: rows.filter((c) => c.mcap >= CAP_MIN_USD && capWhy(c, now)).reduce<Record<string, number>>((a, c) => ((a[capWhy(c, now)] = (a[capWhy(c, now)] ?? 0) + 1), a), {}),
+        /** buyers of a cap coin waiting in the pool (they become candidates first) */
+        capBuyersInPool: (() => {
+          const keys = new Set(Object.keys(state.caps ?? {}).filter((m) => capOk(m, now)).map((m) => m.slice(0, 6)));
+          return Object.values(state.pool).filter(([k]) => k.split(",").some((x) => keys.has(x))).length;
+        })(),
+        coinsOkSampledThisWeek: Object.entries(state.coins).filter(([m, c]) => capOk(m, now) && c.sampledAt && now - c.sampledAt < COIN_RESAMPLE_MS).length,
+        lookups: capHealth.lookups,
+        walletsWithCapTrips: withCap.length,
+        walletsReplayable: withCap.filter((x) => x.cap!.trips >= CAP_MIN_TRIPS).length,
+        tripsReplayed: capHealth.replayed,
+        toReplay: withCap.filter((x) => x.cap!.trips >= CAP_MIN_TRIPS).reduce((a, x) => a + x.cap!.toReplay, 0),
+        shortlist: withCap.filter((x) => x.cap!.pass && copySafe(x.address)).sort((a, b) => (b.cap!.sumPct ?? 0) - (a.cap!.sumPct ?? 0)).slice(0, CAP_LIST_MAX).map((x) => ({ name: x.name, ...x.cap! })),
+        /** the best replays that miss the bar, for a look at how near they come */
+        near: withCap.filter((x) => !x.cap!.pass && x.cap!.priced >= 5).sort((a, b) => (b.cap!.sumPct ?? 0) - (a.cap!.sumPct ?? 0)).slice(0, 10).map((x) => ({ name: x.name, ...x.cap! })),
+        paperCopies: { n: v.length, won: v.filter((y) => y > 0).length, avgRetPct: v.length ? r((avg(v) ?? 0) * 100) : null, netSol: r(v.reduce((a, y) => a + y, 0) * STAKE_SOL, 3) },
+      };
+    })(),
     paper: {
       open: state.open.length,
       closed: done.length,
@@ -1354,12 +1739,18 @@ export const _test = {
     coinHealth.lists = "not asked";
     coinHealth.lastError = "";
     followSet = new Set();
+    capAsked.clear();
+    capLastAsk = 0;
     for (const t of timers) clearTimeout(t);
     timers.clear();
   },
   follow: (a: string[]) => (followSet = new Set(a)),
   readWallet,
   checkLate,
+  checkCap,
+  capStep,
+  capLookup,
+  capOk,
   coinStep,
   promote,
   dueWallets,

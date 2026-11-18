@@ -6,6 +6,9 @@ import { test } from "node:test";
 
 // a scratch folder: the wallet these tests sign with is made there, never in the real data folder
 process.env.DATA_DIR = mkdtempSync(join(tmpdir(), "slowlive-"));
+// the size floors (17 Nov 2026) are tested on their own below; the other tests use small wallets
+process.env.SOLANA_SLOW_MIN_SOL = "0";
+process.env.SOLANA_SLOW_MIN_BUY_SOL = "0";
 // made-up keys: every network call here is faked
 process.env.HELIUS_API_KEY = "test-helius";
 process.env.JUPITER_API_KEY = "test-jupiter";
@@ -1212,5 +1215,40 @@ test("the scan: a wallet on the real watch is re-read daily whatever it was file
   slow.onSlowSwap(() => [H], () => undefined);
   assert.deepEqual(slow._test.dueWallets().map((c: { address: string }) => c.address), [H], "the watched bot is due after a day; the other bot waits its 30 days");
   slow.onSlowSwap(() => [], () => undefined);
+  slow._test.reset();
+});
+
+test("real day-holder copy, caps only: wallets from the replay of their past mid and high cap trips, and only coins over the floor", async () => {
+  fresh({ ...CFG, follow: "proven", capOnly: true });
+  chain(() => 0.012);
+  slow._test.reset();
+  const CW = "CapW1111111111111111111111111111111111111111";
+  const CAP = "CapA1111111111111111111111111111111111111";
+  const MEME = "Meme1111111111111111111111111111111111111";
+  const st = slow._test.state();
+  const now = Date.now();
+  const t = Math.floor(now / 1000) - 20 * 86_400;
+  st.caps = { [CAP]: { mcap: 2e8, liq: 3e6, createdMs: now - 100 * 86_400_000, at: now }, [MEME]: { mcap: 3e6, liq: 1e5, createdMs: now - 100 * 86_400_000, at: now } };
+  const swaps: [number, number, string, 0 | 1, number, number][] = [];
+  const late: Record<string, { e5: number; x5: number }> = {};
+  for (let i = 0; i < 12; i++) {
+    swaps.push([t + i * 40_000, 1000 + i * 100, CAP, 1, 1, 1000], [t + i * 40_000 + 7200, 1050 + i * 100, CAP, 0, 1.1, 1000]);
+    late[`${CAP}|${1000 + i * 100}`] = { e5: 0.001, x5: i % 4 === 3 ? 0.00095 : 0.00115 };
+  }
+  st.wallets[CW] = { name: "coin buyer CapW", doneAt: now, newest: t + 12 * 40_000, txPerDay: 2, buysPerDay: 1, spanDays: 30, swaps, late };
+  st.candidates.push({ name: "coin buyer CapW", address: CW, source: "coin" });
+  // a wallet proven on paper is not copied on caps only
+  for (let i = 0; i < 20; i++) st.recent.push({ wallet: L1, name: WALLETS[0].name, mint: `c${i}`, seenMs: i, leaderSol: 1, entries: { e5: "10" }, exits: { "e5-x5": 0.3 }, closed: "sold" as const });
+  slow._test.follow([L1]);
+  assert.deepEqual(wallets().map((w) => w.address), [CW]);
+  onSwap(swap(CW, MEME, true));
+  assert.equal(_test.state().opens.length, 0, "a memecoin is not copied");
+  assert.equal(_test.state().notCap, 1);
+  onSwap(swap(CW, CAP, true));
+  assert.equal(_test.state().opens.length, 1, "a coin over the floor is");
+  assert.equal(slowLiveSummary().capOnly, true);
+  assert.equal(parseSlowLive(JSON.stringify({ solanaSlow: { on: true, maxLossSol: 1, stakeSol: 0.02, capOnly: true } })).capOnly, true);
+  assert.equal(parseSlowLive(JSON.stringify({ solanaSlow: { on: true, maxLossSol: 1, stakeSol: 0.02 } })).capOnly, false);
+  _test.reset();
   slow._test.reset();
 });

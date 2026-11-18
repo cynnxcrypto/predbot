@@ -376,8 +376,14 @@ export function parseKlines(rows: unknown, now: number): { k: Candles; px: numbe
 export const HL_FOLLOW = 400;
 /** linked wallets followed on paper besides the list, at most */
 export const HL_EXTRA_MAX = 20;
-export const HL_MIN_ACCOUNT_USD = 25_000;
-export const HL_MIN_MONTH_ROI = 0.1;
+// enrique, 17 Nov 2026 23:10 KST: "they're playing with nothing", "find plenty of traders, with good track records,
+// possibility to copy them, and balances that are not trivial". Traders are judged in DOLLARS: a $100k+ account,
+// $10k+ made in the month and $50k+ all time. The month return floor went from 10% to 3%: at 10% a $2M account
+// that made $100k was left out while a $25k account that made $2.5k was let in.
+export const HL_MIN_ACCOUNT_USD = 100_000;
+export const HL_MIN_MONTH_ROI = 0.03;
+export const HL_MIN_MONTH_PNL = 10_000;
+export const HL_MIN_ALL_PNL = 50_000;
 export const HL_MAX_TURNOVER = 200; // month volume / account: above this it is a market maker or a bot
 export const HL_MIN_POS_USD = 10_000;
 export const HL_MAX_HOLD_MS = 14 * 86_400_000;
@@ -400,6 +406,9 @@ export interface HlTrader {
   address: string;
   monthPnl: number;
   monthRoi: number;
+  /** account value and all-time profit at the last leaderboard read (absent on rows saved before 17 Nov 2026) */
+  acct?: number;
+  allPnl?: number;
 }
 /** The leaderboard -> traders worth following: ahead over the week, the month and all time, real size, not a machine. */
 export function hlPick(board: unknown, limit = HL_FOLLOW): HlTrader[] {
@@ -418,10 +427,10 @@ export function hlPick(board: unknown, limit = HL_FOLLOW): HlTrader[] {
     }
     const { week, month, allTime } = w;
     if (!week || !month || !allTime) continue;
-    if (!(week.pnl > 0) || !(month.pnl > 0) || !(allTime.pnl > 0) || !(month.roi >= HL_MIN_MONTH_ROI)) continue;
+    if (!(week.pnl > 0) || !(month.pnl > 0) || !(month.pnl >= HL_MIN_MONTH_PNL) || !(allTime.pnl >= HL_MIN_ALL_PNL) || !(month.roi >= HL_MIN_MONTH_ROI)) continue;
     const turn = month.vlm / acct;
     if (!(turn >= 1) || turn > HL_MAX_TURNOVER) continue;
-    out.push({ address, monthPnl: month.pnl, monthRoi: month.roi });
+    out.push({ address, monthPnl: month.pnl, monthRoi: month.roi, acct, allPnl: allTime.pnl });
   }
   return out.sort((a, b) => b.monthPnl - a.monthPnl).slice(0, limit);
 }
@@ -435,7 +444,12 @@ export function hlPick(board: unknown, limit = HL_FOLLOW): HlTrader[] {
  */
 export const HL_OFF_MIN_COPIES = 10;
 export const HL_MAJOR_DAYS = 30;
-const onJupiter = (coin: string) => (PERP_COINS as readonly string[]).includes(coin);
+/**
+ * The coins we can trade for real: the pool's three, and (17 Nov 2026) those of Jupiter's order book that Hyperliquid
+ * traders hold too (gumlive.ts; the server's look listed BNB, HYPE, JUP, NEAR and ZEC besides the three).
+ */
+export const GUM_COINS = ["BNB", "HYPE", "JUP", "NEAR", "ZEC"] as const;
+const onJupiter = (coin: string) => (PERP_COINS as readonly string[]).includes(coin) || (GUM_COINS as readonly string[]).includes(coin);
 export function majorTier(address: string, now = Date.now()): 0 | 1 | 2 {
   const xs = [...state.hlTrades.filter((t) => t.trader === address), ...state.hlOpen.filter((o) => o.trader === address)];
   if (xs.some((t) => onJupiter(t.coin)) || now - (state.hlMajorSeen?.[address] ?? -Infinity) <= HL_MAJOR_DAYS * 86_400_000) return 0;
@@ -443,7 +457,14 @@ export function majorTier(address: string, now = Date.now()): 0 | 1 | 2 {
 }
 const majorCopies = (address: string) => state.hlTrades.filter((t) => t.trader === address && onJupiter(t.coin)).length;
 /** A trader's open positions out of a clearinghouseState answer: coin -> signed dollars. */
-export function hlPositions(state: unknown): Record<string, number> | null {
+/**
+ * A position already being followed stays followed down to this size. Without it a position worth about HL_MIN_POS_USD
+ * went in and out of the list with every small price move, and each time was copied as a new trade and closed a
+ * minute later (17 Nov 2026: three one-minute ATOM shorts for real on Hyperliquid, fees only, and the trader was cut
+ * for them). It counts as closed when it is gone, turned round, or under this.
+ */
+export const HL_KEEP_POS_USD = 2_500;
+export function hlPositions(state: unknown, held?: Record<string, number>): Record<string, number> | null {
   const rows = (state as { assetPositions?: unknown })?.assetPositions;
   if (!Array.isArray(rows)) return null;
   const out: Record<string, number> = {};
@@ -452,7 +473,9 @@ export function hlPositions(state: unknown): Record<string, number> | null {
     const coin = typeof p?.coin === "string" && /^[A-Za-z0-9]{1,12}$/.test(p.coin) ? p.coin : null;
     const szi = Number(p?.szi);
     const val = Math.abs(Number(p?.positionValue));
-    if (!coin || !Number.isFinite(szi) || szi === 0 || !(val >= HL_MIN_POS_USD)) continue;
+    if (!coin || !Number.isFinite(szi) || szi === 0) continue;
+    const following = held !== undefined && Math.sign(held[coin] ?? 0) === Math.sign(szi);
+    if (!(val >= (following ? HL_KEEP_POS_USD : HL_MIN_POS_USD))) continue;
     out[coin] = Math.sign(szi) * val;
   }
   return out;
@@ -580,7 +603,7 @@ interface State {
 }
 const SORT_V = 4;
 /** version of the rules that pick the copied perp traders: an older file's list is read again at once */
-const HL_LIST_V = 2;
+const HL_LIST_V = 3;
 const fresh = (): State => ({
   v: SORT_V,
   universe: [], universeAt: 0, slot: 0, series: {}, open: [], trades: [], cool: {}, missed: 0, perpHour: 0, perpOpen: [], perpTrades: [], perpLast: {},
@@ -908,7 +931,7 @@ async function hlTick(deps: BucketDeps, now: number) {
     for (let j = 0; j < batch.length; j++) {
       const a = batch[j];
       const answer = answers[j];
-      const after = hlPositions(answer);
+      const after = hlPositions(answer, state.hlSeen[a]);
       if (!after) continue;
       const levs = hlLeverage(answer);
       if (Object.keys(after).some(onJupiter)) state.hlMajorSeen = { ...(state.hlMajorSeen ?? {}), [a]: now };
@@ -1026,7 +1049,7 @@ export function bucketsSummary() {
   const major = (c: string) => (PERP_COINS as readonly string[]).includes(c);
   return {
     mode: "paper",
-    note: `Paper only, nothing is sent. SPOT: coins from Jupiter's lists in four buckets by market value, up to ${PER_BUCKET} each, priced once a minute and kept as 5-minute closes. A rule buys on a 5-minute close; the buy is a real quote for a $${STAKE_USD} swap taken after the signal and the sale a real quote for the swap back, less $${TX_USD} a transaction. Thresholds are the rule's base move times the bucket's scale (${BUCKETS.map((b) => `${b} x${SCALE[b]}`).join(", ")}). PERPS: SOL, BTC, ETH on hourly candles, filled at the price when the hour's close is read, charged Jupiter Perps' ${PERP_FEE_SIDE * 100}% a side and ${PERP_BORROW_HOUR * 100}% an hour borrow, $${PERP_USD} a position. The history test (84 rules, 15 Nov 2026) found none that survives costs; "history" says what each did there. COPY, spot: the day-holder study's paper copies (bought ${COPY_ENTRY_S} s after we see the buy, sold ${COPY_EXIT_S} s after its first sale) sorted by the coin's bucket today. COPY, perps: up to ${HL_FOLLOW} traders from Hyperliquid's public leaderboard (ahead over week, month and all time, month +${HL_MIN_MONTH_ROI * 100}%+, account $${HL_MIN_ACCOUNT_USD}+, not a market maker), those we have copied looked at every minute and the rest about every 3 to 4 minutes; a position of $${HL_MIN_POS_USD}+ they open is copied at the price we read after seeing it and closed when they close, charged a Solana venue's costs. Bar for real: 100+ trades on one rule, half or more won, net positive; for one copied trader ${TRADER_MIN_COPIES}+ closed copies, half or more won, ahead, a day or more on paper. A quote is the best case for a fill.`,
+    note: `Paper only, nothing is sent. SPOT: coins from Jupiter's lists in four buckets by market value, up to ${PER_BUCKET} each, priced once a minute and kept as 5-minute closes. A rule buys on a 5-minute close; the buy is a real quote for a $${STAKE_USD} swap taken after the signal and the sale a real quote for the swap back, less $${TX_USD} a transaction. Thresholds are the rule's base move times the bucket's scale (${BUCKETS.map((b) => `${b} x${SCALE[b]}`).join(", ")}). PERPS: SOL, BTC, ETH on hourly candles, filled at the price when the hour's close is read, charged Jupiter Perps' ${PERP_FEE_SIDE * 100}% a side and ${PERP_BORROW_HOUR * 100}% an hour borrow, $${PERP_USD} a position. The history test (84 rules, 15 Nov 2026) found none that survives costs; "history" says what each did there. COPY, spot: the day-holder study's paper copies (bought ${COPY_ENTRY_S} s after we see the buy, sold ${COPY_EXIT_S} s after its first sale) sorted by the coin's bucket today. COPY, perps: up to ${HL_FOLLOW} traders from Hyperliquid's public leaderboard (ahead over week, month and all time, month +$${HL_MIN_MONTH_PNL}+ and +${HL_MIN_MONTH_ROI * 100}%+, all time +$${HL_MIN_ALL_PNL}+, account $${HL_MIN_ACCOUNT_USD}+, not a market maker), those we have copied looked at every minute and the rest about every 3 to 4 minutes; a position of $${HL_MIN_POS_USD}+ they open is copied at the price we read after seeing it and closed when they close, charged a Solana venue's costs. Bar for real: 100+ trades on one rule, half or more won, net positive; for one copied trader ${TRADER_MIN_COPIES}+ closed copies, half or more won, ahead, a day or more on paper. A quote is the best case for a fill.`,
     updatedAt: Date.now(),
     real: realSummary(),
     jupiter: { usedToday: state.jupCalls, allowance: JUP_DAY() },
@@ -1069,6 +1092,8 @@ export function bucketsSummary() {
       traders: state.hlTraders.length,
       listReadAt: state.hlAt || null,
       all: tally(state.hlTrades.map((t) => t.net), PERP_USD),
+      // copies closed within three minutes of opening: mostly a position slipping in and out of the followed list (fixed 17 Nov 2026, HL_KEEP_POS_USD), not the trader's own trades
+      under3min: tally(state.hlTrades.filter((t) => t.exitAt - t.at < 180_000).map((t) => t.net), PERP_USD),
       majors: tally(state.hlTrades.filter((t) => major(t.coin)).map((t) => t.net), PERP_USD),
       others: tally(state.hlTrades.filter((t) => !major(t.coin)).map((t) => t.net), PERP_USD),
       shorts: tally(state.hlTrades.filter((t) => t.dir < 0).map((t) => t.net), PERP_USD),
@@ -1101,7 +1126,11 @@ export function bucketsSummary() {
           const rec = traderRecord(traderRule(a));
           const levs = [...mine, ...state.hlOpen.filter((o) => o.trader === a)].map((t) => t.lev).filter((x): x is number => x !== undefined);
           const rows: LevRow[] = mine.map((t) => ({ net: t.net, worst: t.worst, hours: (t.exitAt - t.at) / 3_600_000, dir: t.dir, lev: t.lev, fee: hlCost(t.coin) }));
+          const row = state.hlTraders.find((t) => t.address === a);
+          const acct = hlBoard().find((t) => t.address === a)?.acct ?? row?.acct;
           return {
+            // the trader's own size in dollars at the last leaderboard read (null: not on the board, or not read yet)
+            accountUsd: acct ? Math.round(acct) : null, monthUsd: row?.monthPnl ? Math.round(row.monthPnl) : null, allTimeUsd: row?.allPnl ? Math.round(row.allPnl) : null,
             id: traderRule(a), trades: rec.trades, won: rec.won, net: r(rec.netUsd), firstCopyAt: rec.firstAt, open: state.hlOpen.filter((o) => o.trader === a).length,
             longs: mine.filter((t) => t.dir > 0).length, shorts: mine.filter((t) => t.dir < 0).length, majors: mine.filter((t) => major(t.coin)).length,
             leverage: median(levs), atOwnLeverage: levTally(rows, (t) => (t.lev === undefined ? undefined : Math.min(t.lev, HL_LEV_CAP))), atBar: traderMeetsBar(rec),
@@ -1178,6 +1207,16 @@ export function perpPaperOpens(): { id: string; rule: string; coin: string; dir:
 export function hlPaperOpens(): { id: string; rule: string; coin: string; dir: number; at: number; lev?: number }[] {
   if (!loaded) load();
   return state.hlOpen.map((o) => ({ id: `${traderRule(o.trader)}:${o.coin}:${o.at}`, rule: traderRule(o.trader), coin: o.coin, dir: o.dir, at: o.at, lev: o.lev }));
+}
+/**
+ * Jupiter's order-book coins (gumlive.ts, 17 Nov 2026): a copied trader's open position on one of `coins` (never SOL,
+ * BTC or ETH, which the JLP pool trades), in the same shape as perpPaperOpens.
+ */
+export function perpPaperOpensOn(coins: string[]): { id: string; rule: string; coin: string; dir: number; at: number; lev?: number }[] {
+  if (!loaded) load();
+  return state.hlOpen
+    .filter((o) => coins.includes(o.coin) && !(PERP_COINS as readonly string[]).includes(o.coin))
+    .map((o) => ({ id: `${traderRule(o.trader)}:${o.coin}:${o.at}`, rule: traderRule(o.trader), coin: o.coin, dir: o.dir, at: o.at, lev: o.lev }));
 }
 /** One perp rule's closed paper trades since `sinceMs`, in the shape of the bar (net in units of one position). */
 export function perpPaperRecord(rule: string, sinceMs = 0) {

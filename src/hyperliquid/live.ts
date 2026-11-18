@@ -8,7 +8,9 @@
  *   - a trader goes real on its own record: TRADER_MIN_COPIES closed paper copies, half or more won, ahead, a day old;
  *   - real results first (src/solana/realfirst.ts): real while its real net is zero or better; back to paper when
  *     behind after 3 real trades or at its stop;
- *   - one position per trader and one per coin (Hyperliquid nets a coin's positions into one);
+ *   - every open position of a real trader is copied (enrique, 17 Nov 2026 23:08 KST: "yes allow more than one HL copy
+ *     per trader"); one per coin, since Hyperliquid nets a coin's positions into one; as many as the wallet's free
+ *     money and maxOpen allow;
  *   - the trader's own leverage, whole numbers, at most half of what Hyperliquid allows for the coin; ISOLATED
  *     margin, so one position can lose its own collateral and nothing more;
  *   - the copy is opened only in the first OPEN_WINDOW_MS after the paper copy, and closed when the paper copy closes.
@@ -140,6 +142,8 @@ interface Row {
   netUsd: number;
   heldH: number;
   why: string;
+  /** what the position was opened with (rows before 17 Nov 2026 21:40 KST have none) */
+  collateralUsd?: number;
 }
 interface State {
   netUsd: number;
@@ -160,10 +164,24 @@ let loaded = false;
 const load = () => {
   loaded = true;
   state = { ...fresh(), ...loadJson<Partial<State>>(FILE, {}) };
+  // a trader cut on nothing but such rows is put back (copy-05a42708, 17 Nov 2026: three one-minute ATOM shorts)
+  for (const rule of Object.keys(state.demoted)) {
+    const before = state.rows.filter((x) => x.rule === rule && x.t <= state.demoted[rule]);
+    if (before.length && before.every(isFlip) && /behind after/.test(state.demotedWhy[rule] ?? "")) {
+      delete state.demoted[rule];
+      delete state.demotedWhy[rule];
+    }
+  }
 };
 const save = () => saveJson(FILE, state);
 const skip = (why: string) => void (state.skipped[why] = (state.skipped[why] ?? 0) + 1);
-const realOf = (rule: string) => realRecord(state.rows.filter((x) => x.rule === rule && x.t > (state.demoted[rule] ?? 0)).map((x) => x.netUsd));
+/**
+ * A copy opened and closed within a few minutes for cents: not a trade of the trader's, but its position slipping in
+ * and out of the followed list (fixed at the source 17 Nov 2026, src/solana/buckets.ts HL_KEEP_POS_USD). Such rows stay
+ * in the money count, but no trader is kept or cut on them.
+ */
+export const isFlip = (x: { heldH: number; netUsd: number }) => x.heldH <= 0.05 && Math.abs(x.netUsd) < 0.15;
+const realOf = (rule: string) => realRecord(state.rows.filter((x) => x.rule === rule && x.t > (state.demoted[rule] ?? 0) && !isFlip(x)).map((x) => x.netUsd));
 const loss = () => Math.max(0, -state.netUsd);
 
 /** The traders the paper side must keep following even off the daily list: a real position open here, or real copies ahead. */
@@ -178,7 +196,7 @@ export const leverageFor = (traderLev: number | undefined, coin: Coin) => Math.m
 
 function book(p: Pos, netUsd: number, why: string, now: number, stop: number) {
   state.netUsd = r2(state.netUsd + netUsd);
-  state.rows.push({ t: now, rule: p.rule, coin: p.coin, side: p.dir > 0 ? "long" : "short", leverage: p.lev, netUsd: r2(netUsd), heldH: Math.round(((now - p.openedMs) / 3_600_000) * 100) / 100, why });
+  state.rows.push({ t: now, rule: p.rule, coin: p.coin, side: p.dir > 0 ? "long" : "short", leverage: p.lev, netUsd: r2(netUsd), heldH: Math.round(((now - p.openedMs) / 3_600_000) * 100) / 100, why, collateralUsd: p.collUsd });
   if (state.rows.length > 2000) state.rows = state.rows.slice(-2000);
   state.opens = state.opens.filter((x) => x !== p);
   if (p.rule === TEST_RULE) return;
@@ -269,7 +287,6 @@ export async function hlLiveTick(d: HlDeps, now = Date.now()): Promise<void> {
         if (loss() >= cfg.maxLossUsd) (skip("loss cap reached"));
         else if (!d.listed(x.rule)) skip("trader off the list");
         else if (state.opens.length >= cfg.maxOpen) skip("all positions in use");
-        else if (state.opens.some((o) => o.rule === x.rule)) skip("trader already has a copy open");
         else if (state.opens.some((o) => o.coin === x.coin) || acct.positions[x.coin]) skip("coin already held");
         else {
           const why = await open(d, x, cfg.collateralUsd, coins, mids, acct, now);
@@ -292,7 +309,9 @@ async function open(d: HlDeps, x: PaperOpen, collateralUsd: number, coins: Recor
   const px = mids[x.coin];
   if (!coin || !(px > 0)) return "coin not on Hyperliquid's list";
   const lev = leverageFor(x.lev, coin);
-  const sz = roundSz((collateralUsd * lev) / px, coin.szDecimals);
+  // Hyperliquid's smallest order is $10: a 1x copy of $10 came out a few cents under it and was never made. Such a
+  // copy is made at the smallest size Hyperliquid takes (about $11) instead.
+  const sz = roundSz(Math.max(collateralUsd * lev, MIN_ORDER_USD) / px, coin.szDecimals);
   if (sz * px < MIN_ORDER_USD - 1) return "position too small for Hyperliquid";
   if (acct.freeUsd < collateralUsd + 1) return "not enough free money";
   const lv = await d.venue.setLeverage(coin, lev);
@@ -334,7 +353,10 @@ export function hlLiveSummary(cfg: HlLiveConfig = fileCfg(), meetsBar: (rule: st
     traders: rules.map((rule) => {
       const real = realOf(rule);
       const st = standing(real, meetsBar(rule, state.demoted[rule] ?? 0, now), state.demotedWhy[rule]);
-      return { trader: rule, real: st.real, why: st.why, trades: real.trades, won: real.won, netUsd: r2(real.net) };
+      // trades, won, netUsd: every real trade ever made with this trader, kept through a cut (what it made us);
+      // sinceCut: the record the keep-or-cut rule looks at, which starts again at a cut
+      const all = realRecord(state.rows.filter((x) => x.rule === rule).map((x) => x.netUsd));
+      return { trader: rule, real: st.real, why: st.why, trades: all.trades, won: all.won, netUsd: r2(all.net), cutAt: state.demoted[rule] ?? null, sinceCut: { trades: real.trades, won: real.won, netUsd: r2(real.net) } };
     }),
     recent: state.rows.slice(-30).reverse(),
     test: state.test ?? null,
@@ -343,4 +365,4 @@ export function hlLiveSummary(cfg: HlLiveConfig = fileCfg(), meetsBar: (rule: st
   };
 }
 
-export const _test = { reset: () => ((state = fresh()), (loaded = true), (busy = false)), state: () => state };
+export const _test = { reset: () => ((state = fresh()), (loaded = true), (busy = false)), state: () => state, reload: () => load() };

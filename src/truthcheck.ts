@@ -21,6 +21,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { DATA } from "./config.js";
 import { loadJson, saveJson } from "./store.js";
+import { savePmRedeemable, waitingKinds, wonRows } from "./pmredeem.js";
 
 const POLY_RPC = "https://polygon-bor-rpc.publicnode.com";
 /** Polymarket's collaterals, as src/live.ts reads them (pUSD, USDC.e, USDC). */
@@ -35,7 +36,7 @@ const r2 = (x: number) => Math.round(x * 100) / 100;
 const r6 = (x: number) => Math.round(x * 1e6) / 1e6;
 
 /** What the dashboard shows, as src/worthdash.ts last worked it out. */
-export type DashFigures = { at: number; total: number | null; cash: number | null; claim: number; bets: number; betsN: number; solBal: number | null; coinsSol: number; coinsN: number; solUsd: number | null; rulesUsd: number | null; perpsUsd: number | null; perpsPos: number };
+export type DashFigures = { at: number; total: number | null; cash: number | null; claim: number; bets: number; betsN: number; solBal: number | null; coinsSol: number; coinsN: number; solUsd: number | null; rulesUsd: number | null; perpsUsd: number | null; perpsPos: number; hlUsd?: number | null };
 /** One compared figure: dash = the dashboard, src = the source; diff = dash - src. */
 export type Item = { k: string; dash: number | null; src: number | null; diff: number | null; ok: boolean | null; why?: string };
 export type Coin = { mint: string; amount: string; sol: number | null; tracked: boolean };
@@ -49,14 +50,14 @@ export function compare(k: string, dash: number | null, src: number | null, tolU
 }
 
 /** Polymarket's positions for the wallet: open ones (not redeemable) and redeemable ones, at Polymarket's currentValue. */
-export function splitPositions(rows: { size?: number | string; currentValue?: number | string; current_value?: number | string; curPrice?: number | string; redeemable?: boolean }[]) {
+export function splitPositions(rows: { size?: number | string; current_size?: number | string; currentValue?: number | string; current_value?: number | string; curPrice?: number | string; redeemable?: boolean }[]) {
   let open = 0;
   let openN = 0;
   let won = 0;
   let wonN = 0;
   let lostN = 0;
   for (const p of rows) {
-    const size = Number(p.size);
+    const size = Number(p.size ?? p.current_size); // v2 names it current_size (17 Nov 2026)
     const v = Number(p.current_value ?? p.currentValue);
     if (!(size > 1e-6) || !Number.isFinite(v)) continue;
     if (p.redeemable) {
@@ -150,6 +151,16 @@ export function matchFlows(chain: Transfer[], flows: [number, number, string][])
  * window's worth change is right as far as deposits go; +$X = the chart took out $X too much (the change reads $X too
  * high), -$X = too little.
  */
+/**
+ * MONEY ENRIQUE CONFIRMED (17 Nov 2026, coordinator: "flag any flow that isn't on a list of deposits enrique confirmed";
+ * his only Solana-wallet deposits were about $100-101 each, on 15 Nov 2026 KST). Any other money the worth chart takes
+ * out of the Solana wallets' windows is flagged: it is either a deposit we were not told of or a trade booked as one.
+ */
+export const CONFIRMED_SOLANA_FLOWS: { day: string; minUsd: number; maxUsd: number }[] = [{ day: "2026-11-15", minUsd: 90, maxUsd: 112 }];
+export function unconfirmedFlows(flows: [number, number, string][]): [number, number, string][] {
+  const day = (t: number) => new Date(t + 9 * 3_600_000).toISOString().slice(0, 10);
+  return flows.filter((f) => f[2] !== "Polymarket" && !CONFIRMED_SOLANA_FLOWS.some((c) => c.day === day(f[0]) && f[1] >= c.minUsd && f[1] <= c.maxUsd));
+}
 export function windowFlowDiff(chain: Transfer[], flows: [number, number, string][], from: number): number {
   const ch = chain.filter((c) => c.t >= from).reduce((a, c) => a + c.usd, 0);
   const fl = flows.filter((f) => f[0] >= from && f[2] !== "Polymarket").reduce((a, f) => a + f[1], 0);
@@ -481,6 +492,23 @@ export async function truthRun(now = Date.now()): Promise<typeof last> {
         if (!cursor || !j.data.length) break;
       }
       pos = splitPositions(rows);
+      // Polymarket's redeemable wins, for the worth and the claimer (src/pmredeem.ts); ids stay on this machine
+      if (rows.length) {
+        const won = wonRows(rows as Parameters<typeof wonRows>[0]);
+        savePmRedeemable(won, now);
+        extra.polymarketWaitingKinds = waitingKinds(won, loadJson("eventlive.json", []), loadJson("eventlive-claims.json", {}));
+      }
+      // an empty answer while the dashboard holds bets is a failed read, not $0 of bets (17 Nov 2026: srcOpen 0 vs 39 open)
+      if (!rows.length && (d?.betsN ?? 0) > 0) {
+        pos = null;
+        errors.push(`positions: Polymarket answered with no positions while we hold ${d?.betsN}: not read`);
+      } else if (pos.openN + pos.wonN + pos.lostN === 0 && (d?.betsN ?? 0) > 0) {
+        // rows came back but none could be read (17 Nov 2026: srcOpen 0 vs 36 open, Polymarket all time still matched):
+        // its field names differ from what splitPositions reads. The field names only (no values) are published to fix it.
+        const keys = rows[0] && typeof rows[0] === "object" ? Object.keys(rows[0]).slice(0, 40).join(",") : typeof rows[0];
+        pos = null;
+        errors.push(`positions: ${rows.length} rows, none readable (fields: ${keys}): not read`);
+      }
     } catch (e) {
       errors.push(`positions: ${(e as Error).message}`);
     }
@@ -522,6 +550,15 @@ export async function truthRun(now = Date.now()): Promise<typeof last> {
   if (pos) extra.polymarketCounts = { dashOpen: d?.betsN ?? null, srcOpen: pos.openN, srcWaiting: pos.wonN, srcLostNotRedeemed: pos.lostN };
   const pmDash = d?.cash != null ? d.cash + d.claim + d.bets : null;
   const pmSrc = pmCash != null && pos ? pmCash + pos.open + pos.won : null;
+  // Polymarket's worth change since this KST day's first check, by the independent source and by the dashboard
+  // (18 Nov 2026: "today" read -$33 after the unclaimed-wins fix; is that real?). Differences only, no balance.
+  if (pmSrc != null && pmDash != null) {
+    const day = kstDay(now);
+    const f = loadJson<{ day?: string; at?: number; src?: number; dash?: number }>("truth-day.json", {});
+    const first = f.day === day && Number.isFinite(f.src) && Number.isFinite(f.dash) ? f : { day, at: now, src: pmSrc, dash: pmDash };
+    if (first !== f) saveJson("truth-day.json", first);
+    extra.polymarketSinceFirstCheckToday = { from: first.at, source: r2(pmSrc - (first.src as number)), dashboard: r2(pmDash - (first.dash as number)), note: "money in or out of the wallet since then not taken off" };
+  }
   items.push(compare("Polymarket card", pmDash, pmSrc, 1, 0.01));
   // Solana wallets
   const wallets = { spot: addrFile("solana-wallet-address.txt"), rules: addrFile("solana-wallet-buckets-address.txt"), perps: addrFile("solana-wallet-perps-address.txt") };
@@ -548,7 +585,8 @@ export async function truthRun(now = Date.now()): Promise<typeof last> {
   items.push(compare("Solana spot copy card", spotDash, solSrc.spot, 1, 0.015, "coins at a Jupiter sale quote; the chain's coins, tracked or not"));
   items.push(compare("Solana spot rules card", d?.rulesUsd ?? null, solSrc.rules, 1, 0.015));
   items.push(compare("Solana perps card", d?.perpsUsd ?? null, solSrc.perps, 1, 0.015, "an open perp from the perps module's own chain read"));
-  const parts = [pmSrc, solSrc.spot, solSrc.rules, solSrc.perps];
+  // Hyperliquid (17 Nov 2026) is not read again here yet: its own reading is added so the total compares like for like
+  const parts = [pmSrc, solSrc.spot, solSrc.rules, solSrc.perps, d?.hlUsd ?? 0];
   items.push(compare("Total worth", d?.total ?? null, parts.every((x) => x != null) ? parts.reduce((a: number, x) => a + (x as number), 0) : null, 2, 0.01));
   // money in and out of the Solana wallets, 8 days, against the flows the chart takes out
   if (px != null && deps.helius()) {
@@ -584,8 +622,11 @@ export async function truthRun(now = Date.now()): Promise<typeof last> {
     extra.flows = {
       chainTransfers: chain.length,
       matched: m.matched.length,
+      kindsRead: !!kinds,
+      from: now - 8 * 86_400_000,
       missing: m.missing.map((x) => ({ t: x.t, wallet: x.wallet, usd: x.usd, sig: x.sig })),
       notOnChain: m.extra.map((f) => ({ t: f[0], usd: f[1], wallet: f[2] })),
+      unconfirmed: unconfirmedFlows(flows).map((f) => ({ t: f[0], usd: f[1], wallet: f[2] })),
       polymarketFlows: flows.filter((f) => f[2] === "Polymarket").map((f) => ({ t: f[0], usd: f[1] })),
       counterpartKinds: kindCount,
       perWallet,
@@ -612,15 +653,18 @@ export async function truthRun(now = Date.now()): Promise<typeof last> {
 /** For the public status: the differences and counts only, never a balance or a deposit. */
 export function truthPublic() {
   if (!last) return null;
-  const ex = last.extra as { polymarketPnl?: { asOf: number; ageMin: number; comparedWithOursAt: number | null; fees: number | null; income: number | null }; polymarketCounts?: unknown; coins?: Record<string, { coins: number; noRoute: number; unpriced: number; untracked: number; untrackedUsd: number }>; flows?: { chainTransfers: number; matched: number; missing: unknown[]; notOnChain: unknown[]; perWallet?: unknown; counterpartKinds?: unknown; windowDiff?: unknown }; days?: { rows: DayRow[]; notRead: string[] }; errors?: string[] };
+  const ex = last.extra as { polymarketPnl?: { asOf: number; ageMin: number; comparedWithOursAt: number | null; fees: number | null; income: number | null }; polymarketCounts?: unknown; polymarketWaitingKinds?: unknown; polymarketSinceFirstCheckToday?: unknown; coins?: Record<string, { coins: number; noRoute: number; unpriced: number; untracked: number; untrackedUsd: number }>; flows?: { chainTransfers: number; matched: number; missing: unknown[]; notOnChain: unknown[]; unconfirmed?: { t: number; wallet: string }[]; perWallet?: unknown; counterpartKinds?: unknown; windowDiff?: unknown }; days?: { rows: DayRow[]; notRead: string[] }; errors?: string[] };
   return {
     at: last.at,
     note: "Dashboard minus an independent source (the chain, Polymarket's own position data). Within $1 or 1.5% = ok. Balances stay private.",
     items: last.items.map((i) => ({ k: i.k, diff: i.diff, ok: i.ok, ...(i.why ? { why: i.why } : {}) })),
     polymarketCounts: ex.polymarketCounts ?? null,
+    // Polymarket's won-and-redeemable bets by what they are in our books (src/pmredeem.ts): counts and dollars, no ids
+    polymarketWaitingKinds: ex.polymarketWaitingKinds ?? null,
+    polymarketSinceFirstCheckToday: ex.polymarketSinceFirstCheckToday ?? null,
     polymarketPnl: ex.polymarketPnl ? { asOf: ex.polymarketPnl.asOf, ageMin: ex.polymarketPnl.ageMin, comparedWithOursAt: ex.polymarketPnl.comparedWithOursAt, fees: ex.polymarketPnl.fees, income: ex.polymarketPnl.income } : null,
     coins: Object.fromEntries(Object.entries(ex.coins ?? {}).map(([k, v]) => [k, { coins: v.coins, noRoute: v.noRoute, unpriced: v.unpriced, untracked: v.untracked, untrackedUsd: v.untrackedUsd }])),
-    flows: ex.flows ? { chainTransfers: ex.flows.chainTransfers, matched: ex.flows.matched, missingFromChart: ex.flows.missing.length, chartFlowsNotOnChain: ex.flows.notOnChain.length, perWallet: ex.flows.perWallet ?? null, counterpartKinds: ex.flows.counterpartKinds ?? null, windowDiff: ex.flows.windowDiff ?? null } : null,
+    flows: ex.flows ? { chainTransfers: ex.flows.chainTransfers, matched: ex.flows.matched, missingFromChart: ex.flows.missing.length, chartFlowsNotOnChain: ex.flows.notOnChain.length, notConfirmedByEnrique: (ex.flows.unconfirmed ?? []).map((u) => ({ at: u.t, wallet: u.wallet })), perWallet: ex.flows.perWallet ?? null, counterpartKinds: ex.flows.counterpartKinds ?? null, windowDiff: ex.flows.windowDiff ?? null } : null,
     // day by day: how many lines were compared, and only the wrong ones, as differences (no day's own figures)
     days: ex.days ? { checked: ex.days.rows.length, notRead: ex.days.notRead, wrong: ex.days.rows.filter((r) => !r.ok || r.cumulative).map((r) => ({ day: r.day, type: r.type, countDiff: r.countDiff, netDiff: r.netDiff, ...(r.cumulative ? { cumulative: true } : {}) })) } : null,
     errors: (ex.errors ?? []).map((e) => e.replace(/0x[0-9a-fA-F]{40}|[1-9A-HJ-NP-Za-km-z]{32,44}/g, "…")),
@@ -636,5 +680,12 @@ export function startTruthCheck(d: Deps) {
   const run = () => void truthRun().catch(() => undefined);
   setTimeout(run, 4 * 60_000).unref();
   setInterval(run, 30 * 60_000).unref();
+}
+/** What the worth chart should change for the two Solana strategy wallets (src/worthdash.ts mergeChainFlows): only from
+ * a run that knew what was on the other side of each transfer. Behind the password only (truth.json). */
+export function chainFix(): { at: number; from: number; missing: { t: number; usd: number; wallet: string }[]; notOnChain: { t: number; usd: number; wallet: string }[] } | null {
+  const f = (last?.extra as { flows?: { kindsRead?: boolean; from?: number; missing?: { t: number; usd: number; wallet: string }[]; notOnChain?: { t: number; usd: number; wallet: string }[] } } | undefined)?.flows;
+  if (!last || !f?.kindsRead || f.from == null) return null;
+  return { at: last.at, from: f.from, missing: f.missing ?? [], notOnChain: f.notOnChain ?? [] };
 }
 export const _truthTest = { setDeps: (d: Deps | null) => void (deps = d), reset: () => void (last = null), setWaits: (w: number[]) => void (dataWaits = w) };
