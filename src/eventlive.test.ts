@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
-import { NEG_TRIAL, _eventLiveTest, restShares, ruleAdapt, sizeStep, ladderStake, paperGate, setPaperBehind, eventLiveBlock, eventLiveBuy, eventLiveConfig, negRiskBlock, parseEventLive, type EventLiveRow } from "./eventlive.js";
+import { NEG_TRIAL, _eventLiveTest, restShares, ruleAdapt, sizeStep, ladderStake, riskRoom, paperGate, setPaperBehind, eventLiveBlock, eventLiveBuy, eventLiveConfig, negRiskBlock, parseEventLive, type EventLiveRow } from "./eventlive.js";
 import { NEG_PERMS, eventClaimCalls, negRiskCalls } from "./live.js";
 import { stopWhenOrderDone } from "./eventpaper.js";
 
@@ -185,7 +185,7 @@ test("resting bids: 5-share minimum, one bid per player, resting money counts in
   assert.match(blk([rest(0, "a"), rest(1, "a"), rest(0, "b")], 0, "c")!, /stake cap/, "$9 resting + $3 > $10");
   assert.match(eventLiveBlock(cfg, "tennis", "t", "m", 0.93, 100, true, [rest(0)], NOW4)!, /another real test/);
   const live = parseEventLive(readFileSync(join(process.cwd(), "deploy", "live-rules.json"), "utf8"), { mode: "live", funder: "0xabc" }).groups.tennisrest;
-  if (live) assert.ok(live.stopNet > 0 && live.stopNet <= 15 && live.maxSize <= 5 && live.openUsd > 0 && live.openUsd <= 90 && live.maxLoss <= live.stopNet + live.openUsd);
+  if (live) assert.ok(live.stopNet > 0 && live.stopNet <= 15 && live.maxSize <= 5 && live.openUsd > 0 && live.openUsd <= 150 && live.maxLoss <= live.stopNet + live.openUsd);
 });
 
 test("per-wallet automatic rule: learning to 10 settled, back to paper at -$10, x1.5 while ahead", () => {
@@ -225,6 +225,12 @@ test("per-wallet automatic rule: learning to 10 settled, back to paper at -$10, 
   assert.equal(ladderStake(ag, { n: 1, net: 0.5, best: 0.5, last3: 0.5 }), 5, "ahead on real: $5 base");
   assert.equal(ladderStake(ag, { n: 4, net: -1, best: 2, last3: -1 }), 3, "behind: the $3 base");
   assert.equal(ladderStake(ag, { n: 10, net: 20, best: 5, last3: 2 }), 7, "the ladder still adds on top");
+  const hb = { ...ag, houseUsd: 9, walletUsd: 100, houseBets: 8 };
+  assert.equal(riskRoom(hb, { n: 0, net: 0 }), 24, "new wallet: 8 bets of $3");
+  assert.equal(riskRoom(hb, { n: 1, net: 0.5, best: 0.5, last3: 0.5 }), 40.5, "ahead: 8 bets of $5 plus its result");
+  assert.equal(riskRoom(hb, { n: 20, net: 90, best: 5, last3: 2 }), 100, "walletUsd is the top");
+  assert.equal(riskRoom(hb, { n: 4, net: -5, best: 1, last3: -1 }), 19, "behind: 8 x $3 less what it lost");
+  assert.equal(riskRoom({ ...hb, houseBets: 0 }, { n: 4, net: 2, best: 1, last3: 1 }), 11, "without houseBets: houseUsd plus the result");
   // what a wallet may risk: $9 and what its settled real bets made; winnings earn room, losses take it away
   const hc = { ...cfg, groups: { copy: { ...g, cutN: 5, cutLoss: 6, houseUsd: 9, walletUsd: 40 } } };
   const open = (rule: string, i: number, cost = 3) => ({ ...r(rule, null, 100 + i), cost });

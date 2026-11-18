@@ -87,7 +87,7 @@ export type EventLiveRow = {
  *  Polymarket does) until it is finished; only the filled shares are paid for. */
 export const spentOf = (r: { status: string | null; shares: number; ask: number; cost: number }) => (r.status === "resting" ? Math.round(r.shares * r.ask * 1e6) / 1e6 : r.cost);
 const held = (r: EventLiveRow) => r.shares > 0 || r.status === "unknown" || r.status === "resting" || (r.status === "delayed" && r.pnl == null);
-export type EventLiveGroup = { rules: string[]; size: number; maxAsk: number; minDepth: number; dayLosses: number; maxOpen: number; maxLoss: number; negRisk: boolean; maxSize: number; maxDays: number; perWallet: number; stopNet: number; openUsd: number; walletUsd: number; adaptN: number; adaptStop: number; adaptBoost: number; steps: "" | "wallet" | "rule"; cutN: number; cutLoss: number; probationN: number; houseUsd: number; ladder: [number, number, number][]; maxAbove?: number; autoReal?: boolean; aheadSize?: number };
+export type EventLiveGroup = { rules: string[]; size: number; maxAsk: number; minDepth: number; dayLosses: number; maxOpen: number; maxLoss: number; negRisk: boolean; maxSize: number; maxDays: number; perWallet: number; stopNet: number; openUsd: number; walletUsd: number; adaptN: number; adaptStop: number; adaptBoost: number; steps: "" | "wallet" | "rule"; cutN: number; cutLoss: number; probationN: number; houseUsd: number; ladder: [number, number, number][]; maxAbove?: number; autoReal?: boolean; aheadSize?: number; houseBets?: number };
 export type EventLiveConfig = { mode: string; minBalance: number; lossCap?: LossCap; groups: Record<string, EventLiveGroup> };
 
 /** No single real event bet is ever larger than this (13 Nov 2026, enrique: "Min $3 max $10"). */
@@ -112,7 +112,7 @@ export function parseEventLive(repoText: string, local: { mode?: string; funder?
     const size = Math.min(MAX_STAKE, num(v.size, 0));
     if (!rules.length || !(size >= 1)) continue;
     const maxSize = Math.min(MAX_STAKE, Math.max(size, num(v.maxSize, size)));
-    groups[g] = { rules, size, maxAsk: Math.min(0.99, num(v.maxAsk, 0.96)), minDepth: Math.max(0, num(v.minDepth, 25)), dayLosses: Math.max(1, Math.floor(num(v.dayLosses, 2))), maxOpen: Math.max(1, Math.floor(num(v.maxOpen, 4))), maxLoss: Math.max(0, num(v.maxLoss, 12)), negRisk: v.negRisk === true, maxSize, maxDays: Math.max(0, num(v.maxDays, 0)), perWallet: Math.max(0, Math.floor(num(v.perWallet, 0))), stopNet: Math.max(0, num(v.stopNet, 0)), openUsd: Math.max(0, num(v.openUsd, 0)), walletUsd: Math.max(0, num(v.walletUsd, 0)), adaptN: Math.max(0, Math.floor(num(v.adaptN, 0))), adaptStop: Math.max(0, num(v.adaptStop, 0)), adaptBoost: Math.min(3, Math.max(1, num(v.adaptBoost, 1))), steps: v.steps === "wallet" || v.steps === "rule" ? v.steps : "", cutN: Math.max(0, Math.floor(num(v.cutN, 0))), cutLoss: Math.max(0, num(v.cutLoss, 0)), probationN: Math.max(0, Math.floor(num(v.probationN, 0))), houseUsd: Math.max(0, num(v.houseUsd, 0)), ladder: (Array.isArray(v.ladder) ? (v.ladder as unknown[]) : []).filter((x): x is number[] => Array.isArray(x) && x.length === 3 && x.every((y) => typeof y === "number" && Number.isFinite(y) && y >= 0)).map((x) => [Math.floor(x[0]), x[1], Math.min(MAX_STAKE, Math.max(size, x[2]))] as [number, number, number]), maxAbove: Math.min(0.5, Math.max(0, num(v.maxAbove, 0))), autoReal: v.autoReal !== false, aheadSize: Math.min(MAX_STAKE, Math.max(0, num(v.aheadSize, 0))) };
+    groups[g] = { rules, size, maxAsk: Math.min(0.99, num(v.maxAsk, 0.96)), minDepth: Math.max(0, num(v.minDepth, 25)), dayLosses: Math.max(1, Math.floor(num(v.dayLosses, 2))), maxOpen: Math.max(1, Math.floor(num(v.maxOpen, 4))), maxLoss: Math.max(0, num(v.maxLoss, 12)), negRisk: v.negRisk === true, maxSize, maxDays: Math.max(0, num(v.maxDays, 0)), perWallet: Math.max(0, Math.floor(num(v.perWallet, 0))), stopNet: Math.max(0, num(v.stopNet, 0)), openUsd: Math.max(0, num(v.openUsd, 0)), walletUsd: Math.max(0, num(v.walletUsd, 0)), adaptN: Math.max(0, Math.floor(num(v.adaptN, 0))), adaptStop: Math.max(0, num(v.adaptStop, 0)), adaptBoost: Math.min(3, Math.max(1, num(v.adaptBoost, 1))), steps: v.steps === "wallet" || v.steps === "rule" ? v.steps : "", cutN: Math.max(0, Math.floor(num(v.cutN, 0))), cutLoss: Math.max(0, num(v.cutLoss, 0)), probationN: Math.max(0, Math.floor(num(v.probationN, 0))), houseUsd: Math.max(0, num(v.houseUsd, 0)), ladder: (Array.isArray(v.ladder) ? (v.ladder as unknown[]) : []).filter((x): x is number[] => Array.isArray(x) && x.length === 3 && x.every((y) => typeof y === "number" && Number.isFinite(y) && y >= 0)).map((x) => [Math.floor(x[0]), x[1], Math.min(MAX_STAKE, Math.max(size, x[2]))] as [number, number, number]), maxAbove: Math.min(0.5, Math.max(0, num(v.maxAbove, 0))), autoReal: v.autoReal !== false, aheadSize: Math.min(MAX_STAKE, Math.max(0, num(v.aheadSize, 0))), houseBets: Math.min(20, Math.max(0, num(v.houseBets, 0))) };
   }
   const since = typeof repo.lossCap?.since === "number" ? repo.lossCap.since : Date.parse(String(repo.lossCap?.since ?? ""));
   const maxLoss = Number(repo.lossCap?.maxLoss);
@@ -176,7 +176,8 @@ export function eventLiveBlock(cfg: EventLiveConfig, group: string, rule: string
   // WHAT A RULE MAY RISK (houseUsd): its open stakes may not pass houseUsd plus what its settled real bets have made
   // (less what they lost). A new wallet can so have houseUsd at risk and no more, a wallet that wins for us earns
   // more room with its own winnings (up to walletUsd), and no wallet can cost much more than houseUsd in all.
-  if (g.houseUsd > 0 && ruleUsd + bet > Math.max(0, g.houseUsd + ad.net) + 1e-9) return `$${ruleUsd.toFixed(2)} open on this wallet + $${bet.toFixed(2)} would pass what it may risk ($${g.houseUsd} and its real result of $${ad.net.toFixed(2)})`;
+  const room = g.houseUsd > 0 ? riskRoom(g, realRecordOf(rows.filter((r) => r.group === group), rule)) : 0;
+  if (g.houseUsd > 0 && ruleUsd + bet > room + 1e-9) return `$${ruleUsd.toFixed(2)} open on this wallet + $${bet.toFixed(2)} would pass what it may risk (${g.houseBets ? `$${room.toFixed(2)}: ${g.houseBets} bets` : `$${g.houseUsd}`} and its real result of $${ad.net.toFixed(2)})`;
   const settled = mine.filter((r) => r.pnl != null);
   const net = settled.reduce((s, r) => s + (r.pnl ?? 0), 0);
   // The group's own budget (10 Nov 2026, enrique: "tennis should have its own little budget"): money lost so far plus
@@ -225,6 +226,16 @@ export const paperBehindStatus = () => {
  * sets ours. Each row's line is chosen so that three bets of its size fit in what the wallet may risk (houseUsd and
  * its real result). Pure.
  */
+/**
+ * What one copied wallet may have in open bets (enrique, 18 Nov 2026: the $9 room was "a huge blocker when we're
+ * scaling up traders that seem good"): houseBets of its current bet size (at least houseUsd), plus its settled real
+ * result; walletUsd stays the hard top. Without houseBets it is houseUsd plus the result, as before.
+ */
+export function riskRoom(g: EventLiveGroup, rec: { n: number; net: number; best?: number; last3?: number }): number {
+  const base = g.houseBets ? Math.max(g.houseUsd, g.houseBets * (g.ladder.length ? ladderStake(g, rec) : g.size)) : g.houseUsd;
+  const room = Math.max(0, base + rec.net);
+  return g.walletUsd > 0 ? Math.min(room, g.walletUsd) : room;
+}
 export function ladderStake(g: EventLiveGroup, rec: { n: number; net: number; best?: number; last3?: number }): number {
   // smart, not blunt (enrique, 17 Nov 2026 15:16 KST: "we have to be smart about how we scale up and down"): the line is
   // met without its single best bet, so one lucky win never sizes it up, and its newest 3 bets behind take one row off
@@ -398,7 +409,7 @@ export async function eventLiveBuy(group: string, p: { rule: string; marketId: s
     if (g.houseUsd > 0 && stake > g.size) {
       // a bigger bet is cut down to the room the wallet has left (never under the base size: the guard below decides that)
       const openMine = rows.filter((r) => r.group === group && r.rule === p.rule && r.pnl == null && held(r)).reduce((a, r) => a + r.cost, 0);
-      stake = Math.max(g.size, Math.min(stake, Math.floor((g.houseUsd + mineRec.net - openMine) * 100) / 100));
+      stake = Math.max(g.size, Math.min(stake, Math.floor((riskRoom(g, mineRec) - openMine) * 100) / 100));
     }
     const why = eventLiveBlock(cfg, group, p.rule, p.marketId, p.ask, p.depth, p.fillable, rows, Date.now(), stake, p.resolveAt);
     if (why) return why;
