@@ -873,13 +873,15 @@ function promote(max = PROMOTE_PER_PASS) {
 async function coinStep(max = COINS_PER_PASS): Promise<boolean> {
   await refreshCoins();
   const now = Date.now();
-  const recent = Object.values(state.coins).filter((c) => c.sampledAt && now - c.sampledAt < COIN_RESAMPLE_MS).length;
-  const allDue = Object.entries(state.coins)
+  // the weekly MAX_COINS budget is for the other coins: a mid or high cap is never held back by it (on 18 Nov 2026 the
+  // budget was spent, 1,500 of 1,500, and no cap coin was due for a week however short its daily clock)
+  const recent = Object.entries(state.coins).filter(([m, c]) => !capOk(m, now) && c.sampledAt && now - c.sampledAt < COIN_RESAMPLE_MS).length;
+  const due0 = Object.entries(state.coins)
     // a mid or high cap is sampled again daily (new buyers of it every day), the rest weekly
     .filter(([m, c]) => coinOld(c, now) && !(c.sampledAt && now - c.sampledAt < (capOk(m, now) ? CAP_RESAMPLE_MS : COIN_RESAMPLE_MS)))
     // mid and high caps first (enrique, 17 Nov 2026: "focus on mid to high caps"): their buyers are the wallets wanted
-    .sort((a, b) => Number(capOk(b[0], now)) - Number(capOk(a[0], now)) || (a[1].from === b[1].from ? b[1].days.length - a[1].days.length || (b[1].vol ?? 0) - (a[1].vol ?? 0) : a[1].from === "jupiter" ? -1 : 1))
-    .slice(0, Math.max(0, MAX_COINS - recent));
+    .sort((a, b) => Number(capOk(b[0], now)) - Number(capOk(a[0], now)) || (a[1].from === b[1].from ? b[1].days.length - a[1].days.length || (b[1].vol ?? 0) - (a[1].vol ?? 0) : a[1].from === "jupiter" ? -1 : 1));
+  const allDue = [...due0.filter(([m]) => capOk(m, now)), ...due0.filter(([m]) => !capOk(m, now)).slice(0, Math.max(0, MAX_COINS - recent))];
   const due = allDue.slice(0, max);
   coinHealth.due = allDue.length - due.length;
   coinHealth.sampled = 0;

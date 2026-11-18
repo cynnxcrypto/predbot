@@ -874,3 +874,19 @@ test("a followed wallet's balance: SOL and priced coins from one answer; unprice
   assert.equal(balanceOf({ items: [] }), null);
   assert.equal(balanceOf(null), null);
 });
+
+test("mid and high caps: a cap coin is sampled daily even when the weekly coin budget is spent", async () => {
+  _test.reset();
+  const now = Date.now();
+  const st = _test.state();
+  const fake = (async () => new Response(JSON.stringify({ result: { data: [], paginationToken: null } }), { status: 200 })) as unknown as typeof fetch;
+  _test.setCfg({ rpcUrl: () => "https://rpc.test/?api-key=k", fetch: () => fake, listed: () => [], busy: () => [], quote: async () => null });
+  for (let i = 0; i < 1500; i++) st.coins[`Coin${i}`] = { symbol: `C${i}`, from: "jupiter", days: ["d1", "d2"], createdMs: now - 40 * DAY, sampledAt: now - 3600_000 };
+  st.coins.CapOld111111 = { symbol: "CAP", from: "jupiter", days: ["d1", "d2"], createdMs: now - 400 * DAY, sampledAt: now - 2 * DAY };
+  st.coins.Meme99 = { symbol: "M", from: "jupiter", days: ["d1", "d2"], createdMs: now - 40 * DAY, sampledAt: now - 8 * DAY };
+  st.caps = { CapOld111111: { mcap: 3e8, liq: 2e6, createdMs: now - 400 * DAY, at: now } };
+  assert.equal(await _test.coinStep(5), true);
+  assert.ok(st.coins.CapOld111111.sampledAt! > now - 60_000, "the cap coin was sampled");
+  assert.ok(st.coins.Meme99.sampledAt! < now - DAY, "the budget still holds the rest");
+  _test.reset();
+});
