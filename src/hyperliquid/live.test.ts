@@ -170,7 +170,7 @@ test("an order that is refused opens nothing; limits are clamped; leverage is wh
   assert.equal(_test.state().opens.length, 0);
   assert.deepEqual(_test.state().skipped, { "order not filled": 1 });
   const c = parseHlLive('{"hyperliquid":{"trade":{"on":true,"collateralUsd":500,"maxOpen":99,"maxLossUsd":900,"traderStopUsd":80}}}');
-  assert.deepEqual(c, { on: true, collateralUsd: 25, maxOpen: 10, maxLossUsd: 50, traderStopUsd: 10, testOnce: "" });
+  assert.deepEqual(c, { on: true, collateralUsd: 25, maxOpen: 20, maxLossUsd: 50, traderStopUsd: 10, testOnce: "" });
   assert.equal(parseHlLive('{"hyperliquid":{"trade":{"on":true}}}').on, false, "no loss cap, no trading");
   assert.equal(parseHlLive("{}").on, false);
   assert.deepEqual([leverageFor(25, COINS.BTC), leverageFor(25, COINS.HYPE), leverageFor(0.4, COINS.BTC), leverageFor(undefined, COINS.BTC)], [20, 5, 1, 2]);

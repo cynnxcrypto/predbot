@@ -253,8 +253,8 @@
       "onNote": "17 Nov 2026 20:04 KST: on, on enrique's word 19:10 KST \"why isnt hl trading on, it's based on the same perp traders as in the sol perps tab\", after funding finished and test t1 opened and closed (-$0.01). Same real-record rules as the Solana perps copies.",
       "on": true,
       "collateralUsd": 10,
-      "maxOpenNote": "17 Nov 2026 23:08 KST, enrique: 'yes allow more than one HL copy per trader, wtf'. Every open position of a real trader is copied (one per coin). Up to 10 at once; what really bounds it is the wallet's free money at $10 a position. Loss cap $50 unchanged.",
-      "maxOpen": 10,
+      "maxOpenNote": "17 Nov 2026 23:08 KST, enrique: 'yes allow more than one HL copy per trader, wtf'. Every open position of a real trader is copied (one per coin). Up to 10 at once; what really bounds it is the wallet's free money at $10 a position. Loss cap $50 unchanged. 18 Nov 2026 13:15 KST, enrique after topping the wallet up to about $212: 'yeah I want to be using the cash', 'yeah raise limit to 20'. Up to 20 at once, still $10 a position; the free money check keeps the fee buffer. Loss cap $50 unchanged.",
+      "maxOpen": 20,
       "maxLossUsd": 50,
       "traderStopUsd": 9,
       "testOnce": "t1"

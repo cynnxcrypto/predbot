@@ -32,7 +32,7 @@ import { roundSz } from "./exchange.js";
 export const HARD_COLLATERAL_USD = 25;
 export const MIN_COLLATERAL_USD = 10;
 export const HARD_MAX_LOSS_USD = 50;
-export const HARD_MAX_OPEN = 10;
+export const HARD_MAX_OPEN = 20;
 export const HARD_TRADER_STOP_USD = 10;
 /** Hyperliquid turns down an order worth under $10; ours are never under this */
 export const MIN_ORDER_USD = 11;
