@@ -47,6 +47,8 @@ export function wonRows(rows: { condition_id?: unknown; conditionId?: unknown; r
 export function savePmRedeemable(rows: PmWon[], now = Date.now()) {
   saveJson(PM_REDEEMABLE_FILE, { at: now, rows });
 }
+/** When Polymarket's redeemable list was last read (0 = never). */
+export const pmRedeemableAt = () => loadJson<{ at?: number }>(PM_REDEEMABLE_FILE, {}).at ?? 0;
 export function loadPmRedeemable(now = Date.now()): PmWon[] {
   const f = loadJson<{ at?: number; rows?: PmWon[] }>(PM_REDEEMABLE_FILE, {});
   return f.at && now - f.at <= PM_REDEEMABLE_MAX_AGE && Array.isArray(f.rows) ? f.rows : [];
@@ -64,10 +66,13 @@ export function ourUnclaimed(bets: BetRow[], claims: Record<string, ClaimDone | 
 }
 
 /** Won money Polymarket shows redeemable that our own books do not count as waiting. Pure. */
-export function extraUnclaimed(pm: PmWon[], bets: BetRow[], claims: Record<string, ClaimDone | undefined>): number {
+export function extraUnclaimed(pm: PmWon[], bets: BetRow[], claims: Record<string, ClaimDone | undefined>, pmAt = Infinity): number {
   const ours = ourUnclaimed(bets, claims);
   const open = openInOurs(bets);
-  return Math.round(pm.reduce((a, w) => a + (open.has(w.c) ? 0 : Math.max(0, w.v - (ours.get(w.c) ?? 0))), 0) * 100) / 100;
+  // a win we claimed AFTER Polymarket's list was read is already cash: counting it again until the next read made the
+  // total worth jump up and fall back (18 Nov 2026 ~21:10 KST, about +$24 for a few minutes)
+  const claimedSince = (c: string) => Boolean(claims[c]?.tx) && (claims[c]?.at ?? 0) >= pmAt;
+  return Math.round(pm.reduce((a, w) => a + (open.has(w.c) || claimedSince(w.c) ? 0 : Math.max(0, w.v - (ours.get(w.c) ?? 0))), 0) * 100) / 100;
 }
 
 /** What each redeemable win is in our books, for the public status (counts and dollars, no ids). Pure. */

@@ -9,7 +9,7 @@ import { openWorth } from "./eventdash.js";
 import { solSlowView } from "./solslowdash.js";
 import { kit } from "./solana/copylive.js";
 import { loadJson, readAll, saveJson } from "./store.js";
-import { extraUnclaimed, loadPmRedeemable } from "./pmredeem.js";
+import { extraUnclaimed, loadPmRedeemable, pmRedeemableAt } from "./pmredeem.js";
 
 const SOL = "So11111111111111111111111111111111111111112";
 const USDC = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
@@ -550,7 +550,7 @@ export async function worthView(cash: number | null, claim: number, solBal: numb
   claim += unclaimedAt(loadSpans(), Date.now());
   // won money Polymarket shows redeemable that our books do not have waiting (src/pmredeem.ts, 17 Nov 2026)
   try {
-    claim += extraUnclaimed(loadPmRedeemable(), loadJson("eventlive.json", []), loadJson("eventlive-claims.json", {}));
+    claim += extraUnclaimed(loadPmRedeemable(), loadJson("eventlive.json", []), loadJson("eventlive-claims.json", {}), pmRedeemableAt());
   } catch {
     /* no list: our own books only */
   }
