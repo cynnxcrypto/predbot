@@ -56,7 +56,7 @@ import { makeReader, type Item } from "./history.js";
 import { signTransaction, wallet, type Wallet } from "./keys.js";
 import { SOL } from "./pools.js";
 import { setExitSource, slowExitsSummary } from "./slowexits.js";
-import { capOk, capWallets, copySafe, onSlowSwap, paperAddresses, paperResults, provenWallets, setSlowRealSummary, STAKE_SOL as PAPER_STAKE_SOL, top5Sol, type SlowSwap } from "./slow.js";
+import { capOk, capWallets, copySafe, onSlowSwap, paperAddresses, paperResults, provenWallets, setSlowRealSummary, shareOf, STAKE_SOL as PAPER_STAKE_SOL, top5Sol, type SlowSwap } from "./slow.js";
 
 export const HARD_STAKE_SOL = 0.05;
 /**
@@ -65,6 +65,20 @@ export const HARD_STAKE_SOL = 0.05;
  * caps are deep enough for a bigger copy.
  */
 export const HARD_CAP_STAKE_SOL = 0.1;
+/**
+ * SIZE BY CONVICTION (enrique, 19 Nov 2026 15:48 KST: "yeah build all 3", "this should be for any copytrading not just
+ * HL"): with "conviction" in the file, a copy is the stake times the trader's buy over its usual buy (the median first
+ * buy of its replayed trips), at least CONVICTION_MIN and at most CONVICTION_MAX times, and never above this.
+ */
+export const HARD_CONVICTION_STAKE_SOL = 0.2;
+export const CONVICTION_MIN = 0.5;
+export const CONVICTION_MAX = 2;
+/**
+ * FOLLOW PARTIAL SALES (enrique, 19 Nov 2026, as above): the trader sells part of a coin, we sell the same share of
+ * ours, exitSec later. A share under PART_MIN is not followed (fees for nothing); PART_ALL or more is a full sale.
+ */
+export const PART_MIN = 0.1;
+export const PART_ALL = 0.9;
 /** the most SOL the file may keep back for network fees, never spent on a copy */
 export const HARD_GAS_KEEP_SOL = 0.2;
 /** when the stake went from 0.01 to 0.035 SOL (the restart of 18:00 KST 15 Nov 2026) */
@@ -112,8 +126,11 @@ export const MAX_WALLETS = 25;
 export const REST_LAST = 15;
 /** A wallet's real record is its landed real copies of the last REST_DAYS days. */
 export const REST_DAYS = 7;
-/** With this many real copies in REST_DAYS days the real record decides: behind = rested, ahead = kept whatever paper says. */
-export const REAL_MIN = 5;
+/**
+ * With this many real copies in REST_DAYS days the real record decides: behind = rested, ahead = kept whatever paper
+ * says. Was 5; 3 since 19 Nov 2026 (enrique: "cut losing traders sooner", for all copy trading).
+ */
+export const REAL_MIN = 3;
 /**
  * More than ONE STAKE behind in REST_DAYS days: rested at once, at any count (oneStake below: the biggest stake its
  * counted copies were bought with). This number is that line only for a wallet with no counted copy.
@@ -163,6 +180,8 @@ export interface SlowLiveConfig {
   maxFeeLamports: number;
   /** "proven" = the wallets the paper copy proves (the default); "fixed" = the first three */
   follow: "proven" | "fixed";
+  /** size each copy by the trader's conviction (see HARD_CONVICTION_STAKE_SOL); off unless the file says true */
+  conviction?: boolean;
   /**
    * Mid and high caps only (enrique, 17 Nov 2026: "dont focus on memecoins then" / "focus on mid to high caps" /
    * "50m mcap sounds fine" / "why do we need them to do new trades, dont they have a history?"): a buy is copied only
@@ -205,6 +224,7 @@ export function parseSlowLive(text: string): SlowLiveConfig {
       sellCut: p.sellCut === true,
       capOnly: p.capOnly === true,
       gasKeepSol: clamp(num(p.gasKeepSol, 0), 0, HARD_GAS_KEEP_SOL),
+      conviction: p.conviction === true,
     };
   } catch {
     return OFF;
@@ -253,6 +273,10 @@ export interface Pos {
   /** since when the sweep has seen its wallet off the list of copied wallets, ms (cleared when the wallet is back) */
   offMs?: number;
   exit?: Exit;
+  /** the conviction multiple this copy was sized with (see CONVICTION_MIN) */
+  conv?: number;
+  /** partial sales of ours that went through, following the trader's (see PART_MIN) */
+  parts?: number;
 }
 type Exit = "sold" | "sold, seen late" | "max hold" | "wallet dropped" | "wallet cut" | "sold while we were down" | "buy did not land" | "buy failed" | "written off";
 export interface SRow {
@@ -287,6 +311,8 @@ interface State {
   notCap?: number;
   /** sale quotes refused for asking too fast (each asked again, see sellQuote) */
   sellRefused?: number;
+  /** partial sales of ours that went through (see PART_MIN) */
+  parts?: number;
   skippedSold: number;
   notSent: number;
   unreadTx: number;
@@ -642,6 +668,14 @@ export function onSwap(s: SlowSwap) {
   for (const a of state.after ?? []) if (a.wallet === s.wallet && a.mint === s.mint && !a.soldMs) a.soldMs = s.seenMs;
   for (const p of state.opens) {
     if (p.wallet !== s.wallet || p.mint !== s.mint || p.soldSeenMs) continue;
+    // a part of its holding (see PART_MIN): the same share of ours, once the copy is held; the copy stays out
+    if (s.share != null && s.share < PART_ALL) {
+      if (s.share >= PART_MIN && p.stage === "held") {
+        const share = s.share;
+        later(cfg().exitSec * 1000 - (Date.now() - s.seenMs), () => void sellPart(p, share));
+      }
+      continue;
+    }
     p.soldSeenMs = s.seenMs;
     if (p.stage === "waiting") {
       // it sold before our entry: no copy
@@ -663,6 +697,23 @@ export function bucketHeld(): string[] {
     return []; // no file: that side has never traded
   }
 }
+/**
+ * The conviction multiple of a buy (see CONVICTION_MIN): the trader's buy over its usual buy. 1 when the file does not
+ * ask for it or the usual buy is not known (a wallet that is not on the caps list).
+ */
+export function convictionOf(address: string, sol: number, c: SlowLiveConfig): number {
+  if (!c.conviction) return 1;
+  let usual: number | null | undefined;
+  try {
+    usual = capWallets().find((w) => w.address === address)?.usualSol;
+  } catch {
+    usual = null;
+  }
+  if (!usual || !(usual > 0) || !(sol > 0)) return 1;
+  return Math.round(clamp(sol / usual, CONVICTION_MIN, CONVICTION_MAX) * 100) / 100;
+}
+/** A copy's stake before the size steps: the file's stake times its conviction, never above HARD_CONVICTION_STAKE_SOL. */
+const baseStake = (c: SlowLiveConfig, conv = 1) => (conv === 1 ? c.stakeSol : Math.min(HARD_CONVICTION_STAKE_SOL, c.stakeSol * conv));
 function onBuy(s: SlowSwap) {
   const c = cfg();
   if (!c.on || state.halted || !walletReady || s.sol < MIN_LEADER_SOL) return;
@@ -687,14 +738,15 @@ function onBuy(s: SlowSwap) {
     state.note = `loss stop: ${loss().toFixed(4)} SOL lost of ${c.stopLossSol} allowed; no new copies until a review`;
     return void state.missedCap++;
   }
+  const conv = convictionOf(s.wallet, s.sol, c);
   // the cap must hold with every copy that is out, and this one, lost in full
   // (each copy that is out at ITS OWN stake: the older, smaller ones do not count as big ones)
-  if (loss() + state.opens.reduce((a, o) => a + (o.stakeSol ?? c.stakeSol) + COPY_ROOM_SOL, 0) + c.stakeSol + COPY_ROOM_SOL > c.maxLossSol + 1e-9) {
+  if (loss() + state.opens.reduce((a, o) => a + (o.stakeSol ?? c.stakeSol) + COPY_ROOM_SOL, 0) + baseStake(c, conv) + COPY_ROOM_SOL > c.maxLossSol + 1e-9) {
     miss(nameOf(s.wallet), s.mint, s.seenMs, "cap");
     return void state.missedCap++;
   }
   // failRounds from the start: a round cut off by a restart is then not taken for a failed sale (see failedRounds)
-  const p: Pos = { wallet: s.wallet, name: nameOf(s.wallet), mint: s.mint, leaderSol: r6(s.sol), seenMs: s.seenMs, stage: "waiting", sigs: [], sellRounds: 0, failRounds: 0 };
+  const p: Pos = { wallet: s.wallet, name: nameOf(s.wallet), mint: s.mint, leaderSol: r6(s.sol), seenMs: s.seenMs, stage: "waiting", sigs: [], sellRounds: 0, failRounds: 0, ...(conv !== 1 ? { conv } : {}) };
   state.opens.push(p);
   save();
   later(c.entrySec * 1000 - (Date.now() - s.seenMs), () => void buy(p));
@@ -733,7 +785,8 @@ async function buy(p: Pos) {
       state.note = `the wallet holds more than was agreed (${MAX_WALLET_SOL} SOL plus what this test has won): not buying until the extra is taken out`;
       return drop(() => state.missedLow++);
     }
-    const stakeSol = Math.max(Math.min(c.stakeSol, bal), Math.min(HARD_STEP_STAKE_SOL, c.stakeSol * stepOf(state.rows, p.name, p.leaderSol, Date.now(), p.wallet).mult, SCALE_WALLET_SHARE * bal));
+    const base = baseStake(c, p.conv);
+    const stakeSol = Math.max(Math.min(base, bal), Math.min(HARD_STEP_STAKE_SOL, base * stepOf(state.rows, p.name, p.leaderSol, Date.now(), p.wallet).mult, SCALE_WALLET_SHARE * bal));
     if (bal < stakeSol + RENT_SOL + SELL_RESERVE_SOL * (out + 1) + (c.gasKeepSol ?? 0)) {
       state.note = "wallet balance too low for a copy";
       miss(p.name, p.mint, p.seenMs, "low");
@@ -861,6 +914,38 @@ async function sell(p: Pos, exit: Exit) {
     sellingCount--;
   }
 }
+/**
+ * Sell `share` of the coin the wallet holds for this copy, once (see PART_MIN). Its transaction joins the copy's, so the
+ * copy's result counts it when the rest is sold. A full sale asked for meanwhile follows at once. Never throws.
+ */
+async function sellPart(p: Pos, share: number) {
+  if (!state.opens.includes(p) || p.stage !== "held" || sellingNow.has(p) || p.soldSeenMs) return;
+  sellingNow.add(p);
+  const c = cfg();
+  try {
+    const w = wallet();
+    const h = await kit.held(w.address, p.mint);
+    const amount = (h.amount * BigInt(Math.round(share * 1_000_000))) / 1_000_000n;
+    if (amount > 0n && amount < h.amount) {
+      const q = await sellQuote(p.mint, amount.toString(), SELL_SLIPPAGE_BPS[0]);
+      if (!q.outAmount) throw new Error("no sell quote");
+      const tx = signTransaction(await kit.swapTx(q, w.address, c.maxFeeLamports), w);
+      p.sigs.push(kit.sigOf(tx));
+      save();
+      const st = await sendUntil(tx, 30_000);
+      if (st && !st.err) {
+        p.parts = (p.parts ?? 0) + 1;
+        state.parts = (state.parts ?? 0) + 1;
+        save();
+      }
+    }
+  } catch (e) {
+    state.lastError = fixed(e);
+  } finally {
+    sellingNow.delete(p);
+  }
+  if (p.soldSeenMs && p.stage === "held") void sell(p, "sold");
+}
 async function sellOnce(p: Pos, exit: Exit) {
   p.stage = "selling";
   p.exit = exit;
@@ -981,7 +1066,8 @@ export async function soldSince(leader: string, mint: string, sinceMs: number): 
       for (const it of pg.data) {
         if (payerOf(it) !== leader) continue;
         const s = swapOf(it.meta as Meta, leader, it.slot);
-        if (s && s.wallet === leader && s.mint === mint && !s.buy) return true;
+        // a full sale only: a part of it (see PART_MIN) is followed from the stream, never as the whole
+        if (s && s.wallet === leader && s.mint === mint && !s.buy && shareOf(s) >= PART_ALL) return true;
       }
       token = pg.paginationToken;
       if (!token || !pg.data.length) return false;
@@ -1278,7 +1364,9 @@ export function slowLiveSummary() {
     capOnly: c.capOnly === true,
     notCap: state.notCap ?? 0,
     gasKeepSol: c.gasKeepSol ?? 0,
-      sellRefused: state.sellRefused ?? 0,
+    conviction: c.conviction === true,
+    parts: state.parts ?? 0,
+    sellRefused: state.sellRefused ?? 0,
     skippedSold: state.skippedSold,
     notSent: state.notSent,
     /** buy quotes refused for asking too fast (every refusal counted; a refused quote is asked again twice) */

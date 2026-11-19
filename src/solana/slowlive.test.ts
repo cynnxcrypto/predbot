@@ -39,7 +39,7 @@ function chain(worth: (mint: string) => number, lamports = 0.08e9) {
   const c = {
     lamports, n: 0, quotes: 0, sends: 0,
     held: new Map<string, bigint>(),
-    built: new Map<string, { kind: "buy" | "sell"; mint: string; out: number }>(),
+    built: new Map<string, { kind: "buy" | "sell"; mint: string; out: number; amt?: bigint }>(),
     txs: new Map<string, { pre: number; post: number; ok: boolean }>(),
     /** buys that never land */
     lost: false,
@@ -63,12 +63,12 @@ function chain(worth: (mint: string) => number, lamports = 0.08e9) {
       const [i, o] = [u.get("inputMint")!, u.get("outputMint")!];
       const no = c.refuse?.(i === SOLMINT ? "buy" : "sell");
       if (no) return new Response(JSON.stringify({ errorCode: no.code ?? "" }), { status: no.status });
-      return json(i === SOLMINT ? { outAmount: "1000", inputMint: i, outputMint: o } : { outAmount: String(Math.round(worth(i) * 1e9)), inputMint: i, outputMint: o });
+      return json(i === SOLMINT ? { outAmount: "1000", inputMint: i, outputMint: o } : { outAmount: String(Math.round(worth(i) * 1e9)), inputMint: i, outputMint: o, inAmount: u.get("amount") });
     }
     if (url.includes("/swap/v1/swap")) {
-      const q = (JSON.parse(init!.body!) as { quoteResponse: { inputMint: string; outputMint: string; outAmount: string } }).quoteResponse;
+      const q = (JSON.parse(init!.body!) as { quoteResponse: { inputMint: string; outputMint: string; outAmount: string; inAmount?: string } }).quoteResponse;
       const tx = buildSigned(w, SYSTEM, SYSTEM, [{ pubkey: w.address, writable: true }], [++c.n]);
-      c.built.set(sigOfTx(tx), q.inputMint === SOLMINT ? { kind: "buy", mint: q.outputMint, out: 0 } : { kind: "sell", mint: q.inputMint, out: Number(q.outAmount) });
+      c.built.set(sigOfTx(tx), q.inputMint === SOLMINT ? { kind: "buy", mint: q.outputMint, out: 0 } : { kind: "sell", mint: q.inputMint, out: Number(q.outAmount), ...(q.inAmount ? { amt: BigInt(q.inAmount) } : {}) });
       return json({ swapTransaction: tx });
     }
     const { method, params } = JSON.parse(init!.body!) as { method: string; params: unknown[] };
@@ -88,7 +88,8 @@ function chain(worth: (mint: string) => number, lamports = 0.08e9) {
         c.apply(sig, -(0.01e9 + FEE + RENT), true);
       } else if (b?.kind === "sell") {
         const ok = !c.failSell && (c.held.get(b.mint) ?? 0n) > 0n;
-        if (ok) c.held.set(b.mint, 0n);
+        // a sale of part of the coin (the amount quoted) leaves the rest
+        if (ok) c.held.set(b.mint, b.amt != null && b.amt < c.held.get(b.mint)! ? c.held.get(b.mint)! - b.amt : 0n);
         c.apply(sig, ok ? b.out - FEE : -FEE, ok);
       } else {
         const mint = base58(raw.subarray(69 + 32, 69 + 64));
@@ -182,23 +183,23 @@ test("real day-holder copy: copies the wallets proven on paper, adapts as the li
   assert.equal(_test.state().opens.length, 0);
   assert.equal(c.held.has(A), false);
   assert.deepEqual([_test.state().rows[0].name, _test.state().rows[0].exit], ["coin buyer Prov", "sold"]);
-  // rested (cut the losers): 5+ real copies in the last 7 days and behind, however many won; older ones do not count
+  // rested (cut the losers): REAL_MIN (3)+ real copies in the last 7 days and behind, however many won; older ones do not count
   const row = (name: string, t: number, netSol: number) => ({ t, name, mint: "x", leaderSol: 1, buy: "landed" as const, exit: "sold" as const, heldMin: 60, netSol, sigs: [] as string[] });
   const now = Date.now();
-  for (let i = 0; i < 4; i++) _test.state().rows.push(row("coin buyer Pro2", now - i * 60_000, i < 3 ? 0.001 : -0.005));
-  assert.equal(rested("coin buyer Pro2"), false, "four copies: paper still decides");
+  for (let i = 0; i < 2; i++) _test.state().rows.push(row("coin buyer Pro2", now - i * 60_000, i < 1 ? 0.001 : -0.005));
+  assert.equal(rested("coin buyer Pro2"), false, "two copies: paper still decides");
   _test.state().rows.push(row("coin buyer Pro2", now, 0.0005));
-  assert.equal(rested("coin buyer Pro2"), true, "five copies, four won, behind");
+  assert.equal(rested("coin buyer Pro2"), true, "three copies, two won, behind");
   _test.relist();
   assert.deepEqual(wallets(), []);
   onSwap(swap(P2, B, true));
   assert.equal(_test.state().opens.length, 0, "rested: not copied");
   const s = slowLiveSummary();
   assert.deepEqual([s.follow, s.wallets, s.kept, s.rested], ["proven", [], [], ["coin buyer Pro2"]]);
-  assert.deepEqual(s.byWallet.map((x) => [x.name, x.state, x.last7.copies]), [["coin buyer Prov", "off", 1], ["coin buyer Pro2", "rested on real", 5]]);
+  assert.deepEqual(s.byWallet.map((x) => [x.name, x.state, x.last7.copies]), [["coin buyer Prov", "off", 1], ["coin buyer Pro2", "rested on real", 3]]);
   assert.ok(!JSON.stringify(s).includes(P1) && !JSON.stringify(s).includes(P2), "names only in the public summary");
   // ahead, or its bad copies over a week old: not rested
-  _test.state().rows[_test.state().rows.length - 1].netSol = 0.002;
+  _test.state().rows[_test.state().rows.length - 1].netSol = 0.004;
   assert.equal(rested("coin buyer Pro2"), false);
   _test.state().rows[_test.state().rows.length - 1].netSol = 0.0005;
   assert.equal(rested("coin buyer Pro2", now + 8 * 86_400_000), false);
@@ -235,9 +236,9 @@ test("real day-holder copy: real results come first: a real winner stays copied 
   slow._test.follow([P1]); // paper follows only P1 now
   const row = (name: string, i: number, netSol: number, wallet?: string) => ({ t: Date.now() - i * 60_000, name, ...(wallet ? { wallet } : {}), mint: "x", leaderSol: 1, buy: "landed" as const, exit: "sold" as const, heldMin: 60, netSol, sigs: [] as string[] });
   const rows = _test.state().rows;
-  // real: W1 six copies, ahead by one big winner (two won); W2 four copies ahead (too few); W3 five ahead but a program
+  // real: W1 six copies, ahead by one big winner (two won); W2 two copies ahead (too few); W3 five ahead but a program
   for (let i = 0; i < 6; i++) rows.push(row("coin buyer Win1", i, i === 0 ? 0.03 : i === 1 ? 0.001 : -0.002));
-  for (let i = 0; i < 4; i++) rows.push(row("coin buyer Win2", i, 0.004, W2));
+  for (let i = 0; i < 2; i++) rows.push(row("coin buyer Win2", i, 0.004, W2));
   for (let i = 0; i < 5; i++) rows.push(row("coin buyer Win3", i, 0.004, W3));
   _test.relist();
   // real winners first, then the paper list
@@ -262,11 +263,11 @@ test("real day-holder copy: real results come first: a real winner stays copied 
   assert.deepEqual(s.byWallet.map((x) => [x.name, x.state, x.copies, x.won]), [
     ["coin buyer Win1", "kept on real", 6, 2],
     ["coin buyer Win3", "held back", 5, 5],
-    ["coin buyer Win2", "off", 4, 4],
+    ["coin buyer Win2", "off", 2, 2],
     ["coin buyer Prov", "on the paper list", 0, 0],
   ]);
   assert.ok(![W1, W2, W3, P1].some((a) => JSON.stringify(s).includes(a)), "names only in the public summary");
-  // a fifth winning copy brings W2 in (its address from its rows); W1 falls behind and is cut, and then its copy is on the clock
+  // a third winning copy brings W2 in (its address from its rows); W1 falls behind and is cut, and then its copy is on the clock
   rows.push(row("coin buyer Win2", 0, 0.004, W2));
   rows.push(row("coin buyer Win1", 0, -0.03));
   _test.relist();
@@ -337,7 +338,7 @@ test("real day-holder copy: real first, the gaps closed: a winner's address from
   const c2 = chain(() => 0.004); // a sale brings back less than half the stake
   for (let i = 0; i < 20; i++) st.recent.push(paper(P1, "coin buyer Prov", i, 0.3));
   slow._test.follow([P1]);
-  for (let i = 0; i < 4; i++) _test.state().rows.push(row("coin buyer Prov", i + 1, -0.001)); // four copies a little behind: paper still decides
+  for (let i = 0; i < 2; i++) _test.state().rows.push(row("coin buyer Prov", i + 1, -0.001)); // two copies a little behind: paper still decides
   _test.relist();
   assert.deepEqual(wallets().map((w) => w.address), [P1]);
   onSwap(swap(P1, A, true));
@@ -345,8 +346,8 @@ test("real day-holder copy: real first, the gaps closed: a winner's address from
   assert.equal(_test.state().opens[0].stage, "held");
   onSwap(swap(P1, A, false));
   await wait(3000);
-  assert.equal(_test.state().rows.length, 5);
-  assert.equal(rested("coin buyer Prov"), true, "five copies, behind");
+  assert.equal(_test.state().rows.length, 3);
+  assert.equal(rested("coin buyer Prov"), true, "three copies, behind");
   onSwap(swap(P1, B, true)); // its next buy, seconds later: no minute's wait for the list
   assert.equal(_test.state().opens.length, 0, "cut at once");
   // and a copy already waiting for its entry when its wallet is cut is not bought
@@ -354,7 +355,7 @@ test("real day-holder copy: real first, the gaps closed: a winner's address from
   const c3 = chain(() => 0.012);
   for (let i = 0; i < 20; i++) st.recent.push(paper(P1, "coin buyer Prov", i, 0.3));
   slow._test.follow([P1]);
-  for (let i = 0; i < 4; i++) _test.state().rows.push(row("coin buyer Prov", i + 1, -0.001));
+  for (let i = 0; i < 2; i++) _test.state().rows.push(row("coin buyer Prov", i + 1, -0.001));
   _test.relist();
   onSwap(swap(P1, A, true));
   assert.equal(_test.state().opens[0]?.stage, "waiting");
@@ -762,7 +763,7 @@ test("real day-holder copy: the slow study's stream hands over its wallets' swap
   const tx = (payer: string, mint: string, buy: boolean, sol: number) => ({
     slot: 9,
     transaction: { message: { accountKeys: [payer] } },
-    meta: { err: null, fee: 5000, preBalances: [100e9], postBalances: [100e9 + (buy ? -1 : 1) * sol * 1e9 - 5000], preTokenBalances: [{ mint, owner: payer, uiTokenAmount: { uiAmountString: "5000" } }], postTokenBalances: [{ mint, owner: payer, uiTokenAmount: { uiAmountString: String(5000 + (buy ? 1000 : -1000)) } }] },
+    meta: { err: null, fee: 5000, preBalances: [100e9], postBalances: [100e9 + (buy ? -1 : 1) * sol * 1e9 - 5000], preTokenBalances: [{ mint, owner: payer, uiTokenAmount: { uiAmountString: "5000" } }], postTokenBalances: [{ mint, owner: payer, uiTokenAmount: { uiAmountString: String(buy ? 6000 : 0) } }] },
   });
   slow.slowTx(tx("someone else", A, true, 1) as never);
   assert.equal(_test.state().opens.length, 0);
@@ -1267,8 +1268,9 @@ test("real day-holder copy, caps only: a bigger stake ceiling, and SOL kept back
   assert.equal(parseSlowLive(JSON.stringify({ solanaSlow: { on: true, maxLossSol: 1, stakeSol: 0.5, capOnly: true } })).stakeSol, 0.1);
   assert.equal(parseSlowLive(JSON.stringify({ solanaSlow: { on: true, maxLossSol: 1, stakeSol: 0.1, capOnly: true, gasKeepSol: 5 } })).gasKeepSol, 0.2);
   assert.equal(parseSlowLive(JSON.stringify({ solanaSlow: { on: true, maxLossSol: 1, stakeSol: 0.1, capOnly: true, maxOpen: 8 } })).maxOpen, 8);
-  const run = async (gasKeepSol: number) => {
-    fresh({ ...CFG, follow: "proven", capOnly: true, gasKeepSol });
+  let last: { stakeSol?: number; conv?: number } = {};
+  const run = async (gasKeepSol: number, conviction = false, leaderSol = 0.3) => {
+    fresh({ ...CFG, follow: "proven", capOnly: true, gasKeepSol, conviction });
     chain(() => 0.012); // 0.08 SOL in the wallet
     slow._test.reset();
     const CW = "CapW1111111111111111111111111111111111111111";
@@ -1285,10 +1287,11 @@ test("real day-holder copy, caps only: a bigger stake ceiling, and SOL kept back
     }
     st.wallets[CW] = { name: "coin buyer CapW", doneAt: now, newest: t + 12 * 40_000, txPerDay: 2, buysPerDay: 1, spanDays: 30, swaps, late };
     st.candidates.push({ name: "coin buyer CapW", address: CW, source: "coin" });
-    onSwap(swap(CW, CAP, true));
+    onSwap(swap(CW, CAP, true, leaderSol));
     await wait(1500);
     const s = _test.state();
     const r = { opens: s.opens.length, low: s.missedLow };
+    last = { stakeSol: s.opens[0]?.stakeSol, conv: s.opens[0]?.conv };
     _test.reset();
     slow._test.reset();
     return r;
@@ -1296,6 +1299,42 @@ test("real day-holder copy, caps only: a bigger stake ceiling, and SOL kept back
   // 0.08 SOL: a 0.01 copy with its rent and sale reserve fits, but not with 0.075 kept for gas
   assert.deepEqual(await run(0.075), { opens: 0, low: 1 });
   assert.deepEqual(await run(0.05), { opens: 1, low: 0 });
+  assert.deepEqual(last, { stakeSol: 0.01, conv: undefined });
+  // sized by conviction (enrique, 19 Nov 2026): its usual buy is 1 SOL. 2 SOL = twice the stake, 0.3 SOL = half, 9 SOL = at most twice
+  await run(0, true, 2);
+  assert.deepEqual(last, { stakeSol: 0.02, conv: 2 });
+  await run(0, true, 0.3);
+  assert.deepEqual(last, { stakeSol: 0.005, conv: 0.5 });
+  await run(0, true, 9);
+  assert.deepEqual(last, { stakeSol: 0.02, conv: 2 });
+  await run(0, false, 9);
+  assert.deepEqual(last, { stakeSol: 0.01, conv: undefined }, "not unless the file asks");
+  assert.equal(parseSlowLive(JSON.stringify({ solanaSlow: { on: true, maxLossSol: 1, stakeSol: 0.1, capOnly: true, conviction: true } })).conviction, true);
+  assert.equal(parseSlowLive(JSON.stringify({ solanaSlow: { on: true, maxLossSol: 1, stakeSol: 0.1, capOnly: true } })).conviction, false);
+});
+
+test("real day-holder copy: the trader sells part of a coin, we sell the same share of ours; a full sale sells the rest", async () => {
+  fresh();
+  const c = chain(() => 0.012);
+  onSwap(swap(L1, A, true));
+  await wait(1500);
+  assert.equal(_test.state().opens[0].stage, "held");
+  assert.equal(c.held.get(A), 1000n);
+  // a share too small to follow, and one that is a part
+  onSwap({ ...swap(L1, A, false), share: 0.05 });
+  onSwap({ ...swap(L1, A, false), share: 0.4 });
+  await wait(2500);
+  assert.equal(c.held.get(A), 600n);
+  assert.deepEqual([_test.state().opens.length, _test.state().opens[0].stage, _test.state().opens[0].parts, _test.state().opens[0].soldSeenMs, slowLiveSummary().parts], [1, "held", 1, undefined, 1]);
+  // 90% or more is the whole: the rest is sold and the copy counted from all its transactions
+  onSwap({ ...swap(L1, A, false), share: 0.95 });
+  await wait(3000);
+  assert.equal(_test.state().opens.length, 0);
+  assert.equal(c.held.has(A), false);
+  const row = _test.state().rows.at(-1)!;
+  assert.equal(row.exit, "sold");
+  assert.equal(row.sigs.length, 4, "the buy, the part, the rest, the account closed");
+  _test.reset();
 });
 
 test("real day-holder copy: a sale quote refused for asking too fast is asked again; at most MAX_SELLING sales of our own clock at once", async () => {

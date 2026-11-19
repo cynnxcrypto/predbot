@@ -193,6 +193,8 @@ export interface SSwap {
   buy: boolean;
   sol: number;
   tokens: number;
+  /** a sale: the share of the trader's holding it sold, 0 to 1 (1 = all of it) */
+  share?: number;
 }
 export interface Trip {
   mint: string;
@@ -637,9 +639,15 @@ const payerOf = (it: { transaction?: { message?: { accountKeys?: (string | { pub
   const k = it.transaction?.message?.accountKeys?.[0];
   return typeof k === "string" ? k : (k?.pubkey ?? null);
 };
+/** A sale's share of the trader's holding: what it sold over what it held before (1 when nothing is left). */
+export const shareOf = (s: { sol: number; price: number; left?: number }) => {
+  const sold = s.price > 0 ? s.sol / s.price : 0;
+  const left = s.left ?? 0;
+  return sold > 0 ? Math.min(1, sold / (sold + Math.max(0, left))) : 1;
+};
 const sswapOf = (meta: Meta | null | undefined, wallet: string, slot: number, t: number): SSwap | null => {
   const s = swapOf(meta, wallet, slot);
-  return s && s.wallet === wallet && s.price > 0 ? { t, slot, mint: s.mint, buy: s.buy, sol: s.sol, tokens: s.sol / s.price } : null;
+  return s && s.wallet === wallet && s.price > 0 ? { t, slot, mint: s.mint, buy: s.buy, sol: s.sol, tokens: s.sol / s.price, ...(s.buy ? {} : { share: shareOf(s) }) } : null;
 };
 
 /** Candidates: the listed wallets, then the busiest buyers the finder has seen, kept across restarts. */
@@ -1102,12 +1110,12 @@ async function capStep(): Promise<boolean> {
  * The cap shortlist (enrique, 17 Nov 2026): people (not programs, not flippers) whose replayed mid and high cap trips
  * pass (see capOf), most replayed gain first. The real copy takes its wallets from here when it runs on caps only.
  */
-export function capWallets(): { name: string; address: string; priced: number; won: number; avgPct: number | null; sumPct: number | null }[] {
+export function capWallets(): { name: string; address: string; priced: number; won: number; avgPct: number | null; sumPct: number | null; usualSol: number | null }[] {
   return reports()
     .filter((x) => !x.bot && !x.fast && x.cap?.pass && copySafe(x.address))
     .sort((a, b) => (b.cap!.sumPct ?? 0) - (a.cap!.sumPct ?? 0))
     .slice(0, CAP_LIST_MAX)
-    .map((x) => ({ name: x.name, address: x.address, priced: x.cap!.priced, won: x.cap!.won, avgPct: x.cap!.avgPct, sumPct: x.cap!.sumPct }));
+    .map((x) => ({ name: x.name, address: x.address, priced: x.cap!.priced, won: x.cap!.won, avgPct: x.cap!.avgPct, sumPct: x.cap!.sumPct, usualSol: x.cap!.usualSol }));
 }
 /** A wallet's report by its stored state; a read replaces that object, a late check drops its entry. */
 let memo = new WeakMap<WState, ReturnType<typeof reportNow>>();
@@ -1338,6 +1346,8 @@ export interface SlowSwap {
   sol: number;
   slot: number;
   seenMs: number;
+  /** a sale: the share of its holding the wallet sold (see shareOf) */
+  share?: number;
 }
 let realWatch = (): string[] => [];
 let realHook: ((s: SlowSwap) => void) | null = null;
@@ -1519,7 +1529,7 @@ export function slowTx(tx: { slot: number; meta: Meta | null; transaction: { mes
     const s = sswapOf(tx.meta, payer, tx.slot, Math.floor(nowMs / 1000));
     if (s) {
       try {
-        realHook({ wallet: payer, mint: s.mint, buy: s.buy, sol: s.sol, slot: tx.slot, seenMs: nowMs });
+        realHook({ wallet: payer, mint: s.mint, buy: s.buy, sol: s.sol, slot: tx.slot, seenMs: nowMs, ...(s.share != null ? { share: s.share } : {}) });
       } catch {
         /* the real copy keeps its own errors */
       }
