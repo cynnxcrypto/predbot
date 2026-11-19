@@ -395,7 +395,7 @@ export function worthCheck() {
   if (today) windows.today = today as { usd: number; est: boolean; from: number; at: number };
   const tw = memo.v.today ?? {};
   const todayByWallet = Object.fromEntries(WALLETS.map(([k, label]) => [label, tw[k] ? { usd: tw[k]!.usd, at: tw[k]!.at } : null]));
-  return { deposits: depositCheck(mergeChainFlows(flows, chainSrc()), Date.now() - 8 * 86_400_000), todayByWallet, claimStepsTakenForDeposits: fix?.removed ?? null, thatWasUsd: fix?.removedUsd ?? null, wonWaitingForClaimUsd: unclaimedAt(loadSpans(), Date.now()), change24hUsd: base && now != null ? Math.round((now - base[1]) * 100) / 100 : null, flows24h: flows.filter((f) => f[0] > T).length, windows, worthAt: full?.at ?? null };
+  return { deposits: depositCheck(mergeChainFlows(flows, chainSrc()), Date.now() - 8 * 86_400_000), todayByWallet, claimStepsTakenForDeposits: fix?.removed ?? null, thatWasUsd: fix?.removedUsd ?? null, wonWaitingForClaimUsd: unclaimedAt(loadSpans(), Date.now()), change24hUsd: base && now != null ? Math.round((now - base[1]) * 100) / 100 : null, flows24h: flows.filter((f) => f[0] > T).length, windows, worthAt: full?.at ?? null, notFull: whyNot };
 }
 let memo: { at: number; v: Worth } | null = null;
 /** The dashboard's last worth reading and the deposits and withdrawals it takes out of its windows (src/truthcheck.ts). */
@@ -403,6 +403,9 @@ export const worthLast = () => memo?.v ?? null;
 export const worthFlows = () => flows.slice(); // the chart's own detection, for the truth check to judge
 /** The last full reading's total (see worthCheck). */
 let full: { at: number; total: number } | null = null;
+/** Why the last reading was not a full one (counts and yes/no only, no balance): 19 Nov 2026, the windows stayed blank
+ * for hours after a restart and the status could not say which part failed. */
+let whyNot: { at: number; betsN: number; betsPriced: number; coinsPriced: boolean; solRead: boolean; cashRead: boolean } | null = null;
 let solPx: { at: number; v: number | null } = { at: 0, v: null };
 let hist: [number, number][] | null = null;
 /** Hourly estimates for the days before the live samples began (see backfill). */
@@ -616,6 +619,7 @@ export async function worthView(cash: number | null, claim: number, solBal: numb
     const today = wt ? { all: sumOfWallets(all, wt), ...wt } : (memo?.v.today ?? undefined);
     memo = { at: Date.now(), v: { at: Date.now(), total, cash, claim, bets: bets.value, betsN: bets.n, betsStake: bets.stake, days: bets.days, solBal, coinsSol: Math.round(coinsSol * 1e4) / 1e4, coinsN: open.length, solUsd: px, rulesUsd, perpsUsd, hlUsd, parts: { ...parts, hl: h && h.ethUsd > 0 ? { eth: Math.round(h.eth * h.ethUsd * 100) / 100, usdc: Math.round((h.usdc + h.inTransitUsdc) * 100) / 100, account: h.hlUsd } : null }, rulesPos, perpsPos, today } };
     if (total != null && priced) full = { at: Date.now(), total };
+    whyNot = total != null && priced ? null : { at: Date.now(), betsN: bets.n, betsPriced: bets.priced, coinsPriced, solRead: solBal != null, cashRead: cash != null };
     const last = hist[hist.length - 1];
     if (total != null && priced && (!last || Date.now() - last[0] >= 120_000)) {
       pending = [];
