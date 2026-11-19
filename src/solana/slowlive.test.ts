@@ -1336,3 +1336,27 @@ test("real day-holder copy: the trader sells part of a coin, we sell the same sh
   assert.equal(row.sigs.length, 4, "the buy, the part, the rest, the account closed");
   _test.reset();
 });
+
+test("real day-holder copy: a sale quote refused for asking too fast is asked again; at most MAX_SELLING sales of our own clock at once", async () => {
+  fresh();
+  const c = chain(() => 0.012);
+  const mints = ["Mnt1111111111111111111111111111111111111111", "Mnt2222222222222222222222222222222222222222", "Mnt3333333333333333333333333333333333333333", "Mnt4444444444444444444444444444444444444444"];
+  const old = Date.now() - 80 * 3_600_000; // past the 72 h max hold
+  for (const m of mints) {
+    c.held.set(m, 1000n);
+    _test.state().opens.push({ wallet: L1, name: WALLETS[0].name, mint: m, leaderSol: 0.3, seenMs: old, boughtMs: old, stakeSol: 0.01, stage: "held", sigs: [], sellRounds: 0, failRounds: 0 });
+  }
+  // the first two sale quotes are refused for asking too fast, then answered
+  let no = 2;
+  c.refuse = (kind) => (kind === "sell" && no-- > 0 ? { status: 429 } : null);
+  sweep();
+  assert.deepEqual(_test.state().opens.map((p) => p.stage), ["selling", "selling", "selling", "held"], "three at once");
+  for (let i = 0; i < 60 && _test.state().opens.length > 1; i++) await wait(100);
+  assert.equal(_test.state().opens.length, 1, "all three sold: the refused quotes were asked again");
+  assert.equal(slowLiveSummary().sellRefused, 2);
+  assert.deepEqual(_test.state().rows.map((r) => r.exit), ["max hold", "max hold", "max hold"]);
+  sweep();
+  for (let i = 0; i < 60 && _test.state().opens.length; i++) await wait(100);
+  assert.equal(_test.state().opens.length, 0);
+  _test.reset();
+});
