@@ -95,39 +95,63 @@ export async function carryRound(nowMs = Date.now()): Promise<void> {
   } catch (e) {
     carry.error = short(e);
   }
-  saveJson("lab-carry.json", carry);
+  // the last prices are kept with the books, so the page has them straight after a restart (before the next look)
+  saveJson("lab-carry.json", { ...carry, market });
 }
 
-// ---- Base: coins every 6 h, each coin's trades every 10 min, one request every 7 s (the free limit is 30 a minute)
+// ---- Base: coins every 6 h, then each coin's trades in turn. The free limit turned out far under the published
+// 30 a minute (429 after 5 calls at one every 7 s, 19 Nov 2026): one request every GAP_MIN_MS, and after a 429 a
+// minute's wait and twice the gap (halved back slowly). A round that is stopped picks up where it was.
+const GAP_MIN_MS = 20_000;
+const GAP_MAX_MS = 180_000;
+let gapMs = GAP_MIN_MS;
 let baseBusy = false;
+let found: B.Coin[] = [];
+let nextPage = 1;
+let nextCoin = 0;
+const PAGES = 6;
+async function gecko(path: string): Promise<unknown> {
+  for (let tries = 0; ; tries++) {
+    await sleep(gapMs);
+    base.calls = (base.calls ?? 0) + 1;
+    try {
+      const got = await getJson(`${GECKO}${path}`);
+      gapMs = Math.max(GAP_MIN_MS, Math.round(gapMs * 0.9));
+      return got;
+    } catch (e) {
+      if (!/http 429/.test(String((e as Error)?.message)) || tries >= 2) throw e;
+      base.limited = (base.limited ?? 0) + 1;
+      gapMs = Math.min(GAP_MAX_MS, gapMs * 2);
+      await sleep(60_000);
+    }
+  }
+}
 export async function baseRound(nowMs = Date.now()): Promise<void> {
   if (baseBusy) return;
   baseBusy = true;
   try {
     if (!base.coinsAt || nowMs - base.coinsAt >= 6 * 3_600_000 || !Object.keys(base.coins).length) {
-      const found: B.Coin[] = [];
-      let pages = 0;
-      for (let page = 1; page <= 10; page++) {
-        const got = B.readPools(await getJson(`${GECKO}/pools?include=base_token,quote_token&sort=h24_volume_usd_desc&page=${page}`), Date.now());
-        base.calls = (base.calls ?? 0) + 1;
-        pages++;
-        found.push(...got);
-        await sleep(7_000);
-      }
+      for (; nextPage <= PAGES; nextPage++) found.push(...B.readPools(await gecko(`/pools?include=base_token,quote_token&sort=h24_volume_usd_desc&page=${nextPage}`), Date.now()));
       const next = B.chooseCoins(found);
       // coins we hold a copy of stay priced even when they fall off the list
       for (const c of base.open) if (!next[c.token] && base.coins[c.token]) next[c.token] = base.coins[c.token];
       if (Object.keys(next).length) base.coins = next;
       base.coinsAt = Date.now();
-      base.coinNote = `${found.length} pools passed on ${pages} pages`;
+      base.coinNote = `${found.length} pools passed on ${PAGES} pages`;
+      found = [];
+      nextPage = 1;
+      saveJson("lab-base.json", base);
     }
-    for (const token of Object.keys(base.coins)) {
-      const got = B.readTrades(await getJson(`${GECKO}/pools/${base.coins[token].pool}/trades?trade_volume_in_usd_greater_than=${B.SEE_USD}`));
-      base.calls = (base.calls ?? 0) + 1;
-      B.take(base, token, got, Date.now());
-      await sleep(7_000);
+    const tokens = Object.keys(base.coins);
+    if (nextCoin >= tokens.length) nextCoin = 0;
+    for (; nextCoin < tokens.length; nextCoin++) {
+      const token = tokens[nextCoin];
+      if (!base.coins[token]) continue;
+      B.take(base, token, B.readTrades(await gecko(`/pools/${base.coins[token].pool}/trades?trade_volume_in_usd_greater_than=${B.SEE_USD}`)), Date.now());
     }
+    nextCoin = 0;
     B.sweep(base, Date.now());
+    base.roundAt = Date.now();
     base.error = undefined;
   } catch (e) {
     base.error = short(e);
@@ -142,7 +166,8 @@ export function startLab(f: typeof fetch = fetch): void {
   on = true;
   fetcher = f;
   vaults = { ...vaults, ...loadJson<Partial<V.VaultState>>("lab-vaults.json", {}) };
-  const c0 = loadJson<Partial<C.CarryState>>("lab-carry.json", {});
+  const { market: m0, ...c0 } = loadJson<Partial<C.CarryState> & { market?: C.Market | null }>("lab-carry.json", {});
+  if (m0?.perps && m0.hl && m0.kraken) market = m0;
   carry = { ...carry, ...c0, books: C.newBooks().map((b) => c0.books?.find((x) => x.id === b.id) ?? b) };
   base = { ...base, ...loadJson<Partial<B.BaseState>>("lab-base.json", {}) };
   const every = (fn: () => Promise<void>, firstMs: number, ms: number) => {
@@ -152,7 +177,7 @@ export function startLab(f: typeof fetch = fetch): void {
   };
   every(() => vaultRound(), 40_000, 30 * 60_000);
   every(() => carryRound(), 70_000, 60 * 60_000);
-  every(() => baseRound(), 100_000, 10 * 60_000);
+  every(() => baseRound(), 100_000, 5 * 60_000);
 }
 
 /** For the status and the dashboard. Public data only: vault names, leaders' short ids, no address of ours (there is none). */

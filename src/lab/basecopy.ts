@@ -14,7 +14,7 @@
 export const CAP_MIN_USD = 20_000_000;
 export const CAP_MIN_LIQ_USD = 200_000;
 export const CAP_MIN_AGE_D = 30;
-export const MAX_COINS = 40;
+export const MAX_COINS = 30;
 export const SEE_USD = 1000;
 export const FOLLOW_BUY_USD = 2000;
 export const FOLLOW_BUYS = 3;
@@ -26,7 +26,7 @@ export const CHASE_PCT = 3;
 export const MAX_HOLD_H = 72;
 export const MAX_OPEN = 30;
 /** a buy older than this when first seen is history: it counts for the wallet, it is not copied */
-export const FRESH_MS = 30 * 60_000;
+export const FRESH_MS = 45 * 60_000;
 /** would go real: the Solana bar */
 export const QUALIFY = { copies: 10 };
 
@@ -39,7 +39,7 @@ type Lot = { ms: number; usd: number; px: number };
 export type Wallet = { buys: number[]; lots: Record<string, Lot[]>; trips: number; won: number; realisedUsd: number; holds: number[]; days: Record<string, number>; lastMs: number; balUsd?: number | null; balAt?: number };
 export type Copy = { wallet: string; token: string; symbol: string; at: number; px: number; leaderPx: number };
 export type Done = { wallet: string; symbol: string; at: number; closedAt: number; usd: number; why: "sold" | "time" };
-export type BaseState = { startedAt?: number; coins: Record<string, Coin>; coinsAt?: number; wallets: Record<string, Wallet>; seen: Record<string, number>; open: Copy[]; done: Done[]; skipped?: { chase: number; full: number }; error?: string; calls?: number; coinNote?: string };
+export type BaseState = { startedAt?: number; coins: Record<string, Coin>; coinsAt?: number; wallets: Record<string, Wallet>; seen: Record<string, number>; open: Copy[]; done: Done[]; skipped?: { chase: number; full: number }; error?: string; calls?: number; limited?: number; roundAt?: number; coinNote?: string };
 
 const num = (x: unknown) => {
   const n = x === null || x === undefined || x === "" ? NaN : Number(x);
@@ -246,6 +246,8 @@ export function summary(st: BaseState, nowMs: number) {
     log: st.done.slice(-40).reverse().map((d) => ({ coin: d.symbol, sub: d.wallet.slice(2, 8) + (d.why === "time" ? " · 72 h" : ""), t: d.closedAt, usd: r2(d.usd), held: Math.round((d.closedAt - d.at) / 60_000) })),
     skipped: st.skipped ?? { chase: 0, full: 0 },
     calls: st.calls ?? 0,
+    limited: st.limited ?? 0,
+    roundAt: st.roundAt ?? null,
     error: st.error ?? null,
     note: st.coinNote ?? null,
   };
