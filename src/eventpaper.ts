@@ -17,6 +17,7 @@
  */
 import { loadJson, saveJson } from "./store.js";
 import { startTradeStream, tradeStreamStatus } from "./pmstream.js";
+import { copySellStatus, followSales, sellDue, type SellDeps } from "./copysell.js";
 import { autoFollowed, autoState, autoSummary, copyPromote, copyScan, scanDue } from "./copyscan.js";
 import { NEG_READY_FILE, spentOf, eventLiveAdapt, paperGate, setPaperBehind, paperBehindStatus, realRecord, eventLiveBusy, eventLiveBuy, eventRestBid, eventRestSync, eventDelayedSync, eventLiveConfig, eventLiveRows, eventLiveSettle, eventLiveSummary, eventLiveStop, type EventLiveRow, type NegRiskReady } from "./eventlive.js";
 import { JEV_CONTEXT, headlines, jevKey, jevStake, type JevStake } from "./jev.js";
@@ -1062,6 +1063,8 @@ async function wxCopyTick() {
       }
     }
   }
+  // the weather wallet's sales are followed like any copied wallet's (src/copysell.ts)
+  for (const line of await followSales({ name: "wx-copy", address: WX_COPY_WALLET }, rows, rows, now, "poll", sellDeps(), { real: ["wx-copy-take"], paper: ["wx-copy-take", "wx-copy-rest"], limit: 300 }).catch((e) => [`following a sale failed: ${(e as Error).message}`])) log(`copy ${line}`);
 }
 
 // ---------- copy: paper (and, when live, real) copies of other public niche wallets (see RULES) ----------
@@ -1434,7 +1437,20 @@ async function copyWallet(wl: { name: string; address: string }, cand: CopyRow[]
       }
     }
   }
+  // sell the share the wallet sold (src/copysell.ts, 19 Nov 2026); what is still open after it is noted by copySales
+  for (const line of await followSales(wl, cand, rows, now, src, sellDeps()).catch((e) => [`following a sale failed: ${(e as Error).message}`])) log(`copy ${line}`);
   await copySales(wl, cand, now, src).catch((e) => log(`copy sales failed: ${(e as Error).message}`));
+}
+/** What src/copysell.ts needs from here: the market of a condition, a book, and the paper trades. */
+function sellDeps(): SellDeps {
+  return {
+    market: async (cond) => {
+      const m = await copyMarketOf(cond);
+      return m === undefined ? undefined : m?.id ? { id: m.id, tokens: jl<string[]>(m.clobTokenIds, []), feeRate: Number(m.feeSchedule?.rate ?? 0) || 0 } : null;
+    },
+    book,
+    trades: state.trades,
+  };
 }
 
 /** wx-no-maker: every 10 min read the tape and the book of each resting NO bid; fill, re-join or cancel. */
@@ -2116,6 +2132,7 @@ function summarize() {
     lagSinceStart: Object.fromEntries(Object.entries(copySrcLags).map(([k, v]) => [k, { n: v.length, medianSec: pct(v, 0.5), p90Sec: pct(v, 0.9) }])),
     realOrders: { n: om.length, lagSecMedian: pct(om.map((x) => x.lagSec), 0.5), seenToAnswerMsMedian: pct(om.map((x) => x.ms), 0.5), seenToAnswerMsP90: pct(om.map((x) => x.ms), 0.9), orderMsMedian: pct(om.map((x) => x.sendMs), 0.5), byStream: om.filter((x) => x.src === "stream").length },
   };
+  out.copySells = copySellStatus();
   // worked out at most every 5 minutes: it walks every paper copy, and the loop must stay free for the socket
   if (Date.now() - copyGapAt > 5 * 60_000) {
     copyGapAt = Date.now();
@@ -2227,6 +2244,10 @@ async function copyLoop() {
   for (;;) {
     await guard("wallet copies", copyTick);
     await guard("weather wallet copy", wxCopyTick);
+    // sales still owed after a copied wallet's sale (src/copysell.ts): a retry, or an order left without a clean answer
+    await guard("copy sales", async () => {
+      for (const line of await sellDue({ book })) log(`copy ${line}`);
+    });
     await sleep(15_000);
   }
 }
