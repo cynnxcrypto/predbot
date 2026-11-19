@@ -285,6 +285,8 @@ interface State {
   missedLow: number;
   /** buys of copied wallets let go on caps only: the coin is under the floor or its size is not known */
   notCap?: number;
+  /** sale quotes refused for asking too fast (each asked again, see sellQuote) */
+  sellRefused?: number;
   skippedSold: number;
   notSent: number;
   unreadTx: number;
@@ -796,6 +798,28 @@ async function buyQuote(mint: string, stakeSol: number, slippageBps: number) {
   }
 }
 /**
+ * The sale quote, like the buy quote: the paper line stands back first, and a refusal for asking too fast is asked
+ * again twice. On 19 Nov 2026 14 copies to sell (dropped wallets, 72 h) had every sale refused with "too many
+ * requests" for hours: each asked at once, six tries a second apart, and the paper studies were not held back.
+ */
+async function sellQuote(mint: string, amount: string, slippageBps: number) {
+  for (let i = 0; ; i++) {
+    shared.realFirst(800);
+    try {
+      return await kit.quote(mint, SOL, amount, slippageBps);
+    } catch (e) {
+      if (!/ http 429/.test(String((e as Error).message))) throw e;
+      state.sellRefused = (state.sellRefused ?? 0) + 1;
+      if (i >= REQUOTE_MS.length) throw e;
+      shared.realFirst(2000);
+      await sleep(REQUOTE_MS[i] * 4);
+    }
+  }
+}
+/** At most this many sales of our own clock (a retry, max hold, a dropped or cut wallet) are under way at once. */
+export const MAX_SELLING = 3;
+let sellingCount = 0;
+/**
  * Sell every unit of the coin the wallet holds, written down after every try. sold = none is left. refused = in some
  * try the sale itself was refused (see saleRefused), as against every try being lost to the network. Never throws.
  */
@@ -805,7 +829,7 @@ async function sellAll(w: Wallet, p: Pos, c: SlowLiveConfig): Promise<{ sold: bo
     try {
       const h = await kit.held(w.address, p.mint);
       if (h.amount === 0n) return { sold: true, refused };
-      const q = await kit.quote(p.mint, SOL, h.amount.toString(), slippageBps);
+      const q = await sellQuote(p.mint, h.amount.toString(), slippageBps);
       if (!q.outAmount) throw new Error("no sell quote");
       const tx = signTransaction(await kit.swapTx(q, w.address, c.maxFeeLamports), w);
       p.sigs.push(kit.sigOf(tx));
@@ -829,10 +853,12 @@ const counted = new WeakSet<Pos>();
 async function sell(p: Pos, exit: Exit) {
   if (!state.opens.includes(p) || p.stage !== "held" || sellingNow.has(p)) return;
   sellingNow.add(p);
+  sellingCount++;
   try {
     await sellOnce(p, exit);
   } finally {
     sellingNow.delete(p);
+    sellingCount--;
   }
 }
 async function sellOnce(p: Pos, exit: Exit) {
@@ -1056,15 +1082,17 @@ export function sweep(now = Date.now()) {
       // those days it is written off: counted from its own transactions and dropped, so it no longer holds a place
       // nor room under the cap. The coin stays in the wallet; nothing more is spent on it.
       if (p.unsoldMs && now - p.unsoldMs > UNSOLD_DAYS * 86_400_000) void writeOff(p);
-      else if (now >= (p.nextTryMs ?? 0)) void sell(p, p.exit);
-    } else if (now - (p.boughtMs ?? p.seenMs) > c.maxHoldH * 3_600_000) void sell(p, "max hold");
+      else if (now >= (p.nextTryMs ?? 0) && sellingCount < MAX_SELLING) void sell(p, p.exit);
+    } else if (now - (p.boughtMs ?? p.seenMs) > c.maxHoldH * 3_600_000) {
+      if (sellingCount < MAX_SELLING) void sell(p, "max hold");
+    }
     // its wallet was cut on its real record (at two sweeps): sold now, not after the 6 h clock (only when switched on; a few a sweep)
-    else if (c.sellCut && !p.soldSeenMs && cutClearly({ name: p.name, address: p.wallet }, now) && drops++ < DROP_SELLS_PER_SWEEP) void sell(p, "wallet cut");
+    else if (c.sellCut && !p.soldSeenMs && cutClearly({ name: p.name, address: p.wallet }, now) && sellingCount < MAX_SELLING && drops++ < DROP_SELLS_PER_SWEEP) void sell(p, "wallet cut");
     else if (paperSays) {
       // its wallet's place on the list: off it for DROP_SELL_MS, the copy is sold (a few a sweep); back on it, the clock is cleared
       if (on.has(p.wallet)) p.offMs = undefined;
       else if (!p.offMs) p.offMs = now;
-      else if (now - p.offMs >= DROP_SELL_MS && !p.soldSeenMs && drops++ < DROP_SELLS_PER_SWEEP) void sell(p, "wallet dropped");
+      else if (now - p.offMs >= DROP_SELL_MS && !p.soldSeenMs && sellingCount < MAX_SELLING && drops++ < DROP_SELLS_PER_SWEEP) void sell(p, "wallet dropped");
     }
   }
   save();
@@ -1250,6 +1278,7 @@ export function slowLiveSummary() {
     capOnly: c.capOnly === true,
     notCap: state.notCap ?? 0,
     gasKeepSol: c.gasKeepSol ?? 0,
+      sellRefused: state.sellRefused ?? 0,
     skippedSold: state.skippedSold,
     notSent: state.notSent,
     /** buy quotes refused for asking too fast (every refusal counted; a refused quote is asked again twice) */
