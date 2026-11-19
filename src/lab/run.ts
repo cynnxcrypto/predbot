@@ -133,9 +133,13 @@ const GAP_MAX_MS = 180_000;
 let gapMs = GAP_MIN_MS;
 let baseBusy = false;
 let found: B.Coin[] = [];
+let revs: B.RevPool[] = [];
+let why: Record<string, number> = {};
 let nextPage = 1;
 let nextCoin = 0;
-const PAGES = 6;
+const PAGES = 10;
+/** coins whose pool is written the other way round: their size is asked per coin, this many a refresh, kept 3 days */
+const SIZE_ASKS = 20;
 async function gecko(path: string): Promise<unknown> {
   for (let tries = 0; ; tries++) {
     await sleep(gapMs);
@@ -156,15 +160,40 @@ export async function baseRound(nowMs = Date.now()): Promise<void> {
   if (baseBusy) return;
   baseBusy = true;
   try {
-    if (!base.coinsAt || nowMs - base.coinsAt >= 6 * 3_600_000 || !Object.keys(base.coins).length) {
-      for (; nextPage <= PAGES; nextPage++) found.push(...B.readPools(await gecko(`/pools?include=base_token,quote_token&sort=h24_volume_usd_desc&page=${nextPage}`), Date.now()));
+    if (!base.coinsAt || nowMs - base.coinsAt >= 6 * 3_600_000 || !Object.keys(base.coins).length || !base.why) {
+      for (; nextPage <= PAGES; nextPage++) {
+        const got = B.scanPools(await gecko(`/pools?include=base_token,quote_token&sort=h24_volume_usd_desc&page=${nextPage}`), Date.now());
+        found.push(...got.coins);
+        revs.push(...got.rev);
+        for (const [k, v] of Object.entries(got.why)) why[k] = (why[k] ?? 0) + v;
+      }
+      // pools written "WETH / COIN": the deepest per coin, sized from the coin's own page
+      const sizes = (base.sizes ??= {});
+      for (const k of Object.keys(sizes)) if (Date.now() - sizes[k].at > 3 * 86_400_000) delete sizes[k];
+      const deepest = new Map<string, B.RevPool>();
+      for (const r of revs) if (!deepest.has(r.token) || r.liqUsd > (deepest.get(r.token) as B.RevPool).liqUsd) deepest.set(r.token, r);
+      let asks = 0;
+      for (const r of [...deepest.values()].sort((x, y) => y.liqUsd - x.liqUsd)) {
+        if (!sizes[r.token] && asks < SIZE_ASKS) {
+          asks++;
+          const sz = B.readSize(await gecko(`/tokens/${r.token}`));
+          if (sz) sizes[r.token] = { ...sz, at: Date.now() };
+        }
+        const sz = sizes[r.token];
+        if (!sz) why["no size given"] = (why["no size given"] ?? 0) + 1;
+        else if (sz.mcapUsd < B.CAP_MIN_USD) why["under $20M"] = (why["under $20M"] ?? 0) + 1;
+        else found.push({ symbol: r.symbol, token: r.token, pool: r.pool, mcapUsd: sz.mcapUsd, liqUsd: r.liqUsd, px: r.px, pxAt: Date.now(), rev: true, ...(sz.fdvOnly ? { fdvOnly: true } : {}) });
+      }
       const next = B.chooseCoins(found);
       // coins we hold a copy of stay priced even when they fall off the list
       for (const c of base.open) if (!next[c.token] && base.coins[c.token]) next[c.token] = base.coins[c.token];
       if (Object.keys(next).length) base.coins = next;
       base.coinsAt = Date.now();
       base.coinNote = `${found.length} pools passed on ${PAGES} pages`;
+      base.why = why;
       found = [];
+      revs = [];
+      why = {};
       nextPage = 1;
       saveBase();
     }
@@ -173,7 +202,7 @@ export async function baseRound(nowMs = Date.now()): Promise<void> {
     for (; nextCoin < tokens.length; nextCoin++) {
       const token = tokens[nextCoin];
       if (!base.coins[token]) continue;
-      B.take(base, token, B.readTrades(await gecko(`/pools/${base.coins[token].pool}/trades?trade_volume_in_usd_greater_than=${B.SEE_USD}`)), Date.now());
+      B.take(base, token, B.readTrades(await gecko(`/pools/${base.coins[token].pool}/trades?trade_volume_in_usd_greater_than=${B.SEE_USD}`), base.coins[token].rev === true), Date.now());
       if (base.ev?.length) await follow();
     }
     nextCoin = 0;

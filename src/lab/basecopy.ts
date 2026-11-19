@@ -45,7 +45,7 @@ export const DUST = 0.1;
 const NOT_COINS = /^(USDC|USDBC|USDT|DAI|USDS|SUSDS|USDE|SUSDE|EURC|EURS|GHO|CRVUSD|LUSD|FRAX|USD\+|USDZ|WETH|ETH|CBETH|CBBTC|WBTC|TBTC|LBTC|WSTETH|WEETH|RETH|EZETH|RSETH|WRSETH|OSETH|SUPEROETHB|BSDETH|MSETH|MSUSD|CBXRP|CBDOGE|CBLTC|CBADA)$/i;
 const QUOTES = /^(WETH|USDC|USDBC|USDT|CBBTC)$/i;
 
-export type Coin = { symbol: string; token: string; pool: string; mcapUsd: number; liqUsd: number; px: number; pxAt: number; fdvOnly?: boolean };
+export type Coin = { symbol: string; token: string; pool: string; mcapUsd: number; liqUsd: number; px: number; pxAt: number; fdvOnly?: boolean; /** the coin is the pool's second token: its trades read the other way round */ rev?: boolean };
 export type Trade = { tx: string; wallet: string; ms: number; buy: boolean; usd: number; px: number };
 type Lot = { ms: number; usd: number; px: number };
 export type Wallet = { buys: number[]; lots: Record<string, Lot[]>; trips: number; won: number; realisedUsd: number; holds: number[]; days: Record<string, number>; lastMs: number; balUsd?: number | null; balAt?: number };
@@ -54,7 +54,7 @@ export type Done = { wallet: string; symbol: string; at: number; closedAt: numbe
 /** what the paper copy just did, for the real copy (baselive.ts) to follow; kept in memory only */
 export type Event = { kind: "open"; copy: Copy } | { kind: "part"; key: string; share: number } | { kind: "close"; key: string };
 export const keyOf = (c: { wallet: string; token: string }) => c.wallet + ":" + c.token;
-export type BaseState = { startedAt?: number; coins: Record<string, Coin>; coinsAt?: number; wallets: Record<string, Wallet>; seen: Record<string, number>; open: Copy[]; done: Done[]; skipped?: { chase: number; full: number; cut?: number }; ev?: Event[]; error?: string; calls?: number; limited?: number; roundAt?: number; coinNote?: string };
+export type BaseState = { startedAt?: number; coins: Record<string, Coin>; coinsAt?: number; wallets: Record<string, Wallet>; seen: Record<string, number>; open: Copy[]; done: Done[]; skipped?: { chase: number; full: number; cut?: number }; ev?: Event[]; sizes?: Record<string, { mcapUsd: number; fdvOnly: boolean; at: number }>; why?: Record<string, number>; error?: string; calls?: number; limited?: number; roundAt?: number; coinNote?: string };
 
 const num = (x: unknown) => {
   const n = x === null || x === undefined || x === "" ? NaN : Number(x);
@@ -66,33 +66,60 @@ const median = (xs: number[]) => {
   return s.length % 2 ? s[(s.length - 1) / 2] : (s[s.length / 2 - 1] + s[s.length / 2]) / 2;
 };
 
-/** One page of the pool list (with its tokens) -> the coins on it that pass the floor, keyed by token address. */
-export function readPools(answer: unknown, nowMs: number): Coin[] {
+/** A pool whose COIN is the second token (the pool is written "WETH / COIN"): its size is not in the pool list, it is asked per coin. */
+export type RevPool = { symbol: string; token: string; pool: string; liqUsd: number; px: number };
+/**
+ * One page of the pool list (with its tokens): the coins on it that pass the floor, the pools written the other
+ * way round that pass everything the list can tell (their market value comes from the coin's own page), and why the
+ * rest were left out (19 Nov 2026: 2 coins on 120 pools, and no way to see why).
+ */
+export function scanPools(answer: unknown, nowMs: number): { coins: Coin[]; rev: RevPool[]; why: Record<string, number> } {
   const a = answer as { data?: unknown; included?: unknown } | null;
-  if (!a || !Array.isArray(a.data)) return [];
+  const coins: Coin[] = [];
+  const rev: RevPool[] = [];
+  const why: Record<string, number> = {};
+  const no = (k: string) => void (why[k] = (why[k] ?? 0) + 1);
+  if (!a || !Array.isArray(a.data)) return { coins, rev, why };
   const sym = new Map<string, string>();
   for (const t of Array.isArray(a.included) ? (a.included as { id?: string; attributes?: { symbol?: string } }[]) : []) if (t?.id) sym.set(t.id, String(t.attributes?.symbol ?? ""));
-  const out: Coin[] = [];
   for (const p of a.data as { attributes?: Record<string, unknown>; relationships?: Record<string, { data?: { id?: string } }> }[]) {
     const at = p?.attributes ?? {};
     const bid = String(p?.relationships?.base_token?.data?.id ?? "");
     const qid = String(p?.relationships?.quote_token?.data?.id ?? "");
-    const symbol = sym.get(bid) ?? "";
+    const bs = sym.get(bid) ?? "";
+    const qs = sym.get(qid) ?? "";
     const pool = String(at.address ?? "").toLowerCase();
-    const token = bid.replace(/^base_/, "").toLowerCase();
-    const mc = num(at.market_cap_usd);
-    const mcapUsd = mc ?? num(at.fdv_usd);
     const liqUsd = num(at.reserve_in_usd);
-    const px = num(at.base_token_price_usd);
     const made = Date.parse(String(at.pool_created_at ?? ""));
-    if (!/^0x[0-9a-f]{40}$/.test(pool) || !/^0x[0-9a-f]{40}$/.test(token) || !symbol || NOT_COINS.test(symbol) || !QUOTES.test(sym.get(qid) ?? "")) continue;
-    if (mcapUsd === null || liqUsd === null || !px || !Number.isFinite(made)) continue;
-    if (mcapUsd < CAP_MIN_USD || liqUsd < CAP_MIN_LIQ_USD || nowMs - made < CAP_MIN_AGE_D * 86_400_000) continue;
-    // a "dollar" coin under another name
-    if (Math.abs(px - 1) < 0.02 && /usd|eur|dollar/i.test(symbol)) continue;
-    out.push({ symbol: symbol.slice(0, 12), token, pool, mcapUsd, liqUsd, px, pxAt: nowMs, ...(mc === null ? { fdvOnly: true } : {}) });
+    // which side is the coin: the one that is not money (WETH, USDC, cbBTC...)
+    const flipped = QUOTES.test(bs) && !!qs && !QUOTES.test(qs);
+    const symbol = flipped ? qs : bs;
+    const token = (flipped ? qid : bid).replace(/^base_/, "").toLowerCase();
+    const px = num(flipped ? at.quote_token_price_usd : at.base_token_price_usd);
+    if (!/^0x[0-9a-f]{40}$/.test(pool) || !/^0x[0-9a-f]{40}$/.test(token) || !symbol || liqUsd === null || !px || !Number.isFinite(made)) no("unreadable");
+    else if (NOT_COINS.test(symbol)) no("money pair");
+    else if (!flipped && !QUOTES.test(qs)) no("priced in another coin");
+    else if (Math.abs(px - 1) < 0.02 && /usd|eur|dollar/i.test(symbol)) no("money pair");
+    else if (liqUsd < CAP_MIN_LIQ_USD) no("thin pool");
+    else if (nowMs - made < CAP_MIN_AGE_D * 86_400_000) no("young pool");
+    else if (flipped) rev.push({ symbol: symbol.slice(0, 12), token, pool, liqUsd, px });
+    else {
+      const mc = num(at.market_cap_usd);
+      const mcapUsd = mc ?? num(at.fdv_usd);
+      if (mcapUsd === null) no("no size given");
+      else if (mcapUsd < CAP_MIN_USD) no("under $20M");
+      else coins.push({ symbol: symbol.slice(0, 12), token, pool, mcapUsd, liqUsd, px, pxAt: nowMs, ...(mc === null ? { fdvOnly: true } : {}) });
+    }
   }
-  return out;
+  return { coins, rev, why };
+}
+export const readPools = (answer: unknown, nowMs: number): Coin[] => scanPools(answer, nowMs).coins;
+/** A coin's own page -> its market value (the full-supply value when no other is given). Null when neither is there. */
+export function readSize(answer: unknown): { mcapUsd: number; fdvOnly: boolean } | null {
+  const at = (answer as { data?: { attributes?: Record<string, unknown> } } | null)?.data?.attributes;
+  const mc = num(at?.market_cap_usd);
+  const v = mc ?? num(at?.fdv_usd);
+  return v === null ? null : { mcapUsd: v, fdvOnly: mc === null };
 }
 
 /** The coins to watch: one pool per coin (the deepest), the MAX_COINS with the deepest pools. */
@@ -102,16 +129,18 @@ export function chooseCoins(found: Coin[]): Record<string, Coin> {
   return Object.fromEntries([...best.values()].sort((a, b) => b.liqUsd - a.liqUsd).slice(0, MAX_COINS).map((c) => [c.token, c]));
 }
 
-/** A pool's public trade list -> its trades, oldest first. A buy is the pool's coin bought. */
-export function readTrades(answer: unknown): Trade[] {
+/** A pool's public trade list -> its trades, oldest first. A buy is OUR coin bought: the list's own "buy" is of the pool's first token, so a pool written the other way round (`rev`) is turned. */
+export function readTrades(answer: unknown, rev = false): Trade[] {
   const a = answer as { data?: unknown } | null;
   if (!a || !Array.isArray(a.data)) return [];
   const out: Trade[] = [];
   for (const r of a.data as { attributes?: Record<string, unknown> }[]) {
     const t = r?.attributes ?? {};
-    const buy = t.kind === "buy";
+    const firstBought = t.kind === "buy";
+    const buy = firstBought !== rev;
     const ms = Date.parse(String(t.block_timestamp ?? ""));
     const usd = num(t.volume_in_usd);
+    // our coin is what came out of the pool on a buy of it ("to"), what went in on a sale ("from")
     const px = num(buy ? t.price_to_in_usd : t.price_from_in_usd);
     const wallet = String(t.tx_from_address ?? "").toLowerCase();
     const tx = String(t.tx_hash ?? "");
@@ -302,5 +331,6 @@ export function summary(st: BaseState, nowMs: number) {
     roundAt: st.roundAt ?? null,
     error: st.error ?? null,
     note: st.coinNote ?? null,
+    leftOut: st.why ?? null,
   };
 }
