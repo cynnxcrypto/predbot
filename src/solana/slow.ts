@@ -52,7 +52,7 @@ import { isStock } from "./buckets.js";
 export const DAYS_BACK = 30;
 const WALLET_PAGES = 30; // x100 transactions, newest first
 const BOOST_UNTIL = Date.UTC(2026, 10, 24);
-export const creditsDay = (nowMs = Date.now()) => Math.max(1000, Number(process.env.SOLANA_SLOW_CREDITS_DAY) || (nowMs < BOOST_UNTIL ? 500_000 : 150_000));
+export const creditsDay = (nowMs = Date.now()) => Math.max(1000, Number(process.env.SOLANA_SLOW_CREDITS_DAY) || (nowMs < BOOST_UNTIL ? 140_000 : 140_000)); // 19 Nov 2026, enrique: Helius is a 10M-a-month plan ("it's a 10M subscription"); 500k a day used the month up. All studies together stay near 200k a day, the rest is for trading calls
 const REFRESH_MS = 24 * 3_600_000;
 export const MAX_CANDIDATES = 400;
 const KEEP_SWAPS = 5000;

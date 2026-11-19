@@ -70,7 +70,7 @@ const MONEY_MAX = 8;
 const EARLY_MAX = 8;
 const STEP2_MAX = 8;
 const REFRESH_MS = 24 * 3_600_000;
-const CREDITS_DAY = Math.max(1000, Number(process.env.SOLANA_LINKS_CREDITS_DAY) || 60_000);
+const CREDITS_DAY = Math.max(1000, Number(process.env.SOLANA_LINKS_CREDITS_DAY) || 20_000); // 19 Nov 2026: Helius 10M a month, studies share about 200k a day (see slow.ts creditsDay)
 /** fomo's own accounts (its relayer signs every user's trade, its fee wallet is paid on each): never a person */
 const SERVICE = new Set(["AgmLJBMDCqWynYnQiPCuj9ewsNNsBJXyzoUhD9LJzN51", "R4rNJHaffSUotNmqSKNEfDcJE8A7zJUkaoM5Jkd7cYX"]);
 const STABLE = new Set([USDC, USDT]);

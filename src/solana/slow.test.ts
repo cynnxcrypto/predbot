@@ -624,7 +624,7 @@ test("the wide scan: a wallet far from the bar keeps its numbers, not its swaps;
   assert.ok(!_test.dueWallets().some((c) => c.name === "loser"), "read an hour ago: not again today");
   onSlowSwap(() => [], () => undefined);
   // the daily budget: 500,000 credits until the plan resets on 24 Nov 2026, 150,000 after
-  assert.deepEqual([creditsDay(Date.UTC(2026, 10, 23, 23)), creditsDay(Date.UTC(2026, 10, 24, 1))], [500_000, 150_000]);
+  assert.deepEqual([creditsDay(Date.UTC(2026, 10, 23, 23)), creditsDay(Date.UTC(2026, 10, 24, 1))], [140_000, 140_000]);
   _test.reset();
 });
 
