@@ -15,6 +15,8 @@ let chMemo: { at: number; rows: { t: number; tx: string }[] } | null = null;
 import { solSlowView, slowDaysServed } from "./solslowdash.js";
 import { setChainFlows, worthView, worthCheck, worthLast, worthFlows } from "./worthdash.js";
 import { chainFix, startTruthCheck, truthPrivate, truthPublic } from "./truthcheck.js";
+import { bridgePublic } from "./bridge/bridge.js";
+import { startBridge } from "./bridge/real.js";
 import { hlLive, hlPage, hlPrivate, hlPublic, startHyperliquid } from "./hyperliquid/setup.js";
 import { linksPrivate, linksPublic } from "./hyperliquid/links.js";
 import { labSummary, startLab } from "./lab/run.js";
@@ -128,6 +130,8 @@ export function serveStatus(recorder: Recorder, build: string, others: Recorder[
   };
   // the Hyperliquid front (17 Nov 2026): its wallet is made here on first start; the address is behind the password only
   void startHyperliquid();
+  // moving money between the chains (19 Nov 2026): does nothing without an order in deploy/live-rules.json
+  startBridge();
   // the paper tests of 19 Nov 2026 (src/lab/): public data only, nothing signed; LAB=off disables
   startLab();
   // the two Solana strategy wallets' money in and out, from the chain as the truth check last read it (17 Nov 2026)
@@ -561,7 +565,7 @@ export function serveStatus(recorder: Recorder, build: string, others: Recorder[
       res.writeHead(200, { "content-type": "application/json" });
       const mine = recorder.status() as { live?: { balance?: number | null; toClaim?: number; chain?: Record<string, number> | null } | null };
       const cash = mine.live?.balance != null ? (mine.live.chain?.pUSD ?? mine.live.balance) + (mine.live.chain?.["USDC.e"] ?? 0) + (mine.live.chain?.USDC ?? 0) : null;
-      res.end(JSON.stringify({ build, ...mine, worthCheck: worthCheck(), truthCheck: truthPublic(), hyperliquid: { ...hlPublic(), live: hlLive() }, walletLinks: linksPublic(), paperTests: labSummary(), walletHistory: walletHistorySummary(cash, mine.live?.toClaim ?? 0), solana: solanaSummary(), solanaCopy: solanaCopySummary(), solanaCopyLive: solanaCopyLiveSummary(), withdraw: withdrawSummary(), series: others.map((r) => r.status()), eventPaper: loadJson<unknown>("eventpaper-summary.json", null), budgets: [...budgets(), pairliveSummary().budget, pairfastliveSummary().budget], pairlive: pairliveSummary(), pairfastlive: pairfastliveSummary(), preopen: preopenSummary(), pairlock: pairlockSummary(), pairfast: pairfastSummary() }));
+      res.end(JSON.stringify({ build, ...mine, worthCheck: worthCheck(), truthCheck: truthPublic(), hyperliquid: { ...hlPublic(), live: hlLive() }, bridge: bridgePublic(), walletLinks: linksPublic(), paperTests: labSummary(), walletHistory: walletHistorySummary(cash, mine.live?.toClaim ?? 0), solana: solanaSummary(), solanaCopy: solanaCopySummary(), solanaCopyLive: solanaCopyLiveSummary(), withdraw: withdrawSummary(), series: others.map((r) => r.status()), eventPaper: loadJson<unknown>("eventpaper-summary.json", null), budgets: [...budgets(), pairliveSummary().budget, pairfastliveSummary().budget], pairlive: pairliveSummary(), pairfastlive: pairfastliveSummary(), preopen: preopenSummary(), pairlock: pairlockSummary(), pairfast: pairfastSummary() }));
       return;
     }
     if (req.url === "/favicon.svg" || req.url === "/favicon.ico") {

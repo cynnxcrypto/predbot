@@ -261,6 +261,17 @@ def summary():
     out["hyperliquid"] = s.get("hyperliquid")  # 17 Nov 2026: wallet made yes/no, reach checks, region; never the address
     if isinstance(out["hyperliquid"], dict) and isinstance(out["hyperliquid"].get("live"), dict):
         out["hyperliquid"]["live"].pop("account", None)  # the balance stays on the private page
+    # 19 Nov 2026: the bridge (src/bridge, stage, problems and steps of a move; dry by default) and the paper tests
+    # (src/lab): both say no address by design; anything that still looks like one is cut here as well
+    def _noaddr(v):
+        if v is None:
+            return None
+        t = json.dumps(v)
+        t = re.sub(r"0x[0-9a-fA-F]{16,}", "0x…", t)
+        t = re.sub(r"\b[1-9A-HJ-NP-Za-km-z]{32,88}\b", "…", t)
+        return json.loads(t)
+    out["bridge"] = _noaddr(s.get("bridge"))
+    out["paperTests"] = _noaddr(s.get("paperTests"))
     out["walletLinks"] = s.get("walletLinks")  # 17 Nov 2026: likely new wallets of liked Hyperliquid traders, counts and short tags only (full addresses behind the password)
     out["solanaCopy"] = public_solana(s.get("solanaCopy"))  # 11 Nov 2026: paper wallet-copy speed test on Solana (src/solana/copyrun.ts), read-only; keys are scrubbed there
     out["withdraw"] = s.get("withdraw")  # one-off withdrawal: stage, tries, confirmed, amounts; never an address or a transaction id

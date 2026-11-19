@@ -13,7 +13,7 @@
     "probe": "tsx src/probe.ts",
     "report": "tsx src/report.ts",
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test src/*.test.ts src/solana/*.test.ts src/hyperliquid/*.test.ts src/lab/*.test.ts",
+    "test": "tsx --test src/*.test.ts src/solana/*.test.ts src/hyperliquid/*.test.ts src/bridge/*.test.ts src/lab/*.test.ts",
     "hyperliquid": "tsx src/hyperliquid/run.ts",
     "solana": "tsx src/solana/run.ts",
     "paper": "tsx src/paper.ts",
