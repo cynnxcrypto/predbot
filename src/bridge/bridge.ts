@@ -61,6 +61,13 @@ export interface Order {
   to: Place;
   usd: number;
   mode: "dry" | "go";
+  /** a Solana wallet may hold both: which one leaves (default: USDC for perps, SOL for the spot wallets) */
+  token?: Token;
+  /**
+   * "Up to": with this, usd is the MOST that moves, and this many dollars of the token stay in the wallet (on top of
+   * the SOL kept for gas). What moves is the smaller of usd and what is spare. Without it, exactly usd moves.
+   */
+  keepUsd?: number;
 }
 export interface QuoteReq {
   from: PlaceInfo;
@@ -80,6 +87,8 @@ export interface Quote {
 }
 export interface Deps {
   order(): Order | null;
+  /** moves to price side by side; these are never sent */
+  dryRuns?(): Order[];
   /** the wallet of a place; throws when this machine does not have it */
   place(p: Place): PlaceInfo;
   /** what the place's wallet holds of its token, on its chain */
@@ -118,18 +127,52 @@ export function checkOrder(o: Order): string[] {
   else if (o.from === o.to) bad.push("from and to are the same place");
   else if (o.from.startsWith("solana") && o.to.startsWith("solana")) bad.push("a move between two Solana wallets is not built yet");
   if (!(o.usd >= MIN_USD && o.usd <= MAX_USD)) bad.push(`the amount must be ${MIN_USD} to ${MAX_USD} dollars`);
+  if (o.token !== undefined && (!["USDC", "SOL"].includes(o.token) || !String(o.from).startsWith("solana"))) bad.push("token is USDC or SOL, and only for a move that starts at a Solana wallet");
+  if (o.keepUsd !== undefined && (!(o.keepUsd >= 0 && o.keepUsd <= 100_000) || o.from === "hyperliquid")) bad.push("keepUsd is a number of dollars to leave behind, and not for a move that starts at Hyperliquid");
   return bad;
 }
 
 /** Read the order out of the text of deploy/live-rules.json. Anything unclear is no order; a mode other than "go" is a dry run. */
+const orderOf = (o: Record<string, unknown>, dryOnly = false): Order => ({ id: String(o.id ?? ""), from: String(o.from ?? "") as Place, to: String(o.to ?? "") as Place, usd: Number(o.usd), mode: !dryOnly && o.mode === "go" ? "go" : "dry", ...(o.token !== undefined ? { token: String(o.token) as Token } : {}), ...(o.keepUsd !== undefined ? { keepUsd: Number(o.keepUsd) } : {}) });
 export function parseOrder(text: string): Order | null {
   try {
     const o = (JSON.parse(text) as { bridge?: { order?: Record<string, unknown> | null } }).bridge?.order;
     if (!o || typeof o !== "object") return null;
-    return { id: String(o.id ?? ""), from: String(o.from ?? "") as Place, to: String(o.to ?? "") as Place, usd: Number(o.usd), mode: o.mode === "go" ? "go" : "dry" };
+    return orderOf(o);
   } catch {
     return null;
   }
+}
+export const MAX_DRY_RUNS = 6;
+/** "bridge": { "dryRuns": [ ... ] }: several moves priced side by side. These can NEVER go: whatever mode they carry, they are dry. */
+export function parseDryRuns(text: string): Order[] {
+  try {
+    const a = (JSON.parse(text) as { bridge?: { dryRuns?: unknown } }).bridge?.dryRuns;
+    return Array.isArray(a) ? a.filter((o) => o && typeof o === "object").slice(0, MAX_DRY_RUNS).map((o) => orderOf(o as Record<string, unknown>, true)) : [];
+  } catch {
+    return [];
+  }
+}
+
+/** The wallet a move starts at, with the token the order named. */
+const source = (d: Deps, from: Place, token?: Token): PlaceInfo => {
+  const p = d.place(from);
+  return token && p.chain === "solana" ? { ...p, token } : p;
+};
+/**
+ * How much leaves, in the source token. Exactly `usd` worth, or with keepUsd the smaller of that and what is spare
+ * above what stays behind. Returns why not when the wallet cannot cover it. Pure.
+ */
+export function sized(usd: number, keepUsd: number | undefined, have: number, px: number, token: Token): { left: number; why?: string } {
+  const round = (x: number) => (token === "SOL" ? Math.floor(x * 1e4) / 1e4 : Math.floor(x * 100) / 100);
+  const gas = token === "SOL" ? KEEP_SOL : 0;
+  if (keepUsd === undefined) {
+    const left = token === "SOL" ? r4(usd / px) : r2(usd);
+    return have < left + gas ? { left, why: `the wallet holds ${show(have, token)}, the move needs ${show(left + gas, token)}` } : { left };
+  }
+  const spare = have - gas - keepUsd / px;
+  const left = round(Math.min(usd / px, spare));
+  return left * px < MIN_USD ? { left: 0, why: `only $${r2(Math.max(0, spare * px))} is spare above the $${r2(keepUsd)} that stays (a move is $${MIN_USD} or more)` } : { left };
 }
 
 export const maxCost = (valueUsd: number) => Math.max(MAX_COST_USD, valueUsd * MAX_COST_SHARE);
@@ -157,7 +200,7 @@ export function guard(r: QuoteReq, q: Quote, px: { from: number; to: number }): 
 
 export interface Report {
   at: number;
-  order: { id: string; from: Place; to: Place; usd: number; mode: "dry" | "go" } | null;
+  order: Order | null;
   stage: string;
   problems: string[];
   steps: string[];
@@ -203,7 +246,7 @@ export function parts(left: number, px: number): number[] {
 async function dry(d: Deps, o: Order): Promise<Report> {
   const steps: string[] = [];
   const problems: string[] = [];
-  const from = d.place(o.from);
+  const from = source(d, o.from, o.token);
   const to = d.place(o.to);
   let usd = o.usd;
   if (o.from === "hyperliquid") {
@@ -213,11 +256,15 @@ async function dry(d: Deps, o: Order): Promise<Report> {
     usd -= HL_WITHDRAW_FEE;
   }
   const px = await prices(d, from, to);
-  const left = from.token === "SOL" ? r4(usd / px.from) : r2(usd);
+  let left = from.token === "SOL" ? r4(usd / px.from) : r2(usd);
   if (o.from !== "hyperliquid") {
-    const have = await d.balance(from);
-    const need = left + (from.token === "SOL" ? KEEP_SOL : 0);
-    if (have < need) problems.push(`the wallet holds ${show(have, from.token)}, the move needs ${show(need, from.token)}`);
+    const z = sized(usd, o.keepUsd, await d.balance(from), px.from, from.token);
+    if (z.why) problems.push(z.why);
+    if (o.keepUsd !== undefined) {
+      if (!(z.left > 0)) return { at: d.now(), order: o, stage: "dry run: would NOT go", problems, steps };
+      left = z.left;
+      steps.push(`would move ${show(left, from.token)} (about $${r2(left * px.from)}), leaving $${r2(o.keepUsd)} and gas behind`);
+    }
   }
   let cost = o.usd - usd;
   for (const [i, amount] of parts(left, px.from).entries()) {
@@ -238,7 +285,7 @@ async function step(d: Deps, o: Order, m: Move): Promise<void> {
     s.moves[m.id] = m;
     saveBridge(s);
   };
-  const from = d.place(m.from);
+  const from = source(d, m.from, m.token);
   const to = d.place(m.to);
 
   if (m.stage === "new") {
@@ -263,11 +310,10 @@ async function step(d: Deps, o: Order, m: Move): Promise<void> {
       return save();
     }
     const px = await prices(d, from, to);
-    const left = from.token === "SOL" ? r4(m.usd / px.from) : r2(m.usd);
-    const have = await d.balance(from);
-    const need = left + (from.token === "SOL" ? KEEP_SOL : 0);
-    if (have < need) return void ((m.why = `waiting: the wallet holds ${show(have, from.token)}, the move needs ${show(need, from.token)}`), save());
-    m.left = left;
+    const z = sized(m.usd, m.keepUsd, await d.balance(from), px.from, from.token);
+    if (z.why) return void ((m.why = `waiting: ${z.why}`), save());
+    m.left = z.left;
+    note(m, `moving ${show(z.left, from.token)}`, now);
     m.stage = "test";
     delete m.why;
     return save();
@@ -341,19 +387,41 @@ function describe(o: Order, m: Move): Report {
   return { at: Date.now(), order: o, stage, problems: m.stage === "stopped" && m.why ? [m.why] : [], steps: [...(m.why && m.stage !== "stopped" ? [m.why] : []), ...m.log.map((l) => l.what)] };
 }
 
+/** The side-by-side dry runs (bridge.dryRuns): priced every DRY_EVERY_MS, never while a real order is on go. */
+let dryRuns: Report[] = [];
+let dryRunsAt = 0;
+let dryRunsKey = "";
+async function sideBySide(d: Deps, o: Order | null): Promise<void> {
+  const list = d.dryRuns?.() ?? [];
+  if (!list.length) return void ((dryRuns = []), (dryRunsKey = ""));
+  if (o?.mode === "go") return;
+  const key = JSON.stringify(list);
+  if (key === dryRunsKey && d.now() - dryRunsAt < DRY_EVERY_MS) return;
+  dryRunsKey = key;
+  dryRunsAt = d.now();
+  const out: Report[] = [];
+  for (const x of list) {
+    const bad = checkOrder(x);
+    if (bad.length) out.push({ at: d.now(), order: x, stage: "order refused", problems: bad, steps: [] });
+    else out.push(await dry(d, x).catch((e) => ({ at: d.now(), order: x, stage: "could not look", problems: [scrub(e)], steps: [] })));
+  }
+  dryRuns = out;
+}
+
 /** One look. Never throws; never runs twice at once. */
 export async function bridgeTick(d: Deps): Promise<Report | null> {
   if (busy) return last;
   busy = true;
   try {
     const o = d.order();
+    await sideBySide(d, o);
     if (!o) return (last = null);
     const bad = checkOrder(o);
     if (bad.length) return (last = { at: d.now(), order: null, stage: "order refused", problems: bad, steps: [] });
     const s = loadBridge();
     let m = s.moves[o.id];
     // an id belongs to one move: the same id with other numbers is refused, never run
-    if (m && (m.from !== o.from || m.to !== o.to || m.usd !== o.usd)) return (last = { at: d.now(), order: o, stage: "order refused", problems: ["this id was already used for another move: a new move needs a new id"], steps: [] });
+    if (m && (m.from !== o.from || m.to !== o.to || m.usd !== o.usd || m.token !== o.token || m.keepUsd !== o.keepUsd)) return (last = { at: d.now(), order: o, stage: "order refused", problems: ["this id was already used for another move: a new move needs a new id"], steps: [] });
     if (o.mode !== "go" && !m) {
       const key = JSON.stringify(o);
       if (last && key === lastDryKey && d.now() - lastDryAt < DRY_EVERY_MS) return last;
@@ -365,7 +433,7 @@ export async function bridgeTick(d: Deps): Promise<Report | null> {
       // one real move at a time
       const other = Object.values(s.moves).find((x) => x.stage !== "done" && x.stage !== "stopped");
       if (other) return (last = { at: d.now(), order: o, stage: "waiting", problems: [`the move "${other.id}" is still going`], steps: [] });
-      m = { id: o.id, from: o.from, to: o.to, usd: o.usd, stage: "new", startedAt: d.now(), left: 0, tries: 0, sent: 0, arrived: 0, log: [] };
+      m = { id: o.id, from: o.from, to: o.to, usd: o.usd, ...(o.token ? { token: o.token } : {}), ...(o.keepUsd !== undefined ? { keepUsd: o.keepUsd } : {}), stage: "new", startedAt: d.now(), left: 0, tries: 0, sent: 0, arrived: 0, log: [] };
       s.moves[o.id] = m;
       saveBridge(s);
     }
@@ -385,7 +453,7 @@ export async function bridgeTick(d: Deps): Promise<Report | null> {
 /** For the public status: places, dollars and fixed words. No address, no transaction id. */
 export function bridgePublic() {
   const moves = Object.values(loadBridge().moves).map((m) => ({ id: m.id, from: m.from, to: m.to, usd: m.usd, stage: m.stage, why: m.why ?? null, startedAt: m.startedAt, endedAt: m.endedAt ?? null, sent: r4(m.sent), arrived: r4(m.arrived), inTransit: m.pending ? { part: m.pending.part, amount: m.pending.amount, since: m.pending.at, sent: !!m.pending.tx } : null }));
-  return { now: last, moves };
+  return { now: last, dryRuns, moves };
 }
 
-export const _test = { reset: () => void ((last = null), (lastDryAt = 0), (lastDryKey = ""), (busy = false)) };
+export const _test = { reset: () => void ((dryRuns = []), (dryRunsAt = 0), (dryRunsKey = ""), (last = null), (lastDryAt = 0), (lastDryKey = ""), (busy = false)) };
