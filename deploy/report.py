@@ -27,11 +27,37 @@ def gh(method, path, body=None):
 def dashboard_url():
     """Current tunnel address; if it no longer answers, restart the tunnel once (EC2 ubuntu has passwordless sudo)."""
     url = _tunnel_url()
-    if url and not _answers(url):
-        subprocess.run(["sudo", "-n", "systemctl", "restart", "predbot-dashboard"], capture_output=True, timeout=30)
-        time.sleep(20)
-        url = _tunnel_url()
+    # 20 Nov 2026 07:05 KST: the tunnel's address went missing from its log and nothing restarted it (only a dead
+    # address was restarted). Now a missing address is restarted too, at most once in 20 minutes, and waited for longer.
+    if not url or not _answers(url):
+        mark = os.path.join(DATA, "tunnel-restart.txt")
+        try:
+            last = float(open(mark).read().strip() or 0)
+        except Exception:  # noqa: BLE001
+            last = 0
+        if time.time() - last > 20 * 60:
+            try:
+                open(mark, "w").write(str(time.time()))
+            except Exception:  # noqa: BLE001
+                pass
+            subprocess.run(["sudo", "-n", "systemctl", "restart", "predbot-dashboard"], capture_output=True, timeout=30)
+            for _ in range(6):
+                time.sleep(10)
+                url = _tunnel_url()
+                if url and _answers(url):
+                    break
     return url
+
+
+def tunnel_errors():
+    """The tunnel's last error lines, for the status when there is no address (no addresses or IPs kept)."""
+    try:
+        out = subprocess.run(["sudo", "-n", "journalctl", "-u", "predbot-dashboard", "--no-pager", "-o", "cat", "-n", "200"],
+                             capture_output=True, text=True, timeout=20).stdout
+    except Exception:  # noqa: BLE001
+        return []
+    rows = [re.sub(r"\d+\.\d+\.\d+\.\d+|[0-9a-f:]{8,}", "…", x)[:160] for x in out.splitlines() if " ERR " in x or "error" in x.lower()]
+    return rows[-4:]
 
 
 def _answers(url):
@@ -47,8 +73,8 @@ def _answers(url):
 def _tunnel_url():
     """The Cloudflare quick-tunnel address changes whenever the tunnel restarts (7 Nov 2026: enrique lost the link and
     must never need AWS to find it). The dashboard itself is password protected."""
-    for cmd in (["journalctl", "-u", "predbot-dashboard", "--no-pager", "-o", "cat", "-n", "400"],
-                ["sudo", "-n", "journalctl", "-u", "predbot-dashboard", "--no-pager", "-o", "cat", "-n", "400"]):
+    for cmd in (["journalctl", "-u", "predbot-dashboard", "--no-pager", "-o", "cat", "-n", "3000"],
+                ["sudo", "-n", "journalctl", "-u", "predbot-dashboard", "--no-pager", "-o", "cat", "-n", "3000"]):
         try:
             out = subprocess.run(cmd, capture_output=True, text=True, timeout=20).stdout
         except Exception:  # noqa: BLE001
@@ -219,6 +245,8 @@ def summary():
     out = {"at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "build": s.get("build"),
            "diskFreeGB": round(du.free / 1e9, 2), "diskTotalGB": round(du.total / 1e9, 2),
            "dashboardUrl": dashboard_url(), "series": []}
+    if not out["dashboardUrl"]:
+        out["dashboardTunnel"] = tunnel_errors()
     for x in [s] + (s.get("series") or []):
         live = x.get("live") or {}
         out["series"].append({
