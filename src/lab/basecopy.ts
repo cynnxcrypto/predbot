@@ -10,6 +10,11 @@
  * Copies: a followed wallet buys -> we pretend to buy STAKE_USD at the price when WE see it (minutes later, never the
  * wallet's own price), not at all when that is CHASE_PCT above its price; out when the wallet sells or after
  * MAX_HOLD_H. COST of the stake is taken each way for pool fee and slip.
+ *
+ * For every copy front (enrique, 19 Nov 2026 15:49 KST: "this should be for any copytrading not just HL"):
+ *   - the wallet sells part of its coin -> we sell the same share of ours;
+ *   - size by conviction: a buy bigger than that wallet's usual buy gets a bigger copy (SIZE_MIN to SIZE_MAX times);
+ *   - a wallet is dropped sooner: behind after CUT_COPIES closed copies, or behind on its own CUT_OWN_TRIPS+ trades.
  */
 export const CAP_MIN_USD = 20_000_000;
 export const CAP_MIN_LIQ_USD = 200_000;
@@ -29,6 +34,13 @@ export const MAX_OPEN = 30;
 export const FRESH_MS = 45 * 60_000;
 /** would go real: the Solana bar */
 export const QUALIFY = { copies: 10 };
+export const SIZE_MIN = 0.5;
+export const SIZE_MAX = 2;
+export const CUT_COPIES = 3;
+export const CUT_OWN_TRIPS = 5;
+/** a sale of this share or more of what the wallet holds is the whole exit; less than DUST of a copy left is closed too */
+export const FULL_EXIT = 0.9;
+export const DUST = 0.1;
 
 const NOT_COINS = /^(USDC|USDBC|USDT|DAI|USDS|SUSDS|USDE|SUSDE|EURC|EURS|GHO|CRVUSD|LUSD|FRAX|USD\+|USDZ|WETH|ETH|CBETH|CBBTC|WBTC|TBTC|LBTC|WSTETH|WEETH|RETH|EZETH|RSETH|WRSETH|OSETH|SUPEROETHB|BSDETH|MSETH|MSUSD|CBXRP|CBDOGE|CBLTC|CBADA)$/i;
 const QUOTES = /^(WETH|USDC|USDBC|USDT|CBBTC)$/i;
@@ -37,9 +49,9 @@ export type Coin = { symbol: string; token: string; pool: string; mcapUsd: numbe
 export type Trade = { tx: string; wallet: string; ms: number; buy: boolean; usd: number; px: number };
 type Lot = { ms: number; usd: number; px: number };
 export type Wallet = { buys: number[]; lots: Record<string, Lot[]>; trips: number; won: number; realisedUsd: number; holds: number[]; days: Record<string, number>; lastMs: number; balUsd?: number | null; balAt?: number };
-export type Copy = { wallet: string; token: string; symbol: string; at: number; px: number; leaderPx: number };
-export type Done = { wallet: string; symbol: string; at: number; closedAt: number; usd: number; why: "sold" | "time" };
-export type BaseState = { startedAt?: number; coins: Record<string, Coin>; coinsAt?: number; wallets: Record<string, Wallet>; seen: Record<string, number>; open: Copy[]; done: Done[]; skipped?: { chase: number; full: number }; error?: string; calls?: number; limited?: number; roundAt?: number; coinNote?: string };
+export type Copy = { wallet: string; token: string; symbol: string; at: number; px: number; leaderPx: number; /** dollars put in (by conviction) */ stakeUsd?: number; /** share of the copy still held, 1 at the start */ left?: number; /** made by the parts already sold */ bankedUsd?: number; parts?: number };
+export type Done = { wallet: string; symbol: string; at: number; closedAt: number; usd: number; why: "sold" | "time"; stakeUsd?: number; parts?: number };
+export type BaseState = { startedAt?: number; coins: Record<string, Coin>; coinsAt?: number; wallets: Record<string, Wallet>; seen: Record<string, number>; open: Copy[]; done: Done[]; skipped?: { chase: number; full: number; cut?: number }; error?: string; calls?: number; limited?: number; roundAt?: number; coinNote?: string };
 
 const num = (x: unknown) => {
   const n = x === null || x === undefined || x === "" ? NaN : Number(x);
@@ -114,7 +126,7 @@ export const usualBuy = (w: Wallet) => median(w.buys);
 export const followed = (w: Wallet) => w.buys.length >= FOLLOW_BUYS && usualBuy(w) >= FOLLOW_BUY_USD && !isBot(w);
 
 /** A wallet's own record from a trade of SEE_USD+ (its lots are matched oldest first). */
-function book(st: BaseState, token: string, t: Trade): Wallet {
+function book(st: BaseState, token: string, t: Trade): { w: Wallet; soldShare: number } {
   const w = (st.wallets[t.wallet] ??= { buys: [], lots: {}, trips: 0, won: 0, realisedUsd: 0, holds: [], days: {}, lastMs: 0 });
   w.lastMs = Math.max(w.lastMs, t.ms);
   w.days[dayKey(t.ms)] = (w.days[dayKey(t.ms)] ?? 0) + 1;
@@ -124,10 +136,13 @@ function book(st: BaseState, token: string, t: Trade): Wallet {
     w.buys.push(t.usd);
     if (w.buys.length > 60) w.buys.shift();
     (w.lots[token] ??= []).push({ ms: t.ms, usd: t.usd, px: t.px });
-    return w;
+    return { w, soldShare: 0 };
   }
   let left = t.usd / t.px; // coins sold
   const lots = w.lots[token] ?? [];
+  // the share of what we know it held; a sale of coins we never saw bought counts as the whole exit
+  const heldCoins = lots.reduce((a, l) => a + l.usd / l.px, 0);
+  const soldShare = heldCoins > 0 ? Math.min(1, left / heldCoins) : 1;
   let cost = 0;
   let got = 0;
   let first: number | null = null;
@@ -150,14 +165,42 @@ function book(st: BaseState, token: string, t: Trade): Wallet {
     w.holds.push((t.ms - first) / 60_000);
     if (w.holds.length > 40) w.holds.shift();
   }
-  return w;
+  return { w, soldShare };
 }
 
+const stakeOf = (c: Copy) => c.stakeUsd ?? STAKE_USD;
+const leftOf = (c: Copy) => c.left ?? 1;
+/** what selling `share` of the original copy at `px` makes, costs in and out taken on that part */
+const partUsd = (c: Copy, share: number, px: number) => stakeOf(c) * share * ((px / c.px) * (1 - COST) - (1 + COST));
+/** what the copy has made so far: parts sold, plus the rest at `px` */
+export const copyUsd = (c: Copy, px: number) => (c.bankedUsd ?? 0) + partUsd(c, leftOf(c), px);
 const closeCopy = (st: BaseState, c: Copy, px: number, nowMs: number, why: Done["why"]) => {
-  st.done.push({ wallet: c.wallet, symbol: c.symbol, at: c.at, closedAt: nowMs, usd: STAKE_USD * (px / c.px) * (1 - COST) - STAKE_USD * (1 + COST), why });
+  st.done.push({ wallet: c.wallet, symbol: c.symbol, at: c.at, closedAt: nowMs, usd: copyUsd(c, px), why, ...(c.stakeUsd ? { stakeUsd: c.stakeUsd } : {}), ...(c.parts ? { parts: c.parts } : {}) });
   st.open = st.open.filter((x) => x !== c);
   if (st.done.length > 600) st.done.splice(0, st.done.length - 600);
 };
+/** The wallet sold `share` of its coin: the same share of what we still hold goes. True when the copy is closed by it. */
+export function sellShare(st: BaseState, c: Copy, share: number, px: number, nowMs: number): boolean {
+  const rest = leftOf(c) * (1 - share);
+  if (share >= FULL_EXIT || rest < DUST) {
+    closeCopy(st, c, px, nowMs, "sold");
+    return true;
+  }
+  c.bankedUsd = (c.bankedUsd ?? 0) + partUsd(c, leftOf(c) * share, px);
+  c.left = rest;
+  c.parts = (c.parts ?? 0) + 1;
+  return false;
+}
+/** Size by conviction: this buy against the wallet's usual buy. */
+export const convictionUsd = (buyUsd: number, usual: number) => Math.round(STAKE_USD * Math.min(SIZE_MAX, Math.max(SIZE_MIN, usual > 0 ? buyUsd / usual : 1)));
+const record = (st: BaseState, wallet: string) => st.done.reduce((a, d) => (d.wallet === wallet ? { n: a.n + 1, won: a.won + (d.usd > 0 ? 1 : 0), usd: a.usd + d.usd } : a), { n: 0, won: 0, usd: 0 });
+/** Dropped: behind on our copies of it, or behind on its own trades. "" when it is still copied. */
+export function cutWhy(st: BaseState, wallet: string): "" | "copies" | "own" {
+  const r = record(st, wallet);
+  if (r.n >= CUT_COPIES && r.usd < 0) return "copies";
+  const w = st.wallets[wallet];
+  return w && w.trips >= CUT_OWN_TRIPS && w.realisedUsd < 0 ? "own" : "";
+}
 
 /** A coin's trade list as just read: wallets' own records, new copies, copies closed by a sale. */
 export function take(st: BaseState, token: string, trades: Trade[], nowMs: number): void {
@@ -174,19 +217,21 @@ export function take(st: BaseState, token: string, trades: Trade[], nowMs: numbe
     if (t.usd < SEE_USD) continue;
     const was = st.wallets[t.wallet];
     const wasFollowed = !!was && followed(was);
-    const w = book(st, token, t);
+    const usual = was ? usualBuy(was) : 0;
+    const { w, soldShare } = book(st, token, t);
     if (nowMs - t.ms > FRESH_MS) continue;
     const mine = st.open.find((c) => c.wallet === t.wallet && c.token === token);
     if (!t.buy) {
-      if (mine) closeCopy(st, mine, coin.px, nowMs, "sold");
+      if (mine) sellShare(st, mine, soldShare, coin.px, nowMs);
       continue;
     }
     // copied only when the wallet was already followed before this buy: no copying a trade that made it pass
     if (!wasFollowed || isBot(w) || mine) continue;
-    if (st.open.length >= MAX_OPEN) st.skipped.full++;
+    if (cutWhy(st, t.wallet)) st.skipped.cut = (st.skipped.cut ?? 0) + 1;
+    else if (st.open.length >= MAX_OPEN) st.skipped.full++;
     else if (coin.px > t.px * (1 + CHASE_PCT / 100)) st.skipped.chase++;
     else {
-      st.open.push({ wallet: t.wallet, token, symbol: coin.symbol, at: nowMs, px: coin.px, leaderPx: t.px });
+      st.open.push({ wallet: t.wallet, token, symbol: coin.symbol, at: nowMs, px: coin.px, leaderPx: t.px, stakeUsd: convictionUsd(t.usd, usual), left: 1 });
       st.startedAt ??= nowMs;
     }
   }
@@ -219,12 +264,12 @@ export function summary(st: BaseState, nowMs: number) {
   const wallets = fol
     .map(([a, w]) => {
       const p = per.get(a) ?? { n: 0, won: 0, usd: 0 };
-      return { id: a.slice(2, 8), usualBuyUsd: Math.round(usualBuy(w)), buys: w.buys.length, ownTrips: w.trips, ownWon: w.won, ownUsd: Math.round(w.realisedUsd), balUsd: w.balUsd ?? null, copies: p.n, won: p.won, usd: r2(p.usd), open: st.open.filter((c) => c.wallet === a).length, pass: p.n >= QUALIFY.copies && p.won * 2 >= p.n && p.usd > 0 };
+      return { id: a.slice(2, 8), usualBuyUsd: Math.round(usualBuy(w)), buys: w.buys.length, ownTrips: w.trips, ownWon: w.won, ownUsd: Math.round(w.realisedUsd), balUsd: w.balUsd ?? null, copies: p.n, won: p.won, usd: r2(p.usd), open: st.open.filter((c) => c.wallet === a).length, pass: p.n >= QUALIFY.copies && p.won * 2 >= p.n && p.usd > 0, cut: cutWhy(st, a) };
     })
     .sort((x, y) => Number(y.pass) - Number(x.pass) || y.usd - x.usd || y.usualBuyUsd - x.usualBuyUsd);
   const opens = st.open.map((c) => {
     const now = st.coins[c.token]?.px ?? c.px;
-    return { coin: c.symbol, sub: c.wallet.slice(2, 8), t: c.at, paid: STAKE_USD, usd: r2(STAKE_USD * (now / c.px) * (1 - COST) - STAKE_USD * (1 + COST)), held: Math.round((nowMs - c.at) / 60_000) };
+    return { coin: c.symbol, sub: c.wallet.slice(2, 8) + (c.parts ? ` · ${Math.round(leftOf(c) * 100)}% left` : ""), t: c.at, paid: stakeOf(c), usd: r2(copyUsd(c, now)), held: Math.round((nowMs - c.at) / 60_000) };
   });
   const usd = st.done.reduce((s, d) => s + d.usd, 0);
   return {
@@ -243,7 +288,7 @@ export function summary(st: BaseState, nowMs: number) {
     openUsd: r2(opens.reduce((s, o) => s + o.usd, 0)),
     opens,
     wallets: wallets.slice(0, 40),
-    log: st.done.slice(-40).reverse().map((d) => ({ coin: d.symbol, sub: d.wallet.slice(2, 8) + (d.why === "time" ? " · 72 h" : ""), t: d.closedAt, usd: r2(d.usd), held: Math.round((d.closedAt - d.at) / 60_000) })),
+    log: st.done.slice(-40).reverse().map((d) => ({ coin: d.symbol, sub: d.wallet.slice(2, 8) + (d.why === "time" ? " · 72 h" : "") + (d.parts ? ` · sold in ${d.parts + 1} parts` : ""), t: d.closedAt, paid: d.stakeUsd ?? STAKE_USD, usd: r2(d.usd), held: Math.round((d.closedAt - d.at) / 60_000) })),
     skipped: st.skipped ?? { chase: 0, full: 0 },
     calls: st.calls ?? 0,
     limited: st.limited ?? 0,

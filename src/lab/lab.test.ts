@@ -203,3 +203,38 @@ test("base: a price run past the wallet's is not chased, a machine is not follow
   const w: B.Wallet = { buys: [5000, 5000, 5000], lots: {}, trips: 3, won: 3, realisedUsd: 10, holds: [2, 3, 1], days: {}, lastMs: now };
   assert.equal(B.followed(w), false);
 });
+
+test("base: a part sale sells the same share of our copy; a bigger buy than usual gets a bigger copy; a losing wallet is dropped", () => {
+  const token = addr(1001);
+  const st: B.BaseState = { coins: { [token]: { symbol: "AERO", token, pool: addr(1), mcapUsd: 5e7, liqUsd: 1e6, px: 2, pxAt: now - DAY } }, wallets: {}, seen: {}, open: [], done: [] };
+  const at = (x: ReturnType<typeof tr>, ms: number) => ({ attributes: { ...x.attributes, block_timestamp: new Date(ms).toISOString() } });
+  B.take(st, token, B.readTrades({ data: [tr(5, 600, true, 3000, 2), tr(5, 500, true, 3000, 2), tr(5, 400, true, 3000, 2)] }), now);
+  // sell everything known first, so the next buy is the whole of what it holds
+  B.take(st, token, B.readTrades({ data: [tr(5, 300, false, 9000, 2)] }), now);
+  // a $6,000 buy against a usual $3,000: twice the copy
+  B.take(st, token, B.readTrades({ data: [at(tr(5, 0, true, 6000, 2), now - 60_000)] }), now);
+  assert.equal(st.open.length, 1);
+  assert.equal(st.open[0].stakeUsd, 200);
+  assert.equal(B.convictionUsd(100, 3000), 50, "never under half");
+  assert.equal(B.convictionUsd(90_000, 3000), 200, "never over double");
+  // it sells half at $2.40: half of ours goes, the rest stays open
+  B.take(st, token, B.readTrades({ data: [at(tr(5, 0, false, 3600, 2.4), now + 9 * 60_000)] }), now + 10 * 60_000);
+  assert.equal(st.open.length, 1);
+  assert.ok(Math.abs((st.open[0].left as number) - 0.5) < 1e-9);
+  const half = 100 * (1.2 * 0.995 - 1.005);
+  assert.ok(Math.abs((st.open[0].bankedUsd as number) - half) < 1e-9);
+  // the rest goes at $1.80
+  B.take(st, token, B.readTrades({ data: [at(tr(5, 0, false, 2700, 1.8), now + 19 * 60_000)] }), now + 20 * 60_000);
+  assert.equal(st.open.length, 0);
+  assert.ok(Math.abs(st.done[0].usd - (half + 100 * (0.9 * 0.995 - 1.005))) < 1e-9);
+  assert.equal(st.done[0].parts, 1);
+  // three closed copies and behind: no fourth
+  st.done.push({ ...st.done[0], usd: -9 }, { ...st.done[0], usd: -9 });
+  assert.equal(B.cutWhy(st, addr(5)), "copies");
+  B.take(st, token, B.readTrades({ data: [at(tr(5, 0, true, 3000, 1.8), now + 29 * 60_000)] }), now + 30 * 60_000);
+  assert.equal(st.open.length, 0);
+  assert.equal(st.skipped?.cut, 1);
+  // behind on its own trades
+  st.wallets[addr(7)] = { buys: [3000, 3000, 3000], lots: {}, trips: 5, won: 1, realisedUsd: -4000, holds: [600], days: {}, lastMs: now };
+  assert.equal(B.cutWhy(st, addr(7)), "own");
+});
