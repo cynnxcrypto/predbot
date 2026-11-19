@@ -51,7 +51,10 @@ type Lot = { ms: number; usd: number; px: number };
 export type Wallet = { buys: number[]; lots: Record<string, Lot[]>; trips: number; won: number; realisedUsd: number; holds: number[]; days: Record<string, number>; lastMs: number; balUsd?: number | null; balAt?: number };
 export type Copy = { wallet: string; token: string; symbol: string; at: number; px: number; leaderPx: number; /** dollars put in (by conviction) */ stakeUsd?: number; /** share of the copy still held, 1 at the start */ left?: number; /** made by the parts already sold */ bankedUsd?: number; parts?: number };
 export type Done = { wallet: string; symbol: string; at: number; closedAt: number; usd: number; why: "sold" | "time"; stakeUsd?: number; parts?: number };
-export type BaseState = { startedAt?: number; coins: Record<string, Coin>; coinsAt?: number; wallets: Record<string, Wallet>; seen: Record<string, number>; open: Copy[]; done: Done[]; skipped?: { chase: number; full: number; cut?: number }; error?: string; calls?: number; limited?: number; roundAt?: number; coinNote?: string };
+/** what the paper copy just did, for the real copy (baselive.ts) to follow; kept in memory only */
+export type Event = { kind: "open"; copy: Copy } | { kind: "part"; key: string; share: number } | { kind: "close"; key: string };
+export const keyOf = (c: { wallet: string; token: string }) => c.wallet + ":" + c.token;
+export type BaseState = { startedAt?: number; coins: Record<string, Coin>; coinsAt?: number; wallets: Record<string, Wallet>; seen: Record<string, number>; open: Copy[]; done: Done[]; skipped?: { chase: number; full: number; cut?: number }; ev?: Event[]; error?: string; calls?: number; limited?: number; roundAt?: number; coinNote?: string };
 
 const num = (x: unknown) => {
   const n = x === null || x === undefined || x === "" ? NaN : Number(x);
@@ -177,6 +180,7 @@ export const copyUsd = (c: Copy, px: number) => (c.bankedUsd ?? 0) + partUsd(c, 
 const closeCopy = (st: BaseState, c: Copy, px: number, nowMs: number, why: Done["why"]) => {
   st.done.push({ wallet: c.wallet, symbol: c.symbol, at: c.at, closedAt: nowMs, usd: copyUsd(c, px), why, ...(c.stakeUsd ? { stakeUsd: c.stakeUsd } : {}), ...(c.parts ? { parts: c.parts } : {}) });
   st.open = st.open.filter((x) => x !== c);
+  (st.ev ??= []).push({ kind: "close", key: keyOf(c) });
   if (st.done.length > 600) st.done.splice(0, st.done.length - 600);
 };
 /** The wallet sold `share` of its coin: the same share of what we still hold goes. True when the copy is closed by it. */
@@ -189,6 +193,7 @@ export function sellShare(st: BaseState, c: Copy, share: number, px: number, now
   c.bankedUsd = (c.bankedUsd ?? 0) + partUsd(c, leftOf(c) * share, px);
   c.left = rest;
   c.parts = (c.parts ?? 0) + 1;
+  (st.ev ??= []).push({ kind: "part", key: keyOf(c), share });
   return false;
 }
 /** Size by conviction: this buy against the wallet's usual buy. */
@@ -231,7 +236,9 @@ export function take(st: BaseState, token: string, trades: Trade[], nowMs: numbe
     else if (st.open.length >= MAX_OPEN) st.skipped.full++;
     else if (coin.px > t.px * (1 + CHASE_PCT / 100)) st.skipped.chase++;
     else {
-      st.open.push({ wallet: t.wallet, token, symbol: coin.symbol, at: nowMs, px: coin.px, leaderPx: t.px, stakeUsd: convictionUsd(t.usd, usual), left: 1 });
+      const copy: Copy = { wallet: t.wallet, token, symbol: coin.symbol, at: nowMs, px: coin.px, leaderPx: t.px, stakeUsd: convictionUsd(t.usd, usual), left: 1 };
+      st.open.push(copy);
+      (st.ev ??= []).push({ kind: "open", copy });
       st.startedAt ??= nowMs;
     }
   }

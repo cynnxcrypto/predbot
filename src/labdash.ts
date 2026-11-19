@@ -11,6 +11,7 @@ const panel = (id: string, title: string) =>
 export const LAB_HTML = `<section class="sec hide" id="sec-lab">
 ${panel("lv", "Hyperliquid vaults · $100 in each")}
 ${panel("lc", "Funding carry · spot + short on Hyperliquid")}
+<div class="panel real" style="margin-bottom:14px"><div class="ph"><div class="k">Base mid cap copies <span class="tag real">real</span></div><div class="mut" id="lr-sub"></div></div><div class="stats" id="lr-st"><span class="mut">waiting for the first reading</span></div><div id="lr-b"></div><div id="lr-c"></div><div class="note" id="lr-n"></div></div>
 ${panel("lb", "Base mid cap copies · $50 to $200 a copy")}
 </section>`;
 
@@ -55,6 +56,13 @@ function render(L){
  set("lc-b",ptab("open","result if closed now, closing fees taken",OS,false));
  set("lc-c",ptab("closed","newest first",CS.slice(0,12),true));
  set("lc-n","Half of each $"+C.posUsd+" buys the coin, half backs the short, so funding is earned on half the money. A full in and out costs "+C.rule.roundTripPct.hl+"% on Hyperliquid spot and "+C.rule.roundTripPct.kraken+"% with Kraken spot, plus $4 once to move money to and from Kraken. A coin is taken at "+C.rule.enter7dPct+"%+ a year over 7 days and dropped under "+C.rule.exit3dPct+"% over 3."+err(C.error||C.krakenError));
+ // base, real money (off until switched on)
+ var R=L.baseReal;if(R){var rst=!R.wallet?"no wallet yet":R.lossStop?"loss stop":R.on?"on":"off";
+ set("lr-sub",R.on&&R.switch?"$"+R.switch.stakeUsd+" a copy · up to "+R.switch.maxOpen+" open":"");
+ set("lr-st",stat("real copies",'<span class="'+(R.on&&!R.lossStop?"ok":"mut")+'">'+rst+'</span>',R.on?"wallets at the bar only":"needs sizes from you")+stat("cash",R.usdc==null?"—":money(R.usdc),"USDC on Base")+stat("gas",R.eth==null?"—":(R.gasLow||(R.eth<0.0003)?'<span class="bad">low</span>':'<span class="ok">ok</span>'),R.eth==null?"":"ETH kept for fees")+(R.closed||R.opens.length?stat("result",sg(R.usd),R.closed?R.won+" of "+R.closed+" won":"none closed yet"):""));
+ set("lr-b",ptab("open","at the coin's last traded price",R.opens,false));
+ set("lr-c",ptab("closed","newest first",R.log.slice(0,12),true));
+ set("lr-n",err(R.error))}
  // base
  set("lb-sub",B.coins.length?B.coins.length+" coins · "+B.followed+" wallets followed":"");
  set("lb-st",B.coins.length?stat("closed copies",sg(B.usd),B.closed?B.won+" of "+B.closed+" won":"none closed yet")+stat("open now",sg(B.openUsd),B.opens.length+" open")+stat("wallets followed",String(B.followed),"of "+B.walletsSeen+" seen")+stat("at the real bar",String(B.passing),"10+ copies, half won, ahead"):'<span class="mut">'+(B.error?"no reading yet":"reading the coins")+'</span>');

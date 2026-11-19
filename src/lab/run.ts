@@ -9,6 +9,8 @@ import { post } from "../hyperliquid/exchange.js";
 import * as V from "./vaults.js";
 import * as C from "./carry.js";
 import * as B from "./basecopy.js";
+import * as L from "./baselive.js";
+import { realBaseDeps } from "./basereal.js";
 
 const VAULT_LIST = "https://stats-data.hyperliquid.xyz/Mainnet/vaults";
 const KRAKEN = "https://api.kraken.com/0/public/Ticker";
@@ -27,6 +29,30 @@ let vaults: V.VaultState = { held: {}, hist: [] };
 let carry: C.CarryState = { books: C.newBooks(), fund: {} };
 let base: B.BaseState = { coins: {}, wallets: {}, seen: {}, open: [], done: [] };
 let market: C.Market | null = null;
+// the REAL Base copy (baselive.ts): follows the paper copy with the Base wallet; buys only with the switch on
+let live: L.LiveState = L.emptyLive();
+let liveDeps: L.Deps | null = null;
+let liveBalAt = 0;
+const saveLive = () => saveJson("lab-base-live.json", live);
+const saveBase = () => saveJson("lab-base.json", { ...base, ev: undefined });
+/** What the paper copy just did, done for real where the rules allow. Never throws. */
+async function follow(): Promise<void> {
+  const ev = base.ev ?? [];
+  base.ev = [];
+  if (!liveDeps) return;
+  try {
+    await L.liveRound(live, base, ev, liveDeps, Date.now(), saveLive);
+    // switched off and holding nothing: the wallet's cash is still read now and then, so money that arrives shows
+    if (live.note === "off" && liveDeps.hasWallet() && Date.now() - liveBalAt > 30 * 60_000) {
+      liveBalAt = Date.now();
+      const b = await liveDeps.balances();
+      Object.assign(live, { usdc: b.usdc, eth: b.eth, at: Date.now() });
+      saveLive();
+    }
+  } catch (e) {
+    live.error = short(e);
+  }
+}
 let on = false;
 
 // ---- vaults: the list every 6 h, each held vault's own page every 30 min
@@ -140,7 +166,7 @@ export async function baseRound(nowMs = Date.now()): Promise<void> {
       base.coinNote = `${found.length} pools passed on ${PAGES} pages`;
       found = [];
       nextPage = 1;
-      saveJson("lab-base.json", base);
+      saveBase();
     }
     const tokens = Object.keys(base.coins);
     if (nextCoin >= tokens.length) nextCoin = 0;
@@ -148,9 +174,11 @@ export async function baseRound(nowMs = Date.now()): Promise<void> {
       const token = tokens[nextCoin];
       if (!base.coins[token]) continue;
       B.take(base, token, B.readTrades(await gecko(`/pools/${base.coins[token].pool}/trades?trade_volume_in_usd_greater_than=${B.SEE_USD}`)), Date.now());
+      if (base.ev?.length) await follow();
     }
     nextCoin = 0;
     B.sweep(base, Date.now());
+    await follow();
     base.roundAt = Date.now();
     base.error = undefined;
   } catch (e) {
@@ -158,7 +186,7 @@ export async function baseRound(nowMs = Date.now()): Promise<void> {
   } finally {
     baseBusy = false;
   }
-  saveJson("lab-base.json", base);
+  saveBase();
 }
 
 export function startLab(f: typeof fetch = fetch): void {
@@ -169,7 +197,9 @@ export function startLab(f: typeof fetch = fetch): void {
   const { market: m0, ...c0 } = loadJson<Partial<C.CarryState> & { market?: C.Market | null }>("lab-carry.json", {});
   if (m0?.perps && m0.hl && m0.kraken) market = m0;
   carry = { ...carry, ...c0, books: C.newBooks().map((b) => c0.books?.find((x) => x.id === b.id) ?? b) };
-  base = { ...base, ...loadJson<Partial<B.BaseState>>("lab-base.json", {}) };
+  base = { ...base, ...loadJson<Partial<B.BaseState>>("lab-base.json", {}), ev: [] };
+  live = { ...live, ...loadJson<Partial<L.LiveState>>("lab-base-live.json", {}) };
+  if (process.env.BASE_LIVE !== "off") liveDeps = realBaseDeps(f);
   const every = (fn: () => Promise<void>, firstMs: number, ms: number) => {
     const run = () => void fn().catch(() => undefined);
     setTimeout(run, firstMs).unref();
@@ -183,5 +213,5 @@ export function startLab(f: typeof fetch = fetch): void {
 /** For the status and the dashboard. Public data only: vault names, leaders' short ids, no address of ours (there is none). */
 export function labSummary(nowMs = Date.now()) {
   if (!on) return { on: false as const };
-  return { on: true as const, at: nowMs, vaults: V.summary(vaults, nowMs), carry: C.summary(carry, market, nowMs), base: B.summary(base, nowMs) };
+  return { on: true as const, at: nowMs, vaults: V.summary(vaults, nowMs), carry: C.summary(carry, market, nowMs), base: B.summary(base, nowMs), baseReal: L.summary(live, base, liveDeps?.switch() ?? null, liveDeps?.hasWallet() ?? false, nowMs) };
 }
