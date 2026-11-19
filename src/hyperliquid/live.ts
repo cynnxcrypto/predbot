@@ -74,8 +74,11 @@ export interface HlLiveConfig {
   /** late copies: how far (a fraction) the price may be from the paper entry; 0 or none = no late copies */
   lateWithin?: number;
   /** the second wallet (overlaps): on = a copy the first wallet cannot hold goes there; testOnce = its one test trade */
-  second?: { on: boolean; testOnce: string };
+  second?: { on: boolean; testOnce: string; maxOpen: number };
 }
+/** the second wallet's own slots (enrique, 20 Nov 2026: "move 50usd to the second hl wallet and 4 slots") */
+export const SECOND_MAX_OPEN = 4;
+export const HARD_SECOND_MAX_OPEN = 10;
 const OFF: HlLiveConfig = { on: false, collateralUsd: MIN_COLLATERAL_USD, maxOpen: 0, maxLossUsd: 0, traderStopUsd: 0, testOnce: "" };
 /** Parse the "hyperliquid.trade" block of deploy/live-rules.json. Hard limits are applied here; anything odd means off. */
 export function parseHlLive(text: string): HlLiveConfig {
@@ -87,9 +90,9 @@ export function parseHlLive(text: string): HlLiveConfig {
     const s2 = p.second && typeof p.second === "object" ? (p.second as Record<string, unknown>) : null;
     const maxLossUsd = clamp(num(p.maxLossUsd, 0), 0, HARD_MAX_LOSS_USD);
     const collateralUsd = clamp(num(p.collateralUsd, MIN_COLLATERAL_USD), MIN_COLLATERAL_USD, HARD_COLLATERAL_USD);
-    if (p.on !== true || !(maxLossUsd > 0)) return { ...OFF, collateralUsd, testOnce, ...(s2 ? { second: { on: false, testOnce: name(s2.testOnce) } } : {}) };
+    if (p.on !== true || !(maxLossUsd > 0)) return { ...OFF, collateralUsd, testOnce, ...(s2 ? { second: { on: false, testOnce: name(s2.testOnce), maxOpen: 0 } } : {}) };
     const lateWithin = clamp(num(p.lateWithinPct, 0), 0, HARD_LATE_PCT) / 100;
-    return { on: true, collateralUsd, maxLossUsd, testOnce, lateWithin, ...(s2 ? { second: { on: s2.on === true, testOnce: name(s2.testOnce) } } : {}), maxOpen: Math.floor(clamp(num(p.maxOpen, 5), 1, HARD_MAX_OPEN)), traderStopUsd: clamp(num(p.traderStopUsd, 9), 1, HARD_TRADER_STOP_USD) };
+    return { on: true, collateralUsd, maxLossUsd, testOnce, lateWithin, ...(s2 ? { second: { on: s2.on === true, testOnce: name(s2.testOnce), maxOpen: Math.floor(clamp(num(s2.maxOpen, SECOND_MAX_OPEN), 1, HARD_SECOND_MAX_OPEN)) } } : {}), maxOpen: Math.floor(clamp(num(p.maxOpen, 5), 1, HARD_MAX_OPEN)), traderStopUsd: clamp(num(p.traderStopUsd, 9), 1, HARD_TRADER_STOP_USD) };
   } catch {
     return OFF;
   }
@@ -339,7 +342,7 @@ export async function hlLiveTick(d: HlDeps, now = Date.now()): Promise<void> {
     /** where a new copy on this coin can go: 1 the first wallet, 2 the second (the first holds the coin already), 0 nowhere */
     const where = (c: string): 0 | 1 | 2 => {
       if (!state.opens.some((o) => !o.w && o.coin === c) && !acct.positions[c]) return 1;
-      return cfg.second?.on && ready2 && !state.opens.some((o) => o.w && o.coin === c) && !acct2!.positions[c] ? 2 : 0;
+      return cfg.second?.on && ready2 && state.opens.filter((o) => o.w).length < cfg.second.maxOpen && !state.opens.some((o) => o.w && o.coin === c) && !acct2!.positions[c] ? 2 : 0;
     };
     const [coins, mids] = [await v.coins(), await v.mids()];
     const paper = d.paperOpens();
@@ -451,7 +454,7 @@ export async function hlLiveTick(d: HlDeps, now = Date.now()): Promise<void> {
         if (state.seen.length > 4000) state.seen = state.seen.slice(-4000);
         if (loss() >= cfg.maxLossUsd) (skip("loss cap reached"));
         else if (!d.listed(x.rule)) skip("trader off the list");
-        else if (state.opens.length >= cfg.maxOpen) skip("all positions in use");
+        else if (state.opens.filter((o) => !o.w).length >= cfg.maxOpen && where(x.coin) !== 2) skip("all positions in use");
         else {
           // a coin the first wallet holds for another trader goes to the second wallet (its own leverage, margin and
           // exit); held in both, or no second wallet: skipped
@@ -465,13 +468,13 @@ export async function hlLiveTick(d: HlDeps, now = Date.now()): Promise<void> {
     // ---- late copies: what a real trader still holds and we never held, while the price is still near its entry ----
     if (cfg.on && (cfg.lateWithin ?? 0) > 0 && loss() < cfg.maxLossUsd) {
       for (const x of paper) {
-        if (state.opens.length >= cfg.maxOpen) break;
+        const full1 = state.opens.filter((o) => !o.w).length >= cfg.maxOpen;
         if (now - x.at <= OPEN_WINDOW_MS || !(x.px && x.px > 0)) continue;
         if (state.held.includes(x.id) || state.lateOff.includes(x.id)) continue;
         if (!isReal(x.rule) || !d.listed(x.rule)) continue;
         const w = where(x.coin);
         const wa = w === 2 ? acct2! : acct;
-        if (!w || wa.freeUsd < cfg.collateralUsd + 1) continue;
+        if (!w || (w === 1 && full1) || wa.freeUsd < cfg.collateralUsd + 1) continue;
         const px = mids[x.coin];
         if (!(px > 0) || Math.abs(px / x.px - 1) > (cfg.lateWithin ?? 0)) continue;
         const why = await open(d, x, convictionUsd(hlCollateral(x.rule, cfg.collateralUsd), x.share, realOf(x.rule)), coins, mids, wa, now, true, w);

@@ -324,7 +324,7 @@ test("partial closes are measured from what the trader held when OUR copy opened
 
 /** A second pretend account beside the first (the second wallet). */
 function two(o: { cfg?: HlLiveConfig; bar?: string[]; value2?: number } = {}) {
-  const { w, d } = world({ cfg: o.cfg ?? { ...ON, second: { on: true, testOnce: "" } }, bar: o.bar ?? ["copy-aaaa1111", "copy-bbbb2222", "copy-cccc3333"] });
+  const { w, d } = world({ cfg: o.cfg ?? { ...ON, second: { on: true, testOnce: "", maxOpen: 4 } }, bar: o.bar ?? ["copy-aaaa1111", "copy-bbbb2222", "copy-cccc3333"] });
   const w2 = { acct: { valueUsd: o.value2 ?? 50, freeUsd: o.value2 ?? 50, positions: {} } as Account, orders: [] as { coin: number; buy: boolean; sz: number; reduce: boolean }[], lev: [] as [number, number][], agentCalls: 0, down: false, oid: 1000 };
   const name = (c: Coin) => Object.keys(COINS).find((k) => COINS[k].index === c.index)!;
   d.venue2 = {
@@ -377,7 +377,7 @@ test("the second wallet: a second trader on a coin we hold is copied there at it
 });
 
 test("the second wallet: off, not there, without money or not read, an overlap is skipped; a look that cannot read it leaves its positions alone", async () => {
-  for (const cfg of [ON, { ...ON, second: { on: false, testOnce: "" } }]) {
+  for (const cfg of [ON, { ...ON, second: { on: false, testOnce: "", maxOpen: 0 } }]) {
     _test.reset();
     const { w, w2, d } = two({ cfg });
     w.paper = [copy("copy-aaaa1111", "HYPE", 1, T0, 2), copy("copy-bbbb2222", "HYPE", 1, T0, 5)];
@@ -412,8 +412,10 @@ test("the second wallet: off, not there, without money or not read, an overlap i
 
 test("the second wallet's test trade: one smallest BTC long there, only once it has money, once per name, with copies off", async () => {
   const cfg = parseHlLive('{"hyperliquid":{"trade":{"on":true,"maxLossUsd":50,"second":{"on":false,"testOnce":"s1"}}}}');
-  assert.deepEqual(cfg.second, { on: false, testOnce: "s1" });
-  assert.deepEqual(parseHlLive('{"hyperliquid":{"trade":{"on":true,"maxLossUsd":50,"second":{"on":"yes","testOnce":"BAD NAME"}}}}').second, { on: false, testOnce: "" });
+  assert.deepEqual(cfg.second, { on: false, testOnce: "s1", maxOpen: 4 });
+  assert.deepEqual(parseHlLive('{"hyperliquid":{"trade":{"on":true,"maxLossUsd":50,"second":{"on":true,"maxOpen":4}}}}').second, { on: true, testOnce: "", maxOpen: 4 });
+  assert.equal(parseHlLive('{"hyperliquid":{"trade":{"on":true,"maxLossUsd":50,"second":{"on":true,"maxOpen":99}}}}').second?.maxOpen, 10);
+  assert.deepEqual(parseHlLive('{"hyperliquid":{"trade":{"on":true,"maxLossUsd":50,"second":{"on":"yes","testOnce":"BAD NAME"}}}}').second, { on: false, testOnce: "", maxOpen: 4 });
   assert.equal(parseHlLive('{"hyperliquid":{"trade":{"on":true,"maxLossUsd":50}}}').second, undefined);
   const { w, w2, d } = two({ cfg, value2: 0 });
   await hlLiveTick(d, T0 + 1000);
