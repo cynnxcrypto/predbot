@@ -59,6 +59,8 @@ export interface Swap {
   buy: boolean;
   sol: number;
   price: number;
+  /** what the trader still holds of the coin after this swap (in the accounts the swap touched), in coins */
+  left?: number;
 }
 const ui = (b: TokBal) => Number(b.uiTokenAmount.uiAmountString ?? b.uiTokenAmount.uiAmount ?? 0) || 0;
 
@@ -70,6 +72,7 @@ const ui = (b: TokBal) => Number(b.uiTokenAmount.uiAmountString ?? b.uiTokenAmou
 export function swapOf(meta: Meta | null | undefined, signer: string | null, slot: number): Swap | null {
   if (!meta || meta.err || !meta.preBalances?.length || !meta.postBalances?.length) return null;
   const by = new Map<string, Map<string, number>>(); // mint -> owner -> change
+  const post = new Map<string, number>(); // mint|owner -> balance after
   let wsol = 0;
   const add = (b: TokBal, sign: number) => {
     if (!b.owner) return;
@@ -82,7 +85,10 @@ export function swapOf(meta: Meta | null | undefined, signer: string | null, slo
     if (!m) by.set(b.mint, (m = new Map()));
     m.set(b.owner, (m.get(b.owner) ?? 0) + sign * ui(b));
   };
-  for (const b of meta.postTokenBalances ?? []) add(b, 1);
+  for (const b of meta.postTokenBalances ?? []) {
+    add(b, 1);
+    if (b.owner) post.set(`${b.mint}|${b.owner}`, (post.get(`${b.mint}|${b.owner}`) ?? 0) + ui(b));
+  }
   for (const b of meta.preTokenBalances ?? []) add(b, -1);
   const moved = [...by].filter(([, owners]) => [...owners.values()].some((d) => d !== 0));
   if (moved.length !== 1) return null; // no token, or token-to-token
@@ -96,7 +102,7 @@ export function swapOf(meta: Meta | null | undefined, signer: string | null, slo
     for (const [o, d] of owners) if (buy ? d > tokens : d < tokens) [wallet, tokens] = [o, d];
   }
   if (!wallet || (buy ? tokens <= 0 : tokens >= 0)) return null;
-  return { slot, wallet, mint, buy, sol: Math.abs(sol), price: Math.abs(sol) / Math.abs(tokens) };
+  return { slot, wallet, mint, buy, sol: Math.abs(sol), price: Math.abs(sol) / Math.abs(tokens), left: post.get(`${mint}|${wallet}`) ?? 0 };
 }
 
 export interface Stat {

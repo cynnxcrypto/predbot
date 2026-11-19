@@ -9,11 +9,12 @@ const meta = (solBefore: number, solAfter: number, pre: ReturnType<typeof tok>[]
 
 test("a swap is read from balance changes, with or without the signer's address", () => {
   const buy = meta(10, 9, [tok(POOL, 1000)], [tok(POOL, 900), tok("A", 100)]);
-  assert.deepEqual(swapOf(buy, "A", 7), { slot: 7, wallet: "A", mint: MINT, buy: true, sol: 1, price: 0.01 });
+  assert.deepEqual(swapOf(buy, "A", 7), { slot: 7, wallet: "A", mint: MINT, buy: true, sol: 1, price: 0.01, left: 100 });
   assert.equal(swapOf(buy, null, 7)?.wallet, "A", "without the signer, the owner whose balance rose is the buyer");
   const sell = meta(9, 9.5, [tok(POOL, 900), tok("A", 100)], [tok(POOL, 950), tok("A", 50)]);
   const s = swapOf(sell, "A", 8)!;
   assert.equal(s.buy, false);
+  assert.equal(s.left, 50, "what the trader still holds: it sold half");
   assert.ok(Math.abs(s.price - 0.01) < 1e-12 && Math.abs(s.sol - 0.5) < 1e-9);
   assert.equal(swapOf(sell, null, 8)?.wallet, "A");
   // not swaps: failed, no token moved, two tokens moved, signer who is not the one receiving
