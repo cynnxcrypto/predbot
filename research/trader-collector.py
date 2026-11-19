@@ -14,7 +14,7 @@ It publishes to the server-data branch under server/traders/ as it goes (same to
   tape/<group>.json.gz          every fill (both sides, maker/taker flag) of a sample of resolved markets
   tapestats/<group>.json.gz     per-wallet profit over that sample
   wallets/<address>.json.gz     the selected wallets' own trades (30 days) plus redeems, merges, rewards
-Stdlib only. Safe to re-run: finished pieces are skipped (state in ~/predbot/data/traders/v2/; marker DONE-v4).
+Stdlib only. Safe to re-run: finished pieces are skipped (state in ~/predbot/data/traders/v2/; marker DONE-v5).
 Uses the Data API v2 routes (v1 answers 410 Gone since 2 Nov 2026)."""
 import base64, fcntl, gzip, json, os, resource, sys, time, urllib.request, urllib.error, urllib.parse, collections
 
@@ -150,24 +150,24 @@ def leaderboards():
 
 
 # ---------- 2. market tape ----------
-def market_trades(cid, taker_only):
-    """All fills of one market (up to 20,000), newest first."""
-    return pages(f"{DATA}/v2/trades?condition={cid}&limit=1000&taker_only={'true' if taker_only else 'false'}")
+def market_trades(cid, taker_only, cap=20000):
+    """All fills of one market (up to `cap`), newest first."""
+    return pages(f"{DATA}/v2/trades?condition={cid}&limit=1000&taker_only={'true' if taker_only else 'false'}", cap=cap)
 
 
 def tkey(t):
     return (t.get("transaction_hash"), t.get("token_id"), t.get("proxy_wallet"), str(t.get("size")), str(t.get("price")))
 
 
-def tape_group(name, markets):
+def tape_group(name, markets, cap=20000):
     """markets: [{slug, cid, title, start, end, outcomes, prices, vol}]. Writes tape/<name> and tapestats/<name>."""
     if done(f"tapestats/{name}.json.gz"):
         return json.loads(gzip.decompress(open(os.path.join(OUT, "v2", f"tapestats/{name}.json.gz"), "rb").read()))
     widx, wallets, names, trades, mk = {}, [], {}, [], []
     stat = collections.defaultdict(lambda: {"m": set(), "n": 0, "nt": 0, "buy": 0.0, "sell": 0.0, "pay": 0.0, "wonm": 0, "pnl_m": collections.defaultdict(float)})
     for mi, m in enumerate(markets):
-        allr = market_trades(m["cid"], False)
-        tk = set(tkey(t) for t in market_trades(m["cid"], True)) if allr else set()
+        allr = market_trades(m["cid"], False, cap)
+        tk = set(tkey(t) for t in market_trades(m["cid"], True, cap)) if allr else set()
         mk.append({**m, "fills": len(allr), "takerFills": len(tk)})
         pos = collections.defaultdict(lambda: [0.0, 0.0])  # wallet -> shares per outcome
         for t in allr:
@@ -225,8 +225,9 @@ def mrow(ev, m):
             "outcomes": jl(m.get("outcomes")), "prices": pr, "vol": round(float(m.get("volumeNum") or m.get("volume") or 0)), "type": m.get("sportsMarketType")}
 
 
-def crypto_markets(slug, win, hours):
-    out, t0 = [], (NOW // win) * win - win * 2
+def crypto_markets(slug, win, hours, t_hi=None):
+    """Resolved windows of one series, newest first: the last `hours` up to now, or up to the end time t_hi."""
+    out, t0 = [], (t_hi - win) if t_hi else (NOW // win) * win - win * 2
     for k in range(int(hours * 3600 / win)):
         start = t0 - k * win
         ev = get(f"{GAMMA}/events?slug={slug}-{start}")
@@ -263,6 +264,104 @@ def tag_markets(tag, days_back, top, min_vol, per_event=2):
     out.sort(key=lambda m: -m["vol"])
     log(f"tag {tag}: {len(evs)} closed events, {len(out)} markets kept, taking {min(top, len(out))}")
     return out[:top]
+
+
+# ---------- 2b. crypto windows (v5, 20 Nov 2026): hourly and daily Up/Down plus three fresh days of 5m and 15m ----------
+COINS = [("bitcoin", "btc"), ("ethereum", "eth"), ("solana", "sol")]
+MONTHS = ["january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december"]
+
+
+def et_offset(ts):
+    """Hours behind UTC in New York. Good for Oct-Dec 2026 (clocks went back on 1 Nov 2026 at 06:00 UTC)."""
+    return 4 if ts < 1793512800 else 5
+
+
+def resolved(ev):
+    if not ev or not isinstance(ev, list) or not ev[0].get("markets"):
+        return None
+    r = mrow(ev[0], ev[0]["markets"][0])
+    return r if r["cid"] and len(r["prices"]) >= 2 and set(r["prices"]) == {0.0, 1.0} else None
+
+
+HOURLY_FORMS = ["{coin}-up-or-down-{mon}-{d}-{h}-et", "{coin}-up-or-down-{mon}-{d}-{y}-{h}-et", "{coin}-up-or-down-{mon}-{d}-{h}-et-{y}"]
+
+
+def hourly_markets(coin, t_from, t_to):
+    """Hourly Up/Down windows that started in [t_from, t_to). The slug is the New York date and start hour; the exact
+    form is tried from HOURLY_FORMS and the one that answers is tried first afterwards."""
+    out, forms, miss = [], list(HOURLY_FORMS), 0
+    for start in range((t_from // 3600) * 3600, t_to, 3600):
+        lt = time.gmtime(start - et_offset(start) * 3600)
+        h = f"{(lt.tm_hour % 12) or 12}{'am' if lt.tm_hour < 12 else 'pm'}"
+        r = None
+        for f in list(forms):
+            r = resolved(get(f"{GAMMA}/events?slug=" + f.format(coin=coin, mon=MONTHS[lt.tm_mon - 1], d=lt.tm_mday, y=lt.tm_year, h=h)))
+            if r:
+                forms.remove(f); forms.insert(0, f)
+                break
+        if r:
+            r["start"], r["end"] = start, start + 3600
+            out.append(r)
+        else:
+            miss += 1
+            if miss >= 30 and not out:  # no slug form answers: stop asking
+                break
+    log(f"hourly {coin}: {len(out)} windows, {miss} not found")
+    return out
+
+
+def daily_markets(coin, days):
+    """Daily Up/Down markets ("<coin>-up-or-down-on-<month>-<day>-<year>", noon to noon New York)."""
+    out = []
+    for k in range(1, days + 1):
+        lt = time.gmtime(NOW - k * 86400)
+        r = resolved(get(f"{GAMMA}/events?slug={coin}-up-or-down-on-{MONTHS[lt.tm_mon - 1]}-{lt.tm_mday}-{lt.tm_year}"))
+        if r:
+            out.append(r)
+    log(f"daily {coin}: {len(out)} markets")
+    return out
+
+
+def window_tapes():
+    """Each group has its own done marker (its tapestats file), so a re-run skips what is finished. Groups are kept
+    small (a day, or six hours for BTC 5m) so memory and file sizes stay low. Fills are not capped at 20,000."""
+    CAP = 80000
+    day0 = (NOW // 86400) * 86400  # 00:00 UTC today; the pulls cover full days before it
+
+    def run(name, build):
+        if done(f"tapestats/{name}.json.gz") or done(f"windows/{name}.empty"):
+            return
+        try:
+            ms = build()
+            if ms:
+                tape_group(name, ms, CAP)
+            else:  # nothing found: remember it locally so a re-run does not ask again
+                local = os.path.join(OUT, "v2", f"windows/{name}.empty")
+                os.makedirs(os.path.dirname(local), exist_ok=True)
+                open(local, "w").write(str(NOW))
+            step(f"windows {name}: {len(ms)} markets")
+        except MemoryError:
+            raise
+        except Exception as e:
+            PROGRESS["errors"].append(f"windows {name}: {e!r}"[:200]); step(f"windows {name} failed")
+
+    # 1) hourly BTC/ETH/SOL, last 14 full days, one group per coin per week
+    for coin, short in COINS:
+        for wk in range(2):
+            hi = day0 - wk * 7 * 86400
+            run(f"w5-1h-{short}-{time.strftime('%m%d', time.gmtime(hi - 7 * 86400))}", lambda c=coin, hi=hi: hourly_markets(c, hi - 7 * 86400, hi))
+    # 2) daily BTC/ETH/SOL (plus XRP if listed), last 30 days
+    for coin, short in COINS + [("xrp", "xrp")]:
+        run(f"w5-1d-{short}", lambda c=coin: daily_markets(c, 30))
+    # 3) 15m BTC/ETH/SOL, last 3 full days, one group per day
+    for d in range(3):
+        tag = time.strftime("%m%d", time.gmtime(day0 - (d + 1) * 86400))
+        run(f"w5-15m-{tag}", lambda d=d: [m for s in ("btc-updown-15m", "eth-updown-15m", "sol-updown-15m") for m in crypto_markets(s, 900, 24, day0 - d * 86400)])
+    # 4) 5m BTC, last 3 full days, one group per six hours (the busiest tape)
+    for q in range(12):
+        t_hi = day0 - q * 6 * 3600
+        tag = time.strftime("%m%d-%H", time.gmtime(t_hi - 6 * 3600))
+        run(f"w5-5m-btc-{tag}", lambda q=q: crypto_markets("btc-updown-5m", 300, 6, day0 - q * 6 * 3600))
 
 
 # ---------- 3. wallets ----------
@@ -360,8 +459,9 @@ def main():
             wallet_pull(w, chosen[w]); log(f"extra wallet {i + 1}/{len(extra)} {w}")
             time.sleep(20)
     step(f"wallets after wide-12nov: {len(chosen)}")
+    window_tapes()
     step("DONE")
-    open(os.path.join(OUT, "DONE-v4"), "w").write(str(int(time.time())))
+    open(os.path.join(OUT, "DONE-v5"), "w").write(str(int(time.time())))
 
 
 if __name__ == "__main__":
