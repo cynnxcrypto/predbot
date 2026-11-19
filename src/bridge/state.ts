@@ -27,6 +27,9 @@ export interface Move {
   from: Place;
   to: Place;
   usd: number;
+  /** set when the order named them: which token leaves a Solana wallet, and how many dollars of it stay behind */
+  token?: "USDC" | "SOL";
+  keepUsd?: number;
   stage: Stage;
   why?: string;
   startedAt: number;

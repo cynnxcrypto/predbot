@@ -25,7 +25,7 @@ import { base58decode, namedWallet, signTransaction, wallet as solWallet, type W
 import { ata } from "../solana/soltx.js";
 import { base58 } from "../solana/whirlpool.js";
 import { baseWallet } from "./basekey.js";
-import { bridgeTick, parseOrder, scrub, type Chain, type Deps, type PlaceInfo, type Quote, type QuoteReq, type Token } from "./bridge.js";
+import { bridgeTick, parseDryRuns, parseOrder, scrub, type Chain, type Deps, type PlaceInfo, type Quote, type QuoteReq, type Token } from "./bridge.js";
 import type { Place } from "./state.js";
 
 export const LIFI_API = process.env.LIFI_API || "https://li.quest/v1";
@@ -243,6 +243,13 @@ export function realDeps(fetcher: typeof fetch = fetch): Deps {
         return parseOrder(readFileSync(join(ROOT, "deploy", "live-rules.json"), "utf8"));
       } catch {
         return null;
+      }
+    },
+    dryRuns: () => {
+      try {
+        return parseDryRuns(readFileSync(join(ROOT, "deploy", "live-rules.json"), "utf8"));
+      } catch {
+        return [];
       }
     },
     place,
