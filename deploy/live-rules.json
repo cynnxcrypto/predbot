@@ -98,6 +98,7 @@
       "houseBetsNote": "18 Nov 2026, enrique: the $9 room per copied wallet is 'a huge blocker when we're scaling up traders that seem good'. Each copied wallet may now have 8 of its current bets open ($24 at $3, $40 at $5, $56 at $7, $80 at $10) plus its settled real result, at least $9, at most walletUsd $100 (was $40). Cuts unchanged.",
       "houseBets": 8,
       "cutNote": "16 Nov 2026 11:01-11:04 KST, enrique: 'why the fuck arent we cutting bad traders copied out?', 'u have to cut loser and bring winners', 'real is more important'. From each copied wallet's own settled REAL copies: (1) back to paper at once at $5 down or worse (any number of bets), or behind at all after 3 or more (sooner since 19 Nov 2026, enrique: 'yeah build all 3', 'this should be for any copytrading not just HL'; was $6 and 5); (2) a wallet whose real copies are ahead trades even when its paper record says no; (3) its open stakes may not pass $9 plus what its real copies have made, so a new wallet has at most $9 at risk and a winner earns its room (up to walletUsd); (4) $3 a bet until its real record is ahead after 5 or more, only then sized by the trader's bet. src/eventlive.ts ruleAdapt / eventLiveBlock.",
+      "sells": { "real": true, "note": "19 Nov 2026 23:29 KST, enrique: 'turn on real partial sells on polymarket'. When a copied wallet sells part of a side we copied, we sell the same share of ours on the book (src/copysell.ts)." },
       "cutN": 3,
       "cutLoss": 5,
       "houseUsd": 9,
