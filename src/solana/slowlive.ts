@@ -581,7 +581,9 @@ export function wallets(now = Date.now()): Listed[] {
   const unknown: string[] = [];
   try {
     base = follow === "fixed" ? WALLETS : cfg().capOnly ? capWallets() : provenWallets();
-    if (follow !== "fixed") {
+    // on caps only, a wallet is copied only once it passed the replay of its mid and high cap trips (enrique, 18 Nov
+    // 2026: "go to real trading when they qualify"): a real record from memecoin copies does not qualify it
+    if (follow !== "fixed" && !cfg().capOnly) {
       // the real winners paper does not list: copied on their real record, if the scan's safety screens still hold
       const whos = everyone().filter((w) => realWinner(w, now) && !base.some((b) => (w.address ? b.address === w.address : b.name === w.name)));
       const known = whos.length ? paperAddresses() : null;
