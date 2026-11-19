@@ -1052,7 +1052,7 @@ async function wxCopyTick() {
           const resolveAt = Date.UTC(ev.date[0], ev.date[1] - 1, ev.date[2]) + 86400_000;
           if (copyLooksBait(bet, usual)) real = `small bet: $${bet.toFixed(2)} against its usual $${usual!.toFixed(2)} (paper only)`;
           else noteSize("weather wallet", stake);
-          if (!copyLooksBait(bet, usual)) real = await eventLiveBuy("copy", { rule, marketId: bu.id, title: ev.title, outcome, idx, token, ask: bk.bestAsk, depth, fillable: w.full, feeRate: bu.feeRate, conditionId: b.cond, stake, resolveAt }).catch((e) => `REAL order failed (${(e as Error).message})`);
+          if (!copyLooksBait(bet, usual)) real = await eventLiveBuy("copy", { rule, marketId: bu.id, title: ev.title, outcome, idx, token, ask: bk.bestAsk, depth, fillable: w.full, feeRate: bu.feeRate, conditionId: b.cond, stake, resolveAt, usual, bet }).catch((e) => `REAL order failed (${(e as Error).message})`);
         }
         if (real) {
           log(`copy weather wallet ${ev.title} ${outcome}: ${real}`);
@@ -1419,7 +1419,7 @@ async function copyWallet(wl: { name: string; address: string }, cand: CopyRow[]
         // meeting "another real order is in flight" inside eventLiveBuy and being dropped for good (MAIN review).
         const ask = bk.bestAsk;
         const mid = m.id;
-        const real = copyLooksBait(bet, usual) ? `small bet: $${bet.toFixed(2)} against its usual $${usual!.toFixed(2)} (paper only)` : await copyOrderTurn(() => eventLiveBuy("copy", { rule, marketId: mid, title, outcome, idx: b.idx, token, ask, depth, fillable: w.full, feeRate, conditionId: b.cond, negRisk: Boolean(m.negRisk), stake, resolveAt: copyResolveAt(m), usual }));
+        const real = copyLooksBait(bet, usual) ? `small bet: $${bet.toFixed(2)} against its usual $${usual!.toFixed(2)} (paper only)` : await copyOrderTurn(() => eventLiveBuy("copy", { rule, marketId: mid, title, outcome, idx: b.idx, token, ask, depth, fillable: w.full, feeRate, conditionId: b.cond, negRisk: Boolean(m.negRisk), stake, resolveAt: copyResolveAt(m), usual, bet }));
         if (!copyLooksBait(bet, usual)) {
           copyOrderMs.push({ src, lagSec: extra.lagSec, ms: Date.now() - now, sendMs: Date.now() - sentAt });
           if (copyOrderMs.length > 300) copyOrderMs.shift();

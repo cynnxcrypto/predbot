@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
-import { NEG_TRIAL, _eventLiveTest, restShares, ruleAdapt, sizeStep, ladderStake, riskRoom, paperGate, setPaperBehind, eventLiveBlock, eventLiveBuy, eventLiveConfig, negRiskBlock, parseEventLive, type EventLiveRow } from "./eventlive.js";
+import { NEG_TRIAL, _eventLiveTest, restShares, ruleAdapt, sizeStep, ladderStake, convictionStake, riskRoom, paperGate, setPaperBehind, eventLiveBlock, eventLiveBuy, eventLiveConfig, negRiskBlock, parseEventLive, type EventLiveRow } from "./eventlive.js";
 import { NEG_PERMS, eventClaimCalls, negRiskCalls } from "./live.js";
 import { stopWhenOrderDone } from "./eventpaper.js";
 
@@ -348,4 +348,20 @@ test("daily wallet rescan: the screen, weekly profit, promotion to real and drop
   assert.equal(st.wallets[0].stage, "paper");
   assert.equal(copyPromote(st, trades, NOW6 + 60 * 3600_000, undefined, false).length, 0, "meets the bar, a day on paper, still not promoted");
   assert.equal(st.wallets[0].stage, "paper");
+});
+
+test("conviction: the wallet's bet against its usual bet moves the stake along the ladder's own steps (19 Nov 2026)", () => {
+  const g = parseEventLive(readFileSync(join(process.cwd(), "deploy", "live-rules.json"), "utf8"), { mode: "live", funder: "x" }).groups.copy;
+  const none = { n: 0, net: 0 };
+  const proven = { n: 4, net: 3 };
+  assert.equal(convictionStake(g, 3, null, none), 3);
+  assert.equal(convictionStake(g, 3, 1, none), 3);
+  assert.equal(convictionStake(g, 3, 0.2, none), 3, "never under the base");
+  assert.equal(convictionStake(g, 5, 0.2, proven), 3);
+  assert.equal(convictionStake(g, 3, 2.5, none), 5);
+  assert.equal(convictionStake(g, 3, 6, none), 5, "two steps only for a wallet ahead on 3+");
+  assert.equal(convictionStake(g, 5, 6, proven), 10);
+  assert.equal(convictionStake(g, 10, 6, proven), 10, "never past maxSize");
+  assert.equal(g.cutN, 3);
+  assert.equal(g.cutLoss, 5);
 });

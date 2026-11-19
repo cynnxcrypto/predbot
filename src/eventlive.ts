@@ -247,6 +247,22 @@ export function ladderStake(g: EventLiveGroup, rec: { n: number; net: number; be
   const base = g.aheadSize && rec.n > 0 && rec.net > 0 ? Math.max(g.size, g.aheadSize) : g.size;
   return Math.max(base, ...rows);
 }
+/**
+ * SIZE BY CONVICTION (enrique, 19 Nov 2026: "yeah build all 3", "this should be for any copytrading not just HL"): the
+ * ladder's size moved along its own steps (base, aheadSize, the ladder's rows: $3/$5/$7/$10) by the wallet's bet against
+ * its usual bet: under half one step down, twice or more one step up, four times or more two up (only for a wallet ahead
+ * on 3+ settled real bets). Never under the base size, never past maxSize. Pure.
+ */
+export function convictionStake(g: EventLiveGroup, ladderUsd: number, ratio: number | null, rec: { n: number; net: number }): number {
+  if (ratio == null || !Number.isFinite(ratio) || ratio <= 0) return ladderUsd;
+  const steps = [...new Set([g.size, ...(g.aheadSize ? [g.aheadSize] : []), ...g.ladder.map((x) => x[2])])].filter((x) => x <= Math.max(g.maxSize, g.size)).sort((a, b) => a - b);
+  let i = 0;
+  for (let k = 0; k < steps.length; k++) if (steps[k] <= ladderUsd + 1e-9) i = k;
+  const proven = rec.n >= 3 && rec.net > 0;
+  const d = ratio < 0.5 ? -1 : ratio >= 4 && proven ? 2 : ratio >= 2 ? 1 : 0;
+  if (!d) return ladderUsd;
+  return Math.max(g.size, Math.min(Math.max(g.maxSize, g.size), steps[Math.max(0, Math.min(steps.length - 1, i + d))]));
+}
 /** A rule's own settled real bets: how many and what they made. Pure. */
 export function realRecordOf(rows: EventLiveRow[], rule: string): { n: number; net: number; best: number; last3: number } {
   const s = rows.filter((r) => r.rule === rule && r.shares > 0 && r.pnl != null).sort((a, b) => (a.settledAt ?? a.t) - (b.settledAt ?? b.t));
@@ -385,7 +401,7 @@ export const _eventLiveTest = { busy: (b: boolean) => void (busy = b), reset: ()
  * Copy one paper trade with real money if the guards allow. Returns a short text for the log: what was bought or why not.
  * Never throws. `conditionId` and `negRisk` come from the caller's Gamma lookup of the market.
  */
-export async function eventLiveBuy(group: string, p: { rule: string; marketId: string; title: string; outcome: string; idx: number; token: string; ask: number; depth: number; fillable: boolean; feeRate: number; conditionId: string | null; negRisk?: boolean; stake?: number; resolveAt?: number; usual?: number | null }): Promise<string | null> {
+export async function eventLiveBuy(group: string, p: { rule: string; marketId: string; title: string; outcome: string; idx: number; token: string; ask: number; depth: number; fillable: boolean; feeRate: number; conditionId: string | null; negRisk?: boolean; stake?: number; resolveAt?: number; usual?: number | null; bet?: number | null }): Promise<string | null> {
   const cfg = eventLiveConfig();
   if (!cfg.groups[group]?.rules.includes(p.rule)) return null;
   if (stopping) return "restart pending: no new real order";
@@ -405,7 +421,7 @@ export async function eventLiveBuy(group: string, p: { rule: string; marketId: s
     const mineRec = realRecordOf(rows.filter((r) => r.group === group), p.rule);
     const proven = !(g.probationN > 0) || (mineRec.n >= g.probationN && mineRec.net > 0);
     // with a ladder the size comes from the wallet's own real record alone (ladderStake)
-    let stake = g.ladder.length ? ladderStake(g, mineRec) : !proven || (p.stake == null && boost === 1) ? g.size : Math.round(Math.min(top, Math.max(g.size, want)) * 100) / 100;
+    let stake = g.ladder.length ? convictionStake(g, ladderStake(g, mineRec), p.bet != null && (p.usual ?? 0) > 0 ? p.bet / p.usual! : null, mineRec) : !proven || (p.stake == null && boost === 1) ? g.size : Math.round(Math.min(top, Math.max(g.size, want)) * 100) / 100;
     if (g.houseUsd > 0 && stake > g.size) {
       // a bigger bet is cut down to the room the wallet has left (never under the base size: the guard below decides that)
       const openMine = rows.filter((r) => r.group === group && r.rule === p.rule && r.pnl == null && held(r)).reduce((a, r) => a + r.cost, 0);
