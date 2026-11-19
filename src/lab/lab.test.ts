@@ -252,6 +252,9 @@ test("base: a pool written \"WETH / COIN\" is read the other way round, and left
   assert.deepEqual(got.coins, []);
   assert.deepEqual(got.rev, [{ symbol: "AERO", token: addr(1001), pool: addr(1), liqUsd: 3_000_000, px: 0.9 }], "the coin is the second token; WETH's own size is not taken for it");
   assert.deepEqual(got.why, { "money pair": 1, "young pool": 1 });
+  // a Uniswap v4 pool is named by a 32-byte id, not an address
+  const v4 = { ...page, data: [{ ...page.data[2], attributes: { ...page.data[2].attributes, address: "0x" + "ab".repeat(32), pool_created_at: new Date(now - 90 * DAY).toISOString() } }] };
+  assert.equal(B.scanPools(v4, now).coins[0].pool, "0x" + "ab".repeat(32));
   assert.deepEqual(B.readSize({ data: { attributes: { market_cap_usd: null, fdv_usd: "800000000" } } }), { mcapUsd: 8e8, fdvOnly: true });
   assert.equal(B.readSize({ data: { attributes: {} } }), null);
   // in that pool the list's "buy" is WETH bought: our coin SOLD, priced on the "from" side

@@ -42,7 +42,7 @@ export const CUT_OWN_TRIPS = 5;
 export const FULL_EXIT = 0.9;
 export const DUST = 0.1;
 
-const NOT_COINS = /^(USDC|USDBC|USDT|DAI|USDS|SUSDS|USDE|SUSDE|EURC|EURS|GHO|CRVUSD|LUSD|FRAX|USD\+|USDZ|WETH|ETH|CBETH|CBBTC|WBTC|TBTC|LBTC|WSTETH|WEETH|RETH|EZETH|RSETH|WRSETH|OSETH|SUPEROETHB|BSDETH|MSETH|MSUSD|CBXRP|CBDOGE|CBLTC|CBADA)$/i;
+const NOT_COINS = /^(USDC|USDBC|USDT|DAI|USDS|SUSDS|USDE|SUSDE|EURC|EURS|GHO|CRVUSD|LUSD|FRAX|USD\+|USDZ|WETH|ETH|CBETH|CBBTC|WBTC|TBTC|LBTC|WSTETH|WEETH|RETH|EZETH|RSETH|WRSETH|OSETH|SUPEROETHB|BSDETH|MSETH|MSUSD|CBXRP|CBDOGE|CBLTC|CBADA|PAXG|XAUT)$/i;
 const QUOTES = /^(WETH|USDC|USDBC|USDT|CBBTC)$/i;
 
 export type Coin = { symbol: string; token: string; pool: string; mcapUsd: number; liqUsd: number; px: number; pxAt: number; fdvOnly?: boolean; /** the coin is the pool's second token: its trades read the other way round */ rev?: boolean };
@@ -96,7 +96,10 @@ export function scanPools(answer: unknown, nowMs: number): { coins: Coin[]; rev:
     const symbol = flipped ? qs : bs;
     const token = (flipped ? qid : bid).replace(/^base_/, "").toLowerCase();
     const px = num(flipped ? at.quote_token_price_usd : at.base_token_price_usd);
-    if (!/^0x[0-9a-f]{40}$/.test(pool) || !/^0x[0-9a-f]{40}$/.test(token) || !symbol || liqUsd === null || !px || !Number.isFinite(made)) no("unreadable");
+    // a pool is named by its address, or (Uniswap v4) by a 32-byte id: both are asked for trades the same way
+    if (!/^0x([0-9a-f]{40}|[0-9a-f]{64})$/.test(pool)) no("odd pool id");
+    else if (!/^0x[0-9a-f]{40}$/.test(token) || !symbol) no("no coin named");
+    else if (liqUsd === null || !px || !Number.isFinite(made)) no("unreadable");
     else if (NOT_COINS.test(symbol)) no("money pair");
     else if (!flipped && !QUOTES.test(qs)) no("priced in another coin");
     else if (Math.abs(px - 1) < 0.02 && /usd|eur|dollar/i.test(symbol)) no("money pair");
