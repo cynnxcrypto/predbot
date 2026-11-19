@@ -291,6 +291,8 @@ export interface SRow {
   heldMin: number | null;
   netSol: number;
   unread?: number;
+  /** its transactions were all read back later (see reread): netSol is the true SOL */
+  reread?: boolean;
   error?: string;
   sigs: string[];
   /** the SOL the copy was bought with (rows before 15 Nov 2026 18:15 KST: 0.01, not written) */
@@ -440,6 +442,51 @@ function save() {
   renameSync(STATE() + ".tmp", STATE());
 }
 const loss = () => Math.max(0, -state.netSol);
+/** The stop a finished copy's unreadable transaction sets (finish), lifted only by reread once the books are whole. */
+export const UNREAD_HALT = "a transaction of a finished copy could not be read back: the books may be short, so nothing new is bought";
+/** A finished copy with a transaction that could not be read back is read again this often (one copy at a time). */
+export const REREAD_MS = 10 * 60_000;
+let rereadAt = 0;
+let rereading = false;
+/**
+ * Read a finished copy's transactions again (19 Nov 2026: Helius refused us, and 4 transactions of the 14 old copies
+ * sold on the public RPC could not be read back; the stop then held every new copy for good). Once every transaction
+ * of the copy is read, its row and the books take the true SOL; once no row of the last REST_DAYS days is short, the
+ * stop it caused is lifted, unless the loss cap is now reached. Never throws.
+ */
+async function reread(now = Date.now()) {
+  if (rereading || now - rereadAt < REREAD_MS) return;
+  const short = state.rows.filter((x) => x.unread && now - x.t < REST_DAYS * 86_400_000);
+  if (!short.length) {
+    if (state.halted === UNREAD_HALT) {
+      state.halted = "";
+      save();
+    }
+    return;
+  }
+  rereading = true;
+  rereadAt = now;
+  try {
+    const row = short[0];
+    const r = await kit.booked(wallet(), row.sigs);
+    if (r.unread.length) return;
+    state.netSol = Math.round((state.netSol - row.netSol + r.sol) * 1e9) / 1e9;
+    state.unreadTx = Math.max(0, state.unreadTx - (row.unread ?? 0));
+    row.netSol = r.sol;
+    delete row.unread;
+    row.reread = true;
+    list = null; // the wallet's real record changed
+    const c = cfg();
+    if (state.halted === UNREAD_HALT && !state.rows.some((x) => x.unread && now - x.t < REST_DAYS * 86_400_000)) {
+      state.halted = c.maxLossSol > 0 && loss() + c.stakeSol + COPY_ROOM_SOL > c.maxLossSol + 1e-9 ? `loss cap reached: ${r6(loss())} of ${c.maxLossSol} SOL (no room for another copy)` : "";
+    }
+    save();
+  } catch (e) {
+    state.lastError = fixed(e);
+  } finally {
+    rereading = false;
+  }
+}
 /**
  * A copy whose sale we gave up on: six rounds failed, and it is tried again only at a restart. Its coin cannot be sold.
  * The count goes up when a round STARTS, so the sixth round while it is still under way is not yet a failure (a
@@ -1013,10 +1060,10 @@ async function finish(w: Wallet, p: Pos, exit: Exit) {
     ...(p.stakeSol != null ? { stakeSol: p.stakeSol } : {}),
   };
   if (r.unread.length) {
-    // landed but unreadable: the books may be short, so nothing new is bought until someone looks
+    // landed but unreadable: the books may be short, so nothing new is bought until they are read back (see reread)
     row.unread = r.unread.length;
     state.unreadTx += r.unread.length;
-    state.halted = state.halted || "a transaction of a finished copy could not be read back: the books may be short, so nothing new is bought";
+    state.halted = state.halted || UNREAD_HALT;
   }
   state.netSol = Math.round((state.netSol + r.sol) * 1e9) / 1e9;
   state.opens = state.opens.filter((x) => x !== p);
@@ -1140,6 +1187,7 @@ export const CHECK_MS = 3_600_000;
  */
 export function sweep(now = Date.now()) {
   const c = cfg();
+  void reread(now);
   const on = new Set(wallets(now).map((w) => w.address));
   // the dropped-wallet clock runs only while PAPER itself proves a wallet (rested or not): with nothing proven the
   // paper study has nothing to say (off, just started, its file unreadable), and a wallet kept on its real record
@@ -1427,6 +1475,7 @@ export function slowLiveSummary() {
 
 /** Test hooks. */
 export const _test = {
+  rereadReset: () => void (rereadAt = 0),
   setConfig: (c: SlowLiveConfig | null) => (cfgOverride = c),
   reload: () => {
     loaded = false;

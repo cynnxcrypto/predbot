@@ -12,7 +12,7 @@ process.env.SOLANA_SLOW_MIN_BUY_SOL = "0";
 // made-up keys: every network call here is faked
 process.env.HELIUS_API_KEY = "test-helius";
 process.env.JUPITER_API_KEY = "test-jupiter";
-const { parseSlowLive, slowLiveSummary, onSwap, sweep, recover, startSlowLive, wallets, rested, realWinner, losingRun, realOf, oneStake, resultOf, heldCopies, afterOf, AFTER_MAX_MS, NET_ROUNDS_FREE, saleRefused, GIVE_UP_ROUNDS, RETRY_MS, RETRY_UNSOLD_MS, UNSOLD_DAYS, LEVEL_STAKES, takenVsSkipped, openNow, cutClearly, CUT_HOLD_MS, HARD_MAX_LOSS_SOL, HARD_STAKE_SOL, HARD_MAX_OPEN, WALLETS, stepOf, _test } = await import("./slowlive.js");
+const { UNREAD_HALT, parseSlowLive, slowLiveSummary, onSwap, sweep, recover, startSlowLive, wallets, rested, realWinner, losingRun, realOf, oneStake, resultOf, heldCopies, afterOf, AFTER_MAX_MS, NET_ROUNDS_FREE, saleRefused, GIVE_UP_ROUNDS, RETRY_MS, RETRY_UNSOLD_MS, UNSOLD_DAYS, LEVEL_STAKES, takenVsSkipped, openNow, cutClearly, CUT_HOLD_MS, HARD_MAX_LOSS_SOL, HARD_STAKE_SOL, HARD_MAX_OPEN, WALLETS, stepOf, _test } = await import("./slowlive.js");
 const { _test: run } = await import("./copyrun.js");
 const { buildSigned, wallet } = await import("./keys.js");
 const { base58 } = await import("./whirlpool.js");
@@ -1360,3 +1360,39 @@ test("real day-holder copy: a sale quote refused for asking too fast is asked ag
   assert.equal(_test.state().opens.length, 0);
   _test.reset();
 });
+
+test("real day-holder copy: a finished copy's transactions that could not be read back are read again; the stop is lifted once the books are whole", async () => {
+  fresh();
+  chain(() => 0.012);
+  onSwap(swap(L1, A, true));
+  await wait(1500);
+  onSwap(swap(L1, A, false));
+  for (let i = 0; i < 50 && _test.state().opens.length; i++) await wait(100);
+  const st = _test.state();
+  const row = st.rows.at(-1)!;
+  const truth = row.netSol;
+  const net = st.netSol;
+  assert.ok(truth > 0 && row.sigs.length >= 2);
+  // as if two of its transactions could not be read when it finished (the RPC refused us): short books, and the stop
+  row.netSol = truth - 0.011;
+  row.unread = 2;
+  st.netSol = net - 0.011;
+  st.unreadTx = 2;
+  st.halted = UNREAD_HALT;
+  onSwap(swap(L1, B, true));
+  assert.equal(st.opens.length, 0, "stopped: nothing new is bought");
+  _test.rereadReset();
+  sweep();
+  for (let i = 0; i < 50 && st.halted; i++) await wait(100);
+  assert.deepEqual([st.halted, row.unread, row.reread, row.netSol, st.netSol, st.unreadTx], ["", undefined, true, truth, net, 0]);
+  onSwap(swap(L1, B, true));
+  assert.equal(st.opens.length, 1, "buying again");
+  // another stop is never lifted by it
+  st.halted = "the state file could not be read: the loss count is unknown, so nothing is bought";
+  _test.rereadReset();
+  sweep();
+  await wait(300);
+  assert.equal(st.halted, "the state file could not be read: the loss count is unknown, so nothing is bought");
+  _test.reset();
+});
+
