@@ -61,7 +61,7 @@ export function scrub(s: string): string {
 const health = {
   startedAt: 0, feed: "public", stream: "not tried", streamTx: 0, quotes: "none", wsUp: false, wallets: 0, found: 0, fomo: 0, tails: 0, subs: 0, badWallets: [] as string[],
   senderPingMs: {} as Record<string, number | null>, quoteMsMedian: null as number | null,
-  txSeen: 0, buys: 0, skippedBusy: 0, active: 0, rpcErrors: 0, quoteErrors: 0, quoteOk: 0, quoteRefused: 0, quoteHeld: 0, quoteLost: 0, quoteLate: 0, lateTakenOut: null as ReturnType<typeof unlate> | null, quoteWaitMsMedian: null as number | null, quoteWaitMsP90: null as number | null, waveLive: 0, waveSaved: 0, lastError: "", heliusDown: false,
+  txSeen: 0, buys: 0, skippedBusy: 0, active: 0, rpcErrors: 0, quoteErrors: 0, quoteOk: 0, quoteRefused: 0, quoteHeld: 0, quoteLost: 0, quoteLate: 0, lateTakenOut: null as ReturnType<typeof unlate> | null, quoteWaitMsMedian: null as number | null, quoteWaitMsP90: null as number | null, waveLive: 0, waveSaved: 0, lastError: "", heliusDown: false, heliusRefusal: null as { at: number; status: number; body: string; headers: Record<string, string> } | null,
 };
 const fail = (e: unknown) => (health.lastError = scrub(String((e as Error)?.message ?? e)));
 
@@ -82,8 +82,17 @@ async function probeHelius(): Promise<void> {
   if (!helius()) return;
   try {
     const r = await net(heliusUrl(), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "getHealth" }), signal: AbortSignal.timeout(5000) });
-    if (r.status === 429 || r.status === 401 || r.status === 403) heliusDownUntil = Date.now() + 5 * 60_000;
-    else if (r.ok) heliusDownUntil = 0;
+    if (r.status === 429 || r.status === 401 || r.status === 403) {
+      heliusDownUntil = Date.now() + 5 * 60_000;
+      // what Helius says when it refuses (19 Nov 2026, enrique: "when do we get the monthly sub renewed?"): its words
+      // and its limit headers, the key cut out
+      const body = (await r.text().catch(() => "")).slice(0, 300);
+      const hdr: Record<string, string> = {};
+      r.headers.forEach((v, k) => {
+        if (/ratelimit|retry|reset|credit|limit|quota/i.test(k)) hdr[k] = v.slice(0, 80);
+      });
+      health.heliusRefusal = { at: Date.now(), status: r.status, body: scrub(body).replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, "…"), headers: hdr };
+    } else if (r.ok) heliusDownUntil = 0;
   } catch {
     /* a network blip says nothing about Helius */
   }
