@@ -61,14 +61,34 @@ export function scrub(s: string): string {
 const health = {
   startedAt: 0, feed: "public", stream: "not tried", streamTx: 0, quotes: "none", wsUp: false, wallets: 0, found: 0, fomo: 0, tails: 0, subs: 0, badWallets: [] as string[],
   senderPingMs: {} as Record<string, number | null>, quoteMsMedian: null as number | null,
-  txSeen: 0, buys: 0, skippedBusy: 0, active: 0, rpcErrors: 0, quoteErrors: 0, quoteOk: 0, quoteRefused: 0, quoteHeld: 0, quoteLost: 0, quoteLate: 0, lateTakenOut: null as ReturnType<typeof unlate> | null, quoteWaitMsMedian: null as number | null, quoteWaitMsP90: null as number | null, waveLive: 0, waveSaved: 0, lastError: "",
+  txSeen: 0, buys: 0, skippedBusy: 0, active: 0, rpcErrors: 0, quoteErrors: 0, quoteOk: 0, quoteRefused: 0, quoteHeld: 0, quoteLost: 0, quoteLate: 0, lateTakenOut: null as ReturnType<typeof unlate> | null, quoteWaitMsMedian: null as number | null, quoteWaitMsP90: null as number | null, waveLive: 0, waveSaved: 0, lastError: "", heliusDown: false,
 };
 const fail = (e: unknown) => (health.lastError = scrub(String((e as Error)?.message ?? e)));
 
 // ---- network ----------------------------------------------------------------------------------------------------
 type Fetch = typeof fetch;
 let net: Fetch = fetch;
-const rpcUrl = () => (helius() ? `https://mainnet.helius-rpc.com/?api-key=${helius()}` : process.env.SOLANA_RPC || "https://api.mainnet-beta.solana.com");
+/**
+ * When Helius refuses us (19 Nov 2026 from about 16:03 KST every call got http 429: the SOL balances could not be read,
+ * so the worth showed nothing, and 14 real spot copies could not be sold), the money calls (balances, sends, sales)
+ * go to the public RPC instead, and the read-only studies wait. One small Helius call a minute says when it is back.
+ */
+let heliusDownUntil = 0;
+const heliusUrl = () => `https://mainnet.helius-rpc.com/?api-key=${helius()}`;
+export const heliusOk = (now = Date.now()) => Boolean(helius()) && now >= heliusDownUntil;
+const PUBLIC_RPC = () => process.env.SOLANA_RPC || "https://api.mainnet-beta.solana.com";
+const rpcUrl = () => (heliusOk() ? heliusUrl() : PUBLIC_RPC());
+async function probeHelius(): Promise<void> {
+  if (!helius()) return;
+  try {
+    const r = await net(heliusUrl(), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "getHealth" }), signal: AbortSignal.timeout(5000) });
+    if (r.status === 429 || r.status === 401 || r.status === 403) heliusDownUntil = Date.now() + 5 * 60_000;
+    else if (r.ok) heliusDownUntil = 0;
+  } catch {
+    /* a network blip says nothing about Helius */
+  }
+  health.heliusDown = !heliusOk();
+}
 const wsUrl = () => (helius() ? `wss://mainnet.helius-rpc.com/?api-key=${helius()}` : "wss://api.mainnet-beta.solana.com");
 
 let gate: Promise<unknown> = Promise.resolve();
@@ -850,19 +870,21 @@ export function startSolanaCopy(fetcher: Fetch = fetch) {
   net = fetcher;
   if (!loaded) load();
   health.startedAt = Date.now();
+  void probeHelius();
+  setInterval(() => void probeHelius(), 60_000).unref();
   stopped = false;
   connect();
   // the wallet finder (read-only): its own connection, its own data cap; SOLANA_DISCOVER=off disables
   startDiscover(() => (helius() ? wsUrl() : null), () => listed().map((w) => w.address));
   // the wallet history study (read-only): past buys of each listed wallet; SOLANA_HISTORY=off disables
-  startHistory({ rpcUrl: () => (helius() ? rpcUrl() : null), fetch: () => net, wallets: () => listed() });
+  startHistory({ rpcUrl: () => (heliusOk() ? rpcUrl() : null), fetch: () => net, wallets: () => listed() });
   // slow wallets (read-only screen, then a paper copy of the ones that pass); SOLANA_SLOW=off disables. A slow copy
   // waits seconds to minutes anyway, so its quotes may wait their turn up to two minutes.
-  startSlow({ rpcUrl: () => (helius() ? rpcUrl() : null), fetch: () => net, listed: () => listed(), busy: (k) => busyWallets(k), quote: (a, b, amount) => quote(a, b, amount, false, 120_000), jup: (path) => jupList(path) });
+  startSlow({ rpcUrl: () => (heliusOk() ? rpcUrl() : null), fetch: () => net, listed: () => listed(), busy: (k) => busyWallets(k), quote: (a, b, amount) => quote(a, b, amount, false, 120_000), jup: (path) => jupList(path) });
   // other sale rules on paper beside the real day-holder copies (read-only: a sell quote per open copy every two minutes); SOLANA_SLOW_EXITS=off disables
   startSlowExits({ quote: (a, b, amount) => quote(a, b, amount, false, 120_000) });
   // the tracer (read-only): the wallets behind the fomo traders in seeds.ts; SOLANA_LINKS=off disables
-  startLinks({ rpcUrl: () => (helius() ? rpcUrl() : null), fetch: () => net });
+  startLinks({ rpcUrl: () => (heliusOk() ? rpcUrl() : null), fetch: () => net });
   // the early-stream measurement (read-only, one short run with a credit budget); SOLANA_PRECONF=off disables
   startPreconf({ url: () => (helius() ? `wss://beta.helius-rpc.com/?api-key=${helius()}` : null), signers: () => listed().map((w) => w.address) });
   // the dip rule on paper (read-only: hourly SOL candles and two quotes a trade); SOLANA_DIP=off disables
