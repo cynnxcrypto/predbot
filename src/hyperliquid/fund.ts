@@ -19,6 +19,7 @@ import { Interface } from "@ethersproject/abi";
 import { BigNumber } from "@ethersproject/bignumber";
 import { formatUnits, parseUnits } from "@ethersproject/units";
 import { loadJson, saveJson } from "../store.js";
+import { bridgeHoldsHyperliquid } from "../bridge/state.js";
 import { hlWallet } from "./keys.js";
 
 export const ARBITRUM_CHAIN_ID = 42161;
@@ -233,6 +234,11 @@ export async function fund(c: Chain, opt: { go: boolean; waitMs?: number; stage?
     return { dry: !opt.go, problems, steps, eth: r6(w.eth), usdc: r2(w.usdc), hlUsd: w.hlUsd === null ? null : r2(w.hlUsd), ethUsd: ethUsd ? r2(ethUsd) : 0, inTransitUsdc: r2(st.pending?.usdc ?? 0), ethInUsd: st.ethInUsd ?? 0, done };
   };
   if (problems.length) return out(false);
+  // a bridge move is going through this wallet (src/bridge): USDC just taken out of Hyperliquid must not go straight back
+  if (bridgeHoldsHyperliquid()) {
+    steps.push("a bridge move is using this wallet: nothing is swapped or deposited until it ends");
+    return out(false);
+  }
 
   for (let i = 0; i < 6; i++) {
     if (st.pending) {

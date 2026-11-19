@@ -174,3 +174,17 @@ test("the public history says what was swapped, what Hyperliquid has shown, and 
   assert.deepEqual(h.steps.map((x) => [x.what, x.amount]), [["swap", 0.049], ["test deposit", 6], ["deposit", 140.85]]);
   assert.equal(JSON.stringify(h).includes("0x"), false);
 });
+
+test("while a bridge move goes through the wallet, nothing is swapped or deposited", async () => {
+  saveJson("hyperliquid-fund.json", { proven: true });
+  saveJson("bridge-state.json", { moves: { m1: { id: "m1", from: "hyperliquid", to: "polymarket", usd: 50, stage: "test", startedAt: 1, left: 49, tries: 0, sent: 0, arrived: 0, log: [] } } });
+  const { c, s } = fake({ eth: 0.05, usdc: 49 });
+  const r = await fund(c, { go: true, waitMs: 0 });
+  assert.match(r.steps[0], /bridge move is using this wallet/);
+  assert.deepEqual([s.swaps, s.deposits], [[], []]);
+  // once the move has ended the wallet is the funding's again
+  saveJson("bridge-state.json", { moves: { m1: { id: "m1", from: "hyperliquid", to: "polymarket", usd: 50, stage: "stopped", startedAt: 1, left: 49, tries: 0, sent: 0, arrived: 0, log: [] } } });
+  await fund(c, { go: true, waitMs: 0 });
+  assert.ok(s.swaps.length + s.deposits.length > 0);
+  saveJson("bridge-state.json", { moves: {} });
+});
