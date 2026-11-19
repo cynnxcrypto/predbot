@@ -1240,7 +1240,14 @@ test("real day-holder copy, caps only: wallets from the replay of their past mid
   // a wallet proven on paper is not copied on caps only
   for (let i = 0; i < 20; i++) st.recent.push({ wallet: L1, name: WALLETS[0].name, mint: `c${i}`, seenMs: i, leaderSol: 1, entries: { e5: "10" }, exits: { "e5-x5": 0.3 }, closed: "sold" as const });
   slow._test.follow([L1]);
+  // a wallet ahead on its real memecoin copies is not copied on caps only either: it has not passed the cap replay
+  st.wallets[L2] = { name: "w", doneAt: now, newest: 0, txPerDay: 10, buysPerDay: 2, spanDays: 30, swaps: [], late: {} } as never;
+  const rows = _test.state().rows;
+  for (let i = 0; i < 6; i++) rows.push({ t: now - i * 60_000, name: "coin buyer Win9", wallet: L2, mint: "x", leaderSol: 1, buy: "landed" as const, exit: "sold" as const, heldMin: 60, netSol: 0.004, sigs: [] as string[] });
+  assert.equal(realWinner({ name: "coin buyer Win9", address: L2 }), true);
+  _test.relist();
   assert.deepEqual(wallets().map((w) => w.address), [CW]);
+  rows.length = 0;
   onSwap(swap(CW, MEME, true));
   assert.equal(_test.state().opens.length, 0, "a memecoin is not copied");
   assert.equal(_test.state().notCap, 1);
