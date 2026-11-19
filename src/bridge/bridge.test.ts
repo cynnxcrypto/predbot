@@ -18,6 +18,7 @@ const SOLP = "So1PerpsWa11et11111111111111111111111111111";
 const INFO: Record<Place, PlaceInfo> = {
   hyperliquid: { chain: "arbitrum", address: HL, token: "USDC" },
   polymarket: { chain: "polygon", address: PM, token: "USDC" },
+  base: { chain: "base", address: "0x00000000000000000000000000000000000000Cc", token: "USDC" },
   "solana-perps": { chain: "solana", address: SOLP, token: "USDC" },
   "solana-spot-rules": { chain: "solana", address: "So1Ru1es", token: "SOL" },
   "solana-spot-copy": { chain: "solana", address: "So1Copy", token: "SOL" },
@@ -28,7 +29,7 @@ function world(o: { order?: Order | null; bal?: Partial<Record<Place, number>>; 
   const s = {
     t: 1_000_000,
     order: o.order ?? null,
-    bal: { hyperliquid: 0, polymarket: 0, "solana-perps": 0, "solana-spot-rules": 0, "solana-spot-copy": 0, ...o.bal } as Record<Place, number>,
+    bal: { hyperliquid: 0, polymarket: 0, base: 0, "solana-perps": 0, "solana-spot-rules": 0, "solana-spot-copy": 0, ...o.bal } as Record<Place, number>,
     hl: o.hl ?? 0,
     queue: [] as { n: number; to: Place; amount: number }[],
     sends: [] as number[],
@@ -99,7 +100,8 @@ test("orders: only our places, limits, and what is not built is refused in words
   assert.match(checkOrder(order({ usd: 251 }))[0], /15 to 250/);
   assert.match(checkOrder(order({ usd: 5 }))[0], /15 to 250/);
   assert.match(checkOrder(order({ to: "solana-perps" }))[0], /same place/);
-  assert.match(checkOrder(order({ from: "polymarket" }))[0], /Polymarket is not built yet/);
+  assert.deepEqual(checkOrder(order({ from: "polymarket" })), []);
+  assert.deepEqual(checkOrder(order({ from: "base", to: "polymarket" })), []);
   assert.match(checkOrder(order({ from: "solana-perps", to: "solana-spot-copy" }))[0], /two Solana wallets/);
   assert.match(checkOrder(order({ to: "0xdeadbeef" as Place }))[0], /one of/);
   assert.match(checkOrder(order({ id: "" }))[0], /id/);
@@ -316,4 +318,35 @@ test("reading the route finder's answer, and the checks on what it built", () =>
 
 test("nothing that looks like an address or a key reaches the status", () => {
   assert.equal(scrub(`paid ${HL} and ${"5".repeat(44)} with api-key=abc123`), "paid 0x… and … with api-key=…");
+});
+
+test("Polymarket to Hyperliquid, and Solana to Base: the same two parts", async () => {
+  let w = world({ order: order({ id: "pm-to-hl-1", from: "polymarket", to: "hyperliquid", usd: 60 }), bal: { polymarket: 300 } });
+  await w.look(8);
+  assert.deepEqual(w.s.sends, [TEST_USD, 52]);
+  assert.equal(loadBridge().moves["pm-to-hl-1"].stage, "done");
+  assert.ok(Math.abs(w.s.bal.hyperliquid - 59.4) < 1e-6);
+  saveJson("bridge-state.json", { moves: {} });
+  w = world({ order: order({ id: "perps-to-base-1", to: "base", usd: 30 }), bal: { "solana-perps": 50 } });
+  await w.look(8);
+  assert.deepEqual(w.s.sends, [TEST_USD, 22]);
+  assert.equal(bridgeHoldsHyperliquid(), false);
+});
+
+test("out of Polymarket: USDC.e leaves, the batch can carry no fee coin; Base is read as a chain", () => {
+  const r: QuoteReq = { from: INFO.polymarket, to: INFO.base, amount: 50 };
+  const dest = INFO.base.address.slice(2).toLowerCase();
+  const answer = (value: string, fromToken = tokenAddress("polygon", "USDC", "from")) => ({
+    tool: "across",
+    action: { fromChainId: 137, toChainId: 8453, fromToken: { address: fromToken }, toToken: { address: tokenAddress("base", "USDC") }, fromAmount: "50000000", fromAddress: PM, toAddress: INFO.base.address },
+    estimate: { toAmount: "49800000", toAmountMin: "49600000", approvalAddress: LIFI_DIAMOND, executionDuration: 60 },
+    transactionRequest: { to: LIFI_DIAMOND, data: "0xaa" + dest, value, chainId: 137 },
+  });
+  assert.notEqual(tokenAddress("polygon", "USDC", "from"), tokenAddress("polygon", "USDC", "to"));
+  const good = readQuote(answer("0x0"), r);
+  assert.deepEqual(guard(r, good, { from: 1, to: 1 }), []);
+  assert.deepEqual(inspectEvm(r, good), []);
+  assert.match(inspectEvm(r, readQuote(answer("0x1"), r))[0], /fee in POL/);
+  // a quote that would take the native USDC instead of USDC.e is for another token
+  assert.match(guard(r, readQuote(answer("0x0", tokenAddress("polygon", "USDC", "to")), r), { from: 1, to: 1 })[0], /other tokens/);
 });

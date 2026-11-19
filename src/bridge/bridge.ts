@@ -1,7 +1,7 @@
 /**
  * Moving money between the places the bot trades (enrique, 19 Nov 2026: "being able to bridge between the chains we
  * operate in would be useful", "same goes for in and out of polygon"). Hyperliquid (its wallet on Arbitrum), the
- * Solana strategy wallets and the Polymarket wallet on Polygon.
+ * Solana strategy wallets, the Polymarket wallet on Polygon and the bot's wallet on Base.
  *
  * REAL MONEY. The rules, all in code:
  *   - a move happens only on an order in deploy/live-rules.json ("bridge": { "order": { id, from, to, usd, mode } }),
@@ -18,11 +18,13 @@
  * The last step at each end is the bot's own, already running: USDC that lands in the Hyperliquid wallet is deposited
  * by the funding (src/hyperliquid/fund.ts), native USDC that lands in the Polymarket wallet is converted by live.ts.
  *
- * Base (enrique, 19 Nov 2026: "also build being able to bridge with base"): the chain and its USDC are known here, so
- * a Base wallet becomes a place by adding it to PLACES and to place() in real.ts once the bot has one.
+ * A move that STARTS at Polymarket goes out as one all-or-nothing batch through Polymarket's relayer (src/live.ts
+ * bridgeOutBatch): pUSD back into USDC.e, an allowance for exactly the amount, the call that starts the move.
  *
- * NOT BUILT YET: a move that STARTS at Polymarket (its wallet only sends through Polymarket's relayer), and a move
- * between two Solana wallets. Both are refused in words.
+ * Base (enrique, 19 Nov 2026: "also build being able to bridge with base"): a place of its own, with the bot's own
+ * wallet there (src/bridge/basekey.ts) holding USDC. Sending FROM Base needs a little ETH on Base for gas.
+ *
+ * NOT BUILT YET: a move between two Solana wallets. It is refused in words.
  *
  * This file knows no network: everything outside comes through Deps (src/bridge/real.ts is the real one).
  */
@@ -114,7 +116,6 @@ export function checkOrder(o: Order): string[] {
   if (!/^[a-z0-9-]{3,40}$/.test(o.id)) bad.push("the order needs an id (small letters, digits, dashes)");
   if (!PLACES.includes(o.from) || !PLACES.includes(o.to)) bad.push(`from and to must each be one of: ${PLACES.join(", ")}`);
   else if (o.from === o.to) bad.push("from and to are the same place");
-  else if (o.from === "polymarket") bad.push("a move that starts at Polymarket is not built yet");
   else if (o.from.startsWith("solana") && o.to.startsWith("solana")) bad.push("a move between two Solana wallets is not built yet");
   if (!(o.usd >= MIN_USD && o.usd <= MAX_USD)) bad.push(`the amount must be ${MIN_USD} to ${MAX_USD} dollars`);
   return bad;

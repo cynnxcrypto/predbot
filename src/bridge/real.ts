@@ -3,7 +3,7 @@
  * which prices the move over the bridges it knows and builds the one transaction that starts it).
  *
  * What is checked HERE before a built transaction is signed, on top of bridge.ts's guard:
- *   - from Arbitrum: the transaction calls LI.FI's own contract and nothing else, on Arbitrum One, the contract has
+ *   - from Arbitrum, Base or Polygon: the transaction calls LI.FI's own contract and nothing else, on the right chain, the contract has
  *     code, the USDC allowance is for exactly the amount, the bytes name our destination wallet, and the chain itself
  *     accepts the call (gas estimate) before anything is signed;
  *   - from Solana: the transaction has one signer and it is our wallet, and a simulation on the chain shows the wallet
@@ -20,9 +20,11 @@ import { DATA, ROOT } from "../config.js";
 import { loadJson } from "../store.js";
 import { ARBITRUM_CHAIN_ID, ARBITRUM_RPC, HL_API, USDC as ARB_USDC, rpcCall } from "../hyperliquid/fund.js";
 import { hlWallet, hlWalletExists } from "../hyperliquid/keys.js";
+import { bridgeOutBatch, relayFree } from "../live.js";
 import { base58decode, namedWallet, signTransaction, wallet as solWallet, type Wallet as SolWallet } from "../solana/keys.js";
 import { ata } from "../solana/soltx.js";
 import { base58 } from "../solana/whirlpool.js";
+import { baseWallet } from "./basekey.js";
 import { bridgeTick, parseOrder, scrub, type Chain, type Deps, type PlaceInfo, type Quote, type QuoteReq, type Token } from "./bridge.js";
 import type { Place } from "./state.js";
 
@@ -40,24 +42,27 @@ const BASE_USDC = "0x833589fCD6eDb6E4f93BF2a8dF9FcF4a5b0b2913";
 const CHAIN_ID: Record<Chain, number> = { arbitrum: ARBITRUM_CHAIN_ID, polygon: 137, base: 8453, solana: 1151111081099710 };
 /** the most native coin a bridge transaction may carry as its own fee (Arbitrum ETH) */
 export const MAX_VALUE_ETH = 0.0005;
+/** sending from Base needs at least this much ETH there */
+export const MIN_BASE_GAS_ETH = 0.00002;
 /** the most SOL a bridge transaction may take on top of what is sent */
 export const MAX_SOL_FEE = 0.02;
 const TIMEOUT = 15_000;
 
-export const tokenAddress = (chain: Chain, token: Token): string => {
+/** The token a move uses on a chain. Polygon: native USDC arrives (live.ts converts it); what LEAVES is USDC.e, which is what pUSD turns back into. */
+export const tokenAddress = (chain: Chain, token: Token, side: "from" | "to" = "to"): string => {
   if (chain === "solana") return token === "SOL" ? SOL_NATIVE : SOL_USDC;
   if (token !== "USDC") throw new Error("only USDC moves on this chain");
-  return chain === "arbitrum" ? ARB_USDC : chain === "base" ? BASE_USDC : POLYGON_USDC;
+  return chain === "arbitrum" ? ARB_USDC : chain === "base" ? BASE_USDC : side === "from" ? POLYGON_DOLLARS[1] : POLYGON_USDC;
 };
 const decimals = (t: Token) => (t === "SOL" ? 9 : 6);
 const units = (amount: number, t: Token) => BigInt(Math.round(amount * 10 ** decimals(t)));
 const human = (raw: unknown, t: Token) => Number(BigInt(String(raw ?? "0"))) / 10 ** decimals(t);
 const chainOf = (id: unknown): Chain | null => (Object.keys(CHAIN_ID) as Chain[]).find((c) => String(CHAIN_ID[c]) === String(id)) ?? (String(id) === "SOL" ? "solana" : null);
-const tokenOf = (chain: Chain | null, address: unknown): string => {
+const tokenOf = (chain: Chain | null, address: unknown, side: "from" | "to"): string => {
   if (!chain) return "?";
   for (const t of ["USDC", "SOL"] as Token[]) {
     try {
-      const a = tokenAddress(chain, t);
+      const a = tokenAddress(chain, t, side);
       if (chain === "solana" ? a === address : a.toLowerCase() === String(address).toLowerCase()) return t;
     } catch {
       // this chain has no such token
@@ -80,7 +85,7 @@ export function readQuote(j: unknown, r: QuoteReq): Quote {
     minutes: Number(q.estimate.executionDuration ?? 0) / 60,
     toAmount: human(q.estimate.toAmount, r.to.token),
     toAmountMin: human(q.estimate.toAmountMin, r.to.token),
-    echo: { fromChain, toChain, fromToken: tokenOf(fromChain, q.action.fromToken?.address), toToken: tokenOf(toChain, q.action.toToken?.address), fromAddress: String(q.action.fromAddress ?? ""), toAddress: String(q.action.toAddress ?? ""), fromAmount: human(q.action.fromAmount, r.from.token) },
+    echo: { fromChain, toChain, fromToken: tokenOf(fromChain, q.action.fromToken?.address, "from"), toToken: tokenOf(toChain, q.action.toToken?.address, "to"), fromAddress: String(q.action.fromAddress ?? ""), toAddress: String(q.action.toAddress ?? ""), fromAmount: human(q.action.fromAmount, r.from.token) },
     tx: r.from.chain === "solana" ? { kind: "solana", data } : { kind: "evm", to: String(t.to ?? ""), data, value: String(t.value ?? "0x0"), chainId: Number(t.chainId ?? 0), approval: String(q.estimate.approvalAddress ?? "") },
   };
 }
@@ -88,7 +93,7 @@ export function readQuote(j: unknown, r: QuoteReq): Quote {
 const sameHex = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
 /** The checks on an Arbitrum transaction that need no network. Returns the problems. Pure. */
 export function inspectEvm(r: QuoteReq, q: Quote): string[] {
-  if (q.tx.kind !== "evm") return ["not an Arbitrum transaction"];
+  if (q.tx.kind !== "evm") return ["not a transaction for this chain"];
   const bad: string[] = [];
   if (!sameHex(q.tx.to, LIFI_DIAMOND)) bad.push("the transaction does not call the route finder's own contract");
   if (!sameHex(q.tx.approval, LIFI_DIAMOND)) bad.push("the transaction wants the USDC allowance for another contract");
@@ -99,7 +104,8 @@ export function inspectEvm(r: QuoteReq, q: Quote): string[] {
   } catch {
     // stays -1
   }
-  if (!(value >= 0 && value <= MAX_VALUE_ETH)) bad.push(`the transaction carries more ETH than a bridge fee (limit ${MAX_VALUE_ETH})`);
+  // the Polymarket wallet holds no coin for fees: its batch can carry none
+  if (r.from.chain === "polygon" ? value !== 0 : !(value >= 0 && value <= MAX_VALUE_ETH)) bad.push(r.from.chain === "polygon" ? "the route wants a fee in POL, which the Polymarket wallet does not hold" : `the transaction carries more ETH than a bridge fee (limit ${MAX_VALUE_ETH})`);
   const dest = r.to.chain === "solana" ? base58decode(r.to.address).toString("hex") : r.to.address.slice(2).toLowerCase();
   if (!/^0x[0-9a-fA-F]+$/.test(q.tx.data) || !q.tx.data.toLowerCase().includes(dest)) bad.push("the transaction's bytes do not name our destination wallet");
   return bad;
@@ -166,25 +172,29 @@ export function realDeps(fetcher: typeof fetch = fetch): Deps {
       if (!/^0x[0-9a-fA-F]{40}$/.test(funder)) throw new Error("this machine does not know the Polymarket wallet");
       return { chain: "polygon", address: funder, token: "USDC" };
     }
+    if (p === "base") return { chain: "base", address: baseWallet().address, token: "USDC" };
     return { chain: "solana", address: solWalletOf(p).address, token: p === "solana-perps" ? "USDC" : "SOL" };
   };
-  const balance = (p: PlaceInfo) => (p.chain === "solana" ? solBalance(p.address, p.token) : erc20Of(p.chain === "arbitrum" ? arb : p.chain === "base" ? base : poly, tokenAddress(p.chain, "USDC"), p.address));
+  const evm = (c: Chain) => (c === "arbitrum" ? arb : c === "base" ? base : poly);
+  // Polygon: what the Polymarket wallet can send is its pUSD
+  const balance = (p: PlaceInfo) => (p.chain === "solana" ? solBalance(p.address, p.token) : erc20Of(evm(p.chain), p.chain === "polygon" ? POLYGON_DOLLARS[0] : tokenAddress(p.chain, "USDC"), p.address));
   const hlInfo = (body: unknown) => getJson(`${HL_API}/info`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
 
-  /** sign and send one Arbitrum transaction from the Hyperliquid wallet, and wait for it */
-  const arbSend = async (from: string, tx: { to: string; data: string; value?: BigNumber }): Promise<string> => {
-    const signer = hlWallet();
+  /** sign and send one transaction from the bot's own wallet on Arbitrum or Base, and wait for it */
+  const evmSend = async (chain: "arbitrum" | "base", from: string, tx: { to: string; data: string; value?: BigNumber }): Promise<string> => {
+    const rpc = evm(chain);
+    const signer = chain === "arbitrum" ? hlWallet() : baseWallet();
     if (!sameHex(signer.address, from)) throw new Error("the wallet key is not for this address");
     const value = tx.value ?? BigNumber.from(0);
     const req = { from, to: tx.to, data: tx.data, value: value.toHexString().replace(/^0x0+(?=.)/, "0x") };
-    const gas = BigNumber.from(await arb<string>("eth_estimateGas", [req])).mul(13).div(10); // a call that would fail is found here, before anything is signed
-    const gasPrice = BigNumber.from(await arb<string>("eth_gasPrice", [])).mul(3).div(2);
-    const nonce = Number(await arb<string>("eth_getTransactionCount", [from, "pending"]));
-    const raw = await signer.signTransaction({ to: tx.to, data: tx.data, value, nonce, gasLimit: gas, gasPrice, chainId: ARBITRUM_CHAIN_ID, type: 0 });
-    const hash = await arb<string>("eth_sendRawTransaction", [raw]);
+    const gas = BigNumber.from(await rpc<string>("eth_estimateGas", [req])).mul(13).div(10); // a call that would fail is found here, before anything is signed
+    const gasPrice = BigNumber.from(await rpc<string>("eth_gasPrice", [])).mul(3).div(2);
+    const nonce = Number(await rpc<string>("eth_getTransactionCount", [from, "pending"]));
+    const raw = await signer.signTransaction({ to: tx.to, data: tx.data, value, nonce, gasLimit: gas, gasPrice, chainId: CHAIN_ID[chain], type: 0 });
+    const hash = await rpc<string>("eth_sendRawTransaction", [raw]);
     const until = Date.now() + 90_000;
     for (;;) {
-      const rec = await arb<{ status?: string } | null>("eth_getTransactionReceipt", [hash]).catch(() => null);
+      const rec = await rpc<{ status?: string } | null>("eth_getTransactionReceipt", [hash]).catch(() => null);
       if (rec) {
         if (rec.status !== "0x1") throw new Error("transaction failed on chain");
         return hash;
@@ -213,14 +223,17 @@ export function realDeps(fetcher: typeof fetch = fetch): Deps {
     },
     solUsd: async () => Number(((await hlInfo({ type: "allMids" })) as Record<string, string>)?.SOL),
     quote: async (r) => {
-      const qs = new URLSearchParams({ fromChain: String(CHAIN_ID[r.from.chain]), toChain: String(CHAIN_ID[r.to.chain]), fromToken: tokenAddress(r.from.chain, r.from.token), toToken: tokenAddress(r.to.chain, r.to.token), fromAmount: units(r.amount, r.from.token).toString(), fromAddress: r.from.address, toAddress: r.to.address, slippage: "0.005", order: "CHEAPEST" });
+      const qs = new URLSearchParams({ fromChain: String(CHAIN_ID[r.from.chain]), toChain: String(CHAIN_ID[r.to.chain]), fromToken: tokenAddress(r.from.chain, r.from.token, "from"), toToken: tokenAddress(r.to.chain, r.to.token), fromAmount: units(r.amount, r.from.token).toString(), fromAddress: r.from.address, toAddress: r.to.address, slippage: "0.005", order: "CHEAPEST" });
       return readQuote(await getJson(`${LIFI_API}/quote?${qs}`), r);
     },
     inspect: async (r, q) => {
       if (q.tx.kind === "evm") {
         const bad = inspectEvm(r, q);
-        if (Number(await arb<string>("eth_chainId", [])) !== ARBITRUM_CHAIN_ID) bad.push("the RPC is not Arbitrum One");
-        else if ((await arb<string>("eth_getCode", [LIFI_DIAMOND, "latest"])).length <= 2) bad.push("no contract at the route finder's address");
+        const rpc = evm(r.from.chain);
+        if (Number(await rpc<string>("eth_chainId", [])) !== CHAIN_ID[r.from.chain]) bad.push("the RPC answers for another chain");
+        else if ((await rpc<string>("eth_getCode", [LIFI_DIAMOND, "latest"])).length <= 2) bad.push("no contract at the route finder's address");
+        if (r.from.chain === "polygon" && !relayFree()) bad.push("Polymarket's relayer is busy or paused: the move waits for it");
+        if (r.from.chain === "base" && Number(formatUnits(BigNumber.from(await rpc<string>("eth_getBalance", [r.from.address, "latest"])), 18)) < MIN_BASE_GAS_ETH) bad.push("the Base wallet holds no ETH for gas: sending from Base needs a little ETH there first");
         return bad;
       }
       const w = signerFor(r.from.address);
@@ -257,10 +270,15 @@ export function realDeps(fetcher: typeof fetch = fetch): Deps {
       }
       const bad = inspectEvm(r, q);
       if (bad.length) throw new Error(bad[0]);
+      // from Polymarket: one all-or-nothing batch through its relayer (pUSD -> USDC.e, allowance for exactly this, the call)
+      if (r.from.chain === "polygon") return bridgeOutBatch(r.from.address, units(r.amount, "USDC"), LIFI_DIAMOND, q.tx.data);
+      if (r.from.chain !== "arbitrum" && r.from.chain !== "base") throw new Error("no sender for this chain");
+      const chain = r.from.chain;
+      const token = tokenAddress(chain, "USDC", "from");
       const amount = BigNumber.from(units(r.amount, "USDC").toString());
-      const allowed = BigNumber.from(await arb<string>("eth_call", [{ to: ARB_USDC, data: erc20.encodeFunctionData("allowance", [r.from.address, LIFI_DIAMOND]) }, "latest"]));
-      if (allowed.lt(amount)) await arbSend(r.from.address, { to: ARB_USDC, data: erc20.encodeFunctionData("approve", [LIFI_DIAMOND, amount]) });
-      return arbSend(r.from.address, { to: LIFI_DIAMOND, data: q.tx.data, value: BigNumber.from(q.tx.value || "0x0") });
+      const allowed = BigNumber.from(await evm(chain)<string>("eth_call", [{ to: token, data: erc20.encodeFunctionData("allowance", [r.from.address, LIFI_DIAMOND]) }, "latest"]));
+      if (allowed.lt(amount)) await evmSend(chain, r.from.address, { to: token, data: erc20.encodeFunctionData("approve", [LIFI_DIAMOND, amount]) });
+      return evmSend(chain, r.from.address, { to: LIFI_DIAMOND, data: q.tx.data, value: BigNumber.from(q.tx.value || "0x0") });
     },
     status: async (tx, r) => {
       const j = (await getJson(`${LIFI_API}/status?${new URLSearchParams({ txHash: tx, fromChain: String(CHAIN_ID[r.from.chain]), toChain: String(CHAIN_ID[r.to.chain]) })}`)) as { status?: string } | null;

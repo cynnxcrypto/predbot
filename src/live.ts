@@ -637,6 +637,22 @@ function relayerBlocked() {
   return Date.now() < relayerBlockedUntil;
 }
 
+/** Polymarket's CollateralOfframp: pUSD back into USDC.e 1:1 (docs.polymarket.com/resources/contracts, read 11 Nov 2026; used by the 11 Nov withdrawal). */
+const OFFRAMP = "0x2957922Eb93258b93368531d39fAcCA3B4dC5854";
+const offrampAbi = new Interface(["function unwrap(address _asset, address _to, uint256 _amount)"]);
+/** Can a batch go out through the relayer right now? (the bridge asks before it marks a send) */
+export const relayFree = () => !relayBusy && !relayerBlocked() && traders.some((t) => !t.series.key);
+/**
+ * The first step of a bridge move OUT of the Polymarket wallet (src/bridge; only on an order enrique gave his word
+ * for). One all-or-nothing batch: `units` of pUSD back into USDC.e, an allowance of exactly that for `spender`, then
+ * the one call that starts the move. If any step fails the whole batch is undone. Returns the transaction id.
+ */
+export async function bridgeOutBatch(funder: string, units: bigint, spender: string, data: string): Promise<string> {
+  const t = traders.find((x) => !x.series.key);
+  if (!t) throw new Error("no Polymarket trader is running");
+  return t.bridgeOut(funder, units, spender, data);
+}
+
 export class LiveTrader {
   readonly series: Series;
   /** "" for BTC 5m, "eth5m-" and so on for the others; prefixes every file this trader writes. */
@@ -1434,6 +1450,33 @@ export class LiveTrader {
       this.wrapping = false;
       relayBusy = false;
       saveJson(`${this.prefix}live-state.json`, { at: Date.now(), ...this.status() });
+    }
+  }
+
+  /** See bridgeOutBatch above. */
+  async bridgeOut(funder: string, units: bigint, spender: string, data: string): Promise<string> {
+    if (!this.config.funder || funder.toLowerCase() !== this.config.funder.toLowerCase()) throw new Error("not the Polymarket wallet");
+    if (relayBusy || relayerBlocked()) throw new Error("relayer busy");
+    relayBusy = true;
+    try {
+      const calls = [
+        { target: PUSD, value: "0", data: erc20.encodeFunctionData("approve", [OFFRAMP, units]) },
+        { target: OFFRAMP, value: "0", data: offrampAbi.encodeFunctionData("unwrap", [USDC_E, this.config.funder, units]) },
+        { target: USDC_E, value: "0", data: erc20.encodeFunctionData("approve", [spender, units]) },
+        { target: spender, value: "0", data },
+      ];
+      noteRelayCall();
+      const sent = await this.relay().executeDepositWalletBatch(calls, this.config.funder, String(Math.floor(Date.now() / 1000) + 600));
+      const finished = await sent.wait();
+      const hash = finished?.transactionHash || sent.transactionHash || null;
+      if (!hash) throw new Error(`relayer did not confirm (state ${finished?.state ?? sent.state ?? "unknown"})`);
+      console.log(`live: bridge move left the wallet: $${(Number(units) / 1e6).toFixed(2)}`);
+      await this.refreshBalance().catch(() => undefined);
+      return hash;
+    } catch (error) {
+      throw new Error(noteRelayError(error));
+    } finally {
+      relayBusy = false;
     }
   }
 
