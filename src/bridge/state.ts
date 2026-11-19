@@ -4,8 +4,8 @@
  */
 import { loadJson, saveJson } from "../store.js";
 
-export type Place = "hyperliquid" | "polymarket" | "solana-perps" | "solana-spot-rules" | "solana-spot-copy";
-export const PLACES: Place[] = ["hyperliquid", "polymarket", "solana-perps", "solana-spot-rules", "solana-spot-copy"];
+export type Place = "hyperliquid" | "polymarket" | "base" | "solana-perps" | "solana-spot-rules" | "solana-spot-copy";
+export const PLACES: Place[] = ["hyperliquid", "polymarket", "base", "solana-perps", "solana-spot-rules", "solana-spot-copy"];
 export type Stage = "new" | "withdraw" | "test" | "rest" | "done" | "stopped";
 
 export interface Pending {
