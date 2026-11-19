@@ -288,3 +288,36 @@ test("cut sooner: a $5 real loss cuts at once; a trader already behind is cut at
   assert.match(hlCutReason({ trades: 2, won: 1, net: -0.1 }, 9), /behind after 2/);
   assert.equal(hlCutReason({ trades: 2, won: 1, net: 0 }, 9), "");
 });
+
+test("partial closes are measured from what the trader held when OUR copy opened: an old copy read back, a late copy", async () => {
+  const { w, d } = world({ cfg: { ...ON, lateWithin: 0.01 } });
+  const order0 = d.venue.order;
+  d.venue.order = async (c, buy, px, sz, reduce) => {
+    if (!reduce) return order0(c, buy, px, sz, reduce);
+    const coin = Object.keys(COINS).find((k) => COINS[k].index === c.index)!;
+    const p = w.acct.positions[coin];
+    w.orders.push({ coin: c.index, buy, sz, reduce });
+    p.szi = Math.sign(p.szi) * (Math.abs(p.szi) - sz);
+    return { filled: true, sz, px: w.mids[coin], oid: ++w.oid, error: null };
+  };
+  // an old copy: opened when nothing was known about the trader's size
+  const x: PaperOpen = copy("copy-aaaa1111", "HYPE", 1, T0, 3);
+  w.paper = [x];
+  await hlLiveTick(d, T0 + 1000);
+  await hlLiveTick(d, T0 + 61_000);
+  assert.equal(w.orders.length, 1);
+  assert.equal(hlLiveSummary(ON).opens[0].traderHolds, null);
+  // read back: the trader had taken 20% off BEFORE our copy opened and another 40% of its opening size after
+  x.left = 0.4;
+  x.hist = [[T0 + 500, 0.8], [T0 + 30_000, 0.4]];
+  await hlLiveTick(d, T0 + 121_000);
+  assert.equal(hlLiveSummary(ON).opens[0].traderHolds, 0.5, "it holds half of what it held when we opened");
+  assert.deepEqual(w.orders[1], { coin: 5, buy: false, sz: 0.37, reduce: true });
+  // a late copy of a position already half taken off is not cut for that half
+  const y: PaperOpen = { ...copy("copy-aaaa1111", "DOGE", 1, T0 - 3_600_000, 2), px: 0.2, left: 0.5 };
+  w.paper = [x, y];
+  await hlLiveTick(d, T0 + 181_000);
+  await hlLiveTick(d, T0 + 241_000);
+  const doge = hlLiveSummary(ON).opens.find((o) => o.coin === "DOGE")!;
+  assert.deepEqual([doge.late, doge.traderHolds, doge.partCloses], [true, 1, 0]);
+});

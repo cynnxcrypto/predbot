@@ -540,6 +540,17 @@ test("a followed position stays followed while it is still held, even when it di
 test("trader sizes in coins and account value, for partial closes and conviction (19 Nov 2026)", () => {
   const st = { marginSummary: { accountValue: "20000" }, assetPositions: [{ position: { coin: "SOL", szi: "-500", positionValue: "41000" } }, { position: { coin: "X", szi: "0" } }] };
   assert.deepEqual(B.hlSizes(st), { SOL: 500 });
+  // the size a trader held when an old copy opened, from its own fills since: a short of 100 cut to 60, then to 50
+  const fills = [
+    { coin: "ETH", time: 3000, side: "B", sz: "10", startPosition: "-60" },
+    { coin: "ETH", time: 2000, side: "B", sz: "15", startPosition: "-75" },
+    { coin: "ETH", time: 2000, side: "B", sz: "25", startPosition: "-100" },
+    { coin: "BTC", time: 2500, side: "A", sz: "1", startPosition: "0" },
+  ];
+  assert.deepEqual(B.hlSizeBack(fills, "ETH", -1, 50), { sz0: 100, hist: [[2000, 85], [2000, 60], [3000, 50]] });
+  assert.deepEqual(B.hlSizeBack(fills, "ETH", -1, 80), { sz0: 80, hist: [] }, "the fills do not end at the size held now: nothing is assumed");
+  assert.deepEqual(B.hlSizeBack([], "ETH", -1, 50), { sz0: 50, hist: [] });
+  assert.deepEqual(B.hlSizeBack(null, "ETH", -1, 50), { sz0: 50, hist: [] });
   assert.equal(B.hlAccountValue(st), 20000);
   assert.equal(B.hlAccountValue({}), null);
 });

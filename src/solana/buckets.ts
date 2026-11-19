@@ -504,6 +504,28 @@ export function hlSizes(state: unknown): Record<string, number> {
   }
   return out;
 }
+/**
+ * A copy opened before sizes were kept (before 19 Nov 2026 22:07 KST) has no opening size, so the trader's partial
+ * closes could not be followed (enrique, 19 Nov 2026 23:30 KST: "their traders havent taken profit? yesterday they
+ * were way higher"). The trader's own fills since the copy opened give it back: the size it held when the copy opened
+ * (the size now less all it bought and sold since) and its size after every fill since. Only used when that agrees
+ * (within 2%) with the position Hyperliquid wrote on the first of those fills; else, or with no fills, or with a list
+ * that may be cut short, the size now is the start (nothing is trimmed on a guess).
+ */
+export function hlSizeBack(fills: unknown, coin: string, dir: number, szNow: number): { sz0: number; hist: [number, number][] } {
+  const none = { sz0: szNow, hist: [] as [number, number][] };
+  if (!Array.isArray(fills) || fills.length >= 2000) return none;
+  const rows = (fills as Record<string, unknown>[])
+    .filter((f) => f?.coin === coin)
+    .map((f) => ({ t: Number(f.time), start: Number(f.startPosition), d: (f.side === "B" ? 1 : f.side === "A" ? -1 : NaN) * Number(f.sz) }))
+    .sort((x, y) => x.t - y.t);
+  if (!rows.length || rows.length > 500 || rows.some((x) => !Number.isFinite(x.t) || !Number.isFinite(x.start) || !Number.isFinite(x.d))) return none;
+  const sz0 = szNow - dir * rows.reduce((s, x) => s + x.d, 0);
+  if (!(sz0 > 0) || !(szNow > 0) || !rows.some((x) => x.t === rows[0].t && Math.abs((dir * x.start) / sz0 - 1) <= 0.02)) return none;
+  let sz = sz0;
+  const hist = rows.map((x) => [x.t, Math.max(0, (sz += dir * x.d))] as [number, number]);
+  return { sz0, hist };
+}
 /** The trader's account value on Hyperliquid (perps), or null. */
 export function hlAccountValue(state: unknown): number | null {
   const v = Number((state as { marginSummary?: { accountValue?: unknown } })?.marginSummary?.accountValue);
@@ -582,6 +604,8 @@ interface HlOpen {
   sz0?: number;
   szNow?: number;
   share?: number;
+  /** the trader's size after each of its fills since the copy opened, read back once for a copy older than sz0 */
+  hist?: [number, number][];
 }
 interface HlTrade {
   trader: string;
@@ -987,6 +1011,16 @@ async function hlTick(deps: BucketDeps, now: number) {
       state.hlSeen[a] = after;
       // how much of each open copy the trader still holds (enrique, 19 Nov 2026: "yeah build all 3": follow partial closes)
       const sizes = hlSizes(answer);
+      // a copy older than the size record: its opening size is read back from the trader's own fills, once
+      for (const o of state.hlOpen) {
+        if (o.trader !== a || o.sz0 || !sizes[o.coin] || Math.sign(after[o.coin] ?? 0) !== o.dir) continue;
+        const fills = await hlPost(deps, { type: "userFillsByTime", user: a, startTime: o.at }).catch(() => null);
+        if (fills === null) continue; // not read: asked again at the next look
+        const back = hlSizeBack(fills, o.coin, o.dir, sizes[o.coin]);
+        o.sz0 = back.sz0;
+        o.szNow = sizes[o.coin];
+        if (back.hist.length) o.hist = back.hist;
+      }
       for (const o of state.hlOpen) if (o.trader === a && o.sz0 && sizes[o.coin] && Math.sign(after[o.coin] ?? 0) === o.dir) o.szNow = sizes[o.coin];
       if (!before) continue; // first look: what it already holds was opened at prices we never saw
       const { opened, closed } = hlDiff(before, after);
@@ -1257,11 +1291,11 @@ export function perpPaperOpens(): { id: string; rule: string; coin: string; dir:
   ];
 }
 /** Every copied trader's open paper copy, on EVERY coin (the Hyperliquid front trades them all; Solana perps only three). */
-export function hlPaperOpens(): { id: string; rule: string; coin: string; dir: number; at: number; lev?: number; px?: number; left?: number; share?: number }[] {
+export function hlPaperOpens(): { id: string; rule: string; coin: string; dir: number; at: number; lev?: number; px?: number; left?: number; hist?: [number, number][]; share?: number }[] {
   if (!loaded) load();
   // left: the share of its opening size the trader still holds (never above 1: what it adds is not followed); share:
   // the position's value against the trader's account when it opened
-  return state.hlOpen.map((o) => ({ id: `${traderRule(o.trader)}:${o.coin}:${o.at}`, rule: traderRule(o.trader), coin: o.coin, dir: o.dir, at: o.at, lev: o.lev, px: o.entry, ...(o.sz0 && o.szNow ? { left: Math.min(1, o.szNow / o.sz0) } : {}), ...(o.share != null ? { share: o.share } : {}) }));
+  return state.hlOpen.map((o) => ({ id: `${traderRule(o.trader)}:${o.coin}:${o.at}`, rule: traderRule(o.trader), coin: o.coin, dir: o.dir, at: o.at, lev: o.lev, px: o.entry, ...(o.sz0 && o.szNow ? { left: Math.min(1, o.szNow / o.sz0) } : {}), ...(o.sz0 && o.hist ? { hist: o.hist.map(([t, s]) => [t, Math.min(1, s / o.sz0!)] as [number, number]) } : {}), ...(o.share != null ? { share: o.share } : {}) }));
 }
 /**
  * Jupiter's order-book coins (gumlive.ts, 17 Nov 2026): a copied trader's open position on one of `coins` (never SOL,

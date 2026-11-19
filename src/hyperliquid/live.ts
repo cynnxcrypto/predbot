@@ -121,6 +121,8 @@ export interface PaperOpen {
   px?: number;
   /** the share of its opening size the trader still holds (0..1), when known */
   left?: number;
+  /** that share after each of the trader's fills since the paper copy opened [time, share], when it was read back */
+  hist?: [number, number][];
   /** the position's value against the trader's account value when it opened (conviction), when known */
   share?: number;
 }
@@ -160,6 +162,10 @@ interface Pos {
   /** partial closes that followed the trader's (19 Nov 2026), and what they made by our own count */
   parts?: number;
   partUsd?: number;
+  /** the share of its paper-copy opening size the trader held when OUR copy opened (a late copy opens after part may
+   * be gone already), and the share of what it held then that it holds now */
+  left0?: number;
+  traderLeft?: number;
   /** the trader's position against its account when copied (conviction) */
   share?: number;
 }
@@ -321,10 +327,16 @@ export async function hlLiveTick(d: HlDeps, now = Date.now()): Promise<void> {
       let why = p.rule === TEST_RULE ? "test" : !po ? "the trader closed" : now - p.openedMs > MAX_HOLD_H * 3_600_000 ? "max hold" : "";
       // PARTIAL CLOSES (enrique, 19 Nov 2026: "yeah build all 3"): the trader took part off, so we take the same share
       // of our opening size off. What is left is never kept under Hyperliquid's smallest order: then all of it goes.
-      if (!why && po?.left != null && po.left < 1 && coin && mids[p.coin] > 0) {
+      if (po?.left != null) {
+        // measured from what the trader held when OUR copy opened: a copy opened late, after the trader had taken part
+        // off, is not cut for that part
+        if (!(p.left0! > 0)) p.left0 = Math.min(1, [...(po.hist ?? [])].reverse().find(([t]) => t <= p.openedMs)?.[1] ?? 1) || 1;
+        p.traderLeft = Math.round(Math.min(1, Math.max(0, po.left) / p.left0!) * 1000) / 1000;
+      }
+      if (!why && p.traderLeft != null && p.traderLeft < 1 && coin && mids[p.coin] > 0) {
         const px0 = mids[p.coin];
         const cur = Math.abs(held.szi);
-        const target = p.sz * Math.max(0, po.left);
+        const target = p.sz * p.traderLeft;
         if (target * px0 < MIN_ORDER_USD) why = "the trader closed most of it";
         else {
           const cut = roundSz(cur - target, coin.szDecimals);
@@ -435,7 +447,7 @@ async function open(d: HlDeps, x: PaperOpen, collateralUsd: number, coins: Recor
     return "order not filled";
   }
   acct.freeUsd -= (f.sz * f.px) / lev;
-  state.opens.push({ rule: x.rule, coin: x.coin, paperId: x.id, dir: x.dir, lev, sz: f.sz, entryPx: f.px, collUsd: r2((f.sz * f.px) / lev), openOid: f.oid, openedMs: now, closeTries: 0, ...(late ? { late: true } : {}), ...(x.share != null ? { share: x.share } : {}) });
+  state.opens.push({ rule: x.rule, coin: x.coin, paperId: x.id, dir: x.dir, lev, sz: f.sz, entryPx: f.px, collUsd: r2((f.sz * f.px) / lev), openOid: f.oid, openedMs: now, closeTries: 0, ...(late ? { late: true } : {}), ...(x.share != null ? { share: x.share } : {}), ...(x.left != null && x.left > 0 ? { left0: Math.min(1, x.left) } : {}) });
   state.held = [...state.held, x.id].slice(-4000);
   save();
   return "";
@@ -462,7 +474,7 @@ export function hlLiveSummary(cfg: HlLiveConfig = fileCfg(), meetsBar: (rule: st
     trades: state.rows.length,
     won: state.rows.filter((x) => x.netUsd > 0).length,
     halted: cfg.on && loss() >= cfg.maxLossUsd ? "loss cap reached: nothing new is opened" : "",
-    opens: state.opens.map((p) => ({ trader: p.rule, coin: p.coin, side: p.dir > 0 ? "long" : "short", leverage: p.lev, collateralUsd: p.collUsd, entryPx: p.entryPx, unrealUsd: p.unrealUsd ?? null, openedAt: p.openedMs, late: !!p.late, conviction: p.share ?? null, partCloses: p.parts ?? 0, onHyperliquid: p.venueLev == null ? null : { leverage: p.venueLev, isolated: !!p.venueIsolated, marginUsd: p.venueMarginUsd ?? null, same: p.venueLev === p.lev && !!p.venueIsolated } })),
+    opens: state.opens.map((p) => ({ trader: p.rule, coin: p.coin, side: p.dir > 0 ? "long" : "short", leverage: p.lev, collateralUsd: p.collUsd, entryPx: p.entryPx, unrealUsd: p.unrealUsd ?? null, openedAt: p.openedMs, late: !!p.late, conviction: p.share ?? null, partCloses: p.parts ?? 0, traderHolds: p.traderLeft ?? null, onHyperliquid: p.venueLev == null ? null : { leverage: p.venueLev, isolated: !!p.venueIsolated, marginUsd: p.venueMarginUsd ?? null, same: p.venueLev === p.lev && !!p.venueIsolated } })),
     traders: rules.map((rule) => {
       const real = realOf(rule);
       const st = standing(real, meetsBar(rule, state.demoted[rule] ?? 0, now), state.demotedWhy[rule]);
