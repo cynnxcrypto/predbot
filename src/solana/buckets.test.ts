@@ -536,3 +536,10 @@ test("a followed position stays followed while it is still held, even when it di
   assert.deepEqual(hlDiff(b, hlPositions(st(HL_KEEP_POS_USD - 1), b)!), { opened: [], closed: ["ATOM"] });
   assert.deepEqual(hlDiff(b, hlPositions(st(HL_MIN_POS_USD - 80, "100"), b)!), { opened: [], closed: ["ATOM"] }, "turned round under the size: closed, not followed as new");
 });
+
+test("trader sizes in coins and account value, for partial closes and conviction (19 Nov 2026)", () => {
+  const st = { marginSummary: { accountValue: "20000" }, assetPositions: [{ position: { coin: "SOL", szi: "-500", positionValue: "41000" } }, { position: { coin: "X", szi: "0" } }] };
+  assert.deepEqual(B.hlSizes(st), { SOL: 500 });
+  assert.equal(B.hlAccountValue(st), 20000);
+  assert.equal(B.hlAccountValue({}), null);
+});

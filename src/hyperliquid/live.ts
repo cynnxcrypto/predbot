@@ -30,7 +30,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { ROOT } from "../config.js";
 import { loadJson, saveJson } from "../store.js";
-import { cutReason, perpLadder, realRecord, standing } from "../solana/realfirst.js";
+import { cutReason, perpLadder, realRecord, standing, type RealRecord } from "../solana/realfirst.js";
 import type { Coin, Fill } from "./exchange.js";
 import { roundSz } from "./exchange.js";
 
@@ -119,6 +119,10 @@ export interface PaperOpen {
   lev?: number;
   /** the price the paper copy was opened at */
   px?: number;
+  /** the share of its opening size the trader still holds (0..1), when known */
+  left?: number;
+  /** the position's value against the trader's account value when it opened (conviction), when known */
+  share?: number;
 }
 export interface HlDeps {
   cfg(): HlLiveConfig;
@@ -153,6 +157,11 @@ interface Pos {
   venueLev?: number;
   venueIsolated?: boolean;
   venueMarginUsd?: number;
+  /** partial closes that followed the trader's (19 Nov 2026), and what they made by our own count */
+  parts?: number;
+  partUsd?: number;
+  /** the trader's position against its account when copied (conviction) */
+  share?: number;
 }
 interface Row {
   t: number;
@@ -210,6 +219,30 @@ const realNetsOf = (rule: string) => state.rows.filter((x) => x.rule === rule &&
 const realOf = (rule: string) => realRecord(realNetsOf(rule));
 /** A trader's position size: the base, up the perps ladder on its own real record (realfirst.ts perpLadder), never past the hard limit. */
 export const hlCollateral = (rule: string, base: number) => Math.min(HARD_COLLATERAL_USD, perpLadder(realNetsOf(rule), base).usd);
+/**
+ * SIZE BY CONVICTION (enrique, 19 Nov 2026: "yeah build all 3"): the ladder's size moved along the ladder's own steps by
+ * how big the trader's position is against its account when it opened it: under a quarter of the account one step
+ * down, the account's size or more one step up, three times or more two steps up, the second step only for a trader
+ * ahead on 3+ real trades. Never under MIN_COLLATERAL_USD, never past HARD_COLLATERAL_USD.
+ */
+export const HL_STEPS = [10, 15, 20, 30] as const;
+export function convictionUsd(ladderUsd: number, share: number | undefined, real: RealRecord): number {
+  if (share == null || !Number.isFinite(share)) return Math.min(HARD_COLLATERAL_USD, ladderUsd);
+  let i = 0;
+  for (let k = 0; k < HL_STEPS.length; k++) if (HL_STEPS[k] <= ladderUsd + 1e-9) i = k;
+  const proven = real.trades >= 3 && real.net > 0;
+  const d = share < 0.25 ? -1 : share >= 3 && proven ? 2 : share >= 1 ? 1 : 0;
+  const j = Math.max(0, Math.min(HL_STEPS.length - 1, i + d));
+  return Math.max(MIN_COLLATERAL_USD, Math.min(HARD_COLLATERAL_USD, d === 0 ? ladderUsd : HL_STEPS[j]));
+}
+/**
+ * CUT SOONER on Hyperliquid (enrique, 19 Nov 2026: "yeah build all 3"; Hyperliquid then 3 of 13 won, -$1.39): back to
+ * paper when behind after 2 real trades (not 3), or at a $5 real loss (not the stop of up to $10).
+ */
+export const HL_CUT_MIN_TRADES = 2;
+export const HL_CUT_STOP_USD = 5;
+export const hlCutReason = (real: RealRecord, stop: number): string =>
+  cutReason(real, Math.min(stop > 0 ? stop : HL_CUT_STOP_USD, HL_CUT_STOP_USD)) || (real.trades >= HL_CUT_MIN_TRADES && real.net < 0 ? `cut: real record behind after ${real.trades} trades` : "");
 const loss = () => Math.max(0, -state.netUsd);
 
 /** The traders the paper side must keep following even off the daily list: a real position open here, or real copies ahead. */
@@ -228,7 +261,7 @@ function book(p: Pos, netUsd: number, why: string, now: number, stop: number) {
   if (state.rows.length > 2000) state.rows = state.rows.slice(-2000);
   state.opens = state.opens.filter((x) => x !== p);
   if (p.rule === TEST_RULE) return;
-  const cut = cutReason(realOf(p.rule), stop);
+  const cut = hlCutReason(realOf(p.rule), stop);
   if (cut) {
     state.demotedWhy[p.rule] = cut;
     state.demoted[p.rule] = now;
@@ -258,6 +291,15 @@ export async function hlLiveTick(d: HlDeps, now = Date.now()): Promise<void> {
     const paper = d.paperOpens();
     const stop = cfg.traderStopUsd || HARD_TRADER_STOP_USD - 1;
     const isReal = (rule: string) => standing(realOf(rule), d.meetsBar(rule, state.demoted[rule] ?? 0, now), state.demotedWhy[rule]).real;
+    // a trader already behind under the sooner cut is cut now, not only at its next close
+    for (const rule of new Set(state.rows.map((x) => x.rule))) {
+      if (rule === TEST_RULE) continue;
+      const c = hlCutReason(realOf(rule), stop);
+      if (c) {
+        state.demotedWhy[rule] = c;
+        state.demoted[rule] = now;
+      }
+    }
 
     // ---- what we hold: mark it, close what is due ----
     for (const p of [...state.opens]) {
@@ -275,7 +317,28 @@ export async function hlLiveTick(d: HlDeps, now = Date.now()): Promise<void> {
       p.venueLev = held.lev;
       p.venueIsolated = held.isolated;
       p.venueMarginUsd = r2(held.marginUsd);
-      const why = p.rule === TEST_RULE ? "test" : !paper.some((x) => x.id === p.paperId) ? "the trader closed" : now - p.openedMs > MAX_HOLD_H * 3_600_000 ? "max hold" : "";
+      const po = paper.find((x) => x.id === p.paperId);
+      let why = p.rule === TEST_RULE ? "test" : !po ? "the trader closed" : now - p.openedMs > MAX_HOLD_H * 3_600_000 ? "max hold" : "";
+      // PARTIAL CLOSES (enrique, 19 Nov 2026: "yeah build all 3"): the trader took part off, so we take the same share
+      // of our opening size off. What is left is never kept under Hyperliquid's smallest order: then all of it goes.
+      if (!why && po?.left != null && po.left < 1 && coin && mids[p.coin] > 0) {
+        const px0 = mids[p.coin];
+        const cur = Math.abs(held.szi);
+        const target = p.sz * Math.max(0, po.left);
+        if (target * px0 < MIN_ORDER_USD) why = "the trader closed most of it";
+        else {
+          const cut = roundSz(cur - target, coin.szDecimals);
+          if (cut * px0 >= MIN_ORDER_USD) {
+            const f = await v.order(coin, p.dir < 0, px0 * (1 - p.dir * CLOSE_SLIP[0]), cut, true);
+            if (!f.filled) state.lastError = `${p.coin} part close: ${f.error}`;
+            else {
+              if (f.oid != null) p.closeOids = [...(p.closeOids ?? []), f.oid];
+              p.parts = (p.parts ?? 0) + 1;
+              p.partUsd = r2((p.partUsd ?? 0) + p.dir * (f.px - p.entryPx) * f.sz - TAKER_FEE * f.sz * (f.px + p.entryPx));
+            }
+          }
+        }
+      }
       if (!why) continue;
       const px = mids[p.coin];
       if (!coin || !(px > 0)) {
@@ -296,7 +359,7 @@ export async function hlLiveTick(d: HlDeps, now = Date.now()): Promise<void> {
       delete acct.positions[p.coin];
       const oids = [p.openOid, ...(p.closeOids ?? [])].filter((x): x is number => x != null);
       const own = p.openOid != null && p.closeOids?.length ? await v.result(oids, p.openedMs - 60_000).catch(() => null) : null;
-      book(p, own ?? p.dir * (f.px - p.entryPx) * p.sz - TAKER_FEE * p.sz * (f.px + p.entryPx), why, now, stop);
+      book(p, own ?? (p.partUsd ?? 0) + p.dir * (f.px - p.entryPx) * sz - TAKER_FEE * sz * (f.px + p.entryPx), why, now, stop);
       if (p.rule === TEST_RULE && state.test) state.test.result = `opened and closed, ${r2(state.rows[state.rows.length - 1].netUsd)} USD`;
     }
 
@@ -320,7 +383,7 @@ export async function hlLiveTick(d: HlDeps, now = Date.now()): Promise<void> {
         else if (state.opens.length >= cfg.maxOpen) skip("all positions in use");
         else if (state.opens.some((o) => o.coin === x.coin) || acct.positions[x.coin]) skip("coin already held");
         else {
-          const why = await open(d, x, hlCollateral(x.rule, cfg.collateralUsd), coins, mids, acct, now);
+          const why = await open(d, x, convictionUsd(hlCollateral(x.rule, cfg.collateralUsd), x.share, realOf(x.rule)), coins, mids, acct, now);
           if (why) skip(why);
         }
       }
@@ -336,7 +399,7 @@ export async function hlLiveTick(d: HlDeps, now = Date.now()): Promise<void> {
         if (state.opens.some((o) => o.coin === x.coin) || acct.positions[x.coin]) continue;
         const px = mids[x.coin];
         if (!(px > 0) || Math.abs(px / x.px - 1) > (cfg.lateWithin ?? 0)) continue;
-        const why = await open(d, x, hlCollateral(x.rule, cfg.collateralUsd), coins, mids, acct, now, true);
+        const why = await open(d, x, convictionUsd(hlCollateral(x.rule, cfg.collateralUsd), x.share, realOf(x.rule)), coins, mids, acct, now, true);
         if (why) {
           skip(`late copy: ${why}`);
           state.lateOff = [...state.lateOff, x.id].slice(-500);
@@ -372,7 +435,7 @@ async function open(d: HlDeps, x: PaperOpen, collateralUsd: number, coins: Recor
     return "order not filled";
   }
   acct.freeUsd -= (f.sz * f.px) / lev;
-  state.opens.push({ rule: x.rule, coin: x.coin, paperId: x.id, dir: x.dir, lev, sz: f.sz, entryPx: f.px, collUsd: r2((f.sz * f.px) / lev), openOid: f.oid, openedMs: now, closeTries: 0, ...(late ? { late: true } : {}) });
+  state.opens.push({ rule: x.rule, coin: x.coin, paperId: x.id, dir: x.dir, lev, sz: f.sz, entryPx: f.px, collUsd: r2((f.sz * f.px) / lev), openOid: f.oid, openedMs: now, closeTries: 0, ...(late ? { late: true } : {}), ...(x.share != null ? { share: x.share } : {}) });
   state.held = [...state.held, x.id].slice(-4000);
   save();
   return "";
@@ -399,7 +462,7 @@ export function hlLiveSummary(cfg: HlLiveConfig = fileCfg(), meetsBar: (rule: st
     trades: state.rows.length,
     won: state.rows.filter((x) => x.netUsd > 0).length,
     halted: cfg.on && loss() >= cfg.maxLossUsd ? "loss cap reached: nothing new is opened" : "",
-    opens: state.opens.map((p) => ({ trader: p.rule, coin: p.coin, side: p.dir > 0 ? "long" : "short", leverage: p.lev, collateralUsd: p.collUsd, entryPx: p.entryPx, unrealUsd: p.unrealUsd ?? null, openedAt: p.openedMs, late: !!p.late, onHyperliquid: p.venueLev == null ? null : { leverage: p.venueLev, isolated: !!p.venueIsolated, marginUsd: p.venueMarginUsd ?? null, same: p.venueLev === p.lev && !!p.venueIsolated } })),
+    opens: state.opens.map((p) => ({ trader: p.rule, coin: p.coin, side: p.dir > 0 ? "long" : "short", leverage: p.lev, collateralUsd: p.collUsd, entryPx: p.entryPx, unrealUsd: p.unrealUsd ?? null, openedAt: p.openedMs, late: !!p.late, conviction: p.share ?? null, partCloses: p.parts ?? 0, onHyperliquid: p.venueLev == null ? null : { leverage: p.venueLev, isolated: !!p.venueIsolated, marginUsd: p.venueMarginUsd ?? null, same: p.venueLev === p.lev && !!p.venueIsolated } })),
     traders: rules.map((rule) => {
       const real = realOf(rule);
       const st = standing(real, meetsBar(rule, state.demoted[rule] ?? 0, now), state.demotedWhy[rule]);

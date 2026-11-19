@@ -106,9 +106,9 @@ test("not copied: under the bar, too late, a second copy of a trader or a coin, 
   assert.match(hlLiveSummary(ON).halted, /loss cap/);
 });
 
-test("real results first: behind after three real trades is cut even with paper at the bar; ahead stays without it", async () => {
+test("real results first: behind after two real trades is cut even with paper at the bar (sooner on Hyperliquid, 19 Nov 2026)", async () => {
   const { w, d } = world();
-  for (let i = 0; i < 3; i++) {
+  for (let i = 0; i < 2; i++) {
     const at = T0 + i * 600_000;
     w.paper = [copy("copy-aaaa1111", "DOGE", 1, at, 2)];
     w.mids.DOGE = 0.2;
@@ -117,10 +117,10 @@ test("real results first: behind after three real trades is cut even with paper 
     w.mids.DOGE = 0.196;
     await hlLiveTick(d, at + 61_000);
   }
-  assert.equal(hlLiveSummary(ON).trades, 3);
-  assert.match(_test.state().demotedWhy["copy-aaaa1111"], /behind after 3 trades/);
+  assert.equal(hlLiveSummary(ON).trades, 2);
+  assert.match(_test.state().demotedWhy["copy-aaaa1111"], /behind after 2 trades/);
   const tr = hlLiveSummary(ON).traders[0];
-  assert.deepEqual([tr.trades, tr.won, tr.sinceCut.trades, tr.real], [3, 0, 0, false], "a cut trader keeps its real count and net in the status");
+  assert.deepEqual([tr.trades, tr.won, tr.sinceCut.trades, tr.real], [2, 0, 0, false], "a cut trader keeps its real count and net in the status");
   assert.ok(tr.netUsd < 0 && tr.cutAt);
   assert.equal(hlLiveSummary(ON).recent[0].collateralUsd, 10);
   // the bar now counts only paper trades made after the cut: here it says no
@@ -227,4 +227,64 @@ test("late copies: a position a real trader still holds is copied while the pric
   off.w.paper = [old("DOGE", 0.2)];
   await hlLiveTick(off.d, T0);
   assert.equal(hlLiveSummary(ON).opens.length, 0);
+});
+
+test("partial closes: the trader takes part off, we take the same share of our opening size off; under the smallest order all goes", async () => {
+  const { w, d } = world({ free: 200 });
+  // a pretend venue that can close part of a position
+  const order0 = d.venue.order;
+  d.venue.order = async (c, buy, px, sz, reduce) => {
+    if (!reduce) return order0(c, buy, px, sz, reduce);
+    const coin = Object.keys(COINS).find((k) => COINS[k].index === c.index)!;
+    const p = w.acct.positions[coin];
+    w.orders.push({ coin: c.index, buy, sz, reduce });
+    const left = Math.round((Math.abs(p.szi) - sz) * 1e8) / 1e8;
+    if (left <= 0) delete w.acct.positions[coin];
+    else p.szi = Math.sign(p.szi) * left;
+    return { filled: true, sz, px: w.mids[coin], oid: ++w.oid, error: null };
+  };
+  const x = { ...copy("copy-aaaa1111", "HYPE", 1, T0, 3), left: 1 };
+  w.paper = [x];
+  await hlLiveTick(d, T0 + 1000);
+  assert.deepEqual(w.orders[0], { coin: 5, buy: true, sz: 0.75, reduce: false }); // $30 at $40
+  x.left = 0.5;
+  await hlLiveTick(d, T0 + 61_000);
+  assert.deepEqual(w.orders[1], { coin: 5, buy: false, sz: 0.37, reduce: true }, "half of 0.75 off, rounded down");
+  assert.equal(_test.state().opens[0].parts, 1);
+  await hlLiveTick(d, T0 + 121_000);
+  assert.equal(w.orders.length, 2, "nothing more while the trader holds half");
+  x.left = 0.1; // 0.075 HYPE = $3 left: under the smallest order, so all of it goes
+  await hlLiveTick(d, T0 + 181_000);
+  assert.equal(w.orders[2].reduce, true);
+  assert.equal(_test.state().opens.length, 0);
+  assert.equal(hlLiveSummary(ON).recent[0].why, "the trader closed most of it");
+  assert.equal(hlLiveSummary(ON).trades, 1, "one copy is one trade, partial closes and all");
+});
+
+test("size by conviction: a step down under a quarter of the trader's account, up at its size, two up at 3x only when proven", async () => {
+  const { convictionUsd } = await import("./live.js");
+  const none = { trades: 0, won: 0, net: 0 };
+  const proven = { trades: 4, won: 3, net: 2 };
+  assert.equal(convictionUsd(10, undefined, none), 10);
+  assert.equal(convictionUsd(10, 0.1, none), 10, "never under $10");
+  assert.equal(convictionUsd(20, 0.1, none), 15);
+  assert.equal(convictionUsd(10, 0.5, none), 10);
+  assert.equal(convictionUsd(10, 1.2, none), 15);
+  assert.equal(convictionUsd(10, 5, none), 15, "two steps up only for a trader ahead on 3+ real trades");
+  assert.equal(convictionUsd(10, 5, proven), 20);
+  assert.equal(convictionUsd(20, 5, proven), 30);
+  assert.equal(convictionUsd(30, 5, proven), 30, "never past the hard limit");
+  const { w, d } = world({ free: 200 });
+  w.paper = [{ ...copy("copy-aaaa1111", "HYPE", 1, T0, 2), share: 1.5 }];
+  await hlLiveTick(d, T0 + 1000);
+  assert.equal(_test.state().opens[0].collUsd, 15);
+  assert.equal(hlLiveSummary(ON).opens[0].conviction, 1.5);
+});
+
+test("cut sooner: a $5 real loss cuts at once; a trader already behind is cut at the next look", async () => {
+  const { hlCutReason } = await import("./live.js");
+  assert.match(hlCutReason({ trades: 1, won: 0, net: -5 }, 9), /loss stop/);
+  assert.equal(hlCutReason({ trades: 1, won: 0, net: -4 }, 9), "");
+  assert.match(hlCutReason({ trades: 2, won: 1, net: -0.1 }, 9), /behind after 2/);
+  assert.equal(hlCutReason({ trades: 2, won: 1, net: 0 }, 9), "");
 });
