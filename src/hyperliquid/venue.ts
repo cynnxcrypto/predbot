@@ -4,6 +4,7 @@
  */
 import { approveAgent, coinsOf, leverageAction, orderAction, post, readOrder, send, type Coin } from "./exchange.js";
 import { hlAgent, hlWallet } from "./keys.js";
+import type { Wallet } from "@ethersproject/wallet";
 import type { Account, Venue } from "./live.js";
 
 const errOf = (answer: unknown): string => {
@@ -36,7 +37,8 @@ export function readResult(fills: unknown, oids: number[]): number | null {
   return Number.isFinite(net) ? net : null;
 }
 
-export function realVenue(address: string, fetcher: typeof fetch = fetch): Venue {
+/** `keys`: the wallet and the trading key of the account (the first wallet's unless given). */
+export function realVenue(address: string, fetcher: typeof fetch = fetch, keys: { wallet: () => Wallet; agent: () => Wallet } = { wallet: hlWallet, agent: hlAgent }): Venue {
   let coins: { at: number; v: Record<string, Coin> } | null = null;
   return {
     coins: async () => {
@@ -50,15 +52,15 @@ export function realVenue(address: string, fetcher: typeof fetch = fetch): Venue
     mids: async () => Object.fromEntries(Object.entries((await post("info", { type: "allMids" }, fetcher)) as Record<string, string>).map(([k, v]) => [k, Number(v)])),
     account: async () => readAccount(await post("info", { type: "clearinghouseState", user: address }, fetcher)),
     agent: async () => {
-      const agent = hlAgent().address.toLowerCase();
+      const agent = keys.agent().address.toLowerCase();
       const named = (await post("info", { type: "extraAgents", user: address }, fetcher).catch(() => null)) as { address?: string }[] | null;
       if (Array.isArray(named) && named.some((x) => String(x?.address).toLowerCase() === agent)) return "";
-      const w = hlWallet();
+      const w = keys.wallet();
       if (w.address.toLowerCase() !== address.toLowerCase()) return "the wallet key is not for this account";
       return errOf(await approveAgent(w, agent, fetcher));
     },
-    setLeverage: async (coin, leverage) => errOf(await send(hlAgent(), leverageAction(coin, leverage), fetcher)),
-    order: async (coin, buy, px, sz, reduceOnly) => readOrder(await send(hlAgent(), orderAction(coin, buy, px, sz, reduceOnly), fetcher)),
+    setLeverage: async (coin, leverage) => errOf(await send(keys.agent(), leverageAction(coin, leverage), fetcher)),
+    order: async (coin, buy, px, sz, reduceOnly) => readOrder(await send(keys.agent(), orderAction(coin, buy, px, sz, reduceOnly), fetcher)),
     result: async (oids, sinceMs) => readResult(await post("info", { type: "userFillsByTime", user: address, startTime: Math.floor(sinceMs) }, fetcher), oids),
   };
 }

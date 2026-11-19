@@ -22,7 +22,13 @@ import { join } from "node:path";
 import { Wallet } from "@ethersproject/wallet";
 import { DATA } from "../config.js";
 
-export type HlKeyName = "wallet" | "agent";
+/**
+ * A SECOND wallet with its own trading key (enrique, 19 Nov 2026: "potentially we could have more than 1 hl wallet so
+ * we can properly replicate other traders", then his tap "2nd wallet for every overlap"): Hyperliquid keeps one
+ * position, one leverage and one liquidation price per coin per account, so a second trader's copy on a coin the
+ * first wallet already holds goes there. Same rules for its files; its address is written nowhere else.
+ */
+export type HlKeyName = "wallet" | "agent" | "wallet-2" | "agent-2";
 const file = (name: HlKeyName) => join(DATA, `hyperliquid-${name}.json`);
 export const addressFile = () => join(DATA, "hyperliquid-wallet-address.txt");
 
@@ -55,6 +61,10 @@ export const hlWallet = (): Wallet => keyAt("wallet");
 export const hlAgent = (): Wallet => keyAt("agent");
 /** True when this machine already has the wallet (asking does not make one). */
 export const hlWalletExists = (): boolean => existsSync(file("wallet"));
+/** The second wallet and its trading key (made on first call, like the first). */
+export const hlWallet2 = (): Wallet => keyAt("wallet-2");
+export const hlAgent2 = (): Wallet => keyAt("agent-2");
+export const hlWallet2Exists = (): boolean => existsSync(file("wallet-2"));
 
 /** Test hook: forget the cached keys (tests point DATA_DIR at a scratch folder). */
 export const _forget = () => cache.clear();

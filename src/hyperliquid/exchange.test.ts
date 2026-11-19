@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { verifyTypedData } from "@ethersproject/wallet";
 import { Wallet } from "@ethersproject/wallet";
-import { actionHash, coinsOf, leverageAction, nonce, orderAction, pack, readOrder, roundPx, roundSz, signAction, wire } from "./exchange.js";
+import { actionHash, coinsOf, leverageAction, nonce, orderAction, pack, readOrder, roundPx, roundSz, signAction, usdSend, wire } from "./exchange.js";
 
 test("the action hash is the one Hyperliquid's own SDK gives for the same order", () => {
   // hyperliquid-python-sdk, tests/signing_test.py, test_phantom_agent_creation_matches_production
@@ -66,4 +66,28 @@ test("reading the account and a trade's own result out of Hyperliquid's answers"
   const fills = [{ oid: 1, closedPnl: "0", fee: "0.0135" }, { oid: 2, closedPnl: "3.0", fee: "0.01" }, { oid: 2, closedPnl: "0.5", fee: "0.002" }, { oid: 9, closedPnl: "50", fee: "1" }];
   assert.equal(Math.round(readResult(fills, [1, 2])! * 1e4) / 1e4, 3.4745);
   assert.equal(readResult(fills, [1, 3]), null, "an order missing from the record: not guessed");
+});
+
+test("a move to our second wallet is signed by the paying wallet itself, for that address and amount only", async () => {
+  const key = Wallet.createRandom();
+  const to = Wallet.createRandom().address;
+  let sent: { action: Record<string, unknown>; nonce: number; signature: { r: string; s: string; v: number }; vaultAddress?: unknown } | null = null;
+  const net = (async (url: string | URL | Request, init?: RequestInit) => {
+    assert.ok(String(url).endsWith("/exchange"));
+    sent = JSON.parse(String(init?.body));
+    return new Response(JSON.stringify({ status: "ok", response: { type: "default" } }));
+  }) as typeof fetch;
+  assert.deepEqual(await usdSend(key, to, 50, net), { status: "ok", response: { type: "default" } });
+  const s = sent!;
+  assert.deepEqual(s.action, { type: "usdSend", hyperliquidChain: "Mainnet", signatureChainId: "0xa4b1", destination: to.toLowerCase(), amount: "50", time: s.nonce });
+  assert.equal("vaultAddress" in s, false);
+  const who = verifyTypedData(
+    { name: "HyperliquidSignTransaction", version: "1", chainId: 42161, verifyingContract: "0x0000000000000000000000000000000000000000" },
+    { "HyperliquidTransaction:UsdSend": [{ name: "hyperliquidChain", type: "string" }, { name: "destination", type: "string" }, { name: "amount", type: "string" }, { name: "time", type: "uint64" }] },
+    { hyperliquidChain: "Mainnet", destination: to.toLowerCase(), amount: "50", time: s.nonce },
+    s.signature,
+  );
+  assert.equal(who, key.address);
+  await assert.rejects(usdSend(key, "0x12", 50, net));
+  await assert.rejects(usdSend(key, to, 0, net));
 });

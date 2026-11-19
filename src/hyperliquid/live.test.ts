@@ -321,3 +321,115 @@ test("partial closes are measured from what the trader held when OUR copy opened
   const doge = hlLiveSummary(ON).opens.find((o) => o.coin === "DOGE")!;
   assert.deepEqual([doge.late, doge.traderHolds, doge.partCloses], [true, 1, 0]);
 });
+
+/** A second pretend account beside the first (the second wallet). */
+function two(o: { cfg?: HlLiveConfig; bar?: string[]; value2?: number } = {}) {
+  const { w, d } = world({ cfg: o.cfg ?? { ...ON, second: { on: true, testOnce: "" } }, bar: o.bar ?? ["copy-aaaa1111", "copy-bbbb2222", "copy-cccc3333"] });
+  const w2 = { acct: { valueUsd: o.value2 ?? 50, freeUsd: o.value2 ?? 50, positions: {} } as Account, orders: [] as { coin: number; buy: boolean; sz: number; reduce: boolean }[], lev: [] as [number, number][], agentCalls: 0, down: false, oid: 1000 };
+  const name = (c: Coin) => Object.keys(COINS).find((k) => COINS[k].index === c.index)!;
+  d.venue2 = {
+    coins: async () => COINS,
+    mids: async () => w.mids,
+    account: async () => (w2.down ? Promise.reject(new Error("timeout 0x" + "b".repeat(40))) : structuredClone(w2.acct)),
+    agent: async () => (w2.agentCalls++, ""),
+    setLeverage: async (c, l) => (w2.lev.push([c.index, l]), ""),
+    order: async (c, buy, _px, sz, reduce): Promise<Fill> => {
+      const coin = name(c);
+      w2.orders.push({ coin: c.index, buy, sz, reduce });
+      if (reduce) delete w2.acct.positions[coin];
+      else w2.acct.positions[coin] = { szi: buy ? sz : -sz, entryPx: w.mids[coin], unrealUsd: 0, marginUsd: 10 };
+      return { filled: true, sz, px: w.mids[coin], oid: ++w2.oid, error: null };
+    },
+    result: async () => null,
+  };
+  return { w, w2, d };
+}
+
+test("the second wallet: a second trader on a coin we hold is copied there at its own leverage, same side or opposite; a third is skipped", async () => {
+  const { w, w2, d } = two();
+  w.paper = [copy("copy-aaaa1111", "HYPE", 1, T0, 2)];
+  await hlLiveTick(d, T0 + 1000);
+  assert.deepEqual([w.orders.length, w2.orders.length], [1, 0], "a free coin goes to the first wallet");
+  w.paper.push(copy("copy-bbbb2222", "HYPE", -1, T0 + 60_000, 5));
+  await hlLiveTick(d, T0 + 61_000);
+  assert.deepEqual(w.orders.length, 1, "the first wallet's position is not touched");
+  assert.deepEqual(w.lev, [[5, 2]]);
+  assert.deepEqual(w2.lev, [[5, 5]], "its own leverage");
+  assert.deepEqual(w2.orders, [{ coin: 5, buy: false, sz: 1.25, reduce: false }]); // $10 x 5 at $40, short
+  assert.equal(w2.agentCalls, 1);
+  w.paper.push(copy("copy-cccc3333", "HYPE", 1, T0 + 120_000, 3));
+  await hlLiveTick(d, T0 + 121_000);
+  assert.deepEqual([w.orders.length, w2.orders.length], [1, 1]);
+  assert.equal(_test.state().skipped["coin already held"], 1, "held in both: skipped, never merged");
+  const s = hlLiveSummary(d.cfg(), () => true, T0 + 121_000);
+  assert.deepEqual(s.opens.map((x) => [x.wallet, x.trader, x.side, x.leverage]), [[1, "copy-aaaa1111", "long", 2], [2, "copy-bbbb2222", "short", 5]]);
+  assert.deepEqual([s.second?.on, s.second?.open, s.second?.keyNamed], [true, 1, true]);
+  assert.equal(s.account?.valueUsd, 150, "both wallets as one");
+  // the second trader closes: only the second wallet's position is closed, booked in the same book
+  w.paper = w.paper.filter((x) => x.rule !== "copy-bbbb2222");
+  w.mids.HYPE = 36;
+  await hlLiveTick(d, T0 + 181_000);
+  assert.deepEqual(w2.orders[1], { coin: 5, buy: true, sz: 1.25, reduce: true });
+  assert.equal(w.orders.length, 1);
+  const st = _test.state();
+  assert.deepEqual([st.rows.length, st.rows[0].rule, st.rows[0].wallet, st.rows[0].netUsd > 4.8], [1, "copy-bbbb2222", 2, true]);
+  assert.equal(JSON.stringify(hlLiveSummary(d.cfg(), () => true, T0 + 181_000)).includes("0x"), false);
+});
+
+test("the second wallet: off, not there, without money or not read, an overlap is skipped; a look that cannot read it leaves its positions alone", async () => {
+  for (const cfg of [ON, { ...ON, second: { on: false, testOnce: "" } }]) {
+    _test.reset();
+    const { w, w2, d } = two({ cfg });
+    w.paper = [copy("copy-aaaa1111", "HYPE", 1, T0, 2), copy("copy-bbbb2222", "HYPE", 1, T0, 5)];
+    await hlLiveTick(d, T0 + 1000);
+    assert.deepEqual([w.orders.length, w2.orders.length, _test.state().skipped["coin already held"]], [1, 0, 1]);
+  }
+  _test.reset();
+  const empty = two({ value2: 0 });
+  empty.w.paper = [copy("copy-aaaa1111", "HYPE", 1, T0, 2), copy("copy-bbbb2222", "HYPE", 1, T0, 5)];
+  await hlLiveTick(empty.d, T0 + 1000);
+  assert.deepEqual([empty.w2.orders.length, empty.w2.agentCalls], [0, 0], "no money there yet: no key named, nothing opened");
+  assert.match(hlLiveSummary(empty.d.cfg(), () => true, T0 + 1000).second?.lastError ?? "", /no money/);
+  _test.reset();
+  const { w, w2, d } = two();
+  w.paper = [copy("copy-aaaa1111", "HYPE", 1, T0, 2), copy("copy-bbbb2222", "HYPE", 1, T0, 5)];
+  await hlLiveTick(d, T0 + 1000);
+  assert.equal(w2.orders.length, 1);
+  w2.down = true;
+  w.paper.push(copy("copy-cccc3333", "DOGE", 1, T0 + 60_000, 2), copy("copy-aaaa1111", "DOGE", 1, T0 + 60_000, 2));
+  for (let i = 1; i <= 5; i++) await hlLiveTick(d, T0 + 1000 + i * 60_000);
+  const st = _test.state();
+  assert.equal(st.opens.filter((p) => p.w === 2).length, 1, "never counted as gone on a failed read");
+  assert.equal(st.rows.length, 0);
+  assert.equal(w2.orders.length, 1, "and nothing new opened there");
+  const err = hlLiveSummary(d.cfg(), () => true, T0 + 400_000).second?.lastError ?? "";
+  assert.ok(/not read/.test(err) && !/0x[0-9a-f]{40}/.test(err));
+  w2.down = false;
+  w.paper = w.paper.filter((x) => x.rule !== "copy-bbbb2222");
+  await hlLiveTick(d, T0 + 500_000);
+  assert.deepEqual(w2.orders[1], { coin: 5, buy: false, sz: 1.25, reduce: true }, "closed once it can be read again");
+});
+
+test("the second wallet's test trade: one smallest BTC long there, only once it has money, once per name, with copies off", async () => {
+  const cfg = parseHlLive('{"hyperliquid":{"trade":{"on":true,"maxLossUsd":50,"second":{"on":false,"testOnce":"s1"}}}}');
+  assert.deepEqual(cfg.second, { on: false, testOnce: "s1" });
+  assert.deepEqual(parseHlLive('{"hyperliquid":{"trade":{"on":true,"maxLossUsd":50,"second":{"on":"yes","testOnce":"BAD NAME"}}}}').second, { on: false, testOnce: "" });
+  assert.equal(parseHlLive('{"hyperliquid":{"trade":{"on":true,"maxLossUsd":50}}}').second, undefined);
+  const { w, w2, d } = two({ cfg, value2: 0 });
+  await hlLiveTick(d, T0 + 1000);
+  await hlLiveTick(d, T0 + 61_000);
+  assert.equal(w2.orders.length, 0, "no money yet: the name is not used up");
+  w2.acct.valueUsd = w2.acct.freeUsd = 49;
+  await hlLiveTick(d, T0 + 121_000);
+  assert.deepEqual(w2.orders, [{ coin: 0, buy: true, sz: 0.00011, reduce: false }]);
+  assert.deepEqual(w2.lev, [[0, 1]]);
+  await hlLiveTick(d, T0 + 181_000);
+  assert.deepEqual(w2.orders[1], { coin: 0, buy: false, sz: 0.00011, reduce: true });
+  await hlLiveTick(d, T0 + 241_000);
+  await hlLiveTick(d, T0 + 301_000);
+  assert.equal(w2.orders.length, 2, "never again under the same name");
+  assert.equal(w.orders.length, 0, "the first wallet is not touched");
+  const s = hlLiveSummary(cfg, () => true, T0 + 301_000);
+  assert.match(s.second?.test?.result ?? "", /opened and closed/);
+  assert.deepEqual(hlKeptTraders(), [], "a test trade is nobody's record");
+});

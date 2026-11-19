@@ -13,7 +13,8 @@ import { join } from "node:path";
 import { ROOT } from "../config.js";
 import { loadJson, saveJson } from "../store.js";
 import { ARBITRUM_CHAIN_ID, ARBITRUM_RPC, CREDIT_WAIT_MS, HL_API, fund, fundHistory, realChain, type Chain, type FundReport } from "./fund.js";
-import { hlAgent, hlWallet } from "./keys.js";
+import { usdSend, post as hlPostApi } from "./exchange.js";
+import { hlAgent, hlAgent2, hlWallet, hlWallet2, hlWallet2Exists } from "./keys.js";
 import { fileCfg, hlKeptTraders, hlLiveSummary, hlLiveTick, type HlDeps } from "./live.js";
 import { realVenue } from "./venue.js";
 import { hlBoard, hlPaperOpens, likedTraders, perpMeetsBar, setExtraTraders, setKeptTraders, traderListed, traderRecord } from "../solana/buckets.js";
@@ -57,6 +58,74 @@ const fundMode = (): FundMode => {
   }
 };
 
+// ---- the second wallet (overlaps) ----------------------------------------------------------------------------------------
+/** At most this much is ever moved to the second wallet by one switch. */
+export const HARD_SECOND_FUND_USD = 100;
+const SECOND = "hyperliquid-second.json";
+interface SecondState {
+  /** every fundOnce name ever tried, written BEFORE the money is sent: a name moves money once, whatever happens */
+  funds: { id: string; usd: number; at: number; result: string }[];
+}
+/**
+ * deploy/live-rules.json hyperliquid.trade.second: present = the second wallet and its trading key are made at start;
+ * "fundOnce": { "id": "<a new name>", "usd": 50 } moves that much USDC to it from the first wallet, inside
+ * Hyperliquid, once per name (10 to HARD_SECOND_FUND_USD).
+ */
+export function parseSecond(text: string): { wanted: boolean; fund: { id: string; usd: number } | null } {
+  try {
+    const s2 = (JSON.parse(text) as { hyperliquid?: { trade?: { second?: unknown } } }).hyperliquid?.trade?.second;
+    if (!s2 || typeof s2 !== "object") return { wanted: false, fund: null };
+    const f = (s2 as { fundOnce?: { id?: unknown; usd?: unknown } }).fundOnce;
+    const ok = f && typeof f.id === "string" && /^[a-z0-9-]{1,40}$/.test(f.id) && typeof f.usd === "number" && f.usd >= 10 && f.usd <= HARD_SECOND_FUND_USD;
+    return { wanted: true, fund: ok ? { id: f.id as string, usd: Math.round((f.usd as number) * 100) / 100 } : null };
+  } catch {
+    return { wanted: false, fund: null };
+  }
+}
+const secondCfg = () => {
+  try {
+    return parseSecond(readFileSync(join(ROOT, "deploy", "live-rules.json"), "utf8"));
+  } catch {
+    return { wanted: false, fund: null };
+  }
+};
+let address2 = "";
+let secondBusy = false;
+export interface SecondDeps {
+  cfg(): { wanted: boolean; fund: { id: string; usd: number } | null };
+  /** what the first wallet can take out of its Hyperliquid account now (free of positions) */
+  free(): Promise<number>;
+  send(usd: number): Promise<unknown>;
+}
+/** One look at the fundOnce switch. Never throws. Returns what it did, for the tests. */
+export async function secondFundLook(d: SecondDeps, now = Date.now()): Promise<string> {
+  if (secondBusy) return "busy";
+  const want = d.cfg().fund;
+  const st = loadJson<SecondState>(SECOND, { funds: [] });
+  if (!want || st.funds.some((x) => x.id === want.id)) return "nothing to do";
+  secondBusy = true;
+  try {
+    const free = await d.free().catch(() => null);
+    // not enough free money, or not read: nothing is written, the name is tried again at the next look
+    if (free === null || !Number.isFinite(free)) return "first wallet not read";
+    if (free < want.usd + 5) return "not enough free money in the first wallet";
+    const row = { id: want.id, usd: want.usd, at: now, result: "tried" };
+    saveJson(SECOND, { funds: [...st.funds, row] });
+    try {
+      const a = (await d.send(want.usd)) as { status?: string; response?: unknown };
+      row.result = a?.status === "ok" ? "sent" : `refused: ${(typeof a?.response === "string" ? a.response : "no ok from Hyperliquid").replace(/0x[0-9a-fA-F]{40,}/g, "…").slice(0, 120)}`;
+    } catch (e) {
+      row.result = `not known: ${short(e)}`;
+    }
+    saveJson(SECOND, { funds: [...st.funds, row] });
+    return row.result;
+  } finally {
+    secondBusy = false;
+  }
+}
+/** For the public status: no address. */
+export const secondPublic = () => ({ wallet: address2 ? "made" : hlWallet2Exists() ? "on disk" : "none", funds: loadJson<SecondState>(SECOND, { funds: [] }).funds });
+
 /** One look at the wallet: a dry run of the funding, or the real thing when the repo file says go. Never throws. */
 export async function fundLook(chain: Chain, mode: FundMode = fundMode()): Promise<void> {
   if (busy) return;
@@ -72,7 +141,14 @@ export async function fundLook(chain: Chain, mode: FundMode = fundMode()): Promi
     const run = fund(chain, { go: mode === "go", stage: (s) => void (looks.stage = s) });
     run.catch(() => undefined); // a look given up on may still fail later: that must never be an unhandled rejection (it would stop the bot)
     late.catch(() => undefined);
-    funding = { ...(await Promise.race([run, late])), at: Date.now(), mode };
+    const got = await Promise.race([run, late]);
+    // the second wallet's money is ours too: the worth counts both accounts as one. A look in which it is not read
+    // gives no figure at all (the worth then keeps its last full reading), never the first wallet's alone
+    if (address2 && got.hlUsd !== null) {
+      const v2 = await chain.hlValue(address2).catch(() => null);
+      got.hlUsd = v2 === null ? null : Math.round((got.hlUsd + v2) * 100) / 100;
+    }
+    funding = { ...got, at: Date.now(), mode };
     looks.finished++;
     saveJson(LAST, funding);
   } catch (e) {
@@ -150,7 +226,25 @@ export function startHyperliquid(fetcher: typeof fetch = fetch): Promise<void> {
     setTimeout(look, 5_000).unref();
     setInterval(look, 5 * 60_000).unref();
     // real copies (src/hyperliquid/live.ts): does nothing unless deploy/live-rules.json hyperliquid.trade says so
-    const deps: HlDeps = { cfg: fileCfg, venue: realVenue(address, fetcher), paperOpens: hlPaperOpens, meetsBar, listed: traderListed };
+    // the second wallet (overlaps): made only when the repo file names it; money moves only on its fundOnce switch
+    let venue2: HlDeps["venue2"];
+    if (secondCfg().wanted) {
+      try {
+        address2 = hlWallet2().address;
+        hlAgent2();
+        venue2 = realVenue(address2, fetcher, { wallet: hlWallet2, agent: hlAgent2 });
+        const sd: SecondDeps = {
+          cfg: secondCfg,
+          free: async () => Number(((await hlPostApi("info", { type: "clearinghouseState", user: address }, fetcher)) as { withdrawable?: unknown }).withdrawable),
+          send: (usd) => usdSend(hlWallet(), address2, usd, fetcher),
+        };
+        setInterval(() => void secondFundLook(sd).catch(() => undefined), 60_000).unref();
+      } catch {
+        address2 = "";
+        venue2 = undefined;
+      }
+    }
+    const deps: HlDeps = { cfg: fileCfg, venue: realVenue(address, fetcher), ...(venue2 ? { venue2 } : {}), paperOpens: hlPaperOpens, meetsBar, listed: traderListed };
     setKeptTraders(hlKeptTraders, "hyperliquid");
     setInterval(() => void hlLiveTick(deps).catch(() => undefined), 20_000).unref();
   }
@@ -160,7 +254,7 @@ export function startHyperliquid(fetcher: typeof fetch = fetch): Promise<void> {
 /** A trader's bar on Hyperliquid counts its paper copies on every coin (the Solana perps side wants some on SOL, BTC or ETH). */
 const meetsBar = (rule: string, sinceMs: number, now: number) => perpMeetsBar(rule, sinceMs, now, 0);
 /** The real copies, for the status and the tab (traders by short name, no address). */
-export const hlLive = () => hlLiveSummary(fileCfg(), meetsBar);
+export const hlLive = () => ({ ...hlLiveSummary(fileCfg(), meetsBar), secondWallet: secondPublic() });
 
 /** For the public status: no address, no key, no balance. */
 export function hlPublic() {

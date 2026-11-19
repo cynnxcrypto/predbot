@@ -143,6 +143,20 @@ export async function send(key: Wallet, action: unknown, fetcher: typeof fetch =
 }
 
 /**
+ * Move USDC from one Hyperliquid account to another, inside Hyperliquid (no chain, no bridge, no gas). Signed by the
+ * WALLET that pays: the trading key cannot do this. Only ever called with our own second wallet as the destination.
+ */
+export async function usdSend(wallet: Wallet, destination: string, usd: number, fetcher: typeof fetch = fetch): Promise<unknown> {
+  if (!/^0x[0-9a-fA-F]{40}$/.test(destination) || !(usd > 0)) throw new Error("usdSend: bad destination or amount");
+  const n = nonce();
+  const action = { type: "usdSend", hyperliquidChain: "Mainnet", signatureChainId: "0xa4b1", destination: destination.toLowerCase(), amount: wire(usd), time: n };
+  const domain = { name: "HyperliquidSignTransaction", version: "1", chainId: 42161, verifyingContract: "0x0000000000000000000000000000000000000000" };
+  const types = { "HyperliquidTransaction:UsdSend": [{ name: "hyperliquidChain", type: "string" }, { name: "destination", type: "string" }, { name: "amount", type: "string" }, { name: "time", type: "uint64" }] };
+  const signature = sigOf(await wallet._signTypedData(domain, types, { hyperliquidChain: action.hyperliquidChain, destination: action.destination, amount: action.amount, time: n }));
+  return post("exchange", { action, nonce: n, signature }, fetcher);
+}
+
+/**
  * Name the trading key for the account. This one is signed by the WALLET itself (it is the account's own consent),
  * once. After it, the trading key can place and cancel orders for the account and nothing else.
  */
