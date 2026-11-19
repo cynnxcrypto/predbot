@@ -238,3 +238,24 @@ test("base: a part sale sells the same share of our copy; a bigger buy than usua
   st.wallets[addr(7)] = { buys: [3000, 3000, 3000], lots: {}, trips: 5, won: 1, realisedUsd: -4000, holds: [600], days: {}, lastMs: now };
   assert.equal(B.cutWhy(st, addr(7)), "own");
 });
+
+test("base: a pool written \"WETH / COIN\" is read the other way round, and left-out pools say why", () => {
+  const page = {
+    data: [
+      { attributes: { address: addr(1), pool_created_at: new Date(now - 400 * DAY).toISOString(), market_cap_usd: null, fdv_usd: "4000000000000", reserve_in_usd: "3000000", base_token_price_usd: "3000", quote_token_price_usd: "0.9" }, relationships: { base_token: { data: { id: "base_" + addr(7) } }, quote_token: { data: { id: "base_" + addr(1001) } } } },
+      { attributes: { address: addr(2), pool_created_at: new Date(now - 400 * DAY).toISOString(), market_cap_usd: null, fdv_usd: "1", reserve_in_usd: "9000000", base_token_price_usd: "3000", quote_token_price_usd: "1" }, relationships: { base_token: { data: { id: "base_" + addr(7) } }, quote_token: { data: { id: "base_" + addr(8) } } } },
+      { attributes: { address: addr(3), pool_created_at: new Date(now - 2 * DAY).toISOString(), market_cap_usd: "90000000", fdv_usd: "1", reserve_in_usd: "900000", base_token_price_usd: "2", quote_token_price_usd: "3000" }, relationships: { base_token: { data: { id: "base_" + addr(1002) } }, quote_token: { data: { id: "base_" + addr(7) } } } },
+    ],
+    included: [{ id: "base_" + addr(7), attributes: { symbol: "WETH" } }, { id: "base_" + addr(8), attributes: { symbol: "USDC" } }, { id: "base_" + addr(1001), attributes: { symbol: "AERO" } }, { id: "base_" + addr(1002), attributes: { symbol: "NEW" } }],
+  };
+  const got = B.scanPools(page, now);
+  assert.deepEqual(got.coins, []);
+  assert.deepEqual(got.rev, [{ symbol: "AERO", token: addr(1001), pool: addr(1), liqUsd: 3_000_000, px: 0.9 }], "the coin is the second token; WETH's own size is not taken for it");
+  assert.deepEqual(got.why, { "money pair": 1, "young pool": 1 });
+  assert.deepEqual(B.readSize({ data: { attributes: { market_cap_usd: null, fdv_usd: "800000000" } } }), { mcapUsd: 8e8, fdvOnly: true });
+  assert.equal(B.readSize({ data: { attributes: {} } }), null);
+  // in that pool the list's "buy" is WETH bought: our coin SOLD, priced on the "from" side
+  const list = { data: [{ attributes: { tx_hash: "0x1", tx_from_address: addr(5), block_timestamp: new Date(now).toISOString(), kind: "buy", volume_in_usd: "5000", price_from_in_usd: "0.9", price_to_in_usd: "3000" } }, { attributes: { tx_hash: "0x2", tx_from_address: addr(5), block_timestamp: new Date(now + 1).toISOString(), kind: "sell", volume_in_usd: "5000", price_from_in_usd: "3000", price_to_in_usd: "0.91" } }] };
+  assert.deepEqual(B.readTrades(list, true).map((t) => [t.buy, t.px]), [[false, 0.9], [true, 0.91]]);
+  assert.deepEqual(B.readTrades(list).map((t) => [t.buy, t.px]), [[true, 3000], [false, 3000]]);
+});
