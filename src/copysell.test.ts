@@ -14,7 +14,8 @@ type PaperTrade = import("./eventpaper.js").PaperTrade;
 type SellDeps = import("./copysell.js").SellDeps;
 
 const COND = "0x" + "ab".repeat(32);
-const NOW = Date.parse("2026-11-19T07:00:00Z");
+// the real clock: the retry and freshness windows of a real sale are measured against Date.now()
+const NOW = Math.floor(Date.now() / 1000) * 1000;
 const TS = Math.floor(NOW / 1000);
 const act = (side: string, size: number, price: number, ts: number, o: object = {}) => ({ type: "TRADE", side, size, price, usdc_size: size * price, timestamp: ts, condition_id: COND, outcome_index: 0, ...o });
 const real = (o: Partial<EventLiveRow> = {}): EventLiveRow => ({ t: NOW - 3600_000, group: "copy", rule: "copy-take-w", marketId: "m1", conditionId: COND, title: "Will it rain", outcome: "Yes", idx: 0, ask: 0.5, size: 5, cost: 5, shares: 10, fee: 0.1, ok: true, status: "matched", error: null, token: "tok0", ...o });
