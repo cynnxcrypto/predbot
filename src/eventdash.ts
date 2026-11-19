@@ -398,7 +398,7 @@ async function withResolveTimes(rec: unknown): Promise<unknown> {
   const log = (rec as { log?: { marketId?: string | null; idx?: number | null; status?: string | null; ask?: number; shares: number; cost: number; pnl: number | null; end?: number | null; game?: boolean }[] } | null)?.log;
   if (!Array.isArray(log)) return rec;
   const open = log.filter((r) => r.marketId && (r.shares > 0 || r.status === "resting") && r.pnl == null);
-  const need = [...new Set(open.map((r) => r.marketId!))].filter((id) => !endMemo.has(id) || Date.now() - endMemo.get(id)!.at > 60_000).slice(0, 60);
+  const need = [...new Set(open.map((r) => r.marketId!))].filter((id) => !endMemo.has(id) || Date.now() - endMemo.get(id)!.at > 60_000).slice(0, 200); // was 60: with 84 open bets in more than 66 markets no reading could have 90% priced, so the worth stayed blank (19 Nov 2026)
   const work = Promise.all(
     need.map(async (id) => {
       try {
