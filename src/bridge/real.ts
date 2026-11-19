@@ -37,8 +37,14 @@ const POLYGON_DOLLARS = ["0xc011a7e12a19f7b1f670d46f03b03f3342e82dfb", "0x2791Bc
 const POLYGON_USDC = POLYGON_DOLLARS[2];
 const SOL_USDC = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
 const SOL_NATIVE = "11111111111111111111111111111111";
-/** native USDC on Base */
-const BASE_USDC = "0x833589fCD6eDb6E4f93BF2a8dF9FcF4a5b0b2913";
+/**
+ * Native USDC on Base is NOT written here: it is asked from the route finder and then PROVEN on Base itself before it
+ * is used (the contract says "USDC", 6 decimals, and at least BASE_USDC_MIN_SUPPLY of it exists: no copy has that).
+ * 19 Nov 2026: an address typed from memory was wrong; a wrong token address must never be something we can sign for.
+ */
+let baseUsdc = "";
+export const BASE_USDC_MIN_SUPPLY = 500_000_000;
+export const _setBaseUsdc = (a: string) => void (baseUsdc = a);
 const CHAIN_ID: Record<Chain, number> = { arbitrum: ARBITRUM_CHAIN_ID, polygon: 137, base: 8453, solana: 1151111081099710 };
 /** the most native coin a bridge transaction may carry as its own fee (Arbitrum ETH) */
 export const MAX_VALUE_ETH = 0.0005;
@@ -52,7 +58,8 @@ const TIMEOUT = 15_000;
 export const tokenAddress = (chain: Chain, token: Token, side: "from" | "to" = "to"): string => {
   if (chain === "solana") return token === "SOL" ? SOL_NATIVE : SOL_USDC;
   if (token !== "USDC") throw new Error("only USDC moves on this chain");
-  return chain === "arbitrum" ? ARB_USDC : chain === "base" ? BASE_USDC : side === "from" ? POLYGON_DOLLARS[1] : POLYGON_USDC;
+  if (chain === "base" && !baseUsdc) throw new Error("the USDC on Base is not proven yet");
+  return chain === "arbitrum" ? ARB_USDC : chain === "base" ? baseUsdc : side === "from" ? POLYGON_DOLLARS[1] : POLYGON_USDC;
 };
 const decimals = (t: Token) => (t === "SOL" ? 9 : 6);
 const units = (amount: number, t: Token) => BigInt(Math.round(amount * 10 ** decimals(t)));
@@ -122,7 +129,7 @@ export function inspectSolana(b64: string, pubkey: Buffer): string[] {
   return msg.subarray(off + 3 + n, off + 3 + n + 32).equals(pubkey) ? [] : ["the transaction's signer is not our wallet"];
 }
 
-const erc20 = new Interface(["function balanceOf(address owner) view returns (uint256)", "function allowance(address owner, address spender) view returns (uint256)", "function approve(address spender, uint256 amount) returns (bool)"]);
+const erc20 = new Interface(["function symbol() view returns (string)", "function decimals() view returns (uint8)", "function totalSupply() view returns (uint256)", "function balanceOf(address owner) view returns (uint256)", "function allowance(address owner, address spender) view returns (uint256)", "function approve(address spender, uint256 amount) returns (bool)"]);
 
 function solRpcUrl(): string {
   let k = process.env.HELIUS_API_KEY ?? "";
@@ -150,6 +157,32 @@ export function realDeps(fetcher: typeof fetch = fetch): Deps {
     if (!j || j.error || j.result === undefined) throw new Error(`solana ${method}: ${String(j?.error?.message ?? "no result").slice(0, 80)}`);
     return j.result;
   };
+  /** Learn Base's USDC from the route finder and prove it on Base. Done once; until it holds, nothing on Base is priced or signed. */
+  const proveBase = async (): Promise<void> => {
+    if (baseUsdc) return;
+    const seen: string[] = [];
+    const one = (await getJson(`${LIFI_API}/token?chain=8453&token=USDC`).catch(() => null)) as { address?: unknown } | null;
+    if (typeof one?.address === "string") seen.push(one.address);
+    if (!seen.length) {
+      const all = (await getJson(`${LIFI_API}/tokens?chains=8453`).catch(() => null)) as { tokens?: Record<string, { address?: unknown; symbol?: unknown }[]> } | null;
+      for (const t of all?.tokens?.["8453"] ?? []) if (t.symbol === "USDC" && typeof t.address === "string") seen.push(t.address);
+    }
+    for (const a of seen.slice(0, 5)) {
+      if (!/^0x[0-9a-fA-F]{40}$/.test(a)) continue;
+      try {
+        if (Number(await base<string>("eth_chainId", [])) !== 8453) throw new Error("the RPC is not Base");
+        const call = async (fn: "symbol" | "decimals" | "totalSupply") => erc20.decodeFunctionResult(fn, await base<string>("eth_call", [{ to: a, data: erc20.encodeFunctionData(fn) }, "latest"]))[0];
+        if (String(await call("symbol")) !== "USDC" || Number(await call("decimals")) !== 6) continue;
+        if (Number(formatUnits(await call("totalSupply"), 6)) < BASE_USDC_MIN_SUPPLY) continue;
+        baseUsdc = a;
+        return;
+      } catch {
+        // not this one
+      }
+    }
+    throw new Error("the USDC on Base could not be proven (the route finder named none that Base itself confirms)");
+  };
+  const needsBase = (...c: Chain[]) => (c.includes("base") ? proveBase() : Promise.resolve());
   const erc20Of = async (rpc: typeof arb, token: string, owner: string) => Number(formatUnits(BigNumber.from(await rpc<string>("eth_call", [{ to: token, data: erc20.encodeFunctionData("balanceOf", [owner]) }, "latest"])), 6));
   const solWalletOf = (p: Place): SolWallet => (p === "solana-perps" ? namedWallet("perps") : p === "solana-spot-rules" ? namedWallet("buckets") : solWallet());
   const signerFor = (address: string): SolWallet => {
@@ -177,7 +210,7 @@ export function realDeps(fetcher: typeof fetch = fetch): Deps {
   };
   const evm = (c: Chain) => (c === "arbitrum" ? arb : c === "base" ? base : poly);
   // Polygon: what the Polymarket wallet can send is its pUSD
-  const balance = (p: PlaceInfo) => (p.chain === "solana" ? solBalance(p.address, p.token) : erc20Of(evm(p.chain), p.chain === "polygon" ? POLYGON_DOLLARS[0] : tokenAddress(p.chain, "USDC"), p.address));
+  const balance = async (p: PlaceInfo) => (await needsBase(p.chain), p.chain === "solana" ? solBalance(p.address, p.token) : erc20Of(evm(p.chain), p.chain === "polygon" ? POLYGON_DOLLARS[0] : tokenAddress(p.chain, "USDC"), p.address));
   const hlInfo = (body: unknown) => getJson(`${HL_API}/info`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
 
   /** sign and send one transaction from the bot's own wallet on Arbitrum or Base, and wait for it */
@@ -223,10 +256,12 @@ export function realDeps(fetcher: typeof fetch = fetch): Deps {
     },
     solUsd: async () => Number(((await hlInfo({ type: "allMids" })) as Record<string, string>)?.SOL),
     quote: async (r) => {
+      await needsBase(r.from.chain, r.to.chain);
       const qs = new URLSearchParams({ fromChain: String(CHAIN_ID[r.from.chain]), toChain: String(CHAIN_ID[r.to.chain]), fromToken: tokenAddress(r.from.chain, r.from.token, "from"), toToken: tokenAddress(r.to.chain, r.to.token), fromAmount: units(r.amount, r.from.token).toString(), fromAddress: r.from.address, toAddress: r.to.address, slippage: "0.005", order: "CHEAPEST" });
       return readQuote(await getJson(`${LIFI_API}/quote?${qs}`), r);
     },
     inspect: async (r, q) => {
+      await needsBase(r.from.chain, r.to.chain);
       if (q.tx.kind === "evm") {
         const bad = inspectEvm(r, q);
         const rpc = evm(r.from.chain);
@@ -255,6 +290,7 @@ export function realDeps(fetcher: typeof fetch = fetch): Deps {
       return bad;
     },
     send: async (r, q) => {
+      await needsBase(r.from.chain, r.to.chain);
       if (q.tx.kind === "solana") {
         const signed = signTransaction(q.tx.data, signerFor(r.from.address));
         const sig = base58(Buffer.from(signed, "base64").subarray(1, 65));

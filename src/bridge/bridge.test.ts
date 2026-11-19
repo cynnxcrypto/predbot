@@ -10,7 +10,7 @@ import type { Deps, Order, PlaceInfo, Quote, QuoteReq } from "./bridge.js";
 import type { Place } from "./state.js";
 const { bridgeTick, checkOrder, guard, parseOrder, parts, bridgePublic, scrub, _test, TEST_USD, HL_WITHDRAW_FEE, ARRIVE_WAIT_MS, WITHDRAW_WAIT_MS, UNSENT_WAIT_MS, MAX_TRIES } = await import("./bridge.js");
 const { loadBridge, bridgeHoldsHyperliquid } = await import("./state.js");
-const { readQuote, inspectEvm, inspectSolana, LIFI_DIAMOND, tokenAddress } = await import("./real.js");
+const { readQuote, inspectEvm, inspectSolana, LIFI_DIAMOND, tokenAddress, _setBaseUsdc } = await import("./real.js");
 
 const HL = "0x00000000000000000000000000000000000000Aa";
 const PM = "0x00000000000000000000000000000000000000Bb";
@@ -334,6 +334,9 @@ test("Polymarket to Hyperliquid, and Solana to Base: the same two parts", async 
 });
 
 test("out of Polymarket: USDC.e leaves, the batch can carry no fee coin; Base is read as a chain", () => {
+  // Base's USDC is never taken on trust: until it is proven on Base there is no token to price or sign for
+  assert.throws(() => tokenAddress("base", "USDC"), /not proven yet/);
+  _setBaseUsdc("0x00000000000000000000000000000000000000Dd");
   const r: QuoteReq = { from: INFO.polymarket, to: INFO.base, amount: 50 };
   const dest = INFO.base.address.slice(2).toLowerCase();
   const answer = (value: string, fromToken = tokenAddress("polygon", "USDC", "from")) => ({
