@@ -395,6 +395,21 @@ let stopping = false;
 export const eventLiveStop = () => void (stopping = true);
 /** A real order is being sent right now. */
 export const eventLiveBusy = () => busy;
+/**
+ * One real-order job of another module under the same one-at-a-time lock as the buys (src/copysell.ts, 19 Nov 2026:
+ * selling when a copied wallet sells). It must read data/eventlive.json fresh and write it without waiting in
+ * between. Not started when a restart is pending or another order is in flight (ok false).
+ */
+export async function eventLiveTurn<T>(f: () => Promise<T>): Promise<{ ok: true; value: T } | { ok: false; why: string }> {
+  if (stopping) return { ok: false, why: "restart pending: no new real order" };
+  if (busy) return { ok: false, why: "another real order is in flight" };
+  busy = true;
+  try {
+    return { ok: true, value: await f() };
+  } finally {
+    busy = false;
+  }
+}
 /** For tests only. */
 export const _eventLiveTest = { busy: (b: boolean) => void (busy = b), reset: () => void ((busy = false), (stopping = false)) };
 /**
