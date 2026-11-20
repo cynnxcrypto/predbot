@@ -17,7 +17,7 @@ import { usdSend, post as hlPostApi } from "./exchange.js";
 import { hlAgent, hlAgent2, hlWallet, hlWallet2, hlWallet2Exists } from "./keys.js";
 import { fileCfg, hlKeptTraders, hlLiveSummary, hlLiveTick, type HlDeps } from "./live.js";
 import { realVenue } from "./venue.js";
-import { hlBoard, hlPaperOpens, likedTraders, perpMeetsBar, setExtraTraders, setKeptTraders, traderListed, traderRecord } from "../solana/buckets.js";
+import { hlBoard, hlHistoryMeetsBar, hlHistorySummary, hlPaperOpens, likedTraders, perpMeetsBar, setExtraTraders, setKeptTraders, traderListed, traderRecord } from "../solana/buckets.js";
 import { linkedTraders, startLinks } from "./links.js";
 
 interface Reach {
@@ -255,9 +255,9 @@ export function startHyperliquid(fetcher: typeof fetch = fetch): Promise<void> {
 }
 
 /** A trader's bar on Hyperliquid counts its paper copies on every coin (the Solana perps side wants some on SOL, BTC or ETH). */
-const meetsBar = (rule: string, sinceMs: number, now: number) => perpMeetsBar(rule, sinceMs, now, 0);
+const meetsBar = (rule: string, sinceMs: number, now: number) => perpMeetsBar(rule, sinceMs, now, 0) || (!!fileCfg().historyBar && hlHistoryMeetsBar(rule, sinceMs, now));
 /** The real copies, for the status and the tab (traders by short name, no address). */
-export const hlLive = () => ({ ...hlLiveSummary(fileCfg(), meetsBar), secondWallet: secondPublic() });
+export const hlLive = () => ({ ...hlLiveSummary(fileCfg(), meetsBar), secondWallet: secondPublic(), history: { on: !!fileCfg().historyBar, ...hlHistorySummary() } });
 
 /** For the public status: no address, no key, no balance. */
 export function hlPublic() {

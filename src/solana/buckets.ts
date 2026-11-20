@@ -410,6 +410,61 @@ export interface HlTrader {
   acct?: number;
   allPnl?: number;
 }
+// ---- a trader's OWN history (enrique, 20 Nov 2026: "how come we have only found 4 traders in HL worth following, that
+// sounds extremely off", then his tap "Yes, go real on history"). Of 405 followed traders 157 had been copied on paper
+// and only 18 had reached 20 closed paper copies in 5 days: these traders hold for days, so the paper bar takes weeks.
+// The SAME bar (20 closed, half won, ahead) is counted on the trader's own closed positions of the last 30 days, read
+// from Hyperliquid's fill record: only positions we would have copied ($10k+ at their largest, held 10 minutes or
+// more, perps), each scored as its result after the trader's fees over its largest size, so every position weighs
+// the same, as our fixed-size copies do. Our own paper copies still count against it: 5 or more and behind = no.
+export const HIST_DAYS = 30;
+export const HIST_MIN_HOLD_MS = 10 * 60_000;
+export const HIST_REFRESH_MS = 24 * 3_600_000;
+/** fill records read in one minute (20 of Hyperliquid's 1,200 weight each) */
+const HIST_PER_TICK = 3;
+const HIST_KEEP = 100;
+export interface HlTrip { coin: string; openAt: number; closeAt: number; pct: number }
+/**
+ * A trader's closed positions out of a userFills answer (newest 2,000 fills). A position counts from the fill that
+ * opens it from nothing to the fill that brings it back to nothing (or turns it round); one already open at the first
+ * fill we have is left out, its start was never seen.
+ */
+export function hlTrips(fills: unknown, sinceMs = 0): HlTrip[] {
+  if (!Array.isArray(fills)) return [];
+  const by = new Map<string, { t: number; px: number; d: number; start: number; pnl: number }[]>();
+  for (const f of fills as Record<string, unknown>[]) {
+    const coin = typeof f?.coin === "string" ? f.coin : "";
+    const [t, px, sz, start] = [Number(f?.time), Number(f?.px), Number(f?.sz), Number(f?.startPosition)];
+    if (!coin || coin.startsWith("@") || coin.includes("/") || !(t > 0) || !(px > 0) || !(sz > 0) || !Number.isFinite(start) || (f.side !== "B" && f.side !== "A")) continue;
+    const pnl = (Number(f.closedPnl) || 0) - (Number(f.fee) || 0);
+    by.set(coin, [...(by.get(coin) ?? []), { t, px, d: f.side === "B" ? sz : -sz, start, pnl }]);
+  }
+  const out: HlTrip[] = [];
+  const zero = (v: number) => Math.abs(v) < 1e-9;
+  for (const [coin, xs] of by) {
+    xs.sort((a, b) => a.t - b.t);
+    let trip: { openAt: number; peak: number; pnl: number } | null = null;
+    for (const f of xs) {
+      const after = f.start + f.d;
+      if (zero(f.start)) trip = { openAt: f.t, peak: 0, pnl: 0 };
+      if (!trip) continue;
+      trip.pnl += f.pnl;
+      trip.peak = Math.max(trip.peak, Math.abs(f.start) * f.px, Math.abs(after) * f.px);
+      const turned = !zero(after) && !zero(f.start) && Math.sign(after) !== Math.sign(f.start);
+      if (zero(after) || turned) {
+        if (trip.peak >= HL_MIN_POS_USD && f.t - trip.openAt >= HIST_MIN_HOLD_MS && f.t > sinceMs) out.push({ coin, openAt: trip.openAt, closeAt: f.t, pct: Math.round((trip.pnl / trip.peak) * 1e6) / 1e6 });
+        // turned round: the other side starts here, but its fees and size are mixed into this fill: not counted
+        trip = null;
+      }
+    }
+  }
+  return out.sort((a, b) => a.closeAt - b.closeAt);
+}
+/** The bar on a list of closed positions: [when closed, result]. */
+export const histMeetsBar = (trips: [number, number][], sinceMs: number, now: number) => {
+  const xs = trips.filter((x) => x[0] > Math.max(sinceMs, now - HIST_DAYS * 86_400_000));
+  return xs.length >= TRADER_MIN_COPIES && xs.filter((x) => x[1] > 0).length * 2 >= xs.length && xs.reduce((a, x) => a + x[1], 0) > 0;
+};
 /** The leaderboard -> traders worth following: ahead over the week, the month and all time, real size, not a machine. */
 export function hlPick(board: unknown, limit = HL_FOLLOW): HlTrader[] {
   const rows = (board as { leaderboardRows?: unknown })?.leaderboardRows;
@@ -640,6 +695,8 @@ interface State {
   /** trader -> the last time it was seen holding SOL, BTC or ETH, ms (see majorTier) */
   hlMajorSeen?: Record<string, number>;
   hlNext: number;
+  /** trader -> its own closed positions of the last month ([when closed, result]) and when they were read */
+  hlHist?: Record<string, { at: number; trips: [number, number][] }>;
   hlOpen: HlOpen[];
   hlTrades: HlTrade[];
   mcap: Record<string, { b: Bucket | null; at: number }>;
@@ -1040,6 +1097,16 @@ async function hlTick(deps: BucketDeps, now: number) {
     const px = await mid(o.coin);
     if (px) o.worst = r(Math.max(o.worst, -o.dir * (px / o.entry - 1)), 6)!;
   }
+  // each followed trader's own closed positions, once a day: those holding a copy first, then the biggest month
+  state.hlHist ??= {};
+  const listed = new Set(state.hlTraders.map((t) => t.address));
+  for (const a of Object.keys(state.hlHist)) if (!listed.has(a)) delete state.hlHist[a];
+  const due = [...holding.filter((a) => listed.has(a)), ...state.hlTraders.map((t) => t.address)].filter((a, i, all) => all.indexOf(a) === i && now - (state.hlHist![a]?.at ?? 0) > HIST_REFRESH_MS).slice(0, HIST_PER_TICK);
+  for (const a of due) {
+    const fills = await hlPost(deps, { type: "userFills", user: a, aggregateByTime: true }).catch(() => null);
+    if (!Array.isArray(fills)) continue; // not read: asked again at the next look
+    state.hlHist[a] = { at: now, trips: hlTrips(fills, now - HIST_DAYS * 86_400_000).slice(-HIST_KEEP).map((x) => [x.closeAt, x.pct]) };
+  }
   for (const o of state.hlOpen.filter((x) => now - x.at >= HL_MAX_HOLD_MS)) await shut(o, "max hold");
   if (state.hlTrades.length > KEEP_TRADES) state.hlTrades = state.hlTrades.slice(-KEEP_TRADES);
   // a trader the list dropped is looked at only while a copy of it is open. Once that is finished, what we last saw
@@ -1286,6 +1353,39 @@ export const traderMeetsBar = (x: { trades: number; won: number; netUsd: number;
   x.trades >= TRADER_MIN_COPIES && x.won * 2 >= x.trades && x.netUsd > 0 && x.firstAt !== null && now - x.firstAt >= TRADER_MIN_AGE_MS && (x.ours ?? 0) >= minOurs;
 /** Does this perp rule, or this copied trader, meet its bar for real on the paper trades made after `sinceMs`? */
 export const perpMeetsBar = (rule: string, sinceMs = 0, now = Date.now(), minOurs = 0) => (isTraderRule(rule) ? traderMeetsBar(traderRecord(rule, sinceMs), now, minOurs) : meetsBar(perpPaperRecord(rule, sinceMs)));
+/**
+ * Does this trader meet the bar on its OWN closed positions made after `sinceMs` (see hlTrips)? Only a trader on the
+ * list, read in the last two days, whose paper copies (when there are 5 or more) are not behind.
+ */
+export function hlHistoryMeetsBar(rule: string, sinceMs = 0, now = Date.now()): boolean {
+  if (!loaded) load();
+  const t = state.hlTraders.find((x) => traderRule(x.address) === rule);
+  const h = t && state.hlHist?.[t.address];
+  if (!h || now - h.at > 2 * HIST_REFRESH_MS) return false;
+  const paper = traderRecord(rule, sinceMs);
+  if (paper.trades >= 5 && !(paper.netUsd > 0)) return false;
+  return histMeetsBar(h.trips, sinceMs, now);
+}
+/** For the status: how many histories are read, who passes on them, each by its short name. */
+export function hlHistorySummary(now = Date.now()) {
+  if (!loaded) load();
+  const rows = state.hlTraders.flatMap((t) => {
+    const h = state.hlHist?.[t.address];
+    if (!h) return [];
+    const xs = h.trips.filter((x) => x[0] > now - HIST_DAYS * 86_400_000);
+    const rule = traderRule(t.address);
+    return [{ id: rule, closed: xs.length, won: xs.filter((x) => x[1] > 0).length, sumPct: r(xs.reduce((a, x) => a + x[1], 0) * 100, 2), atBar: hlHistoryMeetsBar(rule, 0, now), paperAtBar: traderMeetsBar(traderRecord(rule), now), accountUsd: t.acct ? Math.round(t.acct) : null }];
+  });
+  return {
+    note: `A trader's own closed positions of the last ${HIST_DAYS} days on Hyperliquid ($${HL_MIN_POS_USD}+ at their largest, held ${HIST_MIN_HOLD_MS / 60_000}+ minutes), each as its result over its largest size. Same bar as paper: ${TRADER_MIN_COPIES}+ closed, half or more won, ahead; 5+ paper copies of ours that are behind keep it out.`,
+    followed: state.hlTraders.length,
+    read: rows.length,
+    with20: rows.filter((x) => x.closed >= TRADER_MIN_COPIES).length,
+    atBar: rows.filter((x) => x.atBar).length,
+    atBarNotOnPaper: rows.filter((x) => x.atBar && !x.paperAtBar).length,
+    traders: rows.filter((x) => x.atBar).sort((a, b) => (b.sumPct ?? 0) - (a.sumPct ?? 0)).slice(0, 200),
+  };
+}
 /** The perp paper positions that are open now (rules and copied traders' shorts), each with a name of its own. */
 export function perpPaperOpens(): { id: string; rule: string; coin: string; dir: number; at: number; lev?: number }[] {
   if (!loaded) load();
@@ -1337,4 +1437,4 @@ export function stopBuckets() {
 }
 
 /** Test hooks. */
-export const _bucketsTest = { reset: () => ((state = fresh()), (loaded = true), (copyRows = []), (copyAt = 0)), state: () => state, reload: () => load() };
+export const _bucketsTest = { reset: () => ((state = fresh()), (loaded = true), (copyRows = []), (copyAt = 0)), state: () => state, reload: () => load(), hlTick };

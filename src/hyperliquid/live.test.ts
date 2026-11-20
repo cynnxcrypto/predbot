@@ -471,3 +471,9 @@ test("close all once (20 Nov 2026): positions open then close, the trader is not
   assert.equal(_test.state().ghosts?.length, 1);
   assert.equal(_test.state().ghosts![0].closePx, 60);
 });
+
+test("the own-history bar is a switch of its own, off unless the file says true", () => {
+  assert.equal(parseHlLive('{"hyperliquid":{"trade":{"on":true,"maxLossUsd":50,"historyBar":true}}}').historyBar, true);
+  for (const v of ['"yes"', "1", "false"]) assert.equal(parseHlLive(`{"hyperliquid":{"trade":{"on":true,"maxLossUsd":50,"historyBar":${v}}}}`).historyBar, undefined);
+  assert.equal(parseHlLive('{"hyperliquid":{"trade":{"historyBar":true}}}').historyBar, undefined, "trading off: off");
+});

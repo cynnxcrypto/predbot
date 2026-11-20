@@ -554,3 +554,90 @@ test("trader sizes in coins and account value, for partial closes and conviction
   assert.equal(B.hlAccountValue(st), 20000);
   assert.equal(B.hlAccountValue({}), null);
 });
+
+test("a trader's own history: closed positions out of its fills, and the same bar on them (20 Nov 2026)", () => {
+  const H = 3_600_000;
+  const f = (coin: string, time: number, side: string, sz: number, px: number, start: number, closedPnl = 0, fee = 0) => ({ coin, time, side, sz: String(sz), px: String(px), startPosition: String(start), closedPnl: String(closedPnl), fee: String(fee) });
+  const fills = [
+    // a long of 10 ETH at 2000 ($20k), added to, closed in two parts 3 hours later: +$600 less $30 of fees
+    f("ETH", 1 * H, "B", 10, 2000, 0, 0, 10),
+    f("ETH", 2 * H, "B", 5, 2000, 10, 0, 5),
+    f("ETH", 3 * H, "A", 5, 2040, 15, 200, 5),
+    f("ETH", 4 * H, "A", 10, 2040, 10, 400, 10),
+    // open at the first fill we have: its start was never seen, not counted
+    f("BTC", 1 * H, "A", 1, 100000, 1, 500, 5),
+    // under $10k at its largest: we would not have copied it
+    f("DOGE", 1 * H, "B", 1000, 0.2, 0, 0, 0),
+    f("DOGE", 5 * H, "A", 1000, 0.3, 1000, 100, 0),
+    // in and out in a minute: not copyable
+    f("SOL", 1 * H, "B", 100, 150, 0, 0, 1),
+    f("SOL", 1 * H + 60_000, "A", 100, 151, 100, 100, 1),
+    // a short turned round to a long: the short counts, the long that starts in the same fill does not
+    f("HYPE", 2 * H, "A", 500, 40, 0, 0, 4),
+    f("HYPE", 6 * H, "B", 800, 42, -500, -1000, 6),
+    f("HYPE", 9 * H, "A", 300, 50, 300, 2400, 3),
+    // spot is not a position
+    f("@107", 1 * H, "B", 1000, 20, 0, 0, 0),
+    f("@107", 5 * H, "A", 1000, 30, 1000, 10000, 0),
+    { coin: "ETH", time: "x" },
+  ];
+  assert.deepEqual(B.hlTrips(fills), [
+    { coin: "ETH", openAt: 1 * H, closeAt: 4 * H, pct: 0.018627 }, // 570 over 15 x 2040
+    { coin: "HYPE", openAt: 2 * H, closeAt: 6 * H, pct: -0.048095 }, // -1010 over 500 x 42
+  ]);
+  assert.deepEqual(B.hlTrips(fills, 5 * H).map((x) => x.coin), ["HYPE"]);
+  assert.deepEqual(B.hlTrips(null), []);
+  const now = 40 * 86_400_000;
+  const trips = (n: number, won: number, each = 0.01, at = now - 86_400_000): [number, number][] => Array.from({ length: n }, (_, i) => [at + i, i < won ? each : -each]);
+  assert.equal(B.histMeetsBar(trips(20, 11), 0, now), true);
+  assert.equal(B.histMeetsBar(trips(19, 19), 0, now), false, "under 20 closed");
+  assert.equal(B.histMeetsBar(trips(20, 9), 0, now), false, "under half won");
+  assert.equal(B.histMeetsBar([...trips(20, 12), [now - 1000, -0.2]], 0, now), false, "not ahead");
+  assert.equal(B.histMeetsBar(trips(30, 30, 0.01, now - 31 * 86_400_000), 0, now), false, "older than the month");
+  assert.equal(B.histMeetsBar(trips(30, 30), now, now), false, "after a cut only positions closed since count");
+});
+
+test("a followed trader's history is read once a day, and qualifies it unless our own paper copies of it are behind", async () => {
+  B._bucketsTest.reset();
+  const st = B._bucketsTest.state();
+  const A = "0x" + "ab".repeat(20);
+  const C = "0x" + "cd".repeat(20);
+  const now = 1_800_000_000_000;
+  st.hlTraders = [{ address: A, monthPnl: 5, monthRoi: 0.1, acct: 2_000_000 }, { address: C, monthPnl: 4, monthRoi: 0.1 }];
+  st.hlAt = now;
+  const fill = (i: number, win: boolean) => [
+    { coin: "ETH", time: now - (30 - i) * 3_600_000, side: "B", sz: "10", px: "2000", startPosition: "0", closedPnl: "0", fee: "1" },
+    { coin: "ETH", time: now - (30 - i) * 3_600_000 + 1_800_000, side: "A", sz: "10", px: "2000", startPosition: "10", closedPnl: win ? "300" : "-100", fee: "1" },
+  ];
+  const asked: string[] = [];
+  const deps = {
+    quote: async () => 1n,
+    jup: async () => [],
+    fetch: () =>
+      (async (_u: string, init?: RequestInit) => {
+        const body = JSON.parse(String(init?.body ?? "{}")) as { type: string; user?: string };
+        if (body.type === "userFills") asked.push(body.user!);
+        const out = body.type === "allMids" ? { BTC: "100000", ETH: "2000" } : body.type === "userFills" ? (body.user === A ? Array.from({ length: 22 }, (_, i) => fill(i, i % 2 === 0)).flat() : []) : { marginSummary: { accountValue: "1000000" }, assetPositions: [] };
+        return { ok: true, status: 200, json: async () => out };
+      }) as unknown as typeof fetch,
+  };
+  await B._bucketsTest.hlTick(deps, now);
+  await B._bucketsTest.hlTick(deps, now + 60_000);
+  assert.deepEqual(asked, [A, C], "each once");
+  const rule = B.traderRule(A);
+  assert.equal(B.hlHistoryMeetsBar(rule, 0, now + 60_000), true);
+  assert.equal(B.hlHistoryMeetsBar(B.traderRule(C), 0, now + 60_000), false, "nothing closed");
+  assert.equal(B.hlHistoryMeetsBar(rule, now, now + 60_000), false, "after a cut it starts again");
+  assert.equal(B.hlHistoryMeetsBar(rule, 0, now + 3 * 86_400_000), false, "a history not read for two days is not trusted");
+  const sum = B.hlHistorySummary(now + 60_000);
+  assert.deepEqual([sum.followed, sum.read, sum.with20, sum.atBar, sum.atBarNotOnPaper], [2, 2, 1, 1, 1]);
+  assert.deepEqual(sum.traders.map((x) => [x.id, x.closed, x.won, x.accountUsd]), [[rule, 22, 11, 2_000_000]]);
+  assert.ok(!JSON.stringify(sum).includes(A.slice(10)), "no address in the status");
+  // five paper copies of ours, behind: the history does not carry it
+  for (let i = 0; i < 5; i++) st.hlTrades.push({ trader: A, coin: "ETH", dir: 1, at: now - 1000 + i, exitAt: now, net: -0.01, why: "closed" });
+  assert.equal(B.hlHistoryMeetsBar(rule, 0, now + 60_000), false);
+  // off the list: forgotten
+  st.hlTraders = [st.hlTraders[1]];
+  await B._bucketsTest.hlTick(deps, now + 120_000);
+  assert.equal(Object.keys(st.hlHist ?? {}).includes(A), false);
+});
