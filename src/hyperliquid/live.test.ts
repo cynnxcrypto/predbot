@@ -462,4 +462,12 @@ test("close all once (20 Nov 2026): positions open then close, the trader is not
   assert.equal(g.n, 1);
   assert.equal(g.stillHeldByTrader, 0);
   assert.ok(g.holdingWouldAddUsd < 0, "short from 60 to 70 would have lost");
+  // a close booked before ghosts existed: rebuilt once from the fills
+  const st = _test.state();
+  st.ghosts = [];
+  delete st.ghostsRebuilt;
+  d.venue.fills = async () => [{ coin: "HYPE", px: 60, sz: 0.75, time: T0 + 90_000, dir: "Close Short" }];
+  await hlLiveTick(d, T0 + 240_000);
+  assert.equal(_test.state().ghosts?.length, 1);
+  assert.equal(_test.state().ghosts![0].closePx, 60);
 });

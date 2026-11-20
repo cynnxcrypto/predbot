@@ -62,5 +62,9 @@ export function realVenue(address: string, fetcher: typeof fetch = fetch, keys: 
     setLeverage: async (coin, leverage) => errOf(await send(keys.agent(), leverageAction(coin, leverage), fetcher)),
     order: async (coin, buy, px, sz, reduceOnly) => readOrder(await send(keys.agent(), orderAction(coin, buy, px, sz, reduceOnly), fetcher)),
     result: async (oids, sinceMs) => readResult(await post("info", { type: "userFillsByTime", user: address, startTime: Math.floor(sinceMs) }, fetcher), oids),
+    fills: async (sinceMs) => {
+      const j = (await post("info", { type: "userFillsByTime", user: address, startTime: Math.floor(sinceMs) }, fetcher)) as { coin?: string; px?: string; sz?: string; time?: number; dir?: string }[];
+      return (Array.isArray(j) ? j : []).map((f) => ({ coin: String(f.coin), px: Number(f.px), sz: Number(f.sz), time: Number(f.time), dir: String(f.dir ?? "") })).filter((f) => f.px > 0 && f.sz > 0);
+    },
   };
 }

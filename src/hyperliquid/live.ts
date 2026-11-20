@@ -131,6 +131,8 @@ export interface Venue {
   order(coin: Coin, buy: boolean, px: number, sz: number, reduceOnly: boolean): Promise<Fill>;
   /** what Hyperliquid's own record says these orders made: closed profit minus fees; null when it cannot be read */
   result(oids: number[], sinceMs: number): Promise<number | null>;
+  /** the account's fills since a time (for rebuilding ghosts) */
+  fills?(sinceMs: number): Promise<{ coin: string; px: number; sz: number; time: number; dir: string }[]>;
 }
 export interface PaperOpen {
   id: string;
@@ -231,6 +233,8 @@ interface State {
   test2?: { id: string; at: number; result: string };
   /** the last closeAllOnce name carried out */
   closeAllId?: string;
+  /** the close-all whose earlier closes (made before ghosts existed) were rebuilt as ghosts from the fills */
+  ghostsRebuilt?: string;
   /** what each force-closed position would have made if held until its trader closed (enrique, 20 Nov 2026: "if the
    *  market continues in the direction these positions we had pointed, then u fucked up"): from our close price */
   ghosts?: { coin: string; dir: number; sz: number; closePx: number; paperId: string; closedAt: number; nowPx?: number; exitPx?: number; exitAt?: number; lockedUsd: number }[];
@@ -372,6 +376,29 @@ export async function hlLiveTick(d: HlDeps, now = Date.now()): Promise<void> {
       }
     }
 
+    // ---- ghosts rebuilt (once per close-all) for closes booked before ghosts existed: price and size from the fills ----
+    if (state.closeAllId && state.ghostsRebuilt !== state.closeAllId) {
+      const forced = state.rows.filter((r) => /close all/.test(r.why) && now - r.t < 2 * 86_400_000);
+      const since = Math.min(...forced.map((r) => r.t), now) - 15 * 60_000;
+      const f1 = v.fills ? await v.fills(since).catch(() => null) : [];
+      const f2 = v2?.fills ? await v2.fills(since).catch(() => null) : [];
+      if (f1 && (f2 || !forced.some((r) => r.wallet === 2))) {
+        const gs = state.ghosts ?? [];
+        for (const r of forced) {
+          const dir = r.side === "long" ? 1 : -1;
+          if (gs.some((g) => g.coin === r.coin && g.dir === dir && g.lockedUsd === r.netUsd && Math.abs(g.closedAt - r.t) < 20 * 60_000)) continue;
+          const fills = (r.wallet === 2 ? f2 ?? [] : f1).filter((f) => f.coin === r.coin && /^close/i.test(f.dir) && f.time <= r.t + 60_000 && f.time >= r.t - 10 * 60_000);
+          const sz = fills.reduce((a, f) => a + f.sz, 0);
+          if (!(sz > 0)) continue;
+          const px = fills.reduce((a, f) => a + f.px * f.sz, 0) / sz;
+          const po = paper.find((x) => x.rule === r.rule && x.coin === r.coin && x.dir === dir);
+          gs.push({ coin: r.coin, dir, sz, closePx: px, paperId: po?.id ?? "", closedAt: r.t, lockedUsd: r.netUsd, ...(po ? {} : { exitPx: mids[r.coin] > 0 ? mids[r.coin] : px, exitAt: now }) });
+        }
+        state.ghosts = gs.slice(-200);
+        state.ghostsRebuilt = state.closeAllId;
+        save();
+      }
+    }
     // ---- ghosts of force-closed positions: marked at the mid until their trader closes ----
     for (const g of state.ghosts ?? []) {
       if (g.exitAt) continue;
