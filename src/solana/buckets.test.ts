@@ -587,13 +587,18 @@ test("a trader's own history: closed positions out of its fills, and the same ba
   ]);
   assert.deepEqual(B.hlTrips(fills, 5 * H).map((x) => x.coin), ["HYPE"]);
   assert.deepEqual(B.hlTrips(null), []);
-  const now = 40 * 86_400_000;
+  assert.deepEqual(B.hlTrips([...fills, ...fills]), B.hlTrips(fills), "a fill read twice counts once");
+  // fills missing in the middle (a gap between pages): the position is not followed across the gap
+  const gap = [f("ETH", 1 * H, "B", 10, 2000, 0), f("ETH", 30 * H, "A", 4, 2100, 25, 400), f("ETH", 31 * H, "A", 21, 2100, 21, 2100), f("ETH", 40 * H, "B", 10, 2000, 0), f("ETH", 44 * H, "A", 10, 2100, 10, 1000)];
+  assert.deepEqual(B.hlTrips(gap).map((x) => [x.openAt, x.closeAt, x.pct]), [[40 * H, 44 * H, 0.047619]]);
+  const now = 400 * 86_400_000;
   const trips = (n: number, won: number, each = 0.01, at = now - 86_400_000): [number, number][] => Array.from({ length: n }, (_, i) => [at + i, i < won ? each : -each]);
   assert.equal(B.histMeetsBar(trips(20, 11), 0, now), true);
   assert.equal(B.histMeetsBar(trips(19, 19), 0, now), false, "under 20 closed");
   assert.equal(B.histMeetsBar(trips(20, 9), 0, now), false, "under half won");
   assert.equal(B.histMeetsBar([...trips(20, 12), [now - 1000, -0.2]], 0, now), false, "not ahead");
-  assert.equal(B.histMeetsBar(trips(30, 30, 0.01, now - 31 * 86_400_000), 0, now), false, "older than the month");
+  assert.equal(B.histMeetsBar(trips(30, 30, 0.01, now - 91 * 86_400_000), 0, now), false, "older than the 90 days");
+  assert.equal(B.histMeetsBar(trips(30, 30, 0.01, now - 60 * 86_400_000), 0, now), true, "two months back counts (21 Nov 2026: 90 days)");
   assert.equal(B.histMeetsBar(trips(30, 30), now, now), false, "after a cut only positions closed since count");
 });
 
@@ -616,8 +621,8 @@ test("a followed trader's history is read once a day, and qualifies it unless ou
     fetch: () =>
       (async (_u: string, init?: RequestInit) => {
         const body = JSON.parse(String(init?.body ?? "{}")) as { type: string; user?: string };
-        if (body.type === "userFills") asked.push(body.user!);
-        const out = body.type === "allMids" ? { BTC: "100000", ETH: "2000" } : body.type === "userFills" ? (body.user === A ? Array.from({ length: 22 }, (_, i) => fill(i, i % 2 === 0)).flat() : []) : { marginSummary: { accountValue: "1000000" }, assetPositions: [] };
+        if (/^userFills/.test(body.type)) asked.push(body.user!);
+        const out = body.type === "allMids" ? { BTC: "100000", ETH: "2000" } : /^userFills/.test(body.type) ? (body.user === A ? Array.from({ length: 22 }, (_, i) => fill(i, i % 2 === 0)).flat() : []) : { marginSummary: { accountValue: "1000000" }, assetPositions: [] };
         return { ok: true, status: 200, json: async () => out };
       }) as unknown as typeof fetch,
   };
@@ -640,4 +645,54 @@ test("a followed trader's history is read once a day, and qualifies it unless ou
   st.hlTraders = [st.hlTraders[1]];
   await B._bucketsTest.hlTick(deps, now + 120_000);
   assert.equal(Object.keys(st.hlHist ?? {}).includes(A), false);
+});
+
+test("a 90-day history is read in pages; a trader with more than the pages hold gets its newest fills too; a failed page keeps nothing", async () => {
+  B._bucketsTest.reset();
+  const st = B._bucketsTest.state();
+  const A = "0x" + "ef".repeat(20);
+  const now = 1_800_000_000_000;
+  st.hlTraders = [{ address: A, monthPnl: 5, monthRoi: 0.1 }];
+  st.hlAt = now;
+  const calls: { type: string; startTime?: number }[] = [];
+  let pages = 2;
+  let fail = false;
+  const row = (t: number) => ({ coin: "ETH", time: t, side: "B", sz: "0.001", px: "2000", startPosition: "1", closedPnl: "0", fee: "0" });
+  const deps = {
+    quote: async () => 1n,
+    jup: async () => [],
+    fetch: () =>
+      (async (_u: string, init?: RequestInit) => {
+        const body = JSON.parse(String(init?.body ?? "{}")) as { type: string; startTime?: number };
+        if (/^userFills/.test(body.type)) calls.push({ type: body.type, startTime: body.startTime });
+        const n = calls.filter((c) => c.type === "userFillsByTime").length;
+        if (body.type === "userFillsByTime" && fail && n === 2) return { ok: false, status: 500, json: async () => null };
+        const out = body.type === "allMids" ? { BTC: "100000", ETH: "2000" } : body.type === "userFillsByTime" ? Array.from({ length: n < pages ? 2000 : 5 }, (_, i) => row(body.startTime! + i)) : body.type === "userFills" ? [row(now - 5)] : { marginSummary: { accountValue: "1000000" }, assetPositions: [] };
+        return { ok: true, status: 200, json: async () => out };
+      }) as unknown as typeof fetch,
+  };
+  await B._bucketsTest.hlTick(deps, now);
+  const t0 = now - 90 * 86_400_000;
+  assert.deepEqual(calls, [{ type: "userFillsByTime", startTime: t0 }, { type: "userFillsByTime", startTime: t0 + 2000 }], "the second page starts after the first's last fill");
+  assert.equal(st.hlHist?.[A]?.d, 90);
+  // more than four full pages: the newest 2,000 are asked for as well
+  calls.length = 0;
+  pages = 99;
+  delete st.hlHist![A];
+  await B._bucketsTest.hlTick(deps, now + 60_000);
+  assert.deepEqual(calls.map((c) => c.type), ["userFillsByTime", "userFillsByTime", "userFillsByTime", "userFillsByTime", "userFills"]);
+  // a page that fails: nothing kept, asked again at the next look
+  calls.length = 0;
+  fail = true;
+  delete st.hlHist![A];
+  await B._bucketsTest.hlTick(deps, now + 120_000);
+  assert.equal(st.hlHist?.[A], undefined);
+  // a history read at 30 days is read again at once
+  st.hlHist![A] = { at: now + 120_000, trips: [] };
+  fail = false;
+  pages = 1;
+  calls.length = 0;
+  await B._bucketsTest.hlTick(deps, now + 180_000);
+  assert.equal(calls.length, 1);
+  assert.equal(st.hlHist?.[A]?.d, 90);
 });

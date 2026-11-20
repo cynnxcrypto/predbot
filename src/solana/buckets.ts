@@ -413,29 +413,38 @@ export interface HlTrader {
 // ---- a trader's OWN history (enrique, 20 Nov 2026: "how come we have only found 4 traders in HL worth following, that
 // sounds extremely off", then his tap "Yes, go real on history"). Of 405 followed traders 157 had been copied on paper
 // and only 18 had reached 20 closed paper copies in 5 days: these traders hold for days, so the paper bar takes weeks.
-// The SAME bar (20 closed, half won, ahead) is counted on the trader's own closed positions of the last 30 days, read
-// from Hyperliquid's fill record: only positions we would have copied ($10k+ at their largest, held 10 minutes or
+// The SAME bar (20 closed, half won, ahead) is counted on the trader's own closed positions, read
+// from Hyperliquid's fill record (the window is HIST_DAYS, 30 at first): only positions we would have copied ($10k+ at their largest, held 10 minutes or
 // more, perps), each scored as its result after the trader's fees over its largest size, so every position weighs
 // the same, as our fixed-size copies do. Our own paper copies still count against it: 5 or more and behind = no.
-export const HIST_DAYS = 30;
+// 21 Nov 2026 08:15 KST, enrique: "sure yeah" to "look back 90 days instead of 30 for the same 20 closed, half won,
+// ahead": of 381 histories read only 24 had 20 such positions closed in a month (they trade big, not often).
+export const HIST_DAYS = 90;
 export const HIST_MIN_HOLD_MS = 10 * 60_000;
 export const HIST_REFRESH_MS = 24 * 3_600_000;
 /** fill records read in one minute (20 of Hyperliquid's 1,200 weight each) */
 const HIST_PER_TICK = 3;
-const HIST_KEEP = 100;
+const HIST_KEEP = 200;
+/** pages of 2,000 fills read from the start of the window; a trader with more gets its newest 2,000 as well */
+const HIST_PAGES = 4;
 export interface HlTrip { coin: string; openAt: number; closeAt: number; pct: number }
 /**
- * A trader's closed positions out of a userFills answer (newest 2,000 fills). A position counts from the fill that
+ * A trader's closed positions out of its fills (userFills or userFillsByTime rows, any order). A position counts from the fill that
  * opens it from nothing to the fill that brings it back to nothing (or turns it round); one already open at the first
  * fill we have is left out, its start was never seen.
  */
 export function hlTrips(fills: unknown, sinceMs = 0): HlTrip[] {
   if (!Array.isArray(fills)) return [];
   const by = new Map<string, { t: number; px: number; d: number; start: number; pnl: number }[]>();
+  const seen = new Set<string>();
   for (const f of fills as Record<string, unknown>[]) {
     const coin = typeof f?.coin === "string" ? f.coin : "";
     const [t, px, sz, start] = [Number(f?.time), Number(f?.px), Number(f?.sz), Number(f?.startPosition)];
     if (!coin || coin.startsWith("@") || coin.includes("/") || !(t > 0) || !(px > 0) || !(sz > 0) || !Number.isFinite(start) || (f.side !== "B" && f.side !== "A")) continue;
+    // the same fill read twice (pages that overlap) counts once
+    const key = `${coin}|${t}|${f.side}|${f.sz}|${f.startPosition}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
     const pnl = (Number(f.closedPnl) || 0) - (Number(f.fee) || 0);
     by.set(coin, [...(by.get(coin) ?? []), { t, px, d: f.side === "B" ? sz : -sz, start, pnl }]);
   }
@@ -443,11 +452,14 @@ export function hlTrips(fills: unknown, sinceMs = 0): HlTrip[] {
   const zero = (v: number) => Math.abs(v) < 1e-9;
   for (const [coin, xs] of by) {
     xs.sort((a, b) => a.t - b.t);
-    let trip: { openAt: number; peak: number; pnl: number } | null = null;
+    let trip: { openAt: number; peak: number; pnl: number; pos: number } | null = null;
     for (const f of xs) {
       const after = f.start + f.d;
-      if (zero(f.start)) trip = { openAt: f.t, peak: 0, pnl: 0 };
+      // fills are missing between the last one and this (a gap between pages): the position is not followed across it
+      if (trip && Math.abs(f.start - trip.pos) > 1e-6 * Math.max(1, Math.abs(trip.pos))) trip = null;
+      if (zero(f.start)) trip = { openAt: f.t, peak: 0, pnl: 0, pos: 0 };
       if (!trip) continue;
+      trip.pos = after;
       trip.pnl += f.pnl;
       trip.peak = Math.max(trip.peak, Math.abs(f.start) * f.px, Math.abs(after) * f.px);
       const turned = !zero(after) && !zero(f.start) && Math.sign(after) !== Math.sign(f.start);
@@ -696,7 +708,7 @@ interface State {
   hlMajorSeen?: Record<string, number>;
   hlNext: number;
   /** trader -> its own closed positions of the last month ([when closed, result]) and when they were read */
-  hlHist?: Record<string, { at: number; trips: [number, number][] }>;
+  hlHist?: Record<string, { at: number; trips: [number, number][]; d?: number }>;
   hlOpen: HlOpen[];
   hlTrades: HlTrade[];
   mcap: Record<string, { b: Bucket | null; at: number }>;
@@ -994,6 +1006,27 @@ export function likedTraders(now = Date.now(), limit = 15): { address: string; w
   const rank = { real: 0, bar: 1, paper: 2 };
   return out.sort((x, y) => rank[x.why] - rank[y.why] || y.net - x.net).slice(0, limit).map(({ address, why }) => ({ address, why }));
 }
+/**
+ * A trader's fills since `sinceMs`: pages of 2,000 from the start, oldest first. One with more than HIST_PAGES pages
+ * gets its newest 2,000 as well; what lies between is not read, and hlTrips follows no position across that gap.
+ * null = a page was not read (nothing is kept from a partial read).
+ */
+async function hlFillsBack(deps: BucketDeps, a: string, sinceMs: number): Promise<unknown[] | null> {
+  const all: unknown[] = [];
+  let start = Math.floor(sinceMs);
+  for (let page = 0; page < HIST_PAGES; page++) {
+    const xs = await hlPost(deps, { type: "userFillsByTime", user: a, startTime: start, aggregateByTime: true }).catch(() => null);
+    if (!Array.isArray(xs)) return null;
+    all.push(...xs);
+    if (xs.length < 2000) return all;
+    let last = 0;
+    for (const x of xs as { time?: unknown }[]) last = Math.max(last, Number(x?.time) || 0);
+    if (!(last >= start)) return all;
+    start = last + 1;
+  }
+  const newest = await hlPost(deps, { type: "userFills", user: a, aggregateByTime: true }).catch(() => null);
+  return Array.isArray(newest) ? [...all, ...newest] : null;
+}
 async function hlTick(deps: BucketDeps, now: number) {
   if (now - state.hlAt > HL_REFRESH_MS || !state.hlTraders.length) {
     const res = await deps.fetch()("https://stats-data.hyperliquid.xyz/Mainnet/leaderboard", { signal: AbortSignal.timeout(90_000) }).catch(() => null);
@@ -1101,11 +1134,11 @@ async function hlTick(deps: BucketDeps, now: number) {
   state.hlHist ??= {};
   const listed = new Set(state.hlTraders.map((t) => t.address));
   for (const a of Object.keys(state.hlHist)) if (!listed.has(a)) delete state.hlHist[a];
-  const due = [...holding.filter((a) => listed.has(a)), ...state.hlTraders.map((t) => t.address)].filter((a, i, all) => all.indexOf(a) === i && now - (state.hlHist![a]?.at ?? 0) > HIST_REFRESH_MS).slice(0, HIST_PER_TICK);
+  const due = [...holding.filter((a) => listed.has(a)), ...state.hlTraders.map((t) => t.address)].filter((a, i, all) => all.indexOf(a) === i && (now - (state.hlHist![a]?.at ?? 0) > HIST_REFRESH_MS || state.hlHist![a]?.d !== HIST_DAYS)).slice(0, HIST_PER_TICK);
   for (const a of due) {
-    const fills = await hlPost(deps, { type: "userFills", user: a, aggregateByTime: true }).catch(() => null);
-    if (!Array.isArray(fills)) continue; // not read: asked again at the next look
-    state.hlHist[a] = { at: now, trips: hlTrips(fills, now - HIST_DAYS * 86_400_000).slice(-HIST_KEEP).map((x) => [x.closeAt, x.pct]) };
+    const fills = await hlFillsBack(deps, a, now - HIST_DAYS * 86_400_000);
+    if (!fills) continue; // not read: asked again at the next look
+    state.hlHist[a] = { at: now, d: HIST_DAYS, trips: hlTrips(fills, now - HIST_DAYS * 86_400_000).slice(-HIST_KEEP).map((x) => [x.closeAt, x.pct]) };
   }
   for (const o of state.hlOpen.filter((x) => now - x.at >= HL_MAX_HOLD_MS)) await shut(o, "max hold");
   if (state.hlTrades.length > KEEP_TRADES) state.hlTrades = state.hlTrades.slice(-KEEP_TRADES);
