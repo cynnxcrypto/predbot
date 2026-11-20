@@ -36,7 +36,7 @@ const r2 = (x: number) => Math.round(x * 100) / 100;
 const r6 = (x: number) => Math.round(x * 1e6) / 1e6;
 
 /** What the dashboard shows, as src/worthdash.ts last worked it out. */
-export type DashFigures = { at: number; total: number | null; cash: number | null; claim: number; bets: number; betsN: number; solBal: number | null; coinsSol: number; coinsN: number; solUsd: number | null; rulesUsd: number | null; perpsUsd: number | null; perpsPos: number; hlUsd?: number | null };
+export type DashFigures = { at: number; total: number | null; cash: number | null; claim: number; bets: number; betsN: number; betsPos?: number; solBal: number | null; coinsSol: number; coinsN: number; solUsd: number | null; rulesUsd: number | null; perpsUsd: number | null; perpsPos: number; hlUsd?: number | null };
 /** One compared figure: dash = the dashboard, src = the source; diff = dash - src. */
 export type Item = { k: string; dash: number | null; src: number | null; diff: number | null; ok: boolean | null; why?: string };
 export type Coin = { mint: string; amount: string; sol: number | null; tracked: boolean };
@@ -559,7 +559,7 @@ export async function truthRun(now = Date.now()): Promise<typeof last> {
   items.push(compare("Polymarket cash", d?.cash ?? null, pmCash, 0.05, 0));
   items.push(compare("Polymarket open bets", d?.bets ?? null, pos?.open ?? null, 1, 0.03, "Polymarket values a bet at its own current price; ours is the book price"));
   items.push(compare("Polymarket won, waiting for claim", d?.claim ?? null, pos?.won ?? null, 0.5, 0.01));
-  if (pos) extra.polymarketCounts = { dashOpen: d?.betsN ?? null, srcOpen: pos.openN, srcWaiting: pos.wonN, srcLostNotRedeemed: pos.lostN };
+  if (pos) extra.polymarketCounts = { dashOpen: d?.betsN ?? null, dashPositions: d?.betsPos ?? null, srcOpen: pos.openN, srcWaiting: pos.wonN, srcLostNotRedeemed: pos.lostN };
   const pmDash = d?.cash != null ? d.cash + d.claim + d.bets : null;
   const pmSrc = pmCash != null && pos ? pmCash + pos.open + pos.won : null;
   // Polymarket's worth change since this KST day's first check, by the independent source and by the dashboard
@@ -619,7 +619,11 @@ export async function truthRun(now = Date.now()): Promise<typeof last> {
     }
   }
   // Polymarket open bets, one by one count: the dashboard's against Polymarket's own
-  if (pos) items.push({ k: "Polymarket open bets (count)", dash: d?.betsN ?? null, src: pos.openN, diff: d?.betsN != null ? d.betsN - pos.openN : null, ok: d?.betsN != null ? Math.abs(d.betsN - pos.openN) <= 1 : null, why: "a bet bought in the minute of the check can show on one side only" });
+  if (pos) {
+    // Polymarket counts positions (one per outcome held); two buys of one outcome are one position there (20 Nov 2026).
+    const dn = d?.betsPos ?? d?.betsN ?? null;
+    items.push({ k: "Polymarket open positions (count)", dash: dn, src: pos.openN, diff: dn != null ? dn - pos.openN : null, ok: dn != null ? Math.abs(dn - pos.openN) <= 1 : null, why: "positions, not bets: two buys of one outcome are one position; a bet bought in the minute of the check can show on one side only" });
+  }
   // Hyperliquid (17 Nov 2026) is not read again here yet: its own reading is added so the total compares like for like
   const parts = [pmSrc, solSrc.spot, solSrc.rules, solSrc.perps, d?.hlUsd ?? 0];
   items.push(compare("Total worth", d?.total ?? null, parts.every((x) => x != null) ? parts.reduce((a: number, x) => a + (x as number), 0) : null, 2, 0.01));

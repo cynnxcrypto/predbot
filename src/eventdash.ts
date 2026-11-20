@@ -667,7 +667,7 @@ setInterval(evTick,1000);setInterval(function(){evPoll(false)},5000);
 
 /** Every open real prediction bet at Polymarket's price now (the same one-minute price memo as the category logs), in
  * total and by the Korean day it should settle, split into bets ahead and bets behind. Dashboard overview only. */
-export async function openWorth(): Promise<{ n: number; stake: number; value: number; priced: number; days: Record<string, { n: number; stake: number; value: number; win: number; lose: number }> }> {
+export async function openWorth(): Promise<{ n: number; positions: number; stake: number; value: number; priced: number; days: Record<string, { n: number; stake: number; value: number; win: number; lose: number }> }> {
   const all = loadJson<RealRow[]>("eventlive.json", []);
   const log = (Array.isArray(all) ? all : []).filter((r) => r.marketId && r.shares > 0 && r.pnl == null).map((r) => ({ marketId: r.marketId, idx: r.idx ?? null, status: r.status, ask: r.ask, shares: r.shares, cost: r.status === "resting" ? r.shares * r.ask : r.cost, pnl: null as number | null }));
   await withResolveTimes({ log });
@@ -688,5 +688,7 @@ export async function openWorth(): Promise<{ n: number; stake: number; value: nu
     if (v >= r.cost) d.win = r2(d.win + v);
     else d.lose = r2(d.lose + v);
   }
-  return { n: log.length, stake: r2(stake), value: r2(value), priced, days };
+  // Polymarket counts one position per outcome held: two buys of the same outcome are two bets here but one position there.
+  const positions = new Set(log.map((r) => `${r.marketId}:${r.idx ?? ""}`)).size;
+  return { n: log.length, positions, stake: r2(stake), value: r2(value), priced, days };
 }

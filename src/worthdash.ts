@@ -15,7 +15,7 @@ const SOL = "So11111111111111111111111111111111111111112";
 const USDC = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
 const FILE = "worth-history.json";
 type Today = { usd: number; at: number; from?: number; est?: boolean } | null;
-type Worth = { today?: Record<string, Today>; at: number; total: number | null; cash: number | null; claim: number; bets: number; betsN: number; betsStake: number; days: Record<string, { n: number; stake: number; value: number; win: number; lose: number }>; solBal: number | null; coinsSol: number; coinsN: number; solUsd: number | null; rulesUsd: number | null; perpsUsd: number | null; hlUsd?: number | null; rulesPos: number; perpsPos: number; parts?: Record<string, { sol: number | null; usdc: number | null; pos: number } | { eth: number; usdc: number; account: number } | null> };
+type Worth = { today?: Record<string, Today>; at: number; total: number | null; cash: number | null; claim: number; bets: number; betsN: number; betsPos?: number; betsStake: number; days: Record<string, { n: number; stake: number; value: number; win: number; lose: number }>; solBal: number | null; coinsSol: number; coinsN: number; solUsd: number | null; rulesUsd: number | null; perpsUsd: number | null; hlUsd?: number | null; rulesPos: number; perpsPos: number; parts?: Record<string, { sol: number | null; usdc: number | null; pos: number } | { eth: number; usdc: number; account: number } | null> };
 /** Money put in or taken out: [time, dollars (+ in, - out), which wallet]. Not a gain or a loss. */
 export type Flow = [number, number, string];
 /** What each wallet held at the last sample, to tell a deposit from a result. */
@@ -591,7 +591,7 @@ export async function worthView(cash: number | null, claim: number, solBal: numb
     /* no list: our own books only */
   }
   if (!memo || Date.now() - memo.at > 15_000) {
-    const [bets, px, slow] = await Promise.all([openWorth().catch(() => ({ n: 0, stake: 0, value: 0, priced: 0, days: {} })), solUsd(), solSlowView().catch(() => null)]);
+    const [bets, px, slow] = await Promise.all([openWorth().catch(() => ({ n: 0, positions: 0, stake: 0, value: 0, priced: 0, days: {} })), solUsd(), solSlowView().catch(() => null)]);
     const open0 = ((slow as { open?: { stage: string; worthSol: number | null; stakeSol?: number | null; name?: string; t?: number }[] } | null)?.open ?? []).filter((c) => c.stage !== "waiting");
     // A coin whose quote fails this time keeps its last price (kept across restarts); one never priced at all and held
     // over 30 min counts at cost, as it has every time, so it moves nothing. 17 Nov 2026: dead coins with no sale route
@@ -650,7 +650,7 @@ export async function worthView(cash: number | null, claim: number, solBal: numb
     // kept, as the chart keeps no sample from it (16 Nov 2026: after a restart unpriced coins read as -$84 today)
     const wt = priced ? walletsToday(wallHist, effFlows(), wn, Date.now()) : null;
     const today = wt ? { all: sumOfWallets(all, wt), ...wt } : (memo?.v.today ?? undefined);
-    memo = { at: Date.now(), v: { at: Date.now(), total, cash, claim, bets: bets.value, betsN: bets.n, betsStake: bets.stake, days: bets.days, solBal, coinsSol: Math.round(coinsSol * 1e4) / 1e4, coinsN: open.length, solUsd: px, rulesUsd, perpsUsd, hlUsd, parts: { ...parts, hl: h && h.ethUsd > 0 ? { eth: Math.round(h.eth * h.ethUsd * 100) / 100, usdc: Math.round((h.usdc + h.inTransitUsdc) * 100) / 100, account: h.hlUsd } : null }, rulesPos, perpsPos, today } };
+    memo = { at: Date.now(), v: { at: Date.now(), total, cash, claim, bets: bets.value, betsN: bets.n, betsPos: bets.positions, betsStake: bets.stake, days: bets.days, solBal, coinsSol: Math.round(coinsSol * 1e4) / 1e4, coinsN: open.length, solUsd: px, rulesUsd, perpsUsd, hlUsd, parts: { ...parts, hl: h && h.ethUsd > 0 ? { eth: Math.round(h.eth * h.ethUsd * 100) / 100, usdc: Math.round((h.usdc + h.inTransitUsdc) * 100) / 100, account: h.hlUsd } : null }, rulesPos, perpsPos, today } };
     if (total != null && priced) full = { at: Date.now(), total };
     whyNot = total != null && priced ? null : { at: Date.now(), betsN: bets.n, betsPriced: bets.priced, coinsPriced, solRead: solBal != null, cashRead: cash != null };
     const last = hist[hist.length - 1];
