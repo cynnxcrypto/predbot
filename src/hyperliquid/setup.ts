@@ -124,6 +124,8 @@ export async function secondFundLook(d: SecondDeps, now = Date.now()): Promise<s
   }
 }
 /** For the public status: no address. */
+/** The second wallet's public address, for the password-protected dashboard only (never the public status). */
+export const hlAddress2 = () => address2 || null;
 export const secondPublic = () => ({ wallet: address2 ? "made" : hlWallet2Exists() ? "on disk" : "none", funds: loadJson<SecondState>(SECOND, { funds: [] }).funds });
 
 /** One look at the wallet: a dry run of the funding, or the real thing when the repo file says go. Never throws. */

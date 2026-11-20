@@ -17,7 +17,7 @@ import { setChainFlows, worthView, worthCheck, worthLast, worthFlows } from "./w
 import { chainFix, startTruthCheck, truthPrivate, truthPublic } from "./truthcheck.js";
 import { bridgePublic } from "./bridge/bridge.js";
 import { startBridge } from "./bridge/real.js";
-import { hlLive, hlPage, hlPrivate, hlPublic, startHyperliquid } from "./hyperliquid/setup.js";
+import { hlAddress2, hlLive, hlPage, hlPrivate, hlPublic, startHyperliquid } from "./hyperliquid/setup.js";
 import { linksPrivate, linksPublic } from "./hyperliquid/links.js";
 import { labSummary, startLab } from "./lab/run.js";
 import { BASE_BTN, LAB_BTN, LAB_CSS, LAB_HTML, LAB_JS } from "./labdash.js";
@@ -538,7 +538,17 @@ export function serveStatus(recorder: Recorder, build: string, others: Recorder[
       Promise.all([solBalance(sol), solBalance(bk), solBalance(pp)]).then(([solBal, bkBal, ppBal]) => {
         res.writeHead(200, { "content-type": "application/json", "cache-control": "no-store" });
         const hla = password ? hlPrivate().address : null;
-        res.end(JSON.stringify({ hl: hla ? { address: hla } : null, solBuckets: bk ? { address: bk, balance: bkBal } : null, solPerps: pp ? { address: pp, balance: ppBal } : null, poly: /^0x[0-9a-fA-F]{40}$/.test(poly) ? { address: poly, balance: cash, toClaim: mine.live?.toClaim ?? null } : null, sol: /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(sol) ? { address: sol, balance: solBal } : null }));
+        // 20 Nov 2026, enrique: "i need the wallet address of any new wallets": the second HL wallet and the Base wallet,
+        // public addresses only, behind the dashboard password like the others (never in the public status)
+        const hl2 = password ? hlAddress2() : null;
+        let base = "";
+        try {
+          const bf = join(DATA, "base-wallet.json");
+          base = password && existsSync(bf) ? String((JSON.parse(readFileSync(bf, "utf8")) as { address?: unknown }).address ?? "") : "";
+        } catch {
+          base = "";
+        }
+        res.end(JSON.stringify({ hl: hla ? { address: hla } : null, hl2: hl2 && /^0x[0-9a-fA-F]{40}$/.test(hl2) ? { address: hl2 } : null, base: /^0x[0-9a-fA-F]{40}$/.test(base) ? { address: base } : null, solBuckets: bk ? { address: bk, balance: bkBal } : null, solPerps: pp ? { address: pp, balance: ppBal } : null, poly: /^0x[0-9a-fA-F]{40}$/.test(poly) ? { address: poly, balance: cash, toClaim: mine.live?.toClaim ?? null } : null, sol: /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(sol) ? { address: sol, balance: solBal } : null }));
       });
       return;
     }
@@ -1392,7 +1402,7 @@ showTab(TAB);showSec(SEC);poll();var wpoll=function(){fetch("/api/wallets").then
 var pt=G&&G.cash!=null?(+G.cash||0)+(+G.claim||0)+(+G.bets||0):null;var stt=G&&G.solUsd&&G.solBal!=null?((+G.solBal||0)+(+G.coinsSol||0))*G.solUsd:null;var xb=function(w,g){return g!=null?g:!w||w.balance==null||!G||!G.solUsd?null:w.balance*G.solUsd};var rb=xb(W.solBuckets,G&&G.rulesUsd),pb=xb(W.solPerps,G&&G.perpsUsd);
 var all=G&&G.total!=null?G.total:null;
 put("gv-h",all==null?"—":"≈ "+money(all));put("gv-n",pt==null?(W.poly&&W.poly.balance!=null?money(W.poly.balance):"—"):"≈ "+money(pt));put("gv-s",stt==null?"—":"≈ "+money(stt));
-var em=function(v,w){return !w?"—":v==null?"—":v<0.005?"empty":"≈ "+money(v)};put("gv-r",em(rb,W.solBuckets));put("gv-p",em(pb,W.solPerps));var ptt=function(id,P){var e=el(id);if(!e)return;var f=function(v){return v==null?"not read":money(v)};e.title=P?"SOL "+f(P.sol)+" · USDC "+f(P.usdc)+" · in positions "+money(P.pos||0):""};ptt("gv-r",G&&G.parts&&G.parts.rules);ptt("gv-p",G&&G.parts&&G.parts.perps);put("gv-x",G&&G.hlUsd!=null?em(+G.hlUsd,1):"—");var gxe=el("gv-x"),HPp=G&&G.parts&&G.parts.hl;if(gxe)gxe.title=HPp?"on Hyperliquid "+money(HPp.account)+" · USDC "+money(HPp.usdc)+" · ETH "+money(HPp.eth):"";put("ga-x",W.hl?lk("https://app.hyperliquid.xyz/explorer/address/"+W.hl.address,sh(W.hl.address),W.hl.address)+cp(W.hl.address):"");
+var em=function(v,w){return !w?"—":v==null?"—":v<0.005?"empty":"≈ "+money(v)};put("gv-r",em(rb,W.solBuckets));put("gv-p",em(pb,W.solPerps));var ptt=function(id,P){var e=el(id);if(!e)return;var f=function(v){return v==null?"not read":money(v)};e.title=P?"SOL "+f(P.sol)+" · USDC "+f(P.usdc)+" · in positions "+money(P.pos||0):""};ptt("gv-r",G&&G.parts&&G.parts.rules);ptt("gv-p",G&&G.parts&&G.parts.perps);put("gv-x",G&&G.hlUsd!=null?em(+G.hlUsd,1):"—");var gxe=el("gv-x"),HPp=G&&G.parts&&G.parts.hl;if(gxe)gxe.title=HPp?"on Hyperliquid "+money(HPp.account)+" · USDC "+money(HPp.usdc)+" · ETH "+money(HPp.eth):"";put("ga-x",(W.hl?lk("https://app.hyperliquid.xyz/explorer/address/"+W.hl.address,sh(W.hl.address),W.hl.address)+cp(W.hl.address):"")+(W.hl2?' <span class="mut">2nd</span> '+lk("https://app.hyperliquid.xyz/explorer/address/"+W.hl2.address,sh(W.hl2.address),W.hl2.address)+cp(W.hl2.address):""));put("ga-b",W.base?lk("https://basescan.org/address/"+W.base.address,sh(W.base.address),W.base.address)+cp(W.base.address):"");
 put("ga-h",'<span class="mut">all wallets</span>');put("ga-n",W.poly?lk("https://polygonscan.com/address/"+W.poly.address,sh(W.poly.address),W.poly.address)+cp(W.poly.address):"");
 var GL0=window.LASTS&&window.LASTS.solanaCopy&&window.LASTS.solanaCopy.buckets&&window.LASTS.solanaCopy.buckets.perps&&window.LASTS.solanaCopy.buckets.perps.real&&window.LASTS.solanaCopy.buckets.perps.real.gas&&window.LASTS.solanaCopy.buckets.perps.real.gas.low||{};var lg=function(k){return GL0[k]?'<i class="gl" title="this wallet is low on SOL for fees">low gas</i>':""};put("ga-s",W.sol?lk("https://solscan.io/account/"+W.sol.address,sh(W.sol.address),W.sol.address)+cp(W.sol.address)+lg("copy"):"");
 put("ga-r",W.solBuckets?lk("https://solscan.io/account/"+W.solBuckets.address,sh(W.solBuckets.address),W.solBuckets.address)+cp(W.solBuckets.address)+lg("rules"):"");put("ga-p",W.solPerps?lk("https://solscan.io/account/"+W.solPerps.address,sh(W.solPerps.address),W.solPerps.address)+cp(W.solPerps.address)+lg("perps"):"");
