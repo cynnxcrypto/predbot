@@ -93,7 +93,7 @@ function render(L){
  set("bs-rtiles",tiles(R.opens));
  set("bs-rtbl",'<div class="k" style="margin:14px 0 2px">wallets we copy · real</div><div class="mut" style="font-size:12px;margin:2px 0 6px">'+(live?"":"none copied while real is off · ")+'<b style="color:var(--up)">'+WP.length+'</b> at the real bar · 10+ paper copies, half won, ahead</div>'+(WP.length?wtbl(WP,"paper"):'<div class="empty" style="padding:8px 0;text-align:left">no wallet is at the real bar yet</div>')+err(R.error));
  tlog("bs-r",R.opens,R.log,R.closed||0,"sells when the wallet sells · 72 h max",live?"no copy yet":"no real copy yet · real Base copies are off");
- var rw=R.usdc==null?null:R.usdc+(+R.inCoinsUsd||0);var gb=el("gv-b");if(gb)gb.textContent=rw==null?"—":"≈ "+money(rw);var gt2=el("grp-b");if(gt2)gt2.innerHTML=live?'<span class="ok">real on</span>':"real off"}
+ var rw=R.usdc==null?null:R.usdc+(+R.inCoinsUsd||0);var gb=el("gv-b");if(gb)gb.textContent=rw==null?"—":"≈ "+money(rw);var gt2=el("grp-b");if(gt2)gt2.innerHTML=live?'<span class="ok">real on</span>':"real off";var gbe=document.querySelector('.gb[data-g="base"]');if(gbe)gbe.classList.toggle("gone",!live&&(rw==null||rw<1))}
  // paper copies
  set("bs-pst",B.coins.length?B.coins.length+" coins · "+B.followed+" of "+B.walletsSeen+" wallets followed":B.error?"no reading yet":"reading the coins");
  set("bs-ps",lt3("all time",SD(B.usd),sc3(B.usd))+lt3("open now",B.opens.length?SD(B.openUsd):"—",B.opens.length?sc3(B.openUsd):"")+lt3("closed",String(B.closed||0))+lt3("holding",String(B.opens.length))+lt3("at the real bar",String(B.passing)));
