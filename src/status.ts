@@ -4,7 +4,7 @@ import { pairliveSummary } from "./pairlive.js";
 import { pairlockSummary } from "./pairlock.js";
 import { pairfastSummary } from "./pairfast.js";
 import { pairfastliveSummary } from "./pairfastlive.js";
-import { walletHistorySummary } from "./wallethistory.js";
+import { walletHistoryAt, walletHistorySummary } from "./wallethistory.js";
 import { solanaSummary } from "./solana/run.js";
 import { shared as solShared, solanaCopySummary } from "./solana/copyrun.js";
 import { existsSync, readFileSync } from "node:fs";
@@ -146,6 +146,7 @@ export function serveStatus(recorder: Recorder, build: string, others: Recorder[
       const cash = mine.live?.balance != null ? (mine.live.chain?.pUSD ?? mine.live.balance) + (mine.live.chain?.["USDC.e"] ?? 0) + (mine.live.chain?.USDC ?? 0) : null;
       return walletHistorySummary(cash, mine.live?.toClaim ?? 0)?.allTimeNet ?? null;
     },
+    allTimeAt: () => walletHistoryAt(),
     rpcUrl: () => solShared.rpcUrl(),
     helius: () => solShared.helius() ?? "",
     quote: (mint, out, amount, bps) => solKit.quote(mint, out, amount, bps) as Promise<{ outAmount?: string }>,

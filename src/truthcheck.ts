@@ -326,6 +326,8 @@ type Deps = {
   dash: () => DashFigures | null;
   flows: () => [number, number, string][];
   allTime: () => number | null;
+  /** When that all-time figure was read (ms); it is kept with this time, not with the check's. */
+  allTimeAt?: () => number | null;
   rpcUrl: () => string;
   helius: () => string;
   quote: (mint: string, out: string, amount: string, bps: number) => Promise<{ outAmount?: string }>;
@@ -385,8 +387,8 @@ export function pnlOf(p: PnlPoint): number | null {
   return pos != null && inc != null ? pos + inc : null;
 }
 /** Our "Polymarket all time" as each run saw it, so that a Polymarket point from hours ago is compared with ours from
- *  the same time, not with ours now. Three days kept, in data/truth-alltime.json. */
-const SAMPLES = "truth-alltime.json";
+ *  the same time, not with ours now. Three days kept, in data/truth-alltime-v2.json. */
+const SAMPLES = "truth-alltime-v2.json"; // v2 (20 Nov 2026): v1 samples were stamped with the check time, not the read time
 
 /** A Solana wallet as the chain has it: SOL, USD coins, and every other coin at a Jupiter sale quote (in SOL). */
 async function solWallet(address: string, tracked: Set<string>) {
@@ -517,8 +519,11 @@ export async function truthRun(now = Date.now()): Promise<typeof last> {
     // and when we have none from then, the difference with ours now is shown but counts as no check.
     try {
       const mine = deps.allTime();
-      const samples = loadJson<[number, number][]>(SAMPLES, []).filter((x) => Array.isArray(x) && x[0] >= now - 3 * 86_400_000 && x[0] < now);
-      if (mine != null) saveJson(SAMPLES, [...samples, [now, mine]]);
+      // stamped with the time its history was read: a figure read hours ago compared as "now" drifted (20 Nov 2026, -$37.66)
+      const mineAt = Math.min(now, deps.allTimeAt?.() ?? now);
+      const samples = loadJson<[number, number][]>(SAMPLES, []).filter((x) => Array.isArray(x) && x[0] >= now - 3 * 86_400_000 && x[0] <= now && x[0] !== mineAt);
+      if (mine != null) samples.push([mineAt, mine]);
+      if (mine != null) saveJson(SAMPLES, samples);
       let pt: PnlPoint | null = null;
       for (const q of ["interval=1d&fidelity=1h", "interval=all&fidelity=1d", "interval=max&fidelity=1d"]) {
         const j = (await getDataApi(`${DATA_API}/v2/user-pnl?user=${funder}&${q}`).catch(() => null)) as { data?: { points?: PnlPoint[] } } | null;
@@ -532,9 +537,9 @@ export async function truthRun(now = Date.now()): Promise<typeof last> {
         const ptMs = Number(pt.timestamp) * 1000;
         const ageMin = Math.round((now - ptMs) / 60_000);
         const at = new Date(ptMs).toISOString().slice(11, 16) + " UTC";
-        const near = (Math.abs(now - ptMs) <= 20 * 60_000 && mine != null ? [[now, mine] as [number, number]] : samples.filter((x) => Math.abs(x[0] - ptMs) <= 20 * 60_000)).sort((a, b) => Math.abs(a[0] - ptMs) - Math.abs(b[0] - ptMs))[0];
+        const near = samples.filter((x) => Math.abs(x[0] - ptMs) <= 20 * 60_000).sort((a, b) => Math.abs(a[0] - ptMs) - Math.abs(b[0] - ptMs))[0];
         const it = near
-          ? compare("Polymarket all time", near[1], pnlOf(pt), 2, 0.01, near[0] === now ? "against Polymarket's own profit and loss for the wallet (settled, open bets at its marks, and income)" : `against Polymarket's own profit and loss at ${at}, with ours from then`)
+          ? compare("Polymarket all time", near[1], pnlOf(pt), 2, 0.01, near[0] === mineAt && Math.abs(now - ptMs) <= 20 * 60_000 ? "against Polymarket's own profit and loss for the wallet (settled, open bets at its marks, and income)" : `against Polymarket's own profit and loss at ${at}, with ours from then`)
           : compare("Polymarket all time", mine, pnlOf(pt), 2, 0.01, `Polymarket's own figure is from ${at} (${ageMin} min before this check) and ours from then is not kept yet: a difference, not a check`);
         if (!near) it.ok = null;
         items.push(it);

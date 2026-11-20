@@ -166,6 +166,9 @@ export async function refreshWalletHistory(): Promise<WalletHistory | null> {
  * For the dashboard (behind its password). `cash` is what the wallet holds now and `claim` what is won and waiting, so
  * the money put in can be worked out. deploy/report.py copies only the profit and loss fields to GitHub.
  */
+/** When the history behind the all-time figure was read (ms), for comparing it with a figure from that time. */
+export const walletHistoryAt = () => (last && last.rows > 0 && !last.error ? last.at : null);
+
 export function walletHistorySummary(cash: number | null = null, claim = 0) {
   const h = last;
   if (!h) return null;
@@ -198,5 +201,7 @@ export function walletHistorySummary(cash: number | null = null, claim = 0) {
 export function startWalletHistory() {
   if (process.env.WALLETHISTORY === "off") return null;
   setTimeout(() => void refreshWalletHistory().catch(() => undefined), 45_000);
-  return setInterval(() => void refreshWalletHistory().catch(() => undefined), 3 * 3600_000);
+  // every 15 min (about 13 pages of 500 rows): the dashboard's "Polymarket all time" and the truth check read it, and a
+  // 3-hourly read left both up to 3 h stale (20 Nov 2026: the truth check drifted to -$37.66 against Polymarket's fresh figure)
+  return setInterval(() => void refreshWalletHistory().catch(() => undefined), 15 * 60_000);
 }
