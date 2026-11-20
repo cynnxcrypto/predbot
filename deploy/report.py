@@ -136,6 +136,7 @@ def public_solana(sc):
         real["today" + key[0].upper() + key[1:]] = round(sum(r.get(key) or 0 for r in rows if _kst_day(r.get("t")) == today), 6)
         for r in rows:
             r.pop("t", None)
+            r.pop("sym", None)  # 20 Nov 2026: a real trade's coin is on the dashboard only, never in this public file
         opens = [o for o in real.get("opens") or [] if isinstance(o, dict)] + ([real["open"]] if isinstance(real.get("open"), dict) else [])
         for o in opens:
             o.pop("since", None)

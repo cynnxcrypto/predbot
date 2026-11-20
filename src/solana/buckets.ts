@@ -1244,6 +1244,12 @@ export function paperRecord(rule: string, sinceMs = 0) {
 export const meetsBar = (x: { trades: number; won: number; netUsd: number }) => x.trades >= REAL_MIN_TRADES && x.won * 2 >= x.trades && x.netUsd > 0;
 export const spotRuleIds = () => BUCKETS.flatMap((b) => SPOT_RULES.map((x) => ruleId(b, x.key)));
 /** The paper trades that are open now. */
+/** The coin of a paper trade by its rule and buy time (ms), open or closed; "" when no longer kept. For the real trade log. */
+export function paperSymbolAt(rule: string, at: number | undefined): string {
+  if (at == null) return "";
+  const t = state.trades.find((x) => x.rule === rule && x.at === at) ?? state.open.find((x) => x.rule === rule && x.at === at);
+  return t?.symbol ?? "";
+}
 export function paperOpens(): { rule: string; bucket: Bucket; mint: string; symbol: string; at: number }[] {
   if (!loaded) load();
   return state.open.map((o) => ({ rule: o.rule, bucket: o.bucket, mint: o.mint, symbol: o.symbol, at: o.at }));

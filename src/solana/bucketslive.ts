@@ -34,7 +34,7 @@ import { join } from "node:path";
 import { DATA, ROOT } from "../config.js";
 import { saleRefused } from "./refused.js";
 import { CUT_MIN_TRADES, cutReason, realRecord, scaleOf, standing, SCALE_WALLET_SHARE } from "./realfirst.js";
-import { meetsBar, paperOpens, paperRecord, setBucketsRealSummary, spotRuleIds, REAL_MIN_TRADES, type Bucket } from "./buckets.js";
+import { meetsBar, paperOpens, paperRecord, paperSymbolAt, setBucketsRealSummary, spotRuleIds, REAL_MIN_TRADES, type Bucket } from "./buckets.js";
 import { namedWallet, signTransaction, type Wallet } from "./keys.js";
 import { SOL } from "./pools.js";
 
@@ -134,6 +134,8 @@ interface Row {
   /** when the paper trade it followed was bought, ms (rows from 16 Nov 2026): a rule's real record counts trades BOUGHT after its last cut */
   at?: number;
   rule: string;
+  /** the coin's symbol (rows from 20 Nov 2026; older rows find it from their paper trade): dashboard only, never public */
+  sym?: string;
   buy: "landed" | "did not land" | "failed";
   netSol: number;
   heldMin: number | null;
@@ -658,7 +660,7 @@ export function closeDays<R extends { t: number }>(rows: R[], net: (r: R) => num
 function book(d: LiveDeps, p: Pos, buyState: Row["buy"], net: number, stuck: boolean) {
   state.netSol = n9(state.netSol + net);
   state.opens = state.opens.filter((x) => x !== p);
-  state.rows = [...state.rows, { t: Date.now(), at: p.paperAt, rule: p.rule, buy: buyState, netSol: net, ...(stuck ? { stuck: true } : {}), heldMin: p.boughtMs ? Math.round((Date.now() - p.boughtMs) / 60_000) : null }].slice(-5000);
+  state.rows = [...state.rows, { t: Date.now(), at: p.paperAt, rule: p.rule, sym: symOf(p.mint) || paperSymbolAt(p.rule, p.paperAt), buy: buyState, netSol: net, ...(stuck ? { stuck: true } : {}), heldMin: p.boughtMs ? Math.round((Date.now() - p.boughtMs) / 60_000) : null }].slice(-5000);
   const c = d.cfg();
   // (the one-time test trade follows no rule: it is never "cut")
   const cut = p.rule === TEST_RULE ? "" : cutReason(realOf(p.rule), c.ruleStopSol);
@@ -785,7 +787,7 @@ export function bucketsLiveSummary() {
     lastError: state.lastError,
     // the real trades for the page: newest 40 closed and what is out now (rule and bucket only: no coin, no transaction,
     // and not the buy time a row keeps for its rule's record: beside the paper list that time would name the coin)
-    rows: state.rows.slice(-40).reverse().map(({ at: _at, ...x }) => x),
+    rows: state.rows.slice(-40).reverse().map(({ at, ...x }) => ({ ...x, sym: x.sym || paperSymbolAt(x.rule, at) })),
     // every day's closed real trades in SOL, the test trade left out
     days: closeDays(state.rows.filter((x) => x.rule !== TEST_RULE), (x) => x.netSol, (x) => x.buy === "landed"),
     // for the tab (17 Nov 2026, enrique: "positions open thing with no data of size, pnl or anything"): the coin's
