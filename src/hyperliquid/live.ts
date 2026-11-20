@@ -77,9 +77,10 @@ export interface HlLiveConfig {
   lateWithin?: number;
   /** the second wallet (overlaps): on = a copy the first wallet cannot hold goes there; testOnce = its one test trade */
   second?: { on: boolean; testOnce: string; maxOpen: number };
-  /** close every open position in both wallets at the next look (20 Nov 2026, enrique: "close all hyperliquid
-   *  positions and lets see what happens next"); a forced close does not count for or against the trader */
-  closeAll?: boolean;
+  /** once per name: close every position open at that moment in both wallets (20 Nov 2026, enrique: "close all
+   *  hyperliquid positions and lets see what happens next"); new copies go on as usual ("why no new real copies open
+   *  wtf"). A forced close does not count for or against the trader */
+  closeAllOnce?: string;
 }
 /** the second wallet's own slots (enrique, 20 Nov 2026: "move 50usd to the second hl wallet and 4 slots") */
 export const SECOND_MAX_OPEN = 4;
@@ -95,10 +96,10 @@ export function parseHlLive(text: string): HlLiveConfig {
     const s2 = p.second && typeof p.second === "object" ? (p.second as Record<string, unknown>) : null;
     const maxLossUsd = clamp(num(p.maxLossUsd, 0), 0, HARD_MAX_LOSS_USD);
     const collateralUsd = clamp(num(p.collateralUsd, MIN_COLLATERAL_USD), MIN_COLLATERAL_USD, HARD_COLLATERAL_USD);
-    const closeAll = p.closeAll === true ? { closeAll: true } : {};
+    const closeAll = name(p.closeAllOnce) ? { closeAllOnce: name(p.closeAllOnce) } : {};
     if (p.on !== true || !(maxLossUsd > 0)) return { ...OFF, collateralUsd, testOnce, ...closeAll, ...(s2 ? { second: { on: false, testOnce: name(s2.testOnce), maxOpen: 0 } } : {}) };
     const lateWithin = clamp(num(p.lateWithinPct, 0), 0, HARD_LATE_PCT) / 100;
-    return { on: true, collateralUsd, maxLossUsd, testOnce, lateWithin, ...(s2 ? { second: { on: s2.on === true, testOnce: name(s2.testOnce), maxOpen: Math.floor(clamp(num(s2.maxOpen, SECOND_MAX_OPEN), 1, HARD_SECOND_MAX_OPEN)) } } : {}), maxOpen: Math.floor(clamp(num(p.maxOpen, 5), 1, HARD_MAX_OPEN)), traderStopUsd: clamp(num(p.traderStopUsd, 9), 1, HARD_TRADER_STOP_USD) };
+    return { on: true, collateralUsd, maxLossUsd, testOnce, lateWithin, ...closeAll, ...(s2 ? { second: { on: s2.on === true, testOnce: name(s2.testOnce), maxOpen: Math.floor(clamp(num(s2.maxOpen, SECOND_MAX_OPEN), 1, HARD_SECOND_MAX_OPEN)) } } : {}), maxOpen: Math.floor(clamp(num(p.maxOpen, 5), 1, HARD_MAX_OPEN)), traderStopUsd: clamp(num(p.traderStopUsd, 9), 1, HARD_TRADER_STOP_USD) };
   } catch {
     return OFF;
   }
@@ -160,6 +161,8 @@ export interface HlDeps {
 }
 
 interface Pos {
+  /** marked by a closeAllOnce: closed at the next looks whatever the trader does */
+  forceClose?: boolean;
   rule: string;
   coin: string;
   paperId: string;
@@ -226,6 +229,11 @@ interface State {
   account2?: { at: number; valueUsd: number; freeUsd: number };
   agentOk2?: boolean;
   test2?: { id: string; at: number; result: string };
+  /** the last closeAllOnce name carried out */
+  closeAllId?: string;
+  /** what each force-closed position would have made if held until its trader closed (enrique, 20 Nov 2026: "if the
+   *  market continues in the direction these positions we had pointed, then u fucked up"): from our close price */
+  ghosts?: { coin: string; dir: number; sz: number; closePx: number; paperId: string; closedAt: number; nowPx?: number; exitPx?: number; exitAt?: number; lockedUsd: number }[];
   lastError2?: string;
 }
 const fresh = (): State => ({ netUsd: 0, opens: [], rows: [], demoted: {}, demotedWhy: {}, seen: [], held: [], lateOff: [], skipped: {}, lastError: "" });
@@ -313,7 +321,7 @@ export async function hlLiveTick(d: HlDeps, now = Date.now()): Promise<void> {
   const cfg = d.cfg();
   const testDue = !!cfg.testOnce && state.test?.id !== cfg.testOnce;
   const test2Due = !!d.venue2 && !!cfg.second?.testOnce && state.test2?.id !== cfg.second.testOnce;
-  if (!cfg.on && !testDue && !test2Due && !state.opens.length) return;
+  if (!cfg.on && !testDue && !test2Due && !state.opens.length && !cfg.closeAllOnce) return;
   busy = true;
   try {
     const v = d.venue;
@@ -364,6 +372,21 @@ export async function hlLiveTick(d: HlDeps, now = Date.now()): Promise<void> {
       }
     }
 
+    // ---- ghosts of force-closed positions: marked at the mid until their trader closes ----
+    for (const g of state.ghosts ?? []) {
+      if (g.exitAt) continue;
+      if (mids[g.coin] > 0) g.nowPx = mids[g.coin];
+      if (!paper.some((x) => x.id === g.paperId) && g.nowPx) {
+        g.exitPx = g.nowPx;
+        g.exitAt = now;
+      }
+    }
+    // ---- close all, once per name: every position open now is marked; later copies are not ----
+    if (cfg.closeAllOnce && state.closeAllId !== cfg.closeAllOnce) {
+      for (const p of state.opens) p.forceClose = true;
+      state.closeAllId = cfg.closeAllOnce;
+      save();
+    }
     // ---- what we hold: mark it, close what is due ----
     for (const p of [...state.opens]) {
       const pa = p.w ? acct2 : acct;
@@ -384,7 +407,7 @@ export async function hlLiveTick(d: HlDeps, now = Date.now()): Promise<void> {
       p.venueIsolated = held.isolated;
       p.venueMarginUsd = r2(held.marginUsd);
       const po = paper.find((x) => x.id === p.paperId);
-      let why = cfg.closeAll ? "closed on enrique's word (close all)" : p.rule === TEST_RULE ? "test" : !po ? "the trader closed" : now - p.openedMs > MAX_HOLD_H * 3_600_000 ? "max hold" : "";
+      let why = p.forceClose ? "closed on enrique's word (close all)" : p.rule === TEST_RULE ? "test" : !po ? "the trader closed" : now - p.openedMs > MAX_HOLD_H * 3_600_000 ? "max hold" : "";
       // PARTIAL CLOSES (enrique, 19 Nov 2026: "yeah build all 3"): the trader took part off, so we take the same share
       // of our opening size off. What is left is never kept under Hyperliquid's smallest order: then all of it goes.
       if (po?.left != null) {
@@ -431,7 +454,9 @@ export async function hlLiveTick(d: HlDeps, now = Date.now()): Promise<void> {
       delete pa.positions[p.coin];
       const oids = [p.openOid, ...(p.closeOids ?? [])].filter((x): x is number => x != null);
       const own = p.openOid != null && p.closeOids?.length ? await pv.result(oids, p.openedMs - 60_000).catch(() => null) : null;
-      book(p, own ?? (p.partUsd ?? 0) + p.dir * (f.px - p.entryPx) * sz - TAKER_FEE * sz * (f.px + p.entryPx), why, now, stop);
+      const net = own ?? (p.partUsd ?? 0) + p.dir * (f.px - p.entryPx) * sz - TAKER_FEE * sz * (f.px + p.entryPx);
+      if (p.forceClose) state.ghosts = [...(state.ghosts ?? []), { coin: p.coin, dir: p.dir, sz, closePx: f.px, paperId: p.paperId, closedAt: now, lockedUsd: r2(net) }].slice(-200);
+      book(p, net, why, now, stop);
       const tst = p.w ? state.test2 : state.test;
       if (p.rule === TEST_RULE && tst) tst.result = `opened and closed, ${r2(state.rows[state.rows.length - 1].netUsd)} USD`;
     }
@@ -547,6 +572,13 @@ export function hlLiveSummary(cfg: HlLiveConfig = fileCfg(), meetsBar: (rule: st
     account: state.account && state.account2 ? { at: Math.min(state.account.at, state.account2.at), valueUsd: r2(state.account.valueUsd + state.account2.valueUsd), freeUsd: r2(state.account.freeUsd + state.account2.freeUsd) } : (state.account ?? null),
     second: cfg.second || state.account2 ? { on: !!cfg.second?.on, account: state.account2 ?? null, first: state.account ?? null, keyNamed: !!state.agentOk2, test: state.test2 ?? null, open: state.opens.filter((p) => p.w).length, lastError: state.lastError2 ?? "" } : null,
     netUsd: state.netUsd,
+    // force-closed positions: what closing locked in, and what holding until the trader closed would have added (after
+    // our close; fees left out). Open ghosts are at the price now.
+    closeAllGhosts: state.ghosts?.length ? (() => {
+      const gs = state.ghosts!;
+      const after = (g: (typeof gs)[number]) => g.dir * ((g.exitPx ?? g.nowPx ?? g.closePx) - g.closePx) * g.sz;
+      return { id: state.closeAllId ?? null, n: gs.length, stillHeldByTrader: gs.filter((g) => !g.exitAt).length, lockedUsd: r2(gs.reduce((a, g) => a + g.lockedUsd, 0)), holdingWouldAddUsd: r2(gs.reduce((a, g) => a + after(g), 0)), rows: gs.map((g) => ({ coin: g.coin, side: g.dir > 0 ? "long" : "short", lockedUsd: g.lockedUsd, holdingWouldAddUsd: r2(after(g)), traderClosed: !!g.exitAt })) };
+    })() : null,
     trades: state.rows.length,
     won: state.rows.filter((x) => x.netUsd > 0).length,
     halted: cfg.on && loss() >= cfg.maxLossUsd ? "loss cap reached: nothing new is opened" : "",
