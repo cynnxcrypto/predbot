@@ -89,7 +89,40 @@ export function depositCheck(fl: Flow[], since: number) {
   const other = used.filter((f) => f[0] >= since && !CONFIRMED_WALLETS.has(f[2]));
   return { ...out, otherFlows: other.map((f) => ({ at: f[0], wallet: f[2] })) };
 }
-const effFlows = () => withConfirmed(mergeChainFlows(pending.length ? [...flows, ...pending] : flows, chainSrc()));
+/**
+ * MOVES BETWEEN OUR OWN WALLETS ARE NOT A WIN OR A LOSS (20 Nov 2026, enrique: "yeah the transfers you trigger should
+ * definitely not be counted as win or loss"; the morning's bridge moves showed Hyperliquid today +$159.73 and the three
+ * Solana wallets -$141). Each bridge move is booked as money taken out of the wallet it left (when it started) and put
+ * into the wallet it reached (when it ended), both at the dollars that ARRIVED: the two cancel in the total, and only
+ * the bridge's fee stays on the wallet that paid it. A move to or from a wallet outside these (Base) books its one side.
+ * Moves inside Hyperliquid (to the second wallet) need nothing: both accounts are one Hyperliquid figure. Set from status.ts.
+ */
+export type OwnMove = { from: string; to: string; startedAt: number; endedAt: number | null; arrivedUsd: number };
+const PLACE_LABEL: Record<string, string> = { hyperliquid: "Hyperliquid", polymarket: "Polymarket", "solana-perps": "Solana perps", "solana-spot-rules": "Solana spot rules", "solana-spot-copy": "Solana spot copy" };
+let movesSrc: () => OwnMove[] = () => [];
+export const setOwnMoves = (f: typeof movesSrc) => void (movesSrc = f);
+/** The flows for our own moves (done ones; a move still on its way books nothing yet). Pure. */
+export function ownMoveFlows(moves: OwnMove[]): Flow[] {
+  const out: Flow[] = [];
+  for (const m of moves) {
+    if (m.endedAt == null || !(m.arrivedUsd > 0)) continue;
+    const usd = Math.round(m.arrivedUsd * 100) / 100;
+    if (PLACE_LABEL[m.from]) out.push([m.startedAt, -usd, PLACE_LABEL[m.from]]);
+    if (PLACE_LABEL[m.to]) out.push([m.endedAt, usd, PLACE_LABEL[m.to]]);
+  }
+  return out;
+}
+const effFlows = () => {
+  const own = (() => {
+    try {
+      return ownMoveFlows(movesSrc());
+    } catch {
+      return [];
+    }
+  })();
+  const base = withConfirmed(mergeChainFlows(pending.length ? [...flows, ...pending] : flows, chainSrc()));
+  return own.length ? [...base, ...own].sort((a, b) => a[0] - b[0]) : base;
+};
 let comp: Comp | null = null;
 /**
  * Each wallet's own worth at every sample (16 Nov 2026, MAIN for enrique: every card's "today" is that wallet's real

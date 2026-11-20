@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { flowsBetween, repairClaims, unclaimedAt, kstMidnight, walletDays, walletsToday, worthDays, winSpans, worthToday, worthWindows, type Comp, type Flow, type WalletPoint } from "./worthdash.js";
+import { flowsBetween, ownMoveFlows, repairClaims, unclaimedAt, kstMidnight, walletDays, walletsToday, worthDays, winSpans, worthToday, worthWindows, type Comp, type Flow, type WalletPoint } from "./worthdash.js";
 
 test("worth: a won bet waiting for its claim is counted, and its claim is not a deposit", () => {
   const H = 3_600_000;
@@ -172,4 +172,19 @@ test("a wallet made today has a today figure: its worth now less what was put in
   // an older wallet with no reading near midnight still has none
   const gap = [[mid + 3 * 3_600_000, 300, 95, 100, 99, null]] as unknown as import("./worthdash.js").WalletPoint[];
   assert.equal(walletsToday(gap, [], [302, 95, 100, 99, null], now).poly, null);
+});
+
+test("our own bridge moves are transfers: never a win or a loss on any wallet's today (20 Nov 2026, enrique)", () => {
+  const T = Date.parse("2026-11-20T00:00:00+09:00");
+  const flows = ownMoveFlows([
+    { from: "solana-spot-rules", to: "hyperliquid", startedAt: T + 3_600_000, endedAt: T + 3_700_000, arrivedUsd: 68.45 },
+    { from: "solana-perps", to: "hyperliquid", startedAt: T + 3_600_000, endedAt: null, arrivedUsd: 10 }, // not done: nothing
+  ]);
+  assert.deepEqual(flows, [[T + 3_600_000, -68.45, "Solana spot rules"], [T + 3_700_000, 68.45, "Hyperliquid"]]);
+  // worth at midnight: poly 300, copy 100, rules 100, perps 100, HL 200; after the move rules 30.89 (fee 0.66), HL 268.45
+  const wh: WalletPoint[] = [[T - 60_000, 300, 100, 100, 100, 200]];
+  const t = walletsToday(wh, flows, [300, 100, 30.89, 100, 268.45], T + 4_000_000);
+  assert.equal(Math.abs(t.hl?.usd ?? 1), 0);
+  assert.equal(t.sr?.usd, -0.66);
+  assert.equal(Math.abs(t.pp?.usd ?? 1), 0);
 });

@@ -109,6 +109,8 @@ export interface PerpsLiveConfig {
   maxOpen?: number;
   /** a copied trader needs this many closed paper copies on SOL, BTC or ETH to go real (0 = off; review 63, 16 Nov 2026) */
   traderMinOurs?: number;
+  /** close every open position at the next look, whatever the paper side says (20 Nov 2026, enrique: perps "close that") */
+  closeAll?: boolean;
 }
 const OFF: PerpsLiveConfig = { on: false, collateralUsd: 0, leverage: 1, maxLossUsd: 0, ruleStopUsd: 0, maxOpen: 0 };
 /** Jupiter keeps one position per coin and side for a wallet: three coins, two sides. */
@@ -122,7 +124,7 @@ const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v
 export function parsePerpsLive(text: string): PerpsLiveConfig {
   try {
     const p = (JSON.parse(text) as { solanaPerps?: Record<string, unknown> }).solanaPerps;
-    if (!p || p.on !== true) return OFF;
+    if (!p || p.on !== true) return p && p.closeAll === true ? { ...OFF, closeAll: true } : OFF;
     const maxLossUsd = clamp(num(p.maxLossUsd, 0), 0, HARD_MAX_LOSS_USD);
     if (!(maxLossUsd > 0)) return OFF;
     return {
@@ -697,7 +699,7 @@ export async function perpsLiveTick(d: PerpDeps, now = Date.now()): Promise<void
     for (const p of [...state.opens]) {
       const { px } = seenNow.get(p) ?? { px: 0 };
       const old = now - (p.openedMs ?? now) >= MAX_HOLD_H * 3_600_000;
-      const due = old || !paper.some((o) => o.id === p.paperId);
+      const due = old || !!c.closeAll || !paper.some((o) => o.id === p.paperId);
       // no price from either source: a close that is due still goes out when the position is at its max hold, or when
       // the prices have been gone NO_PRICE_CLOSE_MS. Its bound is then NO_PRICE_SLIP away from the entry price: the
       // keeper fills it at the market price whenever that is inside the bound (MAIN's review, 16 Nov 2026)
