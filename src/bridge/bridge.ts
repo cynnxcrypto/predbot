@@ -42,6 +42,8 @@ export const MAX_COST_SHARE = 0.015;
 export const HL_WITHDRAW_FEE = 1;
 /** SOL a Solana wallet keeps for its own fees when its SOL is what moves */
 export const KEEP_SOL = 0.05;
+/** what a trimmed rest part leaves for its own fee and rent, on top of KEEP_SOL (SOL; dollars for USDC) */
+export const TRIM_MARGIN = 0.003;
 export const WITHDRAW_WAIT_MS = 60 * 60_000;
 export const ARRIVE_WAIT_MS = 3 * 3_600_000;
 export const UNSENT_WAIT_MS = 2 * 60_000;
@@ -367,9 +369,16 @@ async function step(d: Deps, o: Order, m: Move): Promise<void> {
 
   const px = await prices(d, from, to);
   const todo = parts(m.left, px.from);
-  const amount = m.stage === "test" ? todo[0] : m.left;
+  let amount = m.stage === "test" ? todo[0] : m.left;
   const part: "test" | "rest" = m.stage === "test" && todo.length > 1 ? "test" : "rest";
   const have = await d.balance(from);
+  // 20 Nov 2026: a move that takes everything ("keepUsd": 0) found the test part's fees missing for the rest
+  // (0.7603 SOL held, 0.7103 + 0.05 gas needed) and waited for good. The rest part is trimmed to what is there, gas
+  // kept, when it is short by no more than 5%.
+  const keep = from.token === "SOL" ? KEEP_SOL : 0;
+  if (part === "rest" && have < amount + keep && have - keep - TRIM_MARGIN >= amount * 0.95) {
+    amount = m.left = Math.floor((have - keep - TRIM_MARGIN) * 1e4) / 1e4;
+  }
   if (have < amount + (from.token === "SOL" ? KEEP_SOL : 0)) return void ((m.why = `waiting: the wallet holds ${show(have, from.token)}, this part needs ${show(amount, from.token)}`), save());
   const r: QuoteReq = { from, to, amount: from.token === "SOL" ? r4(amount) : Math.floor(amount * 100) / 100 };
   const got = await priced(d, r);
