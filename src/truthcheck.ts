@@ -545,7 +545,12 @@ export async function truthRun(now = Date.now()): Promise<typeof last> {
           : compare("Polymarket all time", mine, pnlOf(pt), 2, 0.01, `Polymarket's own figure is from ${at} (${ageMin} min before this check) and ours from then is not kept yet: a difference, not a check`);
         if (!near) it.ok = null;
         items.push(it);
-        extra.polymarketPnl = { asOf: ptMs, ageMin, comparedWithOursAt: near ? near[0] : null, fees: fin(pt.fees), income: fin(pt.wallet_income), point: pt };
+        // the difference over time, one per Polymarket point (20 Nov 2026: to see whether it moves with the market's
+        // marks or with our own trades); kept 3 days, published as differences only
+        let hist = loadJson<[number, number][]>("truth-pm-diffs.json", []).filter((x) => Array.isArray(x) && x[0] >= now - 3 * 86_400_000 && x[0] !== ptMs);
+        if (near && it.diff != null) hist = [...hist, [ptMs, it.diff] as [number, number]].sort((a, b) => a[0] - b[0]);
+        saveJson("truth-pm-diffs.json", hist);
+        extra.polymarketPnl = { asOf: ptMs, ageMin, comparedWithOursAt: near ? near[0] : null, fees: fin(pt.fees), income: fin(pt.wallet_income), unrealized: fin(pt.unrealized_pnl), diffs: hist.slice(-48), point: pt };
       } else errors.push("profit: not read");
     } catch (e) {
       errors.push(`profit: ${(e as Error).message}`);
@@ -683,7 +688,7 @@ export async function truthRun(now = Date.now()): Promise<typeof last> {
 /** For the public status: the differences and counts only, never a balance or a deposit. */
 export function truthPublic() {
   if (!last) return null;
-  const ex = last.extra as { polymarketPnl?: { asOf: number; ageMin: number; comparedWithOursAt: number | null; fees: number | null; income: number | null }; polymarketCounts?: unknown; polymarketWaitingKinds?: unknown; polymarketSinceFirstCheckToday?: unknown; coins?: Record<string, { coins: number; noRoute: number; unpriced: number; untracked: number; untrackedUsd: number }>; flows?: { chainTransfers: number; matched: number; missing: unknown[]; notOnChain: unknown[]; unconfirmed?: { t: number; wallet: string }[]; perWallet?: unknown; counterpartKinds?: unknown; windowDiff?: unknown }; days?: { rows: DayRow[]; notRead: string[] }; errors?: string[] };
+  const ex = last.extra as { polymarketPnl?: { asOf: number; ageMin: number; comparedWithOursAt: number | null; fees: number | null; income: number | null; unrealized?: number | null; diffs?: [number, number][] }; polymarketCounts?: unknown; polymarketWaitingKinds?: unknown; polymarketSinceFirstCheckToday?: unknown; coins?: Record<string, { coins: number; noRoute: number; unpriced: number; untracked: number; untrackedUsd: number }>; flows?: { chainTransfers: number; matched: number; missing: unknown[]; notOnChain: unknown[]; unconfirmed?: { t: number; wallet: string }[]; perWallet?: unknown; counterpartKinds?: unknown; windowDiff?: unknown }; days?: { rows: DayRow[]; notRead: string[] }; errors?: string[] };
   return {
     at: last.at,
     note: "Dashboard minus an independent source (the chain, Polymarket's own position data). Within $1 or 1.5% = ok. Balances stay private.",
@@ -692,7 +697,7 @@ export function truthPublic() {
     // Polymarket's won-and-redeemable bets by what they are in our books (src/pmredeem.ts): counts and dollars, no ids
     polymarketWaitingKinds: ex.polymarketWaitingKinds ?? null,
     polymarketSinceFirstCheckToday: ex.polymarketSinceFirstCheckToday ?? null,
-    polymarketPnl: ex.polymarketPnl ? { asOf: ex.polymarketPnl.asOf, ageMin: ex.polymarketPnl.ageMin, comparedWithOursAt: ex.polymarketPnl.comparedWithOursAt, fees: ex.polymarketPnl.fees, income: ex.polymarketPnl.income } : null,
+    polymarketPnl: ex.polymarketPnl ? { asOf: ex.polymarketPnl.asOf, ageMin: ex.polymarketPnl.ageMin, comparedWithOursAt: ex.polymarketPnl.comparedWithOursAt, fees: ex.polymarketPnl.fees, income: ex.polymarketPnl.income, unrealized: ex.polymarketPnl.unrealized ?? null, diffs: ex.polymarketPnl.diffs ?? [] } : null,
     coins: Object.fromEntries(Object.entries(ex.coins ?? {}).map(([k, v]) => [k, { coins: v.coins, noRoute: v.noRoute, unpriced: v.unpriced, untracked: v.untracked, untrackedUsd: v.untrackedUsd }])),
     flows: ex.flows ? { chainTransfers: ex.flows.chainTransfers, matched: ex.flows.matched, missingFromChart: ex.flows.missing.length, chartFlowsNotOnChain: ex.flows.notOnChain.length, notConfirmedByEnrique: (ex.flows.unconfirmed ?? []).map((u) => ({ at: u.t, wallet: u.wallet })), perWallet: ex.flows.perWallet ?? null, counterpartKinds: ex.flows.counterpartKinds ?? null, windowDiff: ex.flows.windowDiff ?? null } : null,
     // day by day: how many lines were compared, and only the wrong ones, as differences (no day's own figures)
