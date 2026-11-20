@@ -45,7 +45,7 @@ import { roundSz } from "./exchange.js";
 export const HARD_COLLATERAL_USD = 30;
 export const MIN_COLLATERAL_USD = 10;
 export const HARD_MAX_LOSS_USD = 50;
-export const HARD_MAX_OPEN = 20;
+export const HARD_MAX_OPEN = 40;
 export const HARD_TRADER_STOP_USD = 10;
 /** a late copy is never made further than this many percent from the paper copy's entry price */
 export const HARD_LATE_PCT = 1;
