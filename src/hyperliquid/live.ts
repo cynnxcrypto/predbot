@@ -66,6 +66,7 @@ const r2 = (x: number) => Math.round(x * 100) / 100;
 const num = (v: unknown, d: number) => (typeof v === "number" && Number.isFinite(v) ? v : d);
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 
+export const HARD_HISTORY_TOP = 50;
 export interface HlLiveConfig {
   on: boolean;
   collateralUsd: number;
@@ -77,6 +78,8 @@ export interface HlLiveConfig {
   lateWithin?: number;
   /** a trader may also meet the bar on its own closed positions of the last month (src/solana/buckets.ts hlTrips) */
   historyBar?: boolean;
+  /** of the traders that meet that bar only on the longer look, how many of the best are approved (0 to HARD_HISTORY_TOP) */
+  historyTop?: number;
   /** the second wallet (overlaps): on = a copy the first wallet cannot hold goes there; testOnce = its one test trade */
   second?: { on: boolean; testOnce: string; maxOpen: number };
   /** once per name: close every position open at that moment in both wallets (20 Nov 2026, enrique: "close all
@@ -101,7 +104,7 @@ export function parseHlLive(text: string): HlLiveConfig {
     const closeAll = name(p.closeAllOnce) ? { closeAllOnce: name(p.closeAllOnce) } : {};
     if (p.on !== true || !(maxLossUsd > 0)) return { ...OFF, collateralUsd, testOnce, ...closeAll, ...(s2 ? { second: { on: false, testOnce: name(s2.testOnce), maxOpen: 0 } } : {}) };
     const lateWithin = clamp(num(p.lateWithinPct, 0), 0, HARD_LATE_PCT) / 100;
-    return { on: true, collateralUsd, maxLossUsd, testOnce, lateWithin, ...(p.historyBar === true ? { historyBar: true } : {}), ...closeAll, ...(s2 ? { second: { on: s2.on === true, testOnce: name(s2.testOnce), maxOpen: Math.floor(clamp(num(s2.maxOpen, SECOND_MAX_OPEN), 1, HARD_SECOND_MAX_OPEN)) } } : {}), maxOpen: Math.floor(clamp(num(p.maxOpen, 5), 1, HARD_MAX_OPEN)), traderStopUsd: clamp(num(p.traderStopUsd, 9), 1, HARD_TRADER_STOP_USD) };
+    return { on: true, collateralUsd, maxLossUsd, testOnce, lateWithin, ...(p.historyBar === true ? { historyBar: true, historyTop: Math.floor(clamp(num(p.historyTop, 5), 0, HARD_HISTORY_TOP)) } : {}), ...closeAll, ...(s2 ? { second: { on: s2.on === true, testOnce: name(s2.testOnce), maxOpen: Math.floor(clamp(num(s2.maxOpen, SECOND_MAX_OPEN), 1, HARD_SECOND_MAX_OPEN)) } } : {}), maxOpen: Math.floor(clamp(num(p.maxOpen, 5), 1, HARD_MAX_OPEN)), traderStopUsd: clamp(num(p.traderStopUsd, 9), 1, HARD_TRADER_STOP_USD) };
   } catch {
     return OFF;
   }

@@ -473,8 +473,8 @@ export function hlTrips(fills: unknown, sinceMs = 0): HlTrip[] {
   return out.sort((a, b) => a.closeAt - b.closeAt);
 }
 /** The bar on a list of closed positions: [when closed, result]. */
-export const histMeetsBar = (trips: [number, number][], sinceMs: number, now: number) => {
-  const xs = trips.filter((x) => x[0] > Math.max(sinceMs, now - HIST_DAYS * 86_400_000));
+export const histMeetsBar = (trips: [number, number][], sinceMs: number, now: number, days = HIST_DAYS) => {
+  const xs = trips.filter((x) => x[0] > Math.max(sinceMs, now - days * 86_400_000));
   return xs.length >= TRADER_MIN_COPIES && xs.filter((x) => x[1] > 0).length * 2 >= xs.length && xs.reduce((a, x) => a + x[1], 0) > 0;
 };
 /** The leaderboard -> traders worth following: ahead over the week, the month and all time, real size, not a machine. */
@@ -1138,6 +1138,7 @@ async function hlTick(deps: BucketDeps, now: number) {
   for (const a of due) {
     const fills = await hlFillsBack(deps, a, now - HIST_DAYS * 86_400_000);
     if (!fills) continue; // not read: asked again at the next look
+    longRank = null;
     state.hlHist[a] = { at: now, d: HIST_DAYS, trips: hlTrips(fills, now - HIST_DAYS * 86_400_000).slice(-HIST_KEEP).map((x) => [x.closeAt, x.pct]) };
   }
   for (const o of state.hlOpen.filter((x) => now - x.at >= HL_MAX_HOLD_MS)) await shut(o, "max hold");
@@ -1390,27 +1391,59 @@ export const perpMeetsBar = (rule: string, sinceMs = 0, now = Date.now(), minOur
  * Does this trader meet the bar on its OWN closed positions made after `sinceMs` (see hlTrips)? Only a trader on the
  * list, read in the last two days, whose paper copies (when there are 5 or more) are not behind.
  */
-export function hlHistoryMeetsBar(rule: string, sinceMs = 0, now = Date.now()): boolean {
-  if (!loaded) load();
+/**
+ * JUST THE BEST (enrique, 21 Nov 2026 08:17-08:23 KST: "so maybe we need some more traders but not a ton of them no?",
+ * "yea just the best"; the wallets were filling up: 25 positions, about $170 free). A trader that meets the bar on
+ * its last HIST_FIRST_DAYS days alone is approved as before (the traders approved until then). One that meets it
+ * only on the longer look is approved when it is among the `top` best of those by its own result (the sum of its
+ * positions' results, what copies of one size would have made). top = Infinity: all of them.
+ */
+export const HIST_FIRST_DAYS = 30;
+const histSum = (trips: [number, number][], now: number) => trips.filter((x) => x[0] > now - HIST_DAYS * 86_400_000).reduce((a, x) => a + x[1], 0);
+const histOk = (rule: string, sinceMs: number, now: number): { at: number; trips: [number, number][] } | null => {
   const t = state.hlTraders.find((x) => traderRule(x.address) === rule);
   const h = t && state.hlHist?.[t.address];
-  if (!h || now - h.at > 2 * HIST_REFRESH_MS) return false;
+  if (!h || now - h.at > 2 * HIST_REFRESH_MS) return null;
   const paper = traderRecord(rule, sinceMs);
-  if (paper.trades >= 5 && !(paper.netUsd > 0)) return false;
-  return histMeetsBar(h.trips, sinceMs, now);
+  return paper.trades >= 5 && !(paper.netUsd > 0) ? null : h;
+};
+let longRank: { now: number; rules: string[] } | null = null;
+/** The traders that meet the bar only on the longer look, best first (their whole record, whatever was cut). */
+function histLongOnly(now: number): string[] {
+  if (longRank?.now === now) return longRank.rules;
+  const rows: [string, number][] = [];
+  for (const t of state.hlTraders) {
+    const rule = traderRule(t.address);
+    const h = histOk(rule, 0, now);
+    if (h && !histMeetsBar(h.trips, 0, now, HIST_FIRST_DAYS) && histMeetsBar(h.trips, 0, now)) rows.push([rule, histSum(h.trips, now)]);
+  }
+  longRank = { now, rules: rows.sort((a, b) => b[1] - a[1]).map((x) => x[0]) };
+  return longRank.rules;
+}
+export function hlHistoryMeetsBar(rule: string, sinceMs = 0, now = Date.now(), top = Infinity): boolean {
+  if (!loaded) load();
+  const h = histOk(rule, sinceMs, now);
+  if (!h) return false;
+  if (histMeetsBar(h.trips, sinceMs, now, HIST_FIRST_DAYS)) return true;
+  if (!histMeetsBar(h.trips, sinceMs, now)) return false;
+  const i = histLongOnly(now).indexOf(rule);
+  return i >= 0 && i < top;
 }
 /** For the status: how many histories are read, who passes on them, each by its short name. */
-export function hlHistorySummary(now = Date.now()) {
+export function hlHistorySummary(now = Date.now(), top = Infinity) {
   if (!loaded) load();
   const rows = state.hlTraders.flatMap((t) => {
     const h = state.hlHist?.[t.address];
     if (!h) return [];
     const xs = h.trips.filter((x) => x[0] > now - HIST_DAYS * 86_400_000);
     const rule = traderRule(t.address);
-    return [{ id: rule, closed: xs.length, won: xs.filter((x) => x[1] > 0).length, sumPct: r(xs.reduce((a, x) => a + x[1], 0) * 100, 2), atBar: hlHistoryMeetsBar(rule, 0, now), paperAtBar: traderMeetsBar(traderRecord(rule), now), accountUsd: t.acct ? Math.round(t.acct) : null }];
+    return [{ id: rule, closed: xs.length, won: xs.filter((x) => x[1] > 0).length, sumPct: r(xs.reduce((a, x) => a + x[1], 0) * 100, 2), atBar: hlHistoryMeetsBar(rule, 0, now, top), on90Only: histLongOnly(now).includes(rule), paperAtBar: traderMeetsBar(traderRecord(rule), now), accountUsd: t.acct ? Math.round(t.acct) : null }];
   });
   return {
-    note: `A trader's own closed positions of the last ${HIST_DAYS} days on Hyperliquid ($${HL_MIN_POS_USD}+ at their largest, held ${HIST_MIN_HOLD_MS / 60_000}+ minutes), each as its result over its largest size. Same bar as paper: ${TRADER_MIN_COPIES}+ closed, half or more won, ahead; 5+ paper copies of ours that are behind keep it out.`,
+    note: `A trader's own closed positions of the last ${HIST_DAYS} days on Hyperliquid ($${HL_MIN_POS_USD}+ at their largest, held ${HIST_MIN_HOLD_MS / 60_000}+ minutes), each as its result over its largest size. Same bar as paper: ${TRADER_MIN_COPIES}+ closed, half or more won, ahead; 5+ paper copies of ours that are behind keep it out. Met on the last ${HIST_FIRST_DAYS} days alone: approved. Met only on the ${HIST_DAYS} days: only the best ${Number.isFinite(top) ? top : "(all)"} of those by their own result.`,
+    top: Number.isFinite(top) ? top : null,
+    passOn90Only: histLongOnly(now).length,
+    addedOn90: rows.filter((x) => x.atBar && x.on90Only).length,
     followed: state.hlTraders.length,
     read: rows.length,
     with20: rows.filter((x) => x.closed >= TRADER_MIN_COPIES).length,
@@ -1470,4 +1503,4 @@ export function stopBuckets() {
 }
 
 /** Test hooks. */
-export const _bucketsTest = { reset: () => ((state = fresh()), (loaded = true), (copyRows = []), (copyAt = 0)), state: () => state, reload: () => load(), hlTick };
+export const _bucketsTest = { reset: () => ((longRank = null), (state = fresh()), (loaded = true), (copyRows = []), (copyAt = 0)), state: () => state, reload: () => load(), hlTick };

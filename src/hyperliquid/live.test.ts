@@ -476,4 +476,7 @@ test("the own-history bar is a switch of its own, off unless the file says true"
   assert.equal(parseHlLive('{"hyperliquid":{"trade":{"on":true,"maxLossUsd":50,"historyBar":true}}}').historyBar, true);
   for (const v of ['"yes"', "1", "false"]) assert.equal(parseHlLive(`{"hyperliquid":{"trade":{"on":true,"maxLossUsd":50,"historyBar":${v}}}}`).historyBar, undefined);
   assert.equal(parseHlLive('{"hyperliquid":{"trade":{"historyBar":true}}}').historyBar, undefined, "trading off: off");
+  const top = (v: string) => parseHlLive(`{"hyperliquid":{"trade":{"on":true,"maxLossUsd":50,"historyBar":true${v}}}}`).historyTop;
+  assert.deepEqual([top(""), top(',"historyTop":8'), top(',"historyTop":0'), top(',"historyTop":999'), top(',"historyTop":"x"')], [5, 8, 0, 50, 5]);
+  assert.equal(parseHlLive('{"hyperliquid":{"trade":{"on":true,"maxLossUsd":50,"historyTop":8}}}').historyTop, undefined);
 });

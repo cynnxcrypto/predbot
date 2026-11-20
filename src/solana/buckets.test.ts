@@ -696,3 +696,32 @@ test("a 90-day history is read in pages; a trader with more than the pages hold 
   assert.equal(calls.length, 1);
   assert.equal(st.hlHist?.[A]?.d, 90);
 });
+
+test("just the best (21 Nov 2026): the bar on 30 days alone approves as before; only on 90 days, the best few by their own result", () => {
+  B._bucketsTest.reset();
+  const st = B._bucketsTest.state();
+  const now = 1_800_000_000_000;
+  const D = 86_400_000;
+  const addr = (i: number) => "0x" + String(i).padStart(2, "0").repeat(20);
+  const trips = (n: number, each: number, daysAgo: number): [number, number][] => Array.from({ length: n }, (_, i) => [now - daysAgo * D + i, each]);
+  st.hlTraders = [1, 2, 3, 4, 5].map((i) => ({ address: addr(i), monthPnl: 1, monthRoi: 0.1 }));
+  st.hlHist = {
+    [addr(1)]: { at: now, d: 90, trips: trips(20, 0.001, 10) }, // on 30 days alone, a small result
+    [addr(2)]: { at: now, d: 90, trips: trips(25, 0.02, 60) }, // only on 90: +50%
+    [addr(3)]: { at: now, d: 90, trips: trips(25, 0.04, 60) }, // only on 90: +100%, the best
+    [addr(4)]: { at: now, d: 90, trips: trips(25, 0.01, 60) }, // only on 90: +25%
+    [addr(5)]: { at: now, d: 90, trips: [...trips(10, 0.01, 60), ...trips(9, 0.01, 10)] }, // 19: not at the bar
+  };
+  const ok = (top?: number) => [1, 2, 3, 4, 5].filter((i) => B.hlHistoryMeetsBar(B.traderRule(addr(i)), 0, now, top));
+  assert.deepEqual(ok(), [1, 2, 3, 4], "no number: all that meet the bar");
+  assert.deepEqual(ok(2), [1, 2, 3], "the 30-day trader whatever its result, and the two best of the rest");
+  assert.deepEqual(ok(1), [1, 3]);
+  assert.deepEqual(ok(0), [1]);
+  const sum = B.hlHistorySummary(now, 2);
+  assert.deepEqual([sum.top, sum.passOn90Only, sum.addedOn90, sum.atBar], [2, 3, 2, 3]);
+  assert.deepEqual(sum.traders.map((x) => x.id), [3, 2, 1].map((i) => B.traderRule(addr(i))));
+  // the best one's paper copies with us are behind: it is out, and the next takes its place
+  for (let i = 0; i < 5; i++) st.hlTrades.push({ trader: addr(3), coin: "ETH", dir: 1, at: now - 1000 + i, exitAt: now, net: -0.01, why: "closed" });
+  const later = now + 1;
+  assert.deepEqual([1, 2, 3, 4, 5].filter((i) => B.hlHistoryMeetsBar(B.traderRule(addr(i)), 0, later, 2)), [1, 2, 4]);
+});
