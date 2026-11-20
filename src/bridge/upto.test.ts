@@ -113,6 +113,38 @@ test("side-by-side dry runs: each wallet priced, nothing sent, nothing written",
   assert.equal(w.s.quotes, asked); // not priced again at every look
 });
 
+test("an order taken out with nothing sent ends its move, and the next move is free to go", async () => {
+  const empty: Order = { id: "go-perps-sol2", from: "solana-perps", to: "hyperliquid", usd: 60, mode: "go", token: "SOL", keepUsd: 0 };
+  const w = world({ "Perps:SOL": 0.04, "Perps:USDC": 80 }, empty);
+  assert.match((await w.look(3))!.steps[0], /only \$0 is spare/);
+  assert.equal(loadBridge().moves["go-perps-sol2"].stage, "new");
+  w.s.order = null;
+  await w.look();
+  const m = loadBridge().moves["go-perps-sol2"];
+  assert.equal(m.stage, "stopped");
+  assert.match(m.why!, /taken out before anything was sent: nothing moved/);
+  assert.deepEqual(w.s.sends, []);
+  w.s.order = { id: "perps-usdc-2", from: "solana-perps", to: "hyperliquid", usd: 30, mode: "go" };
+  assert.equal((await w.look(8))!.stage, "done");
+  assert.equal(w.s.sends.length, 2);
+});
+
+test("an order taken out while a part is on its way: the part is followed in, nothing more is sent", async () => {
+  const o: Order = { id: "perps-usdc-3", from: "solana-perps", to: "hyperliquid", usd: 50, mode: "go" };
+  const w = world({ "Perps:USDC": 80 }, o);
+  await w.look(2); // the test part is sent
+  assert.equal(w.s.sends.length, 1);
+  w.s.order = null;
+  await w.look(); // arrives, seen although it is no longer the order
+  assert.equal(loadBridge().moves["perps-usdc-3"].stage, "rest");
+  await w.look(3);
+  const m = loadBridge().moves["perps-usdc-3"];
+  assert.equal(m.stage, "stopped");
+  assert.match(m.why!, /before the rest was sent/);
+  assert.equal(m.sent, 8);
+  assert.equal(w.s.sends.length, 1);
+});
+
 test("a real up-to move takes only what is spare, in the token named", async () => {
   const o: Order = { id: "rules-usdc-1", from: "solana-spot-rules", to: "hyperliquid", usd: 60, mode: "go", token: "USDC", keepUsd: 10 };
   const w = world({ "Rules:SOL": 1.2, "Rules:USDC": 52.4 }, o);

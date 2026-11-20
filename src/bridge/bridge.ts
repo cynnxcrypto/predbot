@@ -420,12 +420,37 @@ async function sideBySide(d: Deps, o: Order | null): Promise<void> {
   if (out.some((x) => x.stage === "could not look")) dryRunsAt = d.now() - DRY_EVERY_MS + RETRY_LOOK_MS;
 }
 
+/**
+ * Moves that are no longer the order (20 Nov 2026: an order with nothing spare was taken out of the file and its move
+ * stayed at "new" for good, in the way of every later move). A part that is on its way, or a withdrawal from
+ * Hyperliquid, is still followed to its end; a move with nothing on its way is ended in words. Never sends anything.
+ */
+async function leftBehind(d: Deps, o: Order | null): Promise<void> {
+  for (const m of Object.values(loadBridge().moves)) {
+    if (m.id === o?.id || m.stage === "done" || m.stage === "stopped") continue;
+    try {
+      if (m.pending || m.stage === "withdraw") {
+        // step() only looks for the arrival here: it sends a part only when nothing is pending and the stage is test or rest
+        await step(d, { id: m.id, from: m.from, to: m.to, usd: m.usd, mode: "dry" }, m);
+        continue;
+      }
+      stop(m, m.sent > 0 ? "the order was taken out before the rest was sent: what was sent has arrived, the rest stays where it was" : "the order was taken out before anything was sent: nothing moved", d.now());
+      const s = loadBridge();
+      s.moves[m.id] = m;
+      saveBridge(s);
+    } catch {
+      // not read at this look: looked at again at the next
+    }
+  }
+}
+
 /** One look. Never throws; never runs twice at once. */
 export async function bridgeTick(d: Deps): Promise<Report | null> {
   if (busy) return last;
   busy = true;
   try {
     const o = d.order();
+    await leftBehind(d, o);
     await sideBySide(d, o);
     if (!o) return (last = null);
     const bad = checkOrder(o);
