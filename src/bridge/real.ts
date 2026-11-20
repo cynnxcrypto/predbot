@@ -22,6 +22,7 @@ import { ARBITRUM_CHAIN_ID, ARBITRUM_RPC, HL_API, USDC as ARB_USDC, rpcCall } fr
 import { hlWallet, hlWalletExists } from "../hyperliquid/keys.js";
 import { bridgeOutBatch, relayFree } from "../live.js";
 import { base58decode, namedWallet, signTransaction, wallet as solWallet, type Wallet as SolWallet } from "../solana/keys.js";
+import { shared as solShared } from "../solana/copyrun.js";
 import { ata } from "../solana/soltx.js";
 import { base58 } from "../solana/whirlpool.js";
 import { baseWallet } from "./basekey.js";
@@ -53,6 +54,13 @@ export const MIN_BASE_GAS_ETH = 0.00002;
 /** the most SOL a bridge transaction may take on top of what is sent */
 export const MAX_SOL_FEE = 0.02;
 const TIMEOUT = 15_000;
+/** Solana RPC: at least this long between two calls, and this many tries of one call (waits double: 2, 4, 8 s) */
+export const SOL_GAP_MS = Number(process.env.BRIDGE_SOL_GAP_MS ?? 1_200);
+export const SOL_BACKOFF_MS = Number(process.env.BRIDGE_SOL_BACKOFF_MS ?? 2_000);
+export const SOL_TRIES = 5;
+/** a second public address, for when the first turns calls away */
+const SOL_SECOND_RPC = process.env.SOLANA_RPC_2 || "https://solana-rpc.publicnode.com";
+const pause = (ms: number) => new Promise((ok) => setTimeout(ok, ms));
 
 /** The token a move uses on a chain. Polygon: native USDC arrives (live.ts converts it); what LEAVES is USDC.e, which is what pUSD turns back into. */
 export const tokenAddress = (chain: Chain, token: Token, side: "from" | "to" = "to"): string => {
@@ -152,10 +160,42 @@ export function realDeps(fetcher: typeof fetch = fetch): Deps {
   const arb = <T>(method: string, params: unknown[]) => rpcCall<T>(method, params, fetcher, ARBITRUM_RPC);
   const poly = <T>(method: string, params: unknown[]) => rpcCall<T>(method, params, fetcher, POLYGON_RPC);
   const base = <T>(method: string, params: unknown[]) => rpcCall<T>(method, params, fetcher, process.env.BASE_RPC || "https://mainnet.base.org");
-  const sol = async <T>(method: string, params: unknown[]): Promise<T> => {
-    const j = (await getJson(solRpcUrl(), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }) })) as { result?: T; error?: { message?: string } };
-    if (!j || j.error || j.result === undefined) throw new Error(`solana ${method}: ${String(j?.error?.message ?? "no result").slice(0, 80)}`);
-    return j.result;
+  /**
+   * One Solana RPC call. The public RPC turns away calls that come too fast (20 Nov 2026: every dry run read "http 429"
+   * while the paid one was out), so calls go one at a time with a gap, and a "too many requests" is tried again after
+   * a growing wait, then on the other address. A chain's own "no" (a failed simulation, a refused send) is never retried.
+   */
+  let solLast = 0;
+  let solQueue: Promise<unknown> = Promise.resolve();
+  const sol = <T>(method: string, params: unknown[]): Promise<T> => {
+    const run = async (): Promise<T> => {
+      let last = "no answer";
+      for (let i = 0; i < SOL_TRIES; i++) {
+        const wait = Math.max(0, solLast + SOL_GAP_MS - Date.now()) + (i ? SOL_BACKOFF_MS * 2 ** (i - 1) : 0);
+        if (wait > 0) await pause(wait);
+        solLast = Date.now();
+        const url = [solShared.rpcUrl() || solRpcUrl(), SOL_SECOND_RPC, solRpcUrl()][i % 3];
+        try {
+          const res = await fetcher(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }), signal: AbortSignal.timeout(TIMEOUT) });
+          const j = (await res.json().catch(() => null)) as { result?: T; error?: { code?: number; message?: string } } | null;
+          const busy = res.status === 429 || j?.error?.code === 429 || /too many requests|rate limit/i.test(String(j?.error?.message ?? ""));
+          if (busy) {
+            last = "the Solana RPC is turning calls away (too many requests)";
+            continue;
+          }
+          if (!j || j.error || j.result === undefined) throw new Error(`solana ${method}: ${String(j?.error?.message ?? `http ${res.status}`).slice(0, 80)}`);
+          return j.result;
+        } catch (e) {
+          const text = String((e as Error)?.message ?? e);
+          if (text.startsWith("solana ")) throw e;
+          last = text.slice(0, 80);
+        }
+      }
+      throw new Error(`solana ${method}: ${last}`);
+    };
+    const mine = solQueue.then(run, run);
+    solQueue = mine.catch(() => undefined);
+    return mine;
   };
   /** Learn Base's USDC from the route finder and prove it on Base. Done once; until it holds, nothing on Base is priced or signed. */
   const proveBase = async (): Promise<void> => {
