@@ -13,7 +13,7 @@ import { DATA, ROOT } from "./config.js";
 import { execSync } from "node:child_process";
 let chMemo: { at: number; rows: { t: number; tx: string }[] } | null = null;
 import { solSlowView, slowDaysServed } from "./solslowdash.js";
-import { setChainFlows, worthView, worthCheck, worthLast, worthFlows } from "./worthdash.js";
+import { setChainFlows, setOwnMoves, worthView, worthCheck, worthLast, worthFlows } from "./worthdash.js";
 import { chainFix, startTruthCheck, truthPrivate, truthPublic } from "./truthcheck.js";
 import { bridgePublic } from "./bridge/bridge.js";
 import { startBridge } from "./bridge/real.js";
@@ -136,6 +136,8 @@ export function serveStatus(recorder: Recorder, build: string, others: Recorder[
   startLab();
   // the two Solana strategy wallets' money in and out, from the chain as the truth check last read it (17 Nov 2026)
   setChainFlows(chainFix);
+  // our own bridge moves are transfers, never a win or a loss on any card or window (20 Nov 2026, enrique)
+  setOwnMoves(() => bridgePublic().moves.map((m) => ({ from: m.from, to: m.to, startedAt: m.startedAt, endedAt: m.stage === "done" ? (m.endedAt ?? null) : null, arrivedUsd: m.arrived })));
   startTruthCheck({
     dash: () => worthLast(),
     flows: () => worthFlows(),
