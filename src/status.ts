@@ -17,7 +17,7 @@ import { setChainFlows, setOwnMoves, worthView, worthCheck, worthLast, worthFlow
 import { chainFix, startTruthCheck, truthPrivate, truthPublic } from "./truthcheck.js";
 import { bridgePublic } from "./bridge/bridge.js";
 import { startBridge } from "./bridge/real.js";
-import { hlAddress2, hlLive, hlPage, hlPrivate, hlPublic, startHyperliquid } from "./hyperliquid/setup.js";
+import { hlAddress1, hlAddress2, hlLive, hlPage, hlPrivate, hlPublic, startHyperliquid } from "./hyperliquid/setup.js";
 import { linksPrivate, linksPublic } from "./hyperliquid/links.js";
 import { labSummary, startLab } from "./lab/run.js";
 import { BASE_BTN, LAB_BTN, LAB_CSS, LAB_HTML, LAB_JS } from "./labdash.js";
@@ -147,6 +147,7 @@ export function serveStatus(recorder: Recorder, build: string, others: Recorder[
       return walletHistorySummary(cash, mine.live?.toClaim ?? 0)?.allTimeNet ?? null;
     },
     allTimeAt: () => walletHistoryAt(),
+    hl: () => ({ addrs: [hlAddress1(), hlAddress2()], opens: ((hlLive() as { opens?: { coin: string; wallet?: number }[] }).opens ?? []).map((o) => ({ coin: o.coin, wallet: o.wallet === 2 ? 2 : 1 })) }),
     rpcUrl: () => solShared.rpcUrl(),
     helius: () => solShared.helius() ?? "",
     quote: (mint, out, amount, bps) => solKit.quote(mint, out, amount, bps) as Promise<{ outAmount?: string }>,

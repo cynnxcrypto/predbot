@@ -335,6 +335,8 @@ type Deps = {
   fetch: typeof fetch;
   /** what the dashboard serves for its day by day, from the same server functions (16 Nov 2026); left out = not checked */
   dayServed?: () => ServedDays;
+  /** Hyperliquid: our two wallets' addresses (null when not set up) and the positions our books hold open (20 Nov 2026) */
+  hl?: () => { addrs: (string | null)[]; opens: { coin: string; wallet: 1 | 2 }[] };
 };
 let deps: Deps | null = null;
 let last: { at: number; items: Item[]; extra: Record<string, unknown> } | null = null;
@@ -590,6 +592,29 @@ export async function truthRun(now = Date.now()): Promise<typeof last> {
   items.push(compare("Solana spot copy card", spotDash, solSrc.spot, 1, 0.015, "coins at a Jupiter sale quote; the chain's coins, tracked or not"));
   items.push(compare("Solana spot rules card", d?.rulesUsd ?? null, solSrc.rules, 1, 0.015));
   items.push(compare("Solana perps card", d?.perpsUsd ?? null, solSrc.perps, 1, 0.015, "an open perp from the perps module's own chain read"));
+  // Hyperliquid positions (20 Nov 2026, enrique: "numbers and things happening need to be accurate"): every position
+  // Hyperliquid holds in our two wallets is in our books, and every one our books hold is on Hyperliquid
+  if (deps.hl) {
+    try {
+      const h = deps.hl();
+      const ours = h.opens.map((o) => `${o.wallet}:${o.coin}`).sort();
+      const theirs: string[] = [];
+      for (const [i, a] of h.addrs.entries()) {
+        if (!a) continue;
+        const j = (await getJson("https://api.hyperliquid.xyz/info", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ type: "clearinghouseState", user: a }) })) as { assetPositions?: { position?: { coin?: string; szi?: string } }[] };
+        for (const p of j.assetPositions ?? []) if (p.position?.coin && Number(p.position.szi) !== 0) theirs.push(`${i + 1}:${p.position.coin}`);
+      }
+      theirs.sort();
+      const notOnHl = ours.filter((x) => !theirs.includes(x));
+      const notInBooks = theirs.filter((x) => !ours.includes(x));
+      items.push({ k: "Hyperliquid open positions", dash: ours.length, src: theirs.length, diff: ours.length - theirs.length, ok: !notOnHl.length && !notInBooks.length, why: "our books' open copies against Hyperliquid's positions in both wallets, coin by coin" });
+      extra.hlPositions = { ours: ours.length, onHl: theirs.length, notOnHl, notInBooks };
+    } catch (e) {
+      errors.push(`hyperliquid positions: ${(e as Error).message}`);
+    }
+  }
+  // Polymarket open bets, one by one count: the dashboard's against Polymarket's own
+  if (pos) items.push({ k: "Polymarket open bets (count)", dash: d?.betsN ?? null, src: pos.openN, diff: d?.betsN != null ? d.betsN - pos.openN : null, ok: d?.betsN != null ? Math.abs(d.betsN - pos.openN) <= 1 : null, why: "a bet bought in the minute of the check can show on one side only" });
   // Hyperliquid (17 Nov 2026) is not read again here yet: its own reading is added so the total compares like for like
   const parts = [pmSrc, solSrc.spot, solSrc.rules, solSrc.perps, d?.hlUsd ?? 0];
   items.push(compare("Total worth", d?.total ?? null, parts.every((x) => x != null) ? parts.reduce((a: number, x) => a + (x as number), 0) : null, 2, 0.01));
