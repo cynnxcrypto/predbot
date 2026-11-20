@@ -47,6 +47,7 @@ export const ARRIVE_WAIT_MS = 3 * 3_600_000;
 export const UNSENT_WAIT_MS = 2 * 60_000;
 export const MAX_TRIES = 3;
 export const DRY_EVERY_MS = 10 * 60_000;
+export const RETRY_LOOK_MS = 60_000;
 
 export type Chain = "arbitrum" | "polygon" | "base" | "solana";
 export type Token = "USDC" | "SOL";
@@ -406,6 +407,8 @@ async function sideBySide(d: Deps, o: Order | null): Promise<void> {
     else out.push(await dry(d, x).catch((e) => ({ at: d.now(), order: x, stage: "could not look", problems: [scrub(e)], steps: [] })));
   }
   dryRuns = out;
+  // a look that could not be made is made again within a minute, not in ten
+  if (out.some((x) => x.stage === "could not look")) dryRunsAt = d.now() - DRY_EVERY_MS + RETRY_LOOK_MS;
 }
 
 /** One look. Never throws; never runs twice at once. */
