@@ -169,8 +169,8 @@ test("an order that is refused opens nothing; limits are clamped; leverage is wh
   await hlLiveTick(d, T0 + 1000);
   assert.equal(_test.state().opens.length, 0);
   assert.deepEqual(_test.state().skipped, { "order not filled": 1 });
-  const c = parseHlLive('{"hyperliquid":{"trade":{"on":true,"collateralUsd":500,"maxOpen":99,"maxLossUsd":900,"traderStopUsd":80}}}');
-  assert.deepEqual(c, { on: true, collateralUsd: 30, maxOpen: 40, maxLossUsd: 50, traderStopUsd: 10, testOnce: "", lateWithin: 0 });
+  const c = parseHlLive('{"hyperliquid":{"trade":{"on":true,"collateralUsd":500,"maxOpen":999,"maxLossUsd":900,"traderStopUsd":80}}}');
+  assert.deepEqual(c, { on: true, collateralUsd: 30, maxOpen: 500, maxLossUsd: 50, traderStopUsd: 10, testOnce: "", lateWithin: 0 });
   assert.equal(parseHlLive('{"hyperliquid":{"trade":{"on":true,"maxLossUsd":50,"lateWithinPct":7}}}').lateWithin, 0.01);
   assert.equal(parseHlLive('{"hyperliquid":{"trade":{"on":true}}}').on, false, "no loss cap, no trading");
   assert.equal(parseHlLive("{}").on, false);
@@ -414,7 +414,7 @@ test("the second wallet's test trade: one smallest BTC long there, only once it 
   const cfg = parseHlLive('{"hyperliquid":{"trade":{"on":true,"maxLossUsd":50,"second":{"on":false,"testOnce":"s1"}}}}');
   assert.deepEqual(cfg.second, { on: false, testOnce: "s1", maxOpen: 4 });
   assert.deepEqual(parseHlLive('{"hyperliquid":{"trade":{"on":true,"maxLossUsd":50,"second":{"on":true,"maxOpen":4}}}}').second, { on: true, testOnce: "", maxOpen: 4 });
-  assert.equal(parseHlLive('{"hyperliquid":{"trade":{"on":true,"maxLossUsd":50,"second":{"on":true,"maxOpen":99}}}}').second?.maxOpen, 10);
+  assert.equal(parseHlLive('{"hyperliquid":{"trade":{"on":true,"maxLossUsd":50,"second":{"on":true,"maxOpen":999}}}}').second?.maxOpen, 500);
   assert.deepEqual(parseHlLive('{"hyperliquid":{"trade":{"on":true,"maxLossUsd":50,"second":{"on":"yes","testOnce":"BAD NAME"}}}}').second, { on: false, testOnce: "", maxOpen: 4 });
   assert.equal(parseHlLive('{"hyperliquid":{"trade":{"on":true,"maxLossUsd":50}}}').second, undefined);
   const { w, w2, d } = two({ cfg, value2: 0 });

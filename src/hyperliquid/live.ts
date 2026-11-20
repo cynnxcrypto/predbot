@@ -45,7 +45,9 @@ import { roundSz } from "./exchange.js";
 export const HARD_COLLATERAL_USD = 30;
 export const MIN_COLLATERAL_USD = 10;
 export const HARD_MAX_LOSS_USD = 50;
-export const HARD_MAX_OPEN = 40;
+// 20 Nov 2026 18:56 KST, enrique: "push no position limits on HL wallet 1, HL wallet 2 and polymarket bets per wallet, only
+// skip when no cash": the count is a backstop only; free money decides
+export const HARD_MAX_OPEN = 500;
 export const HARD_TRADER_STOP_USD = 10;
 /** a late copy is never made further than this many percent from the paper copy's entry price */
 export const HARD_LATE_PCT = 1;
@@ -78,7 +80,7 @@ export interface HlLiveConfig {
 }
 /** the second wallet's own slots (enrique, 20 Nov 2026: "move 50usd to the second hl wallet and 4 slots") */
 export const SECOND_MAX_OPEN = 4;
-export const HARD_SECOND_MAX_OPEN = 10;
+export const HARD_SECOND_MAX_OPEN = 500;
 const OFF: HlLiveConfig = { on: false, collateralUsd: MIN_COLLATERAL_USD, maxOpen: 0, maxLossUsd: 0, traderStopUsd: 0, testOnce: "" };
 /** Parse the "hyperliquid.trade" block of deploy/live-rules.json. Hard limits are applied here; anything odd means off. */
 export function parseHlLive(text: string): HlLiveConfig {

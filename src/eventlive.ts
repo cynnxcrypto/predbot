@@ -597,6 +597,9 @@ export async function eventRestSync(now = Date.now()): Promise<string[]> {
   try {
     const funder = String(loadJson<{ funder?: string }>("live.json", {}).funder ?? "").trim();
     const c = await getClient(funder);
+    // a group taken out of the live rules has its bids cancelled at once (20 Nov 2026, enrique: "stop doing tennis
+    // crap, focus all cash for polymarket on copytrading"); its filled bets settle as usual
+    const groups = eventLiveConfig().groups;
     for (const r of live) {
       try {
         if (r.status === "unknown") {
@@ -610,7 +613,7 @@ export async function eventRestSync(now = Date.now()): Promise<string[]> {
           out.push(`${r.rule} ${r.title} ${r.outcome}: unknown placement cancelled`);
           continue;
         }
-        const late = now >= (r.until ?? 0);
+        const late = now >= (r.until ?? 0) || !groups[r.group];
         if (late) await timed(c.cancelOrder({ orderID: r.orderId! }), "cancelling");
         const got = await timed(c.getOrder(r.orderId!), "reading the order");
         const matched = Number(got?.size_matched) || 0;
