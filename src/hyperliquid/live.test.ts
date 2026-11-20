@@ -173,6 +173,8 @@ test("an order that is refused opens nothing; limits are clamped; leverage is wh
   assert.deepEqual(c, { on: true, collateralUsd: 30, maxOpen: 500, maxLossUsd: 50, traderStopUsd: 10, testOnce: "", lateWithin: 0 });
   assert.equal(parseHlLive('{"hyperliquid":{"trade":{"on":true,"maxLossUsd":50,"lateWithinPct":7}}}').lateWithin, 0.01);
   assert.equal(parseHlLive('{"hyperliquid":{"trade":{"on":true}}}').on, false, "no loss cap, no trading");
+  assert.equal(parseHlLive('{"hyperliquid":{"trade":{"on":false,"closeAll":true}}}').closeAll, true, "close all works with trading off");
+  assert.equal(parseHlLive('{"hyperliquid":{"trade":{"on":true,"maxLossUsd":50}}}').closeAll, undefined);
   assert.equal(parseHlLive("{}").on, false);
   assert.deepEqual([leverageFor(25, COINS.BTC), leverageFor(25, COINS.HYPE), leverageFor(0.4, COINS.BTC), leverageFor(undefined, COINS.BTC)], [20, 5, 1, 2]);
 });
@@ -434,4 +436,19 @@ test("the second wallet's test trade: one smallest BTC long there, only once it 
   const s = hlLiveSummary(cfg, () => true, T0 + 301_000);
   assert.match(s.second?.test?.result ?? "", /opened and closed/);
   assert.deepEqual(hlKeptTraders(), [], "a test trade is nobody's record");
+});
+
+test("close all (20 Nov 2026): every open position closes at the next look, trading off, and the trader is not judged on it", async () => {
+  const cfg: { c: HlLiveConfig } = { c: ON };
+  const { w, d } = world();
+  d.cfg = () => cfg.c;
+  w.paper = [copy("copy-aaaa1111", "HYPE", -1, T0, 3)];
+  await hlLiveTick(d, T0 + 30_000);
+  assert.equal(_test.state().opens.length, 1);
+  w.mids.HYPE = 60; // a big loss for a short
+  cfg.c = parseHlLive('{"hyperliquid":{"trade":{"on":false,"closeAll":true}}}');
+  await hlLiveTick(d, T0 + 90_000);
+  assert.equal(_test.state().opens.length, 0);
+  assert.match(_test.state().rows.at(-1)!.why, /close all/);
+  assert.equal(_test.state().demoted["copy-aaaa1111"], undefined);
 });

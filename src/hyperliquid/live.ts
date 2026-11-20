@@ -77,6 +77,9 @@ export interface HlLiveConfig {
   lateWithin?: number;
   /** the second wallet (overlaps): on = a copy the first wallet cannot hold goes there; testOnce = its one test trade */
   second?: { on: boolean; testOnce: string; maxOpen: number };
+  /** close every open position in both wallets at the next look (20 Nov 2026, enrique: "close all hyperliquid
+   *  positions and lets see what happens next"); a forced close does not count for or against the trader */
+  closeAll?: boolean;
 }
 /** the second wallet's own slots (enrique, 20 Nov 2026: "move 50usd to the second hl wallet and 4 slots") */
 export const SECOND_MAX_OPEN = 4;
@@ -92,7 +95,8 @@ export function parseHlLive(text: string): HlLiveConfig {
     const s2 = p.second && typeof p.second === "object" ? (p.second as Record<string, unknown>) : null;
     const maxLossUsd = clamp(num(p.maxLossUsd, 0), 0, HARD_MAX_LOSS_USD);
     const collateralUsd = clamp(num(p.collateralUsd, MIN_COLLATERAL_USD), MIN_COLLATERAL_USD, HARD_COLLATERAL_USD);
-    if (p.on !== true || !(maxLossUsd > 0)) return { ...OFF, collateralUsd, testOnce, ...(s2 ? { second: { on: false, testOnce: name(s2.testOnce), maxOpen: 0 } } : {}) };
+    const closeAll = p.closeAll === true ? { closeAll: true } : {};
+    if (p.on !== true || !(maxLossUsd > 0)) return { ...OFF, collateralUsd, testOnce, ...closeAll, ...(s2 ? { second: { on: false, testOnce: name(s2.testOnce), maxOpen: 0 } } : {}) };
     const lateWithin = clamp(num(p.lateWithinPct, 0), 0, HARD_LATE_PCT) / 100;
     return { on: true, collateralUsd, maxLossUsd, testOnce, lateWithin, ...(s2 ? { second: { on: s2.on === true, testOnce: name(s2.testOnce), maxOpen: Math.floor(clamp(num(s2.maxOpen, SECOND_MAX_OPEN), 1, HARD_SECOND_MAX_OPEN)) } } : {}), maxOpen: Math.floor(clamp(num(p.maxOpen, 5), 1, HARD_MAX_OPEN)), traderStopUsd: clamp(num(p.traderStopUsd, 9), 1, HARD_TRADER_STOP_USD) };
   } catch {
@@ -293,7 +297,7 @@ function book(p: Pos, netUsd: number, why: string, now: number, stop: number) {
   state.rows.push({ t: now, rule: p.rule, coin: p.coin, side: p.dir > 0 ? "long" : "short", leverage: p.lev, netUsd: r2(netUsd), heldH: Math.round(((now - p.openedMs) / 3_600_000) * 100) / 100, why, collateralUsd: p.collUsd, ...(p.w ? { wallet: 2 as const } : {}) });
   if (state.rows.length > 2000) state.rows = state.rows.slice(-2000);
   state.opens = state.opens.filter((x) => x !== p);
-  if (p.rule === TEST_RULE) return;
+  if (p.rule === TEST_RULE || why.startsWith("closed on enrique's word")) return;
   const cut = hlCutReason(realOf(p.rule), stop);
   if (cut) {
     state.demotedWhy[p.rule] = cut;
@@ -380,7 +384,7 @@ export async function hlLiveTick(d: HlDeps, now = Date.now()): Promise<void> {
       p.venueIsolated = held.isolated;
       p.venueMarginUsd = r2(held.marginUsd);
       const po = paper.find((x) => x.id === p.paperId);
-      let why = p.rule === TEST_RULE ? "test" : !po ? "the trader closed" : now - p.openedMs > MAX_HOLD_H * 3_600_000 ? "max hold" : "";
+      let why = cfg.closeAll ? "closed on enrique's word (close all)" : p.rule === TEST_RULE ? "test" : !po ? "the trader closed" : now - p.openedMs > MAX_HOLD_H * 3_600_000 ? "max hold" : "";
       // PARTIAL CLOSES (enrique, 19 Nov 2026: "yeah build all 3"): the trader took part off, so we take the same share
       // of our opening size off. What is left is never kept under Hyperliquid's smallest order: then all of it goes.
       if (po?.left != null) {
