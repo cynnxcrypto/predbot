@@ -353,3 +353,31 @@ test("out of Polymarket: USDC.e leaves, the batch can carry no fee coin; Base is
   // a quote that would take the native USDC instead of USDC.e is for another token
   assert.match(guard(r, readQuote(answer("0x0", tokenAddress("polygon", "USDC", "to")), r), { from: 1, to: 1 })[0], /other tokens/);
 });
+
+test("between two Solana wallets: SOL only, a plain System transfer signed by the sender", async () => {
+  assert.deepEqual(checkOrder({ id: "sol-1", from: "solana-spot-rules", to: "solana-spot-copy", usd: 17, mode: "go" }), []);
+  assert.ok(checkOrder({ id: "sol-2", from: "solana-spot-rules", to: "solana-spot-copy", usd: 17, mode: "go", token: "USDC" }).some((x) => /only SOL/.test(x)));
+  const { transferTx, sameSolana } = await import("./real.js");
+  const { generateKeyPairSync, sign, verify } = await import("node:crypto");
+  const { base58 } = await import("../solana/whirlpool.js");
+  const kp = generateKeyPairSync("ed25519");
+  const pub = kp.publicKey.export({ format: "der", type: "spki" }).subarray(-32);
+  const w = { address: base58(pub), pubkey: pub, sign: (m: Uint8Array) => sign(null, m, kp.privateKey) };
+  const to = base58(Buffer.alloc(32, 7));
+  const bh = base58(Buffer.alloc(32, 9));
+  const tx = Buffer.from(transferTx(w, to, 250_000_000, bh), "base64");
+  assert.equal(tx[0], 1);
+  const msg = tx.subarray(65);
+  assert.ok(verify(null, msg, kp.publicKey, tx.subarray(1, 65)), "signed by the sending wallet");
+  assert.deepEqual([...msg.subarray(0, 4)], [1, 0, 1, 3]);
+  assert.ok(msg.subarray(4, 36).equals(pub));
+  assert.ok(msg.subarray(36, 68).equals(Buffer.alloc(32, 7)));
+  assert.ok(msg.subarray(68, 100).equals(Buffer.alloc(32, 0)), "System Program");
+  const ix = msg.subarray(132);
+  assert.deepEqual([...ix.subarray(0, 6)], [1, 2, 2, 0, 1, 12]);
+  assert.equal(ix.readUInt32LE(6), 2);
+  assert.equal(ix.readBigUInt64LE(10), 250_000_000n);
+  assert.throws(() => transferTx(w, to, 0, bh));
+  assert.equal(sameSolana({ from: { chain: "solana", address: "a", token: "SOL" }, to: { chain: "solana", address: "b", token: "SOL" }, amount: 1 }), true);
+  assert.equal(sameSolana({ from: { chain: "solana", address: "a", token: "USDC" }, to: { chain: "arbitrum", address: "b", token: "USDC" }, amount: 1 }), false);
+});

@@ -21,7 +21,7 @@ import { loadJson } from "../store.js";
 import { ARBITRUM_CHAIN_ID, ARBITRUM_RPC, HL_API, USDC as ARB_USDC, rpcCall } from "../hyperliquid/fund.js";
 import { hlWallet, hlWalletExists } from "../hyperliquid/keys.js";
 import { bridgeOutBatch, relayFree } from "../live.js";
-import { base58decode, namedWallet, signTransaction, wallet as solWallet, type Wallet as SolWallet } from "../solana/keys.js";
+import { base58decode, buildSigned, namedWallet, signTransaction, wallet as solWallet, type Wallet as SolWallet } from "../solana/keys.js";
 import { shared as solShared } from "../solana/copyrun.js";
 import { ata } from "../solana/soltx.js";
 import { base58 } from "../solana/whirlpool.js";
@@ -303,6 +303,11 @@ export function realDeps(fetcher: typeof fetch = fetch): Deps {
     },
     solUsd: async () => Number(((await hlInfo({ type: "allMids" })) as Record<string, string>)?.SOL),
     quote: async (r) => {
+      if (sameSolana(r)) {
+        // a plain SOL transfer between two of our Solana wallets: built here, nothing to route
+        const bh = (await sol<{ value: { blockhash: string } }>("getLatestBlockhash", [{ commitment: "confirmed" }])).value.blockhash;
+        return { tool: "direct transfer", minutes: 1, toAmount: r.amount, toAmountMin: r.amount, echo: { fromChain: "solana", toChain: "solana", fromToken: "SOL", toToken: "SOL", fromAddress: r.from.address, toAddress: r.to.address, fromAmount: r.amount }, tx: { kind: "solana", data: transferTx(signerFor(r.from.address), r.to.address, Math.floor(r.amount * 1e9), bh) } };
+      }
       await needsBase(r.from.chain, r.to.chain);
       const qs = new URLSearchParams({ fromChain: String(CHAIN_ID[r.from.chain]), toChain: String(CHAIN_ID[r.to.chain]), fromToken: tokenAddress(r.from.chain, r.from.token, "from"), toToken: tokenAddress(r.to.chain, r.to.token), fromAmount: units(r.amount, r.from.token).toString(), fromAddress: r.from.address, toAddress: r.to.address, slippage: "0.005", order: "CHEAPEST" });
       return readQuote(await getJson(`${LIFI_API}/quote?${qs}`), r);
@@ -364,6 +369,10 @@ export function realDeps(fetcher: typeof fetch = fetch): Deps {
       return evmSend(chain, r.from.address, { to: LIFI_DIAMOND, data: q.tx.data, value: BigNumber.from(q.tx.value || "0x0") });
     },
     status: async (tx, r) => {
+      if (sameSolana(r)) {
+        const st = (await sol<{ value: ({ err: unknown; confirmationStatus?: string } | null)[] }>("getSignatureStatuses", [[tx], { searchTransactionHistory: true }]).catch(() => null))?.value?.[0];
+        return !st ? "unknown" : st.err ? "failed" : st.confirmationStatus === "processed" ? "pending" : "done";
+      }
       const j = (await getJson(`${LIFI_API}/status?${new URLSearchParams({ txHash: tx, fromChain: String(CHAIN_ID[r.from.chain]), toChain: String(CHAIN_ID[r.to.chain]) })}`)) as { status?: string } | null;
       return j?.status === "DONE" ? "done" : j?.status === "FAILED" ? "failed" : j?.status === "PENDING" ? "pending" : "unknown";
     },
@@ -381,6 +390,17 @@ export function realDeps(fetcher: typeof fetch = fetch): Deps {
     },
     now: () => Date.now(),
   };
+}
+
+/** Both ends are Solana wallets of ours and SOL moves: a plain transfer, no route finder. */
+export const sameSolana = (r: QuoteReq) => r.from.chain === "solana" && r.to.chain === "solana" && r.from.token === "SOL" && r.to.token === "SOL";
+/** A signed legacy transaction with one System Program transfer of `lamports` from `w` to `to`. Pure. */
+export function transferTx(w: SolWallet, to: string, lamports: number, blockhash: string): string {
+  if (!(Number.isSafeInteger(lamports) && lamports > 0)) throw new Error("bad amount");
+  const data = Buffer.alloc(12);
+  data.writeUInt32LE(2, 0); // System Program: Transfer
+  data.writeBigUInt64LE(BigInt(lamports), 4);
+  return buildSigned(w, blockhash, "11111111111111111111111111111111", [{ pubkey: w.address, writable: true }, { pubkey: to, writable: true }], [...data]);
 }
 
 /** Called once when the bot starts. Does nothing at all while deploy/live-rules.json carries no bridge order. */

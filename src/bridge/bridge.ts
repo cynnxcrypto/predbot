@@ -24,7 +24,8 @@
  * Base (enrique, 19 Nov 2026: "also build being able to bridge with base"): a place of its own, with the bot's own
  * wallet there (src/bridge/basekey.ts) holding USDC. Sending FROM Base needs a little ETH on Base for gas.
  *
- * NOT BUILT YET: a move between two Solana wallets. It is refused in words.
+ * Between two Solana wallets (21 Nov 2026, enrique: "what about some sol from spot rules moved to spot copy"): SOL only,
+ * one plain transfer signed by the sending wallet, built here and not by a route finder (src/bridge/real.ts).
  *
  * This file knows no network: everything outside comes through Deps (src/bridge/real.ts is the real one).
  */
@@ -128,7 +129,7 @@ export function checkOrder(o: Order): string[] {
   if (!/^[a-z0-9-]{3,40}$/.test(o.id)) bad.push("the order needs an id (small letters, digits, dashes)");
   if (!PLACES.includes(o.from) || !PLACES.includes(o.to)) bad.push(`from and to must each be one of: ${PLACES.join(", ")}`);
   else if (o.from === o.to) bad.push("from and to are the same place");
-  else if (o.from.startsWith("solana") && o.to.startsWith("solana")) bad.push("a move between two Solana wallets is not built yet");
+  else if (o.from.startsWith("solana") && o.to.startsWith("solana") && (o.token ?? (o.from === "solana-perps" ? "USDC" : "SOL")) !== "SOL") bad.push("between two Solana wallets only SOL moves");
   if (!(o.usd >= MIN_USD && o.usd <= MAX_USD)) bad.push(`the amount must be ${MIN_USD} to ${MAX_USD} dollars`);
   if (o.token !== undefined && (!["USDC", "SOL"].includes(o.token) || !String(o.from).startsWith("solana"))) bad.push("token is USDC or SOL, and only for a move that starts at a Solana wallet");
   if (o.keepUsd !== undefined && (!(o.keepUsd >= 0 && o.keepUsd <= 100_000) || o.from === "hyperliquid")) bad.push("keepUsd is a number of dollars to leave behind, and not for a move that starts at Hyperliquid");
