@@ -271,6 +271,7 @@
       "historyBarOnNote": "20 Nov 2026 22:59 KST, enrique in MAIN's thread: 'push HL history bar on'.", "historyBar": true,
       "historyTopNote": "21 Nov 2026 08:17-08:23 KST, enrique, with 25 positions open and about $170 free: 'seems like we are filling up hl money with positions no?', 'so maybe we need some more traders but not a ton of them no?', 'yea just the best'. A trader that meets the bar on its last 30 days alone stays approved (the 26 until then). Of those that meet it only on the 90-day look, only this many of the best by their own result are approved (0 to 50). Not a limit on positions.",
       "historyTop": 5,
+      "keepBar": { "perCopyUsd": 0.5, "histPct": 2, "note": "21 Nov 2026 22:20 KST, enrique: 'push HL keep traders at $0.50+ a copy on real, or 2%+ a trade on own history'. Open copies are left to close as usual." },
       "lateWithinPct": 1,
       "maxLossUsd": 50,
       "traderStopUsd": 9,

@@ -86,6 +86,21 @@ export interface HlLiveConfig {
    *  hyperliquid positions and lets see what happens next"); new copies go on as usual ("why no new real copies open
    *  wtf"). A forced close does not count for or against the trader */
   closeAllOnce?: string;
+  /** only the better traders (21 Nov 2026, enrique: "push HL keep traders at $0.50+ a copy on real, or 2%+ a trade on
+   *  own history"): with real copies since its last cut, a trader stays only while they average perCopyUsd or more;
+   *  with none, only while its own Hyperliquid history averages histPct % or more a position. Open copies are untouched. */
+  keepBar?: { perCopyUsd: number; histPct: number };
+}
+/** Is this trader good enough to copy under the keep bar? Pure. */
+export function keepsTrader(real: { trades: number; net: number }, histAvgPct: number | null, kb: HlLiveConfig["keepBar"]): { ok: boolean; why: string } {
+  if (!kb) return { ok: true, why: "" };
+  const two = (x: number) => Math.round(x * 100) / 100;
+  if (real.trades > 0) {
+    const per = real.net / real.trades;
+    return per >= kb.perCopyUsd ? { ok: true, why: "" } : { ok: false, why: `paper: real copies average $${two(per)} each, under the $${kb.perCopyUsd} keep bar` };
+  }
+  if (histAvgPct == null) return { ok: false, why: "paper: no own Hyperliquid history read for the keep bar" };
+  return histAvgPct >= kb.histPct ? { ok: true, why: "" } : { ok: false, why: `paper: own history averages ${two(histAvgPct)}% a position, under the ${kb.histPct}% keep bar` };
 }
 /** the second wallet's own slots (enrique, 20 Nov 2026: "move 50usd to the second hl wallet and 4 slots") */
 export const SECOND_MAX_OPEN = 4;
@@ -104,7 +119,9 @@ export function parseHlLive(text: string): HlLiveConfig {
     const closeAll = name(p.closeAllOnce) ? { closeAllOnce: name(p.closeAllOnce) } : {};
     if (p.on !== true || !(maxLossUsd > 0)) return { ...OFF, collateralUsd, testOnce, ...closeAll, ...(s2 ? { second: { on: false, testOnce: name(s2.testOnce), maxOpen: 0 } } : {}) };
     const lateWithin = clamp(num(p.lateWithinPct, 0), 0, HARD_LATE_PCT) / 100;
-    return { on: true, collateralUsd, maxLossUsd, testOnce, lateWithin, ...(p.historyBar === true ? { historyBar: true, historyTop: Math.floor(clamp(num(p.historyTop, 5), 0, HARD_HISTORY_TOP)) } : {}), ...closeAll, ...(s2 ? { second: { on: s2.on === true, testOnce: name(s2.testOnce), maxOpen: Math.floor(clamp(num(s2.maxOpen, SECOND_MAX_OPEN), 1, HARD_SECOND_MAX_OPEN)) } } : {}), maxOpen: Math.floor(clamp(num(p.maxOpen, 5), 1, HARD_MAX_OPEN)), traderStopUsd: clamp(num(p.traderStopUsd, 9), 1, HARD_TRADER_STOP_USD) };
+    const kb = p.keepBar && typeof p.keepBar === "object" ? (p.keepBar as Record<string, unknown>) : null;
+    const keepBar = kb ? { keepBar: { perCopyUsd: clamp(num(kb.perCopyUsd, 0.5), 0, 50), histPct: clamp(num(kb.histPct, 2), 0, 50) } } : {};
+    return { on: true, collateralUsd, maxLossUsd, testOnce, lateWithin, ...keepBar, ...(p.historyBar === true ? { historyBar: true, historyTop: Math.floor(clamp(num(p.historyTop, 5), 0, HARD_HISTORY_TOP)) } : {}), ...closeAll, ...(s2 ? { second: { on: s2.on === true, testOnce: name(s2.testOnce), maxOpen: Math.floor(clamp(num(s2.maxOpen, SECOND_MAX_OPEN), 1, HARD_SECOND_MAX_OPEN)) } } : {}), maxOpen: Math.floor(clamp(num(p.maxOpen, 5), 1, HARD_MAX_OPEN)), traderStopUsd: clamp(num(p.traderStopUsd, 9), 1, HARD_TRADER_STOP_USD) };
   } catch {
     return OFF;
   }
@@ -165,6 +182,8 @@ export interface HlDeps {
   meetsBar(rule: string, sinceMs: number, now: number): boolean;
   /** is the trader still on the list followed now? */
   listed(rule: string): boolean;
+  /** the trader's own Hyperliquid history: average result a position, in %; null = not read */
+  histAvgPct?(rule: string): number | null;
 }
 
 interface Pos {
@@ -370,7 +389,7 @@ export async function hlLiveTick(d: HlDeps, now = Date.now()): Promise<void> {
     const [coins, mids] = [await v.coins(), await v.mids()];
     const paper = d.paperOpens();
     const stop = cfg.traderStopUsd || HARD_TRADER_STOP_USD - 1;
-    const isReal = (rule: string) => standing(realOf(rule), d.meetsBar(rule, state.demoted[rule] ?? 0, now), state.demotedWhy[rule]).real;
+    const isReal = (rule: string) => standing(realOf(rule), d.meetsBar(rule, state.demoted[rule] ?? 0, now), state.demotedWhy[rule]).real && keepsTrader(realOf(rule), d.histAvgPct?.(rule) ?? null, cfg.keepBar).ok;
     // a trader already behind under the sooner cut is cut now, not only at its next close
     for (const rule of new Set(state.rows.map((x) => x.rule))) {
       if (rule === TEST_RULE) continue;
@@ -593,12 +612,13 @@ export const fileCfg = (): HlLiveConfig => {
 };
 
 /** For the status and the dashboard tab. Traders by their short rule name only: no address. */
-export function hlLiveSummary(cfg: HlLiveConfig = fileCfg(), meetsBar: (rule: string, sinceMs: number, now: number) => boolean = () => false, now = Date.now()) {
+export function hlLiveSummary(cfg: HlLiveConfig = fileCfg(), meetsBar: (rule: string, sinceMs: number, now: number) => boolean = () => false, now = Date.now(), histAvgPct: (rule: string) => number | null = () => null) {
   if (!loaded) load();
   const rules = [...new Set([...state.rows.map((x) => x.rule), ...state.opens.map((x) => x.rule)])].filter((x) => x !== TEST_RULE);
   return {
     on: cfg.on,
     note: "REAL. Copies of Hyperliquid traders on Hyperliquid itself, every coin; isolated margin; a trader is real on its own paper record, then on its real record.",
+    keepBar: cfg.keepBar ?? null,
     limits: { collateralUsd: cfg.collateralUsd, maxOpen: cfg.maxOpen, maxLossUsd: cfg.maxLossUsd, traderStopUsd: cfg.traderStopUsd, lateWithinPct: Math.round((cfg.lateWithin ?? 0) * 10000) / 100 },
     // both wallets as one (the worth counts them as one), and each beside it
     account: state.account && state.account2 ? { at: Math.min(state.account.at, state.account2.at), valueUsd: r2(state.account.valueUsd + state.account2.valueUsd), freeUsd: r2(state.account.freeUsd + state.account2.freeUsd) } : (state.account ?? null),
@@ -617,7 +637,9 @@ export function hlLiveSummary(cfg: HlLiveConfig = fileCfg(), meetsBar: (rule: st
     opens: state.opens.map((p) => ({ wallet: p.w ?? 1, trader: p.rule, coin: p.coin, side: p.dir > 0 ? "long" : "short", leverage: p.lev, collateralUsd: p.collUsd, entryPx: p.entryPx, unrealUsd: p.unrealUsd ?? null, openedAt: p.openedMs, late: !!p.late, conviction: p.share ?? null, partCloses: p.parts ?? 0, traderHolds: p.traderLeft ?? null, onHyperliquid: p.venueLev == null ? null : { leverage: p.venueLev, isolated: !!p.venueIsolated, marginUsd: p.venueMarginUsd ?? null, same: p.venueLev === p.lev && !!p.venueIsolated } })),
     traders: rules.map((rule) => {
       const real = realOf(rule);
-      const st = standing(real, meetsBar(rule, state.demoted[rule] ?? 0, now), state.demotedWhy[rule]);
+      const st0 = standing(real, meetsBar(rule, state.demoted[rule] ?? 0, now), state.demotedWhy[rule]);
+      const kept = keepsTrader(real, histAvgPct(rule), cfg.keepBar);
+      const st = st0.real && !kept.ok ? { real: false, why: kept.why } : st0;
       // trades, won, netUsd: every real trade ever made with this trader, kept through a cut (what it made us);
       // sinceCut: the record the keep-or-cut rule looks at, which starts again at a cut
       const all = realRecord(state.rows.filter((x) => x.rule === rule).map((x) => x.netUsd));

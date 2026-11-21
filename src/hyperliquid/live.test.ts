@@ -480,3 +480,17 @@ test("the own-history bar is a switch of its own, off unless the file says true"
   assert.deepEqual([top(""), top(',"historyTop":8'), top(',"historyTop":0'), top(',"historyTop":999'), top(',"historyTop":"x"')], [5, 8, 0, 50, 5]);
   assert.equal(parseHlLive('{"hyperliquid":{"trade":{"on":true,"maxLossUsd":50,"historyTop":8}}}').historyTop, undefined);
 });
+
+test("keep bar: real copies must average $0.50+, traders without real copies 2%+ a position on their own history", async () => {
+  const { keepsTrader, parseHlLive } = await import("./live.js");
+  const kb = { perCopyUsd: 0.5, histPct: 2 };
+  assert.equal(keepsTrader({ trades: 19, net: 2.2 }, 9, kb).ok, false, "about 12c a copy: out, whatever its history");
+  assert.equal(keepsTrader({ trades: 6, net: 3.24 }, 0.2, kb).ok, true, "54c a copy: kept");
+  assert.equal(keepsTrader({ trades: 0, net: 0 }, 2.8, kb).ok, true);
+  assert.equal(keepsTrader({ trades: 0, net: 0 }, 0.9, kb).ok, false);
+  assert.equal(keepsTrader({ trades: 0, net: 0 }, null, kb).ok, false);
+  assert.equal(keepsTrader({ trades: 3, net: -1 }, 9, undefined).ok, true, "no bar: everyone");
+  const c = parseHlLive(JSON.stringify({ hyperliquid: { trade: { on: true, maxLossUsd: 50, keepBar: { perCopyUsd: 0.5, histPct: 2 } } } }));
+  assert.deepEqual(c.keepBar, kb);
+  assert.equal(parseHlLive(JSON.stringify({ hyperliquid: { trade: { on: true, maxLossUsd: 50 } } })).keepBar, undefined);
+});

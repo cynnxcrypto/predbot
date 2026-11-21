@@ -1429,6 +1429,13 @@ export function hlHistoryMeetsBar(rule: string, sinceMs = 0, now = Date.now(), t
   const i = histLongOnly(now).indexOf(rule);
   return i >= 0 && i < top;
 }
+/** A trader's own closed positions of the last HIST_DAYS days: their average result, in % (null = not read or none). */
+export function hlHistoryAvgPct(rule: string, now = Date.now()): number | null {
+  if (!loaded) load();
+  const t = state.hlTraders.find((x) => traderRule(x.address) === rule);
+  const xs = t ? (state.hlHist?.[t.address]?.trips ?? []).filter((x) => x[0] > now - HIST_DAYS * 86_400_000) : [];
+  return xs.length ? (xs.reduce((a, x) => a + x[1], 0) * 100) / xs.length : null;
+}
 /** For the status: how many histories are read, who passes on them, each by its short name. */
 export function hlHistorySummary(now = Date.now(), top = Infinity) {
   if (!loaded) load();
