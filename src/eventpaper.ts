@@ -16,7 +16,8 @@
  * Every rule is $5 at the real ask (walking the book), taker fee rate x p x (1-p) per share, held to settlement.
  */
 import { loadJson, saveJson } from "./store.js";
-import { startTradeStream, tradeStreamStatus } from "./pmstream.js";
+import { setTradeTap, startTradeStream, tradeStreamStatus } from "./pmstream.js";
+import { seenCandidates, seenNote, seenSave, seenStatus } from "./copyseen.js";
 import { copySellStatus, followSales, sellDue, type SellDeps } from "./copysell.js";
 import { autoFollowed, autoState, autoSummary, copyPromote, copyScan, scanDue } from "./copyscan.js";
 import { NEG_READY_FILE, spentOf, eventLiveAdapt, paperGate, setPaperBehind, paperBehindStatus, realRecord, eventLiveBusy, eventLiveBuy, eventRestBid, eventRestSync, eventDelayedSync, eventLiveConfig, eventLiveRows, eventLiveSettle, eventLiveSummary, eventLiveStop, type EventLiveRow, type NegRiskReady } from "./eventlive.js";
@@ -2129,6 +2130,7 @@ function summarize() {
   const om = copyOrderMs;
   out.copyFeed = {
     stream: tradeStreamStatus(),
+    seen: seenStatus(),
     lagSinceStart: Object.fromEntries(Object.entries(copySrcLags).map(([k, v]) => [k, { n: v.length, medianSec: pct(v, 0.5), p90Sec: pct(v, 0.9) }])),
     realOrders: { n: om.length, lagSecMedian: pct(om.map((x) => x.lagSec), 0.5), seenToAnswerMsMedian: pct(om.map((x) => x.ms), 0.5), seenToAnswerMsP90: pct(om.map((x) => x.ms), 0.9), orderMsMedian: pct(om.map((x) => x.sendMs), 0.5), byStream: om.filter((x) => x.src === "stream").length },
   };
@@ -2268,6 +2270,15 @@ async function main() {
       /* keep the last list */
     }
   }, 30_000).unref();
+  // every wallet seen buying on the socket is tallied for the daily rescan (21 Nov 2026: the leaderboards ran dry)
+  setTradeTap((wallet, row) => seenNote(wallet, row));
+  setInterval(() => {
+    try {
+      seenSave();
+    } catch {
+      /* written again in 10 minutes */
+    }
+  }, 10 * 60_000).unref();
   startTradeStream(
     () => copyAddrs,
     (addr, rows, seenMs) => {
@@ -2359,7 +2370,7 @@ async function main() {
       scanning = true;
       void guard("wallet rescan", async () => {
         const own = String(loadJson<{ funder?: string }>("live.json", {}).funder ?? "");
-        for (const t of await copyScan([...COPY_WALLETS, { name: "weather wallet", address: WX_COPY_WALLET }], own, (u) => getJson(u, 20_000))) log(t);
+        for (const t of await copyScan([...COPY_WALLETS, { name: "weather wallet", address: WX_COPY_WALLET }], own, (u) => getJson(u, 20_000), Date.now(), undefined, seenCandidates())) log(t);
       }).finally(() => (scanning = false));
     }
     {

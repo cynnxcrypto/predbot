@@ -15,6 +15,17 @@
  *     wallet (deploy/live-rules.json events.copy: $3-$10, 14 days at most, stake caps, back to paper at -$10 after 10
  *     settled real copies).
  *  5. A paper wallet that after DROP_DAYS has DROP_N+ settled paper copies and is behind is dropped (no longer followed).
+ * 21 Nov 2026 22:18 KST, enrique: "polymarket - find more good traders then, what are u waiting for" (the scan of
+ * that evening read 345 new wallets and added 1; 74 followed, 2 at the real bar). Wider, with the money-at-stake
+ * floors unchanged:
+ *  - the boards are read 10 pages deep (was 3), and every wallet seen buying on the live trade socket
+ *    (src/copyseen.ts) is a candidate too: most traders are on no leaderboard;
+ *  - one small losing week in the last 4 is allowed (at most a quarter of the 4 weeks' profit);
+ *  - a wallet must have made 7+ different bets in 7 days (14 fills of one order gave wallets we never copied), and a
+ *    wallet that buys over MACHINE_PER_DAY different sides a day is left out (the four such wallets on paper lost
+ *    $2,658 on 13,008 paper copies in a week);
+ *  - a paper wallet that has PROMOTE_N+ settled copies and is $FAST_DROP_USD or more behind after FAST_DROP_DAYS days
+ *    is dropped, and so is one that gave under IDLE_N copies in IDLE_DAYS days: both only hold a place.
  * State: data/copy-auto.json (server only). Public status shows names and stages, the addresses are public wallets.
  */
 import { loadJson, saveJson } from "./store.js";
@@ -27,8 +38,11 @@ export const AUTO_FILE = "copy-auto.json";
 // day. Paper only: who goes real is still each wallet's own paper record. The live trade stream sees their buys; the
 // poll behind it reads each paper wallet about every 3 minutes at 120.
 export const ADD_PER_DAY = 40;
-export const MAX_ACTIVE = 120;
-export const SCREEN_PER_DAY = 1500;
+// 21 Nov 2026: 120 -> 200 with the wider search; losing and idle paper wallets now leave sooner (copyPromote).
+export const MAX_ACTIVE = 200;
+export const SCREEN_PER_DAY = 3000;
+/** Pages of 100 read of every leaderboard. */
+export const BOARD_PAGES = 10;
 /** A wallet that failed the screen is not read again for this long. */
 export const RESCREEN_DAYS = 7;
 const PERIODS = ["month", "week", "all"];
@@ -38,11 +52,20 @@ export const PROMOTE_N = 40;
 export const KEEP_N = 20;
 export const DROP_DAYS = 14;
 export const DROP_N = 10;
+/** A paper wallet with the real bar's number of settled copies that is this far behind is dropped without waiting DROP_DAYS. */
+export const FAST_DROP_DAYS = 3;
+export const FAST_DROP_USD = 5;
+/** A paper wallet that gave fewer copies than this (open or settled, any price) in IDLE_DAYS is dropped: nothing to learn from it. */
+export const IDLE_DAYS = 7;
+export const IDLE_N = 5;
+/** Different bets (market sides) a wallet must have bought in 7 days, and the most it may buy in a day. */
+export const MIN_BETS_7D = 7;
+export const MACHINE_PER_DAY = 150;
 const DATA = "https://data-api.polymarket.com";
 const CATS = ["overall", "crypto", "sports", "esports", "weather", "politics", "economics", "economy", "finance", "tech", "culture", "mentions"];
 
 export type AutoWallet = { name: string; address: string; addedAt: number; stage: "paper" | "real" | "dropped"; why: string; promotedAt?: number; droppedAt?: number; demotedAt?: number };
-export type AutoState = { lastScan: number; scans: number; lastError: string | null; screened: number; passed: number; candidates?: number; failedAt?: Record<string, number>; runStart?: number; ver?: number; sizes?: Record<string, WalletSize>; wallets: AutoWallet[]; log: { t: number; text: string }[] };
+export type AutoState = { lastScan: number; scans: number; lastError: string | null; screened: number; passed: number; candidates?: number; fromStream?: number; passedStream?: number; fails?: Record<string, number>; failedVer?: number; failedAt?: Record<string, number>; runStart?: number; ver?: number; sizes?: Record<string, WalletSize>; wallets: AutoWallet[]; log: { t: number; text: string }[] };
 const EMPTY: AutoState = { lastScan: 0, scans: 0, lastError: null, screened: 0, passed: 0, wallets: [], log: [] };
 
 export function autoState(): AutoState {
@@ -154,21 +177,39 @@ export function historyOf(points: PnlPoint[], now: number): WalletHist | null {
   };
 }
 
-/** The screen; returns null when the wallet passes, else why not. Pure. */
-export function copyScreen(weeks: number[] | null, acts: Act[], now: number): string | null {
+/** The 4-week profit rule; null when it passes. One losing week is allowed when it is small. */
+export function weeksWhy(weeks: number[] | null): string | null {
   if (!weeks) return "no 4-week profit history";
-  if (!weeks.every((w) => w > 0)) return "a losing week in the last 4";
   const sum = weeks.reduce((a, b) => a + b, 0);
+  const down = weeks.filter((w) => !(w > 0));
+  if (down.length > 1) return "two or more losing weeks in the last 4";
+  if (down.length === 1 && !(sum > 0 && -down[0] <= 0.25 * sum)) return "a losing week over a quarter of the 4 weeks' profit";
   if (Math.max(...weeks) > 0.5 * sum) return "one week made over half the profit";
   if (sum < MIN_MONTH_USD) return `made $${Math.round(sum)} in 4 weeks (needs $${MIN_MONTH_USD})`;
-  const buys = acts.filter((r) => r.type === "TRADE" && String(r.side ?? "").toUpperCase() === "BUY" && (Number(r.timestamp) > 1e12 ? Number(r.timestamp) : Number(r.timestamp) * 1000) >= now - 7 * 86400_000);
+  return null;
+}
+const betKey = (r: Act) => `${r.conditionId ?? r.condition_id ?? r.title ?? ""}|${r.outcome ?? ""}`;
+/** The screen; returns null when the wallet passes, else why not. Pure. */
+export function copyScreen(weeks: number[] | null, acts: Act[], now: number): string | null {
+  const w = weeksWhy(weeks);
+  if (w) return w;
+  const allBuys = acts.filter((r) => r.type === "TRADE" && String(r.side ?? "").toUpperCase() === "BUY" && tsMs(r) > 0);
+  const buys = allBuys.filter((r) => tsMs(r) >= now - 7 * 86400_000);
   if (buys.length < 14) return `${buys.length} buys in 7 days (needs 14)`;
+  const bets = new Set(buys.map(betKey)).size;
+  if (bets < MIN_BETS_7D) return `${bets} different bets in 7 days (needs ${MIN_BETS_7D})`;
+  // a wallet that buys hundreds of sides a day is a machine quoting markets: copied late at the ask it loses
+  const spanDays = Math.max(1 / 24, (now - Math.min(...allBuys.map(tsMs))) / 86400_000);
+  const perDay = new Set(allBuys.map(betKey)).size / spanDays;
+  if (perDay > MACHINE_PER_DAY) return `buys ${Math.round(perDay)} different sides a day (over ${MACHINE_PER_DAY})`;
   const med = medianBuy(acts, now) ?? 0;
   if (!(med >= MIN_MED_BUY)) return `median buy $${Math.round(med)} (under $${MIN_MED_BUY})`;
   const crypto = buys.filter((r) => /up or down/i.test(String(r.title ?? ""))).length;
   if (crypto > buys.length / 3) return "mostly crypto up/down";
   return null;
 }
+/** A fail reason without its numbers, for the counts in the status. */
+export const failKind = (why: string) => why.replace(/\$?\d[\d,.]*/g, "N").slice(0, 60);
 
 /** Paper result of a rule from the paper trades: settled fillable count, won, net. */
 export type PaperTrade = { rule: string; pnl?: number | null; won?: boolean | null; fillable?: boolean };
@@ -216,6 +257,18 @@ export function copyPromote(s: AutoState, trades: PaperTrade[], now: number, rea
       w.stage = "dropped";
       w.droppedAt = now;
       out.push(`${w.name} dropped: paper ${r.won} of ${r.n} won, $${r.net.toFixed(2)} after ${DROP_DAYS} days`);
+    } else if (now - Math.max(w.addedAt, w.demotedAt ?? 0) >= FAST_DROP_DAYS * 86400_000 && r.n >= PROMOTE_N && r.net <= -FAST_DROP_USD) {
+      // it has the number of settled copies the real bar asks for and they lose: it only holds a place
+      w.stage = "dropped";
+      w.droppedAt = now;
+      out.push(`${w.name} dropped: paper ${r.won} of ${r.n} won, $${r.net.toFixed(2)} (${PROMOTE_N}+ settled and behind)`);
+    } else if (now - w.addedAt >= IDLE_DAYS * 86400_000 && !w.promotedAt) {
+      const made = trades.filter((t) => t.rule === `copy-take-${w.name}` || t.rule === `copy-any-${w.name}`).length;
+      if (made < IDLE_N) {
+        w.stage = "dropped";
+        w.droppedAt = now;
+        out.push(`${w.name} dropped: ${made} copies in ${IDLE_DAYS} days (nothing to copy)`);
+      }
     }
   }
   return out;
@@ -233,7 +286,7 @@ const nameFor = (user: string | undefined, address: string, taken: Set<string>) 
  * `get` = the JSON fetcher. Adds at most ADD_PER_DAY wallets. Never throws.
  */
 /** Is a scan due: a day since the last finished one, or the first one of this (wider) version. */
-export const SCAN_VER = 5;
+export const SCAN_VER = 6;
 export const scanDue = (now = Date.now(), s = autoState()) => s.ver !== SCAN_VER || now - s.lastScan > 24 * 3600_000;
 /** Load the file fresh, change it, save it: the scan runs for a long time next to the promotions. */
 function commit(f: (s: AutoState) => void) {
@@ -241,22 +294,24 @@ function commit(f: (s: AutoState) => void) {
   f(s);
   save(s);
 }
-export async function copyScan(followed: { name: string; address: string }[], own: string, get: <T>(url: string) => Promise<T>, now = Date.now(), wait = pause): Promise<string[]> {
+export async function copyScan(followed: { name: string; address: string }[], own: string, get: <T>(url: string) => Promise<T>, now = Date.now(), wait = pause, seen: { address: string; usd: number }[] = []): Promise<string[]> {
   const out: string[] = [];
   try {
     const s0 = autoState();
     // a scan cut short by a restart goes on where it stopped: failed wallets are remembered, counts are kept
     const fresh = !s0.runStart || now - s0.runStart > 24 * 3600_000;
-    if (fresh) commit((s) => void ((s.runStart = now), (s.screened = 0), (s.passed = 0)));
+    if (fresh) commit((s) => void ((s.runStart = now), (s.screened = 0), (s.passed = 0), (s.passedStream = 0), (s.fails = {})));
+    // the screen changed: wallets it refused before are read again now, once (not again when a restart resumes the scan)
+    if (s0.failedVer !== SCAN_VER) commit((s) => void ((s.failedAt = {}), (s.failedVer = SCAN_VER)));
     const known = new Set([...followed.map((w) => w.address.toLowerCase()), ...s0.wallets.map((w) => w.address.toLowerCase()), own.toLowerCase()]);
     const names = new Set([...followed.map((w) => w.name), ...s0.wallets.map((w) => w.name)]);
-    const cands = new Map<string, { user?: string; pnl: number }>();
-    const failedAt: Record<string, number> = { ...(s0.failedAt ?? {}) };
+    const cands = new Map<string, { user?: string; pnl: number; usd: number; stream?: boolean }>();
+    const failedAt: Record<string, number> = s0.failedVer !== SCAN_VER ? {} : { ...(s0.failedAt ?? {}) };
     for (const a of Object.keys(failedAt)) if (now - failedAt[a] > RESCREEN_DAYS * 86400_000) delete failedAt[a];
     for (const per of PERIODS) {
       for (const cat of CATS) {
         let cursor: string | null = null;
-        for (let page = 0; page < 3; page++) {
+        for (let page = 0; page < BOARD_PAGES; page++) {
           const rows: unknown = await get<unknown>(`${DATA}/v2/leaderboard?category=${cat}&time_period=${per}&sort_by=PNL&limit=100${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`).catch(() => null);
           await wait(300);
           const list = (Array.isArray(rows) ? rows : ((rows as { data?: unknown[] } | null)?.data ?? [])) as { user_id?: string; proxyWallet?: string; user_name?: string; userName?: string; pnl?: number | string }[];
@@ -265,12 +320,20 @@ export async function copyScan(followed: { name: string; address: string }[], ow
             const pnl = Number(r.pnl);
             if (!/^0x[0-9a-f]{40}$/.test(a) || known.has(a) || failedAt[a] || !(pnl > 0)) continue;
             // month boards come first, so a wallet keeps its month profit for the order below
-            if (!cands.has(a)) cands.set(a, { user: r.user_name ?? r.userName, pnl: per === "month" ? pnl : 0 });
+            if (!cands.has(a)) cands.set(a, { user: r.user_name ?? r.userName, pnl: per === "month" ? pnl : 0, usd: 0 });
           }
           cursor = (rows as { pagination?: { next_cursor?: string } } | null)?.pagination?.next_cursor ?? null;
           if (!cursor || !list.length) break;
         }
       }
+    }
+    // wallets seen buying on the live trade socket that are on no board read above (src/copyseen.ts)
+    let fromStream = 0;
+    for (const x of seen) {
+      const a = String(x.address).toLowerCase();
+      if (!/^0x[0-9a-f]{40}$/.test(a) || known.has(a) || failedAt[a] || cands.has(a)) continue;
+      cands.set(a, { pnl: 0, usd: Number(x.usd) || 0, stream: true });
+      fromStream += 1;
     }
     // every wallet already followed is measured first (positions and usual buy, 2 calls each), so the status shows
     // what each one has at stake; a rescan wallet still on PAPER that is too small is dropped, which frees its place.
@@ -314,20 +377,35 @@ export async function copyScan(followed: { name: string; address: string }[], ow
     let room = Math.max(0, Math.min(ADD_PER_DAY - addedToday, MAX_ACTIVE - autoFollowed().length));
     let screened = 0;
     let passed = 0;
+    let passedStream = 0;
     let unsaved = 0;
+    let fails: Record<string, number> = {};
+    const fail = (address: string, why: string) => {
+      failedAt[address] = now;
+      const k = failKind(why);
+      fails[k] = (fails[k] ?? 0) + 1;
+    };
     const flush = () => {
       commit((s) => {
         s.failedAt = { ...failedAt };
         s.candidates = cands.size;
+        s.fromStream = fromStream;
         s.screened += screened;
         s.passed += passed;
+        s.passedStream = (s.passedStream ?? 0) + passedStream;
+        const f = { ...(s.fails ?? {}) };
+        for (const [k, n] of Object.entries(fails)) f[k] = (f[k] ?? 0) + n;
+        s.fails = f;
       });
       screened = 0;
       passed = 0;
+      passedStream = 0;
+      fails = {};
       unsaved = 0;
     };
-    // biggest month profit first; at most SCREEN_PER_DAY wallets read a day (1-2 calls each, paced)
-    for (const [address, c] of [...cands].sort((a, b) => b[1].pnl - a[1].pnl).slice(0, SCREEN_PER_DAY)) {
+    // biggest month profit first, then the socket's wallets by dollars bought, then the other boards; at most
+    // SCREEN_PER_DAY wallets read a day (1-2 calls each, paced)
+    for (const [address, c] of [...cands].sort((a, b) => b[1].pnl - a[1].pnl || b[1].usd - a[1].usd).slice(0, SCREEN_PER_DAY)) {
       if (room <= 0) break;
       screened += 1;
       if (++unsaved >= 40) flush();
@@ -335,8 +413,9 @@ export async function copyScan(followed: { name: string; address: string }[], ow
       const pnl = await get<{ data?: { points?: PnlPoint[] } }>(`${DATA}/v2/user-pnl?user=${address}&interval=1m&fidelity=1d`).catch(() => null);
       if (!pnl) continue; // not read: tried again next time
       const weeks = weeklyPnl(pnl?.data?.points ?? [], now);
-      if (!weeks || !weeks.every((w) => w > 0)) {
-        failedAt[address] = now;
+      const weeksNo = weeksWhy(weeks);
+      if (weeksNo) {
+        fail(address, weeksNo);
         continue;
       }
       await wait(350);
@@ -344,14 +423,14 @@ export async function copyScan(followed: { name: string; address: string }[], ow
       if (!got) continue;
       const why = copyScreen(weeks, got.data ?? [], now);
       if (why) {
-        failedAt[address] = now;
+        fail(address, why);
         continue;
       }
       await wait(350);
       const value = valueOf(await get<unknown>(`${DATA}/v2/value?user=${address}`).catch(() => null));
       if (value == null) continue; // not read: tried again next time
       if (value < MIN_VALUE_USD) {
-        failedAt[address] = now;
+        fail(address, `under $${MIN_VALUE_USD} in open positions`);
         continue;
       }
       const med = medianBuy(got.data ?? [], now);
@@ -359,12 +438,13 @@ export async function copyScan(followed: { name: string; address: string }[], ow
       const all = await get<{ data?: { points?: PnlPoint[] } }>(`${DATA}/v2/user-pnl?user=${address}&interval=all&fidelity=1d`).catch(() => null);
       const hist = all ? historyOf(all?.data?.points ?? [], now) : null;
       passed += 1;
+      if (c.stream) passedStream += 1;
       const name = nameFor(c.user, address, names);
       names.add(name);
-      const text = `${name} added to paper copy (weeks ${weeks.map((w) => `$${Math.round(w)}`).join(", ")})`;
+      const text = `${name} added to paper copy (weeks ${weeks!.map((w) => `$${Math.round(w)}`).join(", ")}${c.stream ? "; found on the live trade feed" : ""})`;
       const t = Date.now();
       commit((s) => {
-        s.wallets.push({ name, address, addedAt: t, stage: "paper", why: `weeks ${weeks.map((w) => Math.round(w)).join("/")}, month +$${Math.round(c.pnl)}, usual buy $${Math.round(med ?? 0)}, $${Math.round(value)} in positions` });
+        s.wallets.push({ name, address, addedAt: t, stage: "paper", why: `weeks ${weeks!.map((w) => Math.round(w)).join("/")}, month +$${Math.round(c.pnl)}, usual buy $${Math.round(med ?? 0)}, $${Math.round(value)} in positions` });
         s.sizes = { ...(s.sizes ?? {}), [name]: { valueUsd: Math.round(value), medBuyUsd: med == null ? null : Math.round(med), at: t, hist } };
         s.log.push({ t, text });
         s.log = s.log.slice(-60);
@@ -388,13 +468,17 @@ export function autoSummary(trades: PaperTrade[]) {
     running: Boolean(s.runStart),
     scans: s.scans,
     candidates: s.candidates ?? null,
+    fromStream: s.fromStream ?? null,
     screened: s.screened,
     passed: s.passed,
+    passedStream: s.passedStream ?? null,
+    // why the wallets read in this scan were refused, by reason
+    fails: s.fails ?? {},
     lastError: s.lastError,
     // what every followed wallet has at stake (hand-picked and rescan wallets, by name), read at the daily scan
     sizes: s.sizes ?? {},
     floors: { monthUsd: MIN_MONTH_USD, usualBuyUsd: MIN_MED_BUY, positionsUsd: MIN_VALUE_USD },
-    bar: `added: up each of its last 4 weeks (no week over half) and $${MIN_MONTH_USD}+ made in them, 14+ buys in 7 days, usual buy $${MIN_MED_BUY}+ (no upper limit), $${MIN_VALUE_USD}+ in open positions, under a third crypto up/down; a paper wallet under the size floors is dropped; ${ADD_PER_DAY} a day at most, ${MAX_ACTIVE} followed at most. REAL when paper copy-take has ${PROMOTE_N}+ settled, half won, net > 0, after a day on paper; back to paper when that no longer holds. Dropped after ${DROP_DAYS} days with ${DROP_N}+ settled and behind.`,
+    bar: `added: up in its last 4 weeks (one losing week of at most a quarter of the profit allowed, no week over half) and $${MIN_MONTH_USD}+ made in them, 14+ buys and ${MIN_BETS_7D}+ different bets in 7 days, at most ${MACHINE_PER_DAY} sides a day, usual buy $${MIN_MED_BUY}+ (no upper limit), $${MIN_VALUE_USD}+ in open positions, under a third crypto up/down; a paper wallet under the size floors is dropped; ${ADD_PER_DAY} a day at most, ${MAX_ACTIVE} followed at most. REAL when paper copy-take has ${PROMOTE_N}+ settled, half won, net > 0, after a day on paper; back to paper when that no longer holds. Dropped after ${DROP_DAYS} days with ${DROP_N}+ settled and behind, after ${FAST_DROP_DAYS} days with ${PROMOTE_N}+ settled and $${FAST_DROP_USD}+ behind, or after ${IDLE_DAYS} days with under ${IDLE_N} copies.`,
     wallets: s.wallets.map((w) => ({ name: w.name, stage: w.stage, addedAt: w.addedAt, promotedAt: w.promotedAt ?? null, demotedAt: w.demotedAt ?? null, paper: paperResult(trades, `copy-take-${w.name}`) })),
     log: s.log.slice(-30).reverse(),
   };

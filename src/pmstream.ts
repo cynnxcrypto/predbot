@@ -55,6 +55,9 @@ const health = { on: false, up: false, connects: 0, reopened: 0, msgs: 0, trades
 let sock: WebSocket | null = null;
 let watched = (): Set<string> => new Set();
 let handler: Handler | null = null;
+/** Every trade on the exchange, whoever made it (the rescan's tally of active wallets, src/copyseen.ts). */
+let tap: ((wallet: string, row: StreamRow) => void) | null = null;
+export const setTradeTap = (f: typeof tap) => void (tap = f);
 const pending = new Map<string, { rows: StreamRow[]; firstMs: number; timer: ReturnType<typeof setTimeout> }>();
 let backoff = 1000;
 let pinger: ReturnType<typeof setInterval> | null = null;
@@ -81,6 +84,13 @@ function take(text: string) {
   if (!got) return;
   health.trades++;
   health.lastTradeAt = Date.now();
+  if (tap) {
+    try {
+      tap(got.wallet, got.row);
+    } catch {
+      /* the tally must never stop the copies */
+    }
+  }
   if (!watched().has(got.wallet)) return;
   health.matched++;
   health.lastMatchAt = Date.now();
