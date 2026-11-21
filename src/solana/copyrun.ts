@@ -11,6 +11,8 @@
 import { appendFileSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { request as httpsRequest } from "node:https";
+import { randomBytes } from "node:crypto";
 import { DATA } from "../config.js";
 import { crowd, type RealCopy, EXITS, followerPrice, fomoStudy, LATE_CHECK_MS, LATE_ENTRY_MS, parseBuy, parseDollarBuy, PATH, REAL_D, REPEAT_MIN, SIZE_EXITS, SIZES, STAKE_SOL, paceAt, summarize, TX_SOL, unlate, unrefuse, verdictAt, WAVE_ENDS, WAVE_ENTRIES, WAVE_MIN_BUYERS, WAVE_STAKE_SOL, waveQuotedStudy, type Entry, type Pace, type ParsedTx, type Signal, type Verdict, type WaveLot, type WaveTrade } from "./copy.js";
 import { SOL, USDC } from "./pools.js";
@@ -98,7 +100,44 @@ async function probeHelius(): Promise<void> {
   }
   health.heliusDown = !heliusOk();
 }
-const wsUrl = () => (helius() ? `wss://mainnet.helius-rpc.com/?api-key=${helius()}` : "wss://api.mainnet-beta.solana.com");
+/**
+ * 21 Nov 2026: after the Helius credits ran out (from 09:00 KST every handshake refused, "max usage reached"), the
+ * websocket never opened again: wallet copy and the slow study heard nothing, and nothing said why. Now each failed
+ * open is counted, the refusal Helius gives is read once (status and words, key cut out), and after 3 failed opens in
+ * a row the wallet feed moves to the public websocket (per-wallet logs, as without a key) for 30 minutes, then tries
+ * Helius again.
+ */
+const wsState = { fails: 0, publicUntil: 0, lastClose: null as { at: number; code: number; reason: string } | null, refusal: null as { at: number; status: number; body: string } | null, probing: false };
+const heliusWs = () => Boolean(helius()) && Date.now() >= wsState.publicUntil;
+const wsHelius = () => `wss://mainnet.helius-rpc.com/?api-key=${helius()}`;
+const wsUrl = () => (heliusWs() ? wsHelius() : "wss://api.mainnet-beta.solana.com");
+/** Ask for a websocket upgrade by hand, only to read what Helius answers when it refuses (the WebSocket API hides it). */
+function probeWs(): void {
+  if (wsState.probing || !helius()) return;
+  wsState.probing = true;
+  const done = (status: number, body: string) => {
+    wsState.probing = false;
+    wsState.refusal = { at: Date.now(), status, body: scrub(body).replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, "…").slice(0, 160) };
+  };
+  try {
+    const req = httpsRequest(`https://mainnet.helius-rpc.com/?api-key=${helius()}`, { headers: { Connection: "Upgrade", Upgrade: "websocket", "Sec-WebSocket-Version": "13", "Sec-WebSocket-Key": randomBytes(16).toString("base64") }, timeout: 8000 });
+    req.on("upgrade", (_res, socket) => {
+      socket.destroy();
+      done(101, "upgrade accepted");
+    });
+    req.on("response", (res) => {
+      let b = "";
+      res.on("data", (c: Buffer) => (b += c.toString()).length > 400 && res.destroy());
+      res.on("end", () => done(res.statusCode ?? 0, b));
+      res.on("close", () => wsState.probing && done(res.statusCode ?? 0, b));
+    });
+    req.on("timeout", () => req.destroy(new Error("timeout")));
+    req.on("error", (e) => wsState.probing && done(0, String(e.message)));
+    req.end();
+  } catch (e) {
+    done(0, String((e as Error).message));
+  }
+}
 
 let gate: Promise<unknown> = Promise.resolve();
 /** After a 429 (rate limit) every RPC call waits until this time. First run on the public RPC, 11 Nov 2026: 119
@@ -364,7 +403,7 @@ export function buildCopySummary() {
     note: `Paper only, nothing is sent. Each copy is ${STAKE_SOL} SOL at real Jupiter quotes, minus ${TX_SOL} SOL per transaction, bought ${REAL_D} s or more after we know of the wallet's buy: that is where a real order lands. The quote of the instant we know is a price no order gets; rules priced there are kept apart in rulesInstant and count for nothing. A quote is still the best case for a fill, so paper profit is an upper bound. Bar for real: 100+ copies on one rule, half or more won, net positive.`,
     updatedAt: Date.now(),
     solUsd,
-    health: { ...health, active: health.active },
+    health: { ...health, active: health.active, wsFails: wsState.fails, wsPublicUntil: wsState.publicUntil || null, wsClose: wsState.lastClose, wsRefusal: wsState.refusal },
     discovery: discoverSummary(),
     history: historySummary(),
     slow: slowSummary(),
@@ -706,7 +745,7 @@ let current: Tracked[] = [];
 
 /** Watch newly found wallets on the open stream (one more subscription; no reconnect, no gap in the feed). */
 function watchFound() {
-  if (!ws || ws.readyState !== WebSocket.OPEN || !helius()) return;
+  if (!ws || ws.readyState !== WebSocket.OPEN || !helius() || health.feed !== "helius websocket") return;
   const have = new Set(current.map((w) => w.address));
   const room = FOUND_MAX - current.filter((w) => w.found && !w.fomo).length;
   const fresh = extra().filter((a) => !have.has(a) && validAddress(a)).slice(0, Math.max(0, room));
@@ -730,7 +769,7 @@ function watchFound() {
 /** Slow-study wallets on the open stream (slow.ts): one more subscription for the ones not carried yet. */
 let slowCarried = new Set<string>();
 function watchSlow() {
-  if (!ws || ws.readyState !== WebSocket.OPEN || !helius()) return;
+  if (!ws || ws.readyState !== WebSocket.OPEN || !helius() || health.feed !== "helius websocket") return;
   const fresh = slowWatch().filter((a) => !slowCarried.has(a) && validAddress(a));
   if (!fresh.length) return;
   for (const a of fresh) slowCarried.add(a);
@@ -742,7 +781,8 @@ function connect() {
   slowCarried = new Set();
   const list = tracked();
   current = list;
-  health.feed = helius() ? "helius websocket" : "public websocket";
+  const hx = heliusWs();
+  health.feed = hx ? "helius websocket" : helius() ? "public websocket (helius refused, retry later)" : "public websocket";
   const subOf = new Map<number, Tracked>();
   const reqOf = new Map<number, Tracked>();
   let sock: WebSocket;
@@ -755,16 +795,23 @@ function connect() {
   }
   ws = sock;
   health.subs = 0;
+  let opened = false;
+  // a handshake that neither opens nor fails would leave the feed silent for good
+  const openTimer = setTimeout(() => !opened && sock.close(), 20_000);
+  openTimer.unref?.();
   sock.onopen = () => {
+    opened = true;
+    clearTimeout(openTimer);
+    if (hx) wsState.fails = 0;
     health.wsUp = true;
     sock.send(JSON.stringify({ jsonrpc: "2.0", id: 1, method: "slotSubscribe" }));
     // Fast path (Helius only): one subscription that pushes the whole transaction as soon as it is processed, so we
     // know the token without a second request. If the plan or the endpoint refuses it, the reply is an error, the
     // stream stays off and the signature feed below carries on as before.
-    if (helius()) sock.send(JSON.stringify({ jsonrpc: "2.0", id: 3, method: "transactionSubscribe", params: [{ accountInclude: feedOf(list), vote: false, failed: false }, { commitment: "processed", encoding: "jsonParsed", transactionDetails: "full", showRewards: false, maxSupportedTransactionVersion: 1 }] }));
+    if (hx) sock.send(JSON.stringify({ jsonrpc: "2.0", id: 3, method: "transactionSubscribe", params: [{ accountInclude: feedOf(list), vote: false, failed: false }, { commitment: "processed", encoding: "jsonParsed", transactionDetails: "full", showRewards: false, maxSupportedTransactionVersion: 1 }] }));
     // The signature feed is kept only as the comparison (and as the fallback when there is no key): with a key the
     // stream above carries every wallet, so only the first LOGS_MAX get the slower per-wallet subscription too.
-    (helius() ? list.slice(0, LOGS_MAX) : list).forEach((w, i) => {
+    (hx ? list.slice(0, LOGS_MAX) : list).forEach((w, i) => {
       reqOf.set(100 + i, w);
       sock.send(JSON.stringify({ jsonrpc: "2.0", id: 100 + i, method: "logsSubscribe", params: [{ mentions: [w.address] }, { commitment: "processed" }] }));
     });
@@ -836,8 +883,18 @@ function connect() {
     }
   };
   sock.onerror = () => fail(new Error("websocket error"));
-  sock.onclose = () => {
+  sock.onclose = (ev) => {
+    clearTimeout(openTimer);
     health.wsUp = false;
+    wsState.lastClose = { at: Date.now(), code: ev?.code ?? 0, reason: scrub(String(ev?.reason ?? "")).slice(0, 120) + (opened ? "" : " (never opened)") };
+    if (!opened && hx) {
+      wsState.fails++;
+      if (wsState.fails === 1 || wsState.fails % 20 === 0) probeWs();
+      if (wsState.fails >= 3) {
+        wsState.publicUntil = Date.now() + 30 * 60_000;
+        wsState.fails = 0;
+      }
+    }
     if (ws === sock) setTimeout(connect, 5000);
   };
 }
@@ -884,7 +941,7 @@ export function startSolanaCopy(fetcher: Fetch = fetch) {
   stopped = false;
   connect();
   // the wallet finder (read-only): its own connection, its own data cap; SOLANA_DISCOVER=off disables
-  startDiscover(() => (helius() ? wsUrl() : null), () => listed().map((w) => w.address));
+  startDiscover(() => (heliusWs() ? wsHelius() : null), () => listed().map((w) => w.address));
   // the wallet history study (read-only): past buys of each listed wallet; SOLANA_HISTORY=off disables
   startHistory({ rpcUrl: () => (heliusOk() ? rpcUrl() : null), fetch: () => net, wallets: () => listed() });
   // slow wallets (read-only screen, then a paper copy of the ones that pass); SOLANA_SLOW=off disables. A slow copy
