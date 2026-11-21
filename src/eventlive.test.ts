@@ -372,3 +372,21 @@ test("conviction: the wallet's bet against its usual bet moves the stake along t
   assert.equal(g.cutN, 3);
   assert.equal(g.cutLoss, 5);
 });
+
+test("recent cut: a trader ahead overall goes to paper at -$15 over its newest 10 settled real bets", () => {
+  const cfg = parseEventLive(JSON.stringify({ mode: "live", events: { copy: { rules: ["a"], size: 3, maxSize: 10, maxOpen: 999, maxLoss: 1000, adaptN: 10, cutN: 3, cutLoss: 5, recentN: 10, recentLoss: 15, minDepth: 0, maxAsk: 0.97 } } }), { funder: "0x1" });
+  const g = cfg.groups.copy;
+  const r = (pnl: number, i: number): EventLiveRow => ({ t: i, group: "copy", rule: "a", marketId: `m${i}`, conditionId: null, title: "", outcome: "", idx: 0, ask: 0.5, size: 3, cost: 3, shares: 6, fee: 0, ok: true, status: "matched", error: null, pnl, won: pnl > 0, settledAt: 1000 + i });
+  const early = Array.from({ length: 10 }, (_, i) => r(5, i)); // +$50
+  const bad = Array.from({ length: 10 }, (_, i) => r(-1.6, 10 + i)); // -$16 over the newest 10
+  const ad = ruleAdapt(g, [...early, ...bad], "a");
+  assert.equal(ad.state, "paper");
+  assert.equal(ad.recent, -16);
+  assert.ok(ad.net > 0, "still ahead overall");
+  assert.match(eventLiveBlock(cfg, "copy", "a", "new", 0.5, 10, true, [...early, ...bad], Date.now(), 3)!, /last 10 settled real bets/);
+  const mild = Array.from({ length: 10 }, (_, i) => r(-1.4, 10 + i)); // -$14: stays
+  assert.equal(ruleAdapt(g, [...early, ...mild], "a").state, "up");
+  // order is by settle time, not by list order: the losses settled first are not the newest
+  const swapped = [...bad.map((x, i) => ({ ...x, settledAt: 1 + i })), ...early.map((x, i) => ({ ...x, settledAt: 2000 + i }))];
+  assert.equal(ruleAdapt(g, swapped, "a").state, "up");
+});
