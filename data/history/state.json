@@ -51805,42 +51805,42 @@
 }
 },
 "2026-11-13": {
-"at": "2026-11-15T06:51:08+00:00",
-"pass": "first",
+"at": "2026-11-21T07:25:48+00:00",
+"pass": "final",
 "stats": {
 "esports": {
 "dropped_props": 679,
-"events": 94,
+"events": 95,
 "fills": 0,
-"markets": 406,
-"points": 29116,
+"markets": 410,
+"points": 29481,
 "points_1m": 41156,
-"with_prices": 190
+"with_prices": 191
 },
 "finance_daily": {
 "dropped_props": 0,
-"events": 290,
+"events": 291,
 "fills": 0,
-"markets": 947,
-"points": 90497,
+"markets": 971,
+"points": 92856,
 "points_1m": 0,
-"with_prices": 314
+"with_prices": 320
 },
 "football": {
-"dropped_props": 5193,
-"events": 309,
+"dropped_props": 5306,
+"events": 316,
 "fills": 0,
-"markets": 2120,
-"points": 329480,
-"points_1m": 51474,
-"with_prices": 641
+"markets": 2168,
+"points": 333898,
+"points_1m": 52551,
+"with_prices": 651
 },
 "other": {
 "dropped_props": 0,
 "events": 34,
 "fills": 0,
 "markets": 338,
-"points": 28566,
+"points": 28398,
 "points_1m": 0,
 "with_prices": 81
 },
@@ -51849,7 +51849,7 @@
 "events": 419,
 "fills": 0,
 "markets": 418,
-"points": 10132,
+"points": 10084,
 "points_1m": 2503,
 "with_prices": 21
 },
@@ -51864,12 +51864,12 @@
 },
 "temperature": {
 "dropped_props": 0,
-"events": 77,
+"events": 79,
 "fills": 0,
-"markets": 847,
-"points": 141880,
+"markets": 869,
+"points": 147316,
 "points_1m": 0,
-"with_prices": 475
+"with_prices": 491
 },
 "tennis": {
 "dropped_props": 733,
@@ -51885,7 +51885,7 @@
 "events": 184,
 "fills": 0,
 "markets": 1376,
-"points": 185098,
+"points": 184300,
 "points_1m": 46618,
 "with_prices": 634
 },
@@ -52404,6 +52404,102 @@
 "points": 1770,
 "points_1m": 0,
 "with_prices": 6
+}
+}
+},
+"2026-11-19": {
+"at": "2026-11-21T07:26:36+00:00",
+"pass": "first",
+"stats": {
+"esports": {
+"dropped_props": 24,
+"events": 57,
+"fills": 0,
+"markets": 184,
+"points": 17400,
+"points_1m": 23650,
+"with_prices": 108
+},
+"finance_daily": {
+"dropped_props": 0,
+"events": 501,
+"fills": 0,
+"markets": 511,
+"points": 19164,
+"points_1m": 0,
+"with_prices": 129
+},
+"football": {
+"dropped_props": 1358,
+"events": 106,
+"fills": 0,
+"markets": 746,
+"points": 113298,
+"points_1m": 30157,
+"with_prices": 283
+},
+"other": {
+"dropped_props": 0,
+"events": 14,
+"fills": 0,
+"markets": 66,
+"points": 18694,
+"points_1m": 0,
+"with_prices": 51
+},
+"other_sports": {
+"dropped_props": 73,
+"events": 444,
+"fills": 0,
+"markets": 432,
+"points": 5732,
+"points_1m": 3591,
+"with_prices": 18
+},
+"politics": {
+"dropped_props": 0,
+"events": 3,
+"fills": 0,
+"markets": 23,
+"points": 5067,
+"points_1m": 0,
+"with_prices": 16
+},
+"temperature": {
+"dropped_props": 0,
+"events": 79,
+"fills": 0,
+"markets": 869,
+"points": 159578,
+"points_1m": 0,
+"with_prices": 527
+},
+"tennis": {
+"dropped_props": 262,
+"events": 291,
+"fills": 0,
+"markets": 326,
+"points": 20630,
+"points_1m": 21282,
+"with_prices": 151
+},
+"us_sports": {
+"dropped_props": 4713,
+"events": 215,
+"fills": 0,
+"markets": 4807,
+"points": 181735,
+"points_1m": 52396,
+"with_prices": 757
+},
+"weather_other": {
+"dropped_props": 0,
+"events": 1,
+"fills": 0,
+"markets": 10,
+"points": 2072,
+"points_1m": 0,
+"with_prices": 7
 }
 }
 }
