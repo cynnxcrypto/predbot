@@ -137,7 +137,7 @@ export function serveStatus(recorder: Recorder, build: string, others: Recorder[
   // the two Solana strategy wallets' money in and out, from the chain as the truth check last read it (17 Nov 2026)
   setChainFlows(chainFix);
   // our own bridge moves are transfers, never a win or a loss on any card or window (20 Nov 2026, enrique)
-  setOwnMoves(() => bridgePublic().moves.map((m) => ({ from: m.from, to: m.to, startedAt: m.startedAt, endedAt: m.stage === "done" ? (m.endedAt ?? null) : null, arrivedUsd: m.arrived })));
+  setOwnMoves(() => bridgePublic().moves.map((m) => ({ from: m.from, to: m.to, startedAt: m.startedAt, endedAt: m.stage === "done" ? (m.endedAt ?? null) : null, arrivedUsd: m.arrivedUsd ?? 0 })));
   startTruthCheck({
     dash: () => worthLast(),
     flows: () => worthFlows(),

@@ -44,6 +44,9 @@ export interface Move {
   /** in the source token / the destination token */
   sent: number;
   arrived: number;
+  /** what arrived, in dollars at the SOL price of each arrival (21 Nov 2026: "arrived" is in the destination token, and
+   *  a move into a SOL wallet was booked in the worth as that many dollars) */
+  arrivedUsd?: number;
   log: { t: number; what: string }[];
 }
 

@@ -343,7 +343,9 @@ async function step(d: Deps, o: Order, m: Move): Promise<void> {
     const st = p.tx ? await d.status(p.tx, { from, to, amount: p.amount }).catch(() => "unknown" as const) : "unknown";
     if (rose >= p.minOut * 0.9 || st === "done") {
       m.sent = m.sent + p.amount;
-      m.arrived = m.arrived + (rose >= p.minOut * 0.9 ? rose : p.minOut);
+      const got = rose >= p.minOut * 0.9 ? rose : p.minOut;
+      m.arrived = m.arrived + got;
+      m.arrivedUsd = (m.arrivedUsd ?? 0) + got * (to.token === "SOL" ? await d.solUsd() : 1);
       m.left = Math.max(0, m.left - p.amount);
       note(m, `${p.part} arrived: ${show(p.amount, from.token)} sent, about ${show(rose >= p.minOut * 0.9 ? rose : p.minOut, to.token)} in`, now);
       delete m.pending;
@@ -445,12 +447,33 @@ async function leftBehind(d: Deps, o: Order | null): Promise<void> {
   }
 }
 
+/** Moves that arrived before arrivedUsd existed: a SOL arrival is priced once, at the SOL price now (21 Nov 2026: the
+ *  first SOL-to-SOL move was a few minutes old); a dollar arrival is its own figure. */
+async function dollarsOfOld(d: Deps) {
+  const s = loadBridge();
+  const old = Object.values(s.moves).filter((m) => m.arrivedUsd === undefined && m.arrived > 0);
+  if (!old.length) return;
+  let px = 0;
+  for (const m of old) {
+    let tok: Token;
+    try {
+      tok = d.place(m.to).token;
+    } catch {
+      continue;
+    }
+    if (tok === "SOL" && !(px > 0)) px = await d.solUsd().catch(() => 0);
+    if (tok === "SOL" && !(px > 0)) continue;
+    m.arrivedUsd = m.arrived * (tok === "SOL" ? px : 1);
+  }
+  saveBridge(s);
+}
 /** One look. Never throws; never runs twice at once. */
 export async function bridgeTick(d: Deps): Promise<Report | null> {
   if (busy) return last;
   busy = true;
   try {
     const o = d.order();
+    await dollarsOfOld(d);
     await leftBehind(d, o);
     await sideBySide(d, o);
     if (!o) return (last = null);
@@ -490,7 +513,7 @@ export async function bridgeTick(d: Deps): Promise<Report | null> {
 
 /** For the public status: places, dollars and fixed words. No address, no transaction id. */
 export function bridgePublic() {
-  const moves = Object.values(loadBridge().moves).map((m) => ({ id: m.id, from: m.from, to: m.to, usd: m.usd, stage: m.stage, why: m.why ?? null, startedAt: m.startedAt, endedAt: m.endedAt ?? null, sent: r4(m.sent), arrived: r4(m.arrived), inTransit: m.pending ? { part: m.pending.part, amount: m.pending.amount, since: m.pending.at, sent: !!m.pending.tx } : null }));
+  const moves = Object.values(loadBridge().moves).map((m) => ({ id: m.id, from: m.from, to: m.to, usd: m.usd, stage: m.stage, why: m.why ?? null, startedAt: m.startedAt, endedAt: m.endedAt ?? null, sent: r4(m.sent), arrived: r4(m.arrived), arrivedUsd: m.arrivedUsd != null ? r2(m.arrivedUsd) : null, inTransit: m.pending ? { part: m.pending.part, amount: m.pending.amount, since: m.pending.at, sent: !!m.pending.tx } : null }));
   return { now: last, dryRuns, moves };
 }
 
