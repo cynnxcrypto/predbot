@@ -38,11 +38,11 @@ import { meetsBar, paperOpens, paperRecord, paperSymbolAt, setBucketsRealSummary
 import { namedWallet, signTransaction, type Wallet } from "./keys.js";
 import { SOL } from "./pools.js";
 
-export const HARD_STAKE_SOL = 0.03; // 18 Nov 2026, enrique: 'spot rules 0.03 SOL 10 open'
+export const HARD_STAKE_SOL = 0.05; // 21 Nov 2026, enrique: "that wallet should be using more cash" (was 0.03 since 18 Nov)
 /** The most a rule that scaled up on its own real record may put in one trade (enrique, 17 Nov 2026 15:16 KST). */
-export const HARD_SCALED_STAKE_SOL = 0.04;
+export const HARD_SCALED_STAKE_SOL = 0.07;
 export const HARD_MAX_LOSS_SOL = 0.2;
-export const HARD_MAX_OPEN = 10;
+export const HARD_MAX_OPEN = 500; // no count limit in practice: a buy is skipped only when the wallet has no free SOL
 export const HARD_RULE_STOP_SOL = 0.05;
 /**
  * the most this strategy's own wallet may hold; clearly more in it means nothing is bought. 0.3 until 15 Nov 2026:
@@ -734,7 +734,9 @@ export async function bucketsLiveTick(d: LiveDeps, now = Date.now()): Promise<vo
       else if (now - o.at > BUY_WINDOW_MS) skip("paper buy too old");
       else if (state.opens.some((p) => p.mint === o.mint) || (state.stuck ?? []).some((p) => p.mint === o.mint)) skip("coin already held");
       else if (state.opens.length >= c.maxOpen) skip("too many out");
-      else if (loss() + state.opens.reduce((a, p) => a + (p.stakeSol ?? c.stakeSol) + TRADE_ROOM_SOL, 0) + stakeOf(o.rule, c.stakeSol) + TRADE_ROOM_SOL > c.maxLossSol + 1e-9) skip("no room under the cap");
+      // the loss cap counts real losses only (21 Nov 2026): counting every open stake as already lost skipped 77 real
+      // buys while most of the wallet sat idle. Free SOL is checked at the buy ("too little SOL").
+      else if (loss() + stakeOf(o.rule, c.stakeSol) + TRADE_ROOM_SOL > c.maxLossSol + 1e-9) skip("no room under the cap");
       else await buy(d, o, c, now);
     }
     save();

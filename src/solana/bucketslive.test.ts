@@ -130,7 +130,7 @@ test("buckets real: the switch is off unless the file says on, and the hard limi
   assert.equal(L.parseBucketsLive('{"solanaBuckets":{"on":"yes","maxLossSol":0.1}}').on, false);
   assert.equal(L.parseBucketsLive('{"solanaBuckets":{"on":true}}').on, false, "no loss cap, no trading");
   assert.equal(L.parseBucketsLive("not json").on, false);
-  const c = L.parseBucketsLive('{"solanaBuckets":{"on":true,"maxLossSol":5,"stakeSol":1,"ruleStopSol":9,"maxOpen":99}}');
+  const c = L.parseBucketsLive('{"solanaBuckets":{"on":true,"maxLossSol":5,"stakeSol":1,"ruleStopSol":9,"maxOpen":9999}}');
   assert.deepEqual([c.on, c.stakeSol, c.maxLossSol, c.ruleStopSol, c.maxOpen], [true, L.HARD_STAKE_SOL, L.HARD_MAX_LOSS_SOL, L.HARD_RULE_STOP_SOL, L.HARD_MAX_OPEN]);
   const d = L.parseBucketsLive('{"solanaBuckets":{"on":true,"maxLossSol":0.1}}');
   assert.deepEqual([d.stakeSol, d.ruleStopSol, d.maxOpen], [0.01, 0.03, 5], "the small defaults");
