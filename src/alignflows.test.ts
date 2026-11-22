@@ -1,40 +1,32 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { alignFlows, netOfFlows, worthWindows, type Flow } from "./worthdash.js";
+import { netOfFlows, settleBase, settleTimes, worthWindows, type Flow } from "./worthdash.js";
 
-test("a deposit booked before the worth showed it moves to the sample that shows it, so no window counts it as a gain", () => {
-  const m = 60_000;
-  // worth 500 flat; $100 deposited, booked at 10 min, but the worth shows it only from 40 min
-  const raw: [number, number][] = [0, 10, 20, 30, 40, 50, 60].map((k) => [k * m, k * m >= 40 * m ? 600 : 500]);
-  const fl: Flow[] = [[10 * m + 1, 100, "Solana perps"]];
-  // as booked: the samples at 20 and 30 min hold 500 though the deposit is taken off after them, so a window starting
-  // there reads +$100 that is only the deposit
-  const booked = netOfFlows(raw, fl);
-  assert.deepEqual(booked.map((p) => p[1]), [600, 600, 500, 500, 600, 600, 600]);
-  const al = alignFlows(raw, fl);
-  assert.equal(al[0][0], 40 * m - 1);
-  assert.deepEqual(netOfFlows(raw, al).map((p) => p[1]), [600, 600, 600, 600, 600, 600, 600]);
-  const w = worthWindows(netOfFlows(raw, al), 600, 60 * m + 1);
-  assert.ok(w.every((x) => x.usd === 0));
-});
-
-test("a flow the worth never shows, a small one, and a withdrawal", () => {
-  const m = 60_000;
-  const raw: [number, number][] = [0, 10, 20, 30].map((k) => [k * m, k >= 20 ? 400 : 500]);
-  assert.deepEqual(alignFlows(raw, [[5 * m, 300, "deposit"]]), [[5 * m, 300, "deposit"]]); // never shows: stays
-  assert.deepEqual(alignFlows(raw, [[5 * m, 10, "deposit"]]), [[5 * m, 10, "deposit"]]); // under $20: stays
-  assert.deepEqual(alignFlows(raw, [[5 * m, -100, "Hyperliquid"]]), [[20 * m - 1, -100, "Hyperliquid"]]);
-});
-
-test("a deposit among the hourly estimates moves to the live step that took it in (15 Nov 08:37Z, 22 Nov 2026)", () => {
-  const m = 60_000;
-  // hourly estimates at 0 and 60 min (flag 1), live samples every 2 min from 90 min; the $202 shows only at 120 min
-  const s: [number, number, ...unknown[]][] = [[0, 700, 1], [60 * m, 720, 1]];
-  for (let k = 90; k <= 140; k += 2) s.push([k * m, k >= 120 ? 690 : 488]);
-  const fl: Flow[] = [[30 * m, 101, "Solana spot copy"], [30 * m, 101, "Solana spot rules"]];
-  const al = alignFlows(s, fl);
-  assert.deepEqual(al.map((f) => f[0]), [120 * m - 1, 120 * m - 1]);
-  // the window starting at the first live sample no longer counts the deposits as a gain
-  const net = netOfFlows(s as [number, number][], al);
-  assert.equal(net.find((p) => p[0] === 90 * m)![1], 690);
+test("7 d: a deposit the worth shows only in parts over the next hours is counted once, never as a gain", () => {
+  const H = 3_600_000;
+  const now = 20 * 24 * H;
+  const f0 = now - 7 * 24 * H - 2 * H; // booked 7 d 2 h ago
+  // worth 500 flat; $300 deposited at f0 that the worth shows a third at a time, at +1 h, +3 h and +9 h
+  const raw: [number, number][] = [];
+  for (let t = now - 9 * 24 * H; t <= now; t += H / 2) {
+    const got = (t >= f0 + H ? 100 : 0) + (t >= f0 + 3 * H ? 100 : 0) + (t >= f0 + 9 * H ? 100 : 0);
+    raw.push([t, 500 + got]);
+  }
+  const fl: Flow[] = [[f0, 300, "Solana spot copy"], [f0 + H, -5, "Polymarket"]];
+  assert.deepEqual(settleTimes(fl), [f0]); // the small flow is not in it
+  const h = netOfFlows(raw, fl.slice(0, 1));
+  const settle = settleTimes(fl);
+  // as booked, a window starting 2 h after the deposit reads +$200 that is only the deposit
+  assert.equal(worthWindows(h, 800, now).find((w) => w.k === "7d")!.usd, 200);
+  // measured from before the deposit: 0, for every start within the day after it
+  for (const back of [0, 1, 2, 5, 8, 20]) {
+    const nw = now - back * H;
+    const w = worthWindows(h.filter((p) => p[0] <= nw), 800, nw, settle).find((x) => x.k === "7d")!;
+    assert.equal(w.usd, 0, `${back} h back`);
+  }
+  // past the day it is the plain start again
+  assert.equal(settleBase(f0 + 25 * H, settle), f0 + 25 * H);
+  assert.equal(settleBase(f0 + 2 * H, settle), f0 - 1);
+  // the 1 h and 24 h windows keep their own start
+  assert.deepEqual(worthWindows(h, 800, now, settle).filter((w) => w.k !== "7d"), worthWindows(h, 800, now).filter((w) => w.k !== "7d"));
 });

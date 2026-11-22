@@ -120,7 +120,7 @@ const effFlows = () => {
       return [];
     }
   })();
-  const base = alignMemo(withConfirmed(mergeChainFlows(pending.length ? [...flows, ...pending] : flows, chainSrc())));
+  const base = withConfirmed(mergeChainFlows(pending.length ? [...flows, ...pending] : flows, chainSrc()));
   return own.length ? [...base, ...own].sort((a, b) => a[0] - b[0]) : base;
 };
 let comp: Comp | null = null;
@@ -221,58 +221,24 @@ export function flowsFromJumps(h: [number, number][]): Flow[] {
   return out;
 }
 /**
- * DEPOSITS BOOKED BEFORE THE WORTH SHOWED THEM (22 Nov 2026, MAIN: the 7 d figure went from +$117.77 to -$32.83 in an
- * hour while the worth barely moved). A deposit is booked at its confirmed time, but the wallet's worth can show the
- * money only some samples later; every sample in between was lifted by the deposit without holding it, so a window
- * starting there counted the deposit as a gain. Each deposit or withdrawal of $20 or more is moved to just before the
- * first live sample (within a day) that steps by half of it from the sample before; when no such step is found it stays
- * where it was. Moves between our own wallets are not passed here. Pure.
+ * WHEN A DEPOSIT OR WITHDRAWAL IS STILL SETTLING (22 Nov 2026, MAIN: 7 d jumped from about -$29 to +$141 when its
+ * start crossed the 15 Nov Solana deposits, booked at 08:40 UTC though the wallets showed the money only in parts over
+ * the next hours; moving the flows to a later step overshot to -$162). The times of every deposit or withdrawal of $20
+ * or more from outside (our own moves between wallets are not in it). A window that starts within a day after one of
+ * them is measured from the last point before it instead (see settleBase): that point is lifted by the flow and held
+ * none of it, so the flow counts exactly once, whenever the worth took the money in.
  */
-export function alignFlows(series: [number, number, ...unknown[]][], fl: Flow[]): Flow[] {
-  if (series.length < 2) return fl;
-  return fl
-    .map((f): Flow => {
-      if (Math.abs(f[1]) < 20) return f;
-      // the first STEP between two live samples (15 min apart at most, neither an hourly estimate) of half the flow or
-      // more, in its direction, from the last sample at or before it to a day after: where the worth took the money in.
-      // A step, not a rise from the sample before: the hourly estimates before the live samples are too rough to
-      // measure from (22 Nov 2026: the 15 Nov 08:37Z deposits sat there and were not moved).
-      let j = 1;
-      while (j < series.length && series[j][0] <= f[0]) j++;
-      for (; j < series.length && series[j][0] <= f[0] + 86_400_000; j++) {
-        const a = series[j - 1];
-        const b = series[j];
-        if (a[2] === 1 || b[2] === 1 || b[0] - a[0] > 15 * 60_000) continue;
-        const d = b[1] - a[1];
-        if (f[1] > 0 ? d >= 0.5 * f[1] : d <= 0.5 * f[1]) return b[0] - 1 > f[0] ? [b[0] - 1, f[1], f[2]] : f;
-      }
-      return f;
-    })
-    .sort((a, b) => a[0] - b[0]);
+export const SETTLE_MS = 86_400_000;
+export function settleTimes(fl: Flow[]): number[] {
+  return fl.filter((f) => Math.abs(f[1]) >= 20).map((f) => f[0]).sort((a, b) => a - b);
 }
-/** For the public status: each deposit or withdrawal the alignment moved, by wallet and minutes (no amount). */
-function flowsMoved(): { wallet: string; at: number; min: number }[] {
-  const before = withConfirmed(mergeChainFlows(pending.length ? [...flows, ...pending] : flows, chainSrc())).slice().sort((a, b) => a[0] - b[0]);
-  const after = alignMemo(before);
-  const out: { wallet: string; at: number; min: number }[] = [];
-  for (const f of before) {
-    const g = after.find((x) => x[2] === f[2] && x[1] === f[1] && x[0] >= f[0] && x[0] - f[0] <= 86_400_000);
-    if (g && g[0] !== f[0]) out.push({ wallet: f[2], at: f[0], min: Math.round((g[0] - f[0]) / 60_000) });
-  }
-  return out;
+/** The time a window starting at T is measured from: before the earliest big flow T is still settling from. Pure. */
+export function settleBase(T: number, settle: number[]): number {
+  let b = T;
+  for (const f of settle) if (f <= T && T <= f + SETTLE_MS && f - 1 < b) b = f - 1;
+  return b;
 }
-let alignKey = "";
-let alignOut: Flow[] = [];
-function alignMemo(fl: Flow[]): Flow[] {
-  if (!hist?.length) return fl;
-  const first = hist[0][0];
-  const key = `${hist.length}:${hist[hist.length - 1][0]}:${back.length}:${JSON.stringify(fl)}`;
-  if (key !== alignKey) {
-    alignKey = key;
-    alignOut = alignFlows([...back.filter((p) => p[0] < first), ...hist], fl);
-  }
-  return alignOut;
-}
+const settleNow = () => settleTimes(withConfirmed(mergeChainFlows(pending.length ? [...flows, ...pending] : flows, chainSrc())));
 /** The series with money put in or taken out removed: each past point is lifted by what was put in after it. */
 export function netOfFlows<T extends [number, number, ...unknown[]]>(h: T[], fl: Flow[]): T[] {
   return h.map((p) => {
@@ -335,15 +301,17 @@ function pageSeries(): Point[] {
  * an hourly estimate (the page shows "≈"). 16 Nov 2026, enrique: "how do u go from telling me polymarket +20 to
  * polymarket -10": every review quotes these windows only, so they must be the page's own numbers. Pure.
  */
-export function worthWindows(h: Point[], total: number, now: number): { k: string; usd: number; est: boolean; from: number }[] {
+export function worthWindows(h: Point[], total: number, now: number, settle: number[] = []): { k: string; usd: number; est: boolean; from: number }[] {
   if (h.length < 2) return [];
   const out: { k: string; usd: number; est: boolean; from: number; b: Point }[] = [];
   for (const [k, w] of [["1h", 3_600_000], ["24h", 86_400_000], ["7d", 604_800_000]] as const) {
     const T = now - w;
     if (h[0][0] > T + w * 0.1) continue;
+    // the 7 d window only: a shorter one measured from before a flow would cover more than its name says
+    const Tb = k === "7d" ? settleBase(T, settle) : T;
     let b = h[0];
     for (const p of h) {
-      if (p[0] <= T) b = p;
+      if (p[0] <= Tb) b = p;
       else break;
     }
     out.push({ k, usd: Math.round((total - b[1]) * 100) / 100, est: b[2] === 1, from: T, b });
@@ -475,13 +443,13 @@ export function worthCheck() {
   // the windows are measured from the last FULL reading (bets and coins priced, SOL balance read), never from a partial
   // one: none yet after a start means no windows rather than wrong ones (16 Nov 2026: 1 h read -$55 on a partial one)
   const now = full?.total ?? null;
-  const windows: Record<string, { usd: number; est: boolean; from: number; at?: number }> = now == null ? {} : Object.fromEntries(worthWindows(pageSeries(), now, full!.at).map((w) => [w.k, { usd: w.usd, est: w.est, from: w.from }]));
+  const windows: Record<string, { usd: number; est: boolean; from: number; at?: number }> = now == null ? {} : Object.fromEntries(worthWindows(pageSeries(), now, full!.at, settleNow()).map((w) => [w.k, { usd: w.usd, est: w.est, from: w.from }]));
   // the page's own figure, which keeps the last full reading through a partial one
   const today = memo.v.today?.all ?? null;
   if (today) windows.today = today as { usd: number; est: boolean; from: number; at: number };
   const tw = memo.v.today ?? {};
   const todayByWallet = Object.fromEntries(WALLETS.map(([k, label]) => [label, tw[k] ? { usd: tw[k]!.usd, at: tw[k]!.at } : null]));
-  return { deposits: depositCheck(mergeChainFlows(flows, chainSrc()), Date.now() - 8 * 86_400_000), todayByWallet, claimStepsTakenForDeposits: fix?.removed ?? null, thatWasUsd: fix?.removedUsd ?? null, wonWaitingForClaimUsd: unclaimedAt(loadSpans(), Date.now()), change24hUsd: base && now != null ? Math.round((now - base[1]) * 100) / 100 : null, flows24h: flows.filter((f) => f[0] > T).length, windows, flowsMoved: flowsMoved(), worthAt: full?.at ?? null, notFull: whyNot };
+  return { deposits: depositCheck(mergeChainFlows(flows, chainSrc()), Date.now() - 8 * 86_400_000), todayByWallet, claimStepsTakenForDeposits: fix?.removed ?? null, thatWasUsd: fix?.removedUsd ?? null, wonWaitingForClaimUsd: unclaimedAt(loadSpans(), Date.now()), change24hUsd: base && now != null ? Math.round((now - base[1]) * 100) / 100 : null, flows24h: flows.filter((f) => f[0] > T).length, windows, worthAt: full?.at ?? null, notFull: whyNot };
 }
 let memo: { at: number; v: Worth } | null = null;
 /** The dashboard's last worth reading and the deposits and withdrawals it takes out of its windows (src/truthcheck.ts). */
@@ -595,7 +563,7 @@ function wallNow(cash: number | null, claim: number, bets: number, sol: number |
   return [cash == null ? null : r2w(cash + claim + bets), r2w(sol), r2w(rules), r2w(perps), r2w(hl)];
 }
 /** rules / perps = what the two strategy wallets hold in dollars (null = not read). */
-export async function worthView(cash: number | null, claim: number, solBal: number | null, extra: { rulesSol?: number | null; rulesUsdc?: number | null; perpsSol?: number | null; perpsUsdc?: number | null; rulesHeldSol?: number; perpsPosUsd?: number; hl?: { eth: number; usdc: number; hlUsd: number; ethUsd: number; inTransitUsdc: number; ethInUsd: number } | null } = {}): Promise<Worth & { age: number; hist: ([number, number] | [number, number, 1])[]; flows: Flow[] }> {
+export async function worthView(cash: number | null, claim: number, solBal: number | null, extra: { rulesSol?: number | null; rulesUsdc?: number | null; perpsSol?: number | null; perpsUsdc?: number | null; rulesHeldSol?: number; perpsPosUsd?: number; hl?: { eth: number; usdc: number; hlUsd: number; ethUsd: number; inTransitUsdc: number; ethInUsd: number } | null } = {}): Promise<Worth & { age: number; hist: ([number, number] | [number, number, 1])[]; flows: Flow[]; settle: number[] }> {
   if (!hist) {
     const f = loadJson<[number, number][] | { hist?: [number, number][]; back?: [number, number, 1][]; flows?: Flow[]; comp?: Comp | null; v?: number; fix?: { removed: number; removedUsd: number } | null; wall?: WalletPoint[] }>(FILE, []);
     wallHist = Array.isArray(f) ? [] : (f.wall ?? []).filter((p) => Array.isArray(p) && Number.isFinite(p[0]));
@@ -731,5 +699,5 @@ export async function worthView(cash: number | null, claim: number, solBal: numb
       saveJson(FILE, { hist, back, flows, comp, fix, wall: wallHist, v: 3 });
     }
   }
-  return { ...memo.v, age: Date.now() - memo.at, hist: pageSeries(), flows: effFlows(), ...dayView() };
+  return { ...memo.v, age: Date.now() - memo.at, hist: pageSeries(), flows: effFlows(), settle: settleNow(), ...dayView() };
 }
