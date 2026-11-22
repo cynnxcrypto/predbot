@@ -261,6 +261,11 @@
     "note": "17 Nov 2026 15:22-15:24 KST, enrique: 'new tab for hyperliquid', 'lets not mix it', 'and it is it's own wallet', 'how about i send eth to the arbitrum wallet', 'and u manage the swap too'. fund: 'dry' = the bot only says what it would do with the ETH in the wallet (status hyperliquid.funding.steps); 'go' = it keeps about $3 of ETH for gas, swaps the rest to USDC and deposits it into Hyperliquid (6 USDC test first). Turn to 'go' only after a dry run on the server shows no problems.",
     "fundNote": "17 Nov 2026 19:33 KST: go on enrique's word (15:24 KST \"and u manage the swap too\"; 19:10 KST \"why isnt hl trading on\"), after a clean dry run: swap 0.023838 ETH for about 42.73 USDC keeping 0.001673 ETH for gas, deposit 6 USDC test then 36.73.",
     "fund": "go",
+    "watch": {
+      "note": "22 Nov 2026 22:58 KST, enrique: 'is there any workaround hyperliquid entries and exits being up to a minute late?'. on = Hyperliquid's public trade feed is followed (read only) and the delay from a trader's trade to our paper and real copy is measured (status hyperliquid.live.watch). fast = a trade by a followed trader has it looked at within about 2 s and the real copy acts at once; the minute's round stays as the fallback. First on without fast to measure the delay as it is, then fast.",
+      "on": true,
+      "fast": false
+    },
     "trade": {
       "note": "OFF. Real copies of Hyperliquid traders on Hyperliquid, every coin (src/hyperliquid/live.ts). Same rules as the Solana perps copies: a trader is real on its own paper record (20+ closed copies, half won, ahead, a day old), then on its real record (cut when behind after 3 real trades or at traderStopUsd); its own leverage up to half of Hyperliquid's limit for the coin, isolated margin; one position per trader and per coin. To make the one test trade (smallest BTC long, about $11, closed at the next look) add \"testOnce\": \"<a new name>\". To trade, set on to true.",
       "onNote": "17 Nov 2026 20:04 KST: on, on enrique's word 19:10 KST \"why isnt hl trading on, it's based on the same perp traders as in the sol perps tab\", after funding finished and test t1 opened and closed (-$0.01). Same real-record rules as the Solana perps copies.",

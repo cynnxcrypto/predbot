@@ -1050,6 +1050,178 @@ async function hlFillsBack(deps: BucketDeps, a: string, sinceMs: number): Promis
   const newest = await hlPost(deps, { type: "userFills", user: a, aggregateByTime: true }).catch(() => null);
   return Array.isArray(newest) ? [...all, ...newest] : null;
 }
+// ---- one look at one trader, from the minute's round or from a fast look (22 Nov 2026) -----------------------------------
+/** every request for a trader's positions gets a number: an answer older than one already written is not written */
+let lookSeq = 0;
+const appliedSeq = new Map<string, number>();
+/** Close a paper copy at this price. */
+function shutAt(o: HlOpen, px: number, why: HlTrade["why"], now: number) {
+  const fee = hlCost(o.coin);
+  const net = o.dir * (px / o.entry - 1) - 2 * fee - PERP_BORROW_HOUR * ((now - o.at) / 3_600_000);
+  const worst = o.worst === undefined ? undefined : r(Math.max(o.worst, -o.dir * (px / o.entry - 1)), 6)!;
+  state.hlTrades.push({ trader: o.trader, coin: o.coin, dir: o.dir, at: o.at, exitAt: now, net: r(net, 6)!, why, lev: o.lev, worst, entry: o.entry, ...(o.their ? { their: o.their } : {}) });
+  state.hlOpen = state.hlOpen.filter((x) => x !== o);
+}
+/**
+ * Write down what one trader holds now and copy what changed. The prices of every coin it opened or closed are read
+ * FIRST: a change written down without its price would be lost for good (MAIN's review, 16 Nov 2026). An answer
+ * older than one already written (two looks at once: the minute's round and a fast look) is dropped.
+ * Returns true when a paper copy opened, closed or changed size.
+ */
+async function hlApply(deps: BucketDeps, a: string, answer: unknown, now: number, seq: number, price: (coin: string) => Promise<number | null>, src: "poll" | "feed"): Promise<boolean> {
+  const px: Record<string, number> = {};
+  for (let tries = 0; tries < 3; tries++) {
+    if ((appliedSeq.get(a) ?? 0) > seq) return false;
+    const after = hlPositions(answer, state.hlSeen[a]);
+    if (!after) return false;
+    const before = state.hlSeen[a];
+    const d = before ? hlDiff(before, after) : { opened: [], closed: [] };
+    const listed = state.hlTraders.some((t) => t.address === a);
+    const need = [...d.closed.filter((c) => state.hlOpen.some((o) => o.trader === a && o.coin === c)), ...(listed ? d.opened.map((x) => x.coin) : [])].filter((c, i, all) => all.indexOf(c) === i && !(c in px));
+    if (need.length) {
+      for (const c of need) {
+        const p = await price(c).catch(() => null);
+        if (!p) return false; // nothing written: looked at again
+        px[c] = p;
+      }
+      continue; // the awaits may have let another look write: start again from what is written now
+    }
+    // ---- from here to the end of the loop nothing waits: what is read and written belongs together ----
+    appliedSeq.set(a, seq);
+    let changed = false;
+    const levs = hlLeverage(answer);
+    if (Object.keys(after).some(onJupiter)) state.hlMajorSeen = { ...(state.hlMajorSeen ?? {}), [a]: now };
+    state.hlSeen[a] = after;
+    // how much of each open copy the trader still holds (enrique, 19 Nov 2026: "yeah build all 3": follow partial closes)
+    const sizes = hlSizes(answer);
+    for (const o of state.hlOpen)
+      if (o.trader === a && o.sz0 && sizes[o.coin] && Math.sign(after[o.coin] ?? 0) === o.dir && o.szNow !== sizes[o.coin]) {
+        o.szNow = sizes[o.coin];
+        changed = true;
+      }
+    if (before) {
+      for (const coin of d.closed)
+        for (const o of state.hlOpen.filter((x) => x.trader === a && x.coin === coin)) {
+          shutAt(o, px[coin], "closed", now);
+          fastHooks.note?.("paperClose", a, coin, src);
+          changed = true;
+        }
+      if (listed)
+        for (const { coin, dir } of d.opened) {
+          const av = hlAccountValue(answer);
+          const share = av ? r(Math.abs(after[coin] ?? 0) / av, 3) ?? undefined : undefined;
+          const their = hlEntries(answer)[coin];
+          if (state.hlOpen.some((x) => x.trader === a && x.coin === coin)) continue;
+          state.hlOpen.push({ trader: a, coin, dir, at: now, entry: px[coin], lev: levs[coin], worst: 0, ...(sizes[coin] ? { sz0: sizes[coin], szNow: sizes[coin] } : {}), ...(share != null ? { share } : {}), ...(their ? { their } : {}) });
+          fastHooks.note?.("paperOpen", a, coin, src);
+          changed = true;
+        }
+    }
+    // a copy older than the size record: its opening size is read back from the trader's own fills, once
+    for (const o of state.hlOpen) {
+      if (o.trader !== a || o.sz0 || !sizes[o.coin] || Math.sign(after[o.coin] ?? 0) !== o.dir) continue;
+      const fills = await hlPost(deps, { type: "userFillsByTime", user: a, startTime: o.at }).catch(() => null);
+      if (fills === null) continue; // not read: asked again at the next look
+      const back = hlSizeBack(fills, o.coin, o.dir, sizes[o.coin]);
+      o.sz0 = back.sz0;
+      o.szNow = sizes[o.coin];
+      if (back.hist.length) o.hist = back.hist;
+    }
+    return changed;
+  }
+  return false;
+}
+
+// ---- FAST LOOKS (enrique, 22 Nov 2026: "is there any workaround hyperliquid entries and exits being up to a minute
+// late?"). A trade by a followed trader, seen on Hyperliquid's public trade feed (src/hyperliquid/watch.ts), has that
+// trader looked at QUICK_FIRST_MS later and again QUICK_TAIL_MS after its last trade (an order filled in parts, a
+// position that reaches HL_MIN_POS_USD later). The minute's round stays as it was: the fallback.
+export const QUICK_FIRST_MS = 1_500;
+export const QUICK_TAIL_MS = 8_000;
+/** fast looks a minute at most (2 of Hyperliquid's 1,200 weight each); traders approved for real or holding a copy go
+ *  first and may use all of it, the others QUICK_OTHERS_PER_MIN */
+export const QUICK_PER_MIN = 200;
+export const QUICK_OTHERS_PER_MIN = 100;
+const quick = new Map<string, { next: number; tail: number }>();
+let quickLog: number[] = [];
+let quickBusy = false;
+let quickDeps: BucketDeps | null = null;
+const quickStats = { looks: 0, skipped: 0, changed: 0 };
+let fastHooks: {
+  /** a paper copy opened or closed: which path saw it first */
+  note?: (kind: "paperOpen" | "paperClose", addr: string, coin: string, src: "poll" | "feed") => void;
+  /** a fresh price from the trade feed, or null */
+  px?: (coin: string) => number | null;
+  /** a paper copy opened, closed or changed size in a fast look: the real side looks at once */
+  changed?: () => void;
+  /** a trader approved for real (looked at first) */
+  priority?: (rule: string) => boolean;
+} = {};
+export const setHlFast = (h: typeof fastHooks) => void (fastHooks = h);
+let watchedCache: { at: number; set: Set<string> } | null = null;
+/** Every address followed now (the list and those with an open copy), lower case. Kept 5 s. */
+export function hlWatched(now = Date.now()): Set<string> {
+  if (!loaded) load();
+  if (!watchedCache || now - watchedCache.at > 5_000) watchedCache = { at: now, set: new Set([...state.hlTraders.map((t) => t.address), ...state.hlOpen.map((o) => o.trader)]) };
+  return watchedCache.set;
+}
+/** A followed trader traded: look at it soon. */
+export function hlPoke(addr: string, now = Date.now()) {
+  if (!hlWatched(now).has(addr)) return;
+  const q = quick.get(addr);
+  if (q) q.tail = Math.max(q.tail, now + QUICK_TAIL_MS);
+  else quick.set(addr, { next: now + QUICK_FIRST_MS, tail: now + QUICK_TAIL_MS });
+}
+/** One round of fast looks: those due, at most HL_BATCH at once. Returns how many traders were looked at. Never throws. */
+export async function hlQuickTick(now = Date.now(), deps: BucketDeps | null = quickDeps): Promise<number> {
+  if (quickBusy || !deps) return 0;
+  if (!loaded) load();
+  quickLog = quickLog.filter((t) => now - t < 60_000);
+  const due = [...quick.entries()].filter(([, q]) => q.next <= now);
+  if (!due.length) return 0;
+  const pri = (a: string) => state.hlOpen.some((o) => o.trader === a) || !!fastHooks.priority?.(traderRule(a));
+  due.sort((x, y) => Number(pri(y[0])) - Number(pri(x[0])) || x[1].next - y[1].next);
+  const pick: string[] = [];
+  for (const [a, q] of due) {
+    if (pick.length >= HL_BATCH) break;
+    const used = quickLog.length + pick.length;
+    if (used >= QUICK_PER_MIN || (!pri(a) && used >= QUICK_OTHERS_PER_MIN)) {
+      quick.delete(a); // over the allowance: left to the minute's round
+      quickStats.skipped++;
+      continue;
+    }
+    pick.push(a);
+    if (q.tail > q.next + 1_000) q.next = q.tail;
+    else quick.delete(a);
+  }
+  if (!pick.length) return 0;
+  quickBusy = true;
+  try {
+    let mids: Record<string, number> | null = null;
+    const price = async (coin: string) => {
+      const f = fastHooks.px?.(coin);
+      if (f && f > 0) return f;
+      mids ??= Object.fromEntries(Object.entries((await hlPost(deps, { type: "allMids" })) as Record<string, string>).map(([k, v]) => [k, Number(v)]));
+      return mids[coin] > 0 ? mids[coin] : null;
+    };
+    const seqs = pick.map(() => ++lookSeq);
+    const answers = await Promise.all(pick.map((a) => hlPost(deps, { type: "clearinghouseState", user: a }).catch(() => null)));
+    quickLog.push(...pick.map(() => now));
+    quickStats.looks += pick.length;
+    let changed = false;
+    for (let j = 0; j < pick.length; j++) if (answers[j] !== null && (await hlApply(deps, pick[j], answers[j], now, seqs[j], price, "feed").catch(() => false))) changed = true;
+    if (changed) {
+      quickStats.changed++;
+      save();
+      fastHooks.changed?.();
+    }
+    return pick.length;
+  } finally {
+    quickBusy = false;
+  }
+}
+/** For the status: fast looks in the last minute, and since start. */
+export const hlQuickSummary = (now = Date.now()) => ({ lastMinute: quickLog.filter((t) => now - t < 60_000).length, waiting: quick.size, ...quickStats, perMinute: QUICK_PER_MIN });
 async function hlTick(deps: BucketDeps, now: number) {
   if (now - state.hlAt > HL_REFRESH_MS || !state.hlTraders.length) {
     const res = await deps.fetch()("https://stats-data.hyperliquid.xyz/Mainnet/leaderboard", { signal: AbortSignal.timeout(90_000) }).catch(() => null);
@@ -1084,12 +1256,7 @@ async function hlTick(deps: BucketDeps, now: number) {
   };
   const shut = async (o: HlOpen, why: HlTrade["why"]) => {
     const px = await mid(o.coin);
-    if (!px) return;
-    const fee = hlCost(o.coin);
-    const net = o.dir * (px / o.entry - 1) - 2 * fee - PERP_BORROW_HOUR * ((now - o.at) / 3_600_000);
-    const worst = o.worst === undefined ? undefined : r(Math.max(o.worst, -o.dir * (px / o.entry - 1)), 6)!;
-    state.hlTrades.push({ trader: o.trader, coin: o.coin, dir: o.dir, at: o.at, exitAt: now, net: r(net, 6)!, why, lev: o.lev, worst, entry: o.entry, ...(o.their ? { their: o.their } : {}) });
-    state.hlOpen = state.hlOpen.filter((x) => x !== o);
+    if (px) shutAt(o, px, why, now);
   };
   // the prices first (MAIN's review, 16 Nov 2026): what a trader holds is written down as it is read, so a close seen in
   // a look whose prices then failed would be lost for good, and a real position copied from it would stay open.
@@ -1111,42 +1278,10 @@ async function hlTick(deps: BucketDeps, now: number) {
   const todo = [...new Set([...hot, ...turn])];
   for (let b = 0; b < todo.length; b += HL_BATCH) {
     const batch = todo.slice(b, b + HL_BATCH);
+    const seqs = batch.map(() => ++lookSeq);
     const answers = await Promise.all(batch.map((a) => hlPost(deps, { type: "clearinghouseState", user: a }).catch(() => null)));
     if (b === 0 && answers.every((x) => x === null)) throw new Error("traders: no answer");
-    for (let j = 0; j < batch.length; j++) {
-      const a = batch[j];
-      const answer = answers[j];
-      const after = hlPositions(answer, state.hlSeen[a]);
-      if (!after) continue;
-      const levs = hlLeverage(answer);
-      if (Object.keys(after).some(onJupiter)) state.hlMajorSeen = { ...(state.hlMajorSeen ?? {}), [a]: now };
-      const before = state.hlSeen[a];
-      state.hlSeen[a] = after;
-      // how much of each open copy the trader still holds (enrique, 19 Nov 2026: "yeah build all 3": follow partial closes)
-      const sizes = hlSizes(answer);
-      // a copy older than the size record: its opening size is read back from the trader's own fills, once
-      for (const o of state.hlOpen) {
-        if (o.trader !== a || o.sz0 || !sizes[o.coin] || Math.sign(after[o.coin] ?? 0) !== o.dir) continue;
-        const fills = await hlPost(deps, { type: "userFillsByTime", user: a, startTime: o.at }).catch(() => null);
-        if (fills === null) continue; // not read: asked again at the next look
-        const back = hlSizeBack(fills, o.coin, o.dir, sizes[o.coin]);
-        o.sz0 = back.sz0;
-        o.szNow = sizes[o.coin];
-        if (back.hist.length) o.hist = back.hist;
-      }
-      for (const o of state.hlOpen) if (o.trader === a && o.sz0 && sizes[o.coin] && Math.sign(after[o.coin] ?? 0) === o.dir) o.szNow = sizes[o.coin];
-      if (!before) continue; // first look: what it already holds was opened at prices we never saw
-      const { opened, closed } = hlDiff(before, after);
-      for (const coin of closed) for (const o of state.hlOpen.filter((x) => x.trader === a && x.coin === coin)) await shut(o, "closed");
-      if (!state.hlTraders.some((t) => t.address === a)) continue; // dropped from the list: only its open copies are finished
-      for (const { coin, dir } of opened) {
-        const px = await mid(coin);
-        const av = hlAccountValue(answer);
-        const share = av ? r(Math.abs(after[coin] ?? 0) / av, 3) ?? undefined : undefined;
-        const their = hlEntries(answer)[coin];
-        if (px && !state.hlOpen.some((x) => x.trader === a && x.coin === coin)) state.hlOpen.push({ trader: a, coin, dir, at: now, entry: px, lev: levs[coin], worst: 0, ...(sizes[coin] ? { sz0: sizes[coin], szNow: sizes[coin] } : {}), ...(share != null ? { share } : {}), ...(their ? { their } : {}) });
-      }
-    }
+    for (let j = 0; j < batch.length; j++) if (answers[j] !== null) await hlApply(deps, batch[j], answers[j], now, seqs[j], mid, "poll");
   }
   // how far each open copy has gone against us, at the prices of this look (between looks it can have gone further)
   for (const o of state.hlOpen) {
@@ -1225,6 +1360,7 @@ export async function bucketsTick(deps: BucketDeps, now = Date.now()): Promise<v
   if (busy) return;
   if (!loaded) load();
   busy = true;
+  quickDeps = deps;
   try {
     await spotTick(deps, now).catch((e) => note("prices", e));
     await perpTick(deps, now).catch((e) => note("candles", e));
@@ -1592,4 +1728,4 @@ export function stopBuckets() {
 }
 
 /** Test hooks. */
-export const _bucketsTest = { reset: () => ((longRank = null), (state = fresh()), (loaded = true), (copyRows = []), (copyAt = 0)), state: () => state, reload: () => load(), hlTick };
+export const _bucketsTest = { reset: () => ((longRank = null), (lookSeq = 0), appliedSeq.clear(), quick.clear(), (quickLog = []), (watchedCache = null), (fastHooks = {}), (state = fresh()), (loaded = true), (copyRows = []), (copyAt = 0)), state: () => state, reload: () => load(), hlTick };

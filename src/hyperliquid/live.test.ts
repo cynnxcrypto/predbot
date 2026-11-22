@@ -7,7 +7,7 @@ import type { Coin, Fill } from "./exchange.js";
 import type { Account, HlDeps, HlLiveConfig, PaperOpen } from "./live.js";
 
 process.env.DATA_DIR = mkdtempSync(join(tmpdir(), "hllive-"));
-const { _test, hlKeptTraders, hlLiveSummary, hlLiveTick, leverageFor, parseHlLive, TEST_RULE } = await import("./live.js");
+const { _test, hlKeptTraders, hlLiveSummary, hlLiveTick, leverageFor, parseHlLive, setHlDelayNote, TEST_RULE } = await import("./live.js");
 
 const COINS: Record<string, Coin> = { BTC: { index: 0, szDecimals: 5, maxLeverage: 40 }, HYPE: { index: 5, szDecimals: 2, maxLeverage: 10 }, DOGE: { index: 9, szDecimals: 0, maxLeverage: 10 } };
 const ON: HlLiveConfig = { on: true, collateralUsd: 10, maxOpen: 5, maxLossUsd: 50, traderStopUsd: 9, testOnce: "" };
@@ -493,4 +493,22 @@ test("keep bar: real copies must average $0.50+, traders without real copies 2%+
   const c = parseHlLive(JSON.stringify({ hyperliquid: { trade: { on: true, maxLossUsd: 50, keepBar: { perCopyUsd: 0.5, histPct: 2 } } } }));
   assert.deepEqual(c.keepBar, kb);
   assert.equal(parseHlLive(JSON.stringify({ hyperliquid: { trade: { on: true, maxLossUsd: 50 } } })).keepBar, undefined);
+});
+
+test("the trade feed's delay measure is told when a real copy opens and when it closes because the trader closed (22 Nov 2026)", async () => {
+  const notes: string[] = [];
+  setHlDelayNote((k, r, c) => void notes.push(`${k}|${r}|${c}`));
+  const { w, d } = world();
+  w.paper = [copy("copy-aaaa1111", "HYPE", 1, T0, 2)];
+  await hlLiveTick(d, T0 + 5_000);
+  w.paper = [];
+  await hlLiveTick(d, T0 + 25_000);
+  assert.deepEqual(notes, ["realOpen|copy-aaaa1111|HYPE", "realClose|copy-aaaa1111|HYPE"]);
+  setHlDelayNote(() => {
+    throw new Error("a measure that fails");
+  });
+  w.paper = [copy("copy-aaaa1111", "BTC", 1, T0 + 30_000, 2)];
+  await hlLiveTick(d, T0 + 35_000);
+  assert.equal(_test.state().opens.length, 1, "a failing measure never stops a trade");
+  setHlDelayNote(null);
 });

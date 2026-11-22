@@ -731,3 +731,64 @@ test("just the best (21 Nov 2026): the bar on 30 days alone approves as before; 
   const later = now + 1;
   assert.deepEqual([1, 2, 3, 4, 5].filter((i) => B.hlHistoryMeetsBar(B.traderRule(addr(i)), 0, later, 2)), [1, 2, 4]);
 });
+
+test("fast looks (22 Nov 2026): a trade by a followed trader has it looked at within seconds; approved traders first; an older answer never overwrites a newer one", async () => {
+  B._bucketsTest.reset();
+  const st = B._bucketsTest.state();
+  const A = "0x" + "a1".repeat(20);
+  const C = "0x" + "c1".repeat(20);
+  const X = "0x" + "99".repeat(20);
+  const now = 1_800_000_000_000;
+  st.hlTraders = [{ address: A, monthPnl: 5, monthRoi: 0.1 }, { address: C, monthPnl: 5, monthRoi: 0.1 }];
+  st.hlSeen = { [A]: {}, [C]: {} };
+  const pos = (coin: string, szi: number) => ({ position: { coin, szi: String(szi), positionValue: String(Math.abs(szi) * 2000), leverage: { value: 5 } } });
+  let holds: Record<string, unknown[]> = { [A]: [pos("ETH", 10)], [C]: [] };
+  const asked: string[] = [];
+  const deps = {
+    quote: async () => 1n,
+    jup: async () => [],
+    fetch: () =>
+      (async (_u: string, init?: RequestInit) => {
+        const body = JSON.parse(String(init?.body ?? "{}")) as { type: string; user?: string };
+        if (body.type === "clearinghouseState") asked.push(body.user!);
+        const out = body.type === "allMids" ? { ETH: "2000" } : body.type === "clearinghouseState" ? { marginSummary: { accountValue: "1000000" }, assetPositions: holds[body.user!] ?? [] } : [];
+        return { ok: true, status: 200, json: async () => out };
+      }) as unknown as typeof fetch,
+  };
+  const notes: string[] = [];
+  let kicks = 0;
+  B.setHlFast({ note: (k, a, c, src) => void notes.push(`${k}|${a === A ? "A" : a}|${c}|${src}`), px: () => 2001, changed: () => void kicks++, priority: (r) => r === B.traderRule(A) });
+  B.hlPoke(X, now); // not followed: nothing
+  B.hlPoke(C, now);
+  B.hlPoke(A, now);
+  assert.equal(await B.hlQuickTick(now, deps), 0, "not yet: the first look waits QUICK_FIRST_MS");
+  assert.equal(await B.hlQuickTick(now + B.QUICK_FIRST_MS, deps), 2);
+  assert.deepEqual(asked, [A, C], "the approved trader first");
+  assert.equal(st.hlOpen.length, 1);
+  assert.equal(st.hlOpen[0].entry, 2001, "the feed's price");
+  assert.deepEqual(notes, ["paperOpen|A|ETH|feed"]);
+  assert.equal(kicks, 1, "the real side was told");
+  // the tail look, QUICK_TAIL_MS after the last trade: the trader closed
+  holds = { [A]: [], [C]: [] };
+  asked.length = 0;
+  assert.equal(await B.hlQuickTick(now + B.QUICK_TAIL_MS, deps), 2);
+  assert.equal(st.hlOpen.length, 0);
+  assert.equal(st.hlTrades.at(-1)?.why, "closed");
+  assert.deepEqual(notes.at(-1), "paperClose|A|ETH|feed");
+  assert.equal(await B.hlQuickTick(now + B.QUICK_TAIL_MS + 5_000, deps), 0, "nothing left to look at");
+  const sum = B.hlQuickSummary(now + B.QUICK_TAIL_MS);
+  assert.equal(sum.looks, 4);
+  assert.equal(sum.changed, 2);
+  // more pokes than the minute allows: traders not approved are left to the minute's round past QUICK_OTHERS_PER_MIN
+  B._bucketsTest.reset();
+  const st2 = B._bucketsTest.state();
+  const many = Array.from({ length: 120 }, (_, i) => "0x" + String(i).padStart(40, "0"));
+  st2.hlTraders = many.map((address) => ({ address, monthPnl: 1, monthRoi: 0.1 }));
+  B.setHlFast({ px: () => 2000 });
+  let n = 0;
+  for (let round = 0; round < 15; round++) {
+    for (const a of many) B.hlPoke(a, now + round * 2_000);
+    n += await B.hlQuickTick(now + round * 2_000 + B.QUICK_FIRST_MS, deps);
+  }
+  assert.equal(n, B.QUICK_OTHERS_PER_MIN);
+});

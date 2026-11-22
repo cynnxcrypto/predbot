@@ -13,11 +13,12 @@ import { join } from "node:path";
 import { ROOT } from "../config.js";
 import { loadJson, saveJson } from "../store.js";
 import { ARBITRUM_CHAIN_ID, ARBITRUM_RPC, CREDIT_WAIT_MS, HL_API, fund, fundHistory, realChain, type Chain, type FundReport } from "./fund.js";
-import { usdSend, post as hlPostApi } from "./exchange.js";
+import { coinsOf, usdSend, post as hlPostApi } from "./exchange.js";
 import { hlAgent, hlAgent2, hlWallet, hlWallet2, hlWallet2Exists } from "./keys.js";
-import { fileCfg, hlKeptTraders, hlLiveSummary, hlLiveTick, type HlDeps } from "./live.js";
+import { fileCfg, hlKeptTraders, hlLiveSummary, hlLiveTick, setHlDelayNote, type HlDeps } from "./live.js";
+import { HlTradeWatch } from "./watch.js";
 import { realVenue } from "./venue.js";
-import { hlBoard, hlHistoryAvgPct, hlHistoryMeetsBar, hlHistorySummary, hlPaperOpens, likedTraders, perpMeetsBar, setExtraTraders, setKeptTraders, traderListed, traderRecord } from "../solana/buckets.js";
+import { hlPoke, hlQuickSummary, hlQuickTick, hlWatched, setHlFast, traderRule, hlBoard, hlHistoryAvgPct, hlHistoryMeetsBar, hlHistorySummary, hlPaperOpens, likedTraders, perpMeetsBar, setExtraTraders, setKeptTraders, traderListed, traderRecord } from "../solana/buckets.js";
 import { linkedTraders, startLinks } from "./links.js";
 
 interface Reach {
@@ -201,6 +202,101 @@ export async function reachCheck(fetcher: typeof fetch = fetch): Promise<Reach> 
   return r;
 }
 
+// ---- FASTER COPIES (src/hyperliquid/watch.ts) -------------------------------------------------------------------------------
+/** deploy/live-rules.json hyperliquid.watch: on = the trade feed runs and measures delays; fast = its trades start fast looks. */
+export function parseWatch(text: string): { on: boolean; fast: boolean } {
+  try {
+    const w = (JSON.parse(text) as { hyperliquid?: { watch?: { on?: unknown; fast?: unknown } } }).hyperliquid?.watch;
+    const on = w?.on === true;
+    return { on, fast: on && w?.fast === true };
+  } catch {
+    return { on: false, fast: false };
+  }
+}
+let watchCache: { at: number; v: { on: boolean; fast: boolean } } | null = null;
+const watchCfg = () => {
+  const now = Date.now();
+  if (!watchCache || now - watchCache.at > 30_000) {
+    let v = { on: false, fast: false };
+    try {
+      v = parseWatch(readFileSync(join(ROOT, "deploy", "live-rules.json"), "utf8"));
+    } catch {
+      // no file: off
+    }
+    watchCache = { at: now, v };
+  }
+  return watchCache.v;
+};
+let watcher: HlTradeWatch | null = null;
+const liveRun = { running: false, again: false, lastKick: 0, kicks: 0, timer: null as ReturnType<typeof setTimeout> | null };
+/** the real side's look, one at a time: a look asked for while one runs follows right after it */
+let runLive: () => Promise<void> = async () => undefined;
+/** a fast look changed a paper copy: the real side looks at once (at most one kick every KICK_MS) */
+export const KICK_MS = 3_000;
+function kickLive() {
+  if (liveRun.timer) return;
+  const wait = Math.max(0, liveRun.lastKick + KICK_MS - Date.now());
+  liveRun.timer = setTimeout(() => {
+    liveRun.timer = null;
+    liveRun.lastKick = Date.now();
+    liveRun.kicks++;
+    void runLive();
+  }, wait);
+  liveRun.timer.unref?.();
+}
+/** Serializes calls of `tick`: one asked for while one runs is run once right after it. */
+export function serial(tick: () => Promise<void>, st = { running: false, again: false }): () => Promise<void> {
+  return async () => {
+    if (st.running) return void (st.again = true);
+    st.running = true;
+    try {
+      do {
+        st.again = false;
+        await tick().catch(() => undefined);
+      } while (st.again);
+    } finally {
+      st.running = false;
+    }
+  };
+}
+function startWatch(fetcher: typeof fetch) {
+  const make = () =>
+    new HlTradeWatch({
+      coins: async () => Object.keys(coinsOf(await hlPostApi("info", { type: "meta" }, fetcher))),
+      watched: () => hlWatched(),
+      rule: traderRule,
+      onHit: (a) => {
+        if (watchCfg().fast) hlPoke(a);
+      },
+    });
+  setHlFast({
+    note: (kind, a, coin, src) => watcher?.note(kind, a, coin, src),
+    px: (coin) => watcher?.price(coin) ?? null,
+    changed: kickLive,
+    priority: (rule) => meetsBar(rule, 0, Date.now()),
+  });
+  setHlDelayNote((kind, rule, coin) => watcher?.noteRule(kind, rule, coin));
+  // the switch is read every 30 s: on starts the feed, off stops it
+  const check = () => {
+    const c = watchCfg();
+    if (c.on && !watcher) {
+      watcher = make();
+      void watcher.start().catch(() => undefined);
+    } else if (!c.on && watcher) {
+      watcher.stop();
+      watcher = null;
+    }
+  };
+  check();
+  setInterval(check, 30_000).unref();
+  // fast looks that are due: twice a second (nothing is asked of Hyperliquid unless a followed trader traded)
+  setInterval(() => {
+    if (watcher && watchCfg().fast) void hlQuickTick().catch(() => 0);
+  }, 500).unref();
+}
+/** For the status: no address. */
+export const hlWatchSummary = () => ({ ...watchCfg(), feed: watcher ? watcher.summary() : null, quick: hlQuickSummary(), realKicks: liveRun.kicks });
+
 /** Called once when the bot starts. Never throws: a failure here must not stop the bot. */
 export function startHyperliquid(fetcher: typeof fetch = fetch): Promise<void> {
   if (process.env.HYPERLIQUID === "off") {
@@ -249,15 +345,17 @@ export function startHyperliquid(fetcher: typeof fetch = fetch): Promise<void> {
     }
     const deps: HlDeps = { cfg: fileCfg, venue: realVenue(address, fetcher), ...(venue2 ? { venue2 } : {}), paperOpens: hlPaperOpens, meetsBar, listed: traderListed, histAvgPct: (r) => hlHistoryAvgPct(r) };
     setKeptTraders(hlKeptTraders, "hyperliquid");
-    setInterval(() => void hlLiveTick(deps).catch(() => undefined), 20_000).unref();
+    runLive = serial(() => hlLiveTick(deps), liveRun);
+    setInterval(() => void runLive(), 20_000).unref();
   }
+  startWatch(fetcher);
   return run();
 }
 
 /** A trader's bar on Hyperliquid counts its paper copies on every coin (the Solana perps side wants some on SOL, BTC or ETH). */
 const meetsBar = (rule: string, sinceMs: number, now: number) => perpMeetsBar(rule, sinceMs, now, 0) || (!!fileCfg().historyBar && hlHistoryMeetsBar(rule, sinceMs, now, fileCfg().historyTop ?? 5));
 /** The real copies, for the status and the tab (traders by short name, no address). */
-export const hlLive = () => ({ ...hlLiveSummary(fileCfg(), meetsBar, Date.now(), (r) => hlHistoryAvgPct(r)), secondWallet: secondPublic(), history: { on: !!fileCfg().historyBar, ...hlHistorySummary(Date.now(), fileCfg().historyTop ?? 5) } });
+export const hlLive = () => ({ ...hlLiveSummary(fileCfg(), meetsBar, Date.now(), (r) => hlHistoryAvgPct(r)), secondWallet: secondPublic(), history: { on: !!fileCfg().historyBar, ...hlHistorySummary(Date.now(), fileCfg().historyTop ?? 5) }, watch: hlWatchSummary() });
 
 /** For the public status: no address, no key, no balance. */
 export function hlPublic() {
