@@ -348,7 +348,9 @@ function connect() {
 
 /** Start the finder. `url` gives the Helius websocket address, or null while there is no key. */
 export function startDiscover(url: () => string | null, tracked: () => string[] = () => []) {
-  if (process.env.SOLANA_DISCOVER === "off" || typeof WebSocket === "undefined" || !stopped) return;
+  // 22 Nov 2026 23:17 KST: off unless SOLANA_DISCOVER=on. It found pump.fun wallets for the spot copy, which enrique ended
+  // at 18:02 KST ("cancel it"), and it was the largest Helius user (~144k credits a day at its 300 MB/h cap, more after restarts)
+  if (process.env.SOLANA_DISCOVER !== "on" || typeof WebSocket === "undefined" || !stopped) return;
   stopped = false;
   wsUrl = url;
   health.startedAt = Date.now();

@@ -768,7 +768,8 @@ async function loop() {
 }
 
 export function startLinks(c: NonNullable<typeof cfg>) {
-  if (process.env.SOLANA_LINKS === "off" || !stopped) return;
+  // 22 Nov 2026 23:17 KST: off unless SOLANA_LINKS=on (it traced the spot copy's fomo traders; spot copy ended 18:02 KST; saves Helius credits)
+  if (process.env.SOLANA_LINKS !== "on" || !stopped) return;
   stopped = false;
   cfg = c;
   try {
