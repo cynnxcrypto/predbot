@@ -120,7 +120,7 @@ const effFlows = () => {
       return [];
     }
   })();
-  const base = withConfirmed(mergeChainFlows(pending.length ? [...flows, ...pending] : flows, chainSrc()));
+  const base = alignMemo(withConfirmed(mergeChainFlows(pending.length ? [...flows, ...pending] : flows, chainSrc())));
   return own.length ? [...base, ...own].sort((a, b) => a[0] - b[0]) : base;
 };
 let comp: Comp | null = null;
@@ -219,6 +219,54 @@ export function flowsFromJumps(h: [number, number][]): Flow[] {
     if (d >= 15 && h[i][0] - h[i - 1][0] <= 15 * 60_000) out.push([h[i][0], Math.round(d * 100) / 100, "deposit"]);
   }
   return out;
+}
+/**
+ * DEPOSITS BOOKED BEFORE THE WORTH SHOWED THEM (22 Nov 2026, MAIN: the 7 d figure went from +$117.77 to -$32.83 in an
+ * hour while the worth barely moved). A deposit is booked at its confirmed time, but the wallet's worth can show the
+ * money only some samples later; every sample in between was lifted by the deposit without holding it, so a window
+ * starting there counted the deposit as a gain. Each deposit or withdrawal of $20 or more is moved to just before the
+ * first sample (within a day) where the total worth has moved by half of it from the last sample before it; when no
+ * such sample is found it stays where it was. Moves between our own wallets are not passed here. Pure.
+ */
+export function alignFlows(series: [number, number, ...unknown[]][], fl: Flow[]): Flow[] {
+  if (series.length < 2) return fl;
+  return fl
+    .map((f): Flow => {
+      if (Math.abs(f[1]) < 20) return f;
+      let i0 = -1;
+      for (let i = 0; i < series.length && series[i][0] <= f[0]; i++) i0 = i;
+      if (i0 < 0) return f;
+      const base = series[i0][1];
+      for (let j = i0 + 1; j < series.length && series[j][0] <= f[0] + 86_400_000; j++) {
+        const d = series[j][1] - base;
+        if (f[1] > 0 ? d >= 0.5 * f[1] : d <= 0.5 * f[1]) return series[j][0] - 1 > f[0] ? [series[j][0] - 1, f[1], f[2]] : f;
+      }
+      return f;
+    })
+    .sort((a, b) => a[0] - b[0]);
+}
+/** For the public status: each deposit or withdrawal the alignment moved, by wallet and minutes (no amount). */
+function flowsMoved(): { wallet: string; at: number; min: number }[] {
+  const before = withConfirmed(mergeChainFlows(pending.length ? [...flows, ...pending] : flows, chainSrc())).slice().sort((a, b) => a[0] - b[0]);
+  const after = alignMemo(before);
+  const out: { wallet: string; at: number; min: number }[] = [];
+  for (const f of before) {
+    const g = after.find((x) => x[2] === f[2] && x[1] === f[1] && x[0] >= f[0] && x[0] - f[0] <= 86_400_000);
+    if (g && g[0] !== f[0]) out.push({ wallet: f[2], at: f[0], min: Math.round((g[0] - f[0]) / 60_000) });
+  }
+  return out;
+}
+let alignKey = "";
+let alignOut: Flow[] = [];
+function alignMemo(fl: Flow[]): Flow[] {
+  if (!hist?.length) return fl;
+  const first = hist[0][0];
+  const key = `${hist.length}:${hist[hist.length - 1][0]}:${back.length}:${JSON.stringify(fl)}`;
+  if (key !== alignKey) {
+    alignKey = key;
+    alignOut = alignFlows([...back.filter((p) => p[0] < first), ...hist], fl);
+  }
+  return alignOut;
 }
 /** The series with money put in or taken out removed: each past point is lifted by what was put in after it. */
 export function netOfFlows<T extends [number, number, ...unknown[]]>(h: T[], fl: Flow[]): T[] {
@@ -428,7 +476,7 @@ export function worthCheck() {
   if (today) windows.today = today as { usd: number; est: boolean; from: number; at: number };
   const tw = memo.v.today ?? {};
   const todayByWallet = Object.fromEntries(WALLETS.map(([k, label]) => [label, tw[k] ? { usd: tw[k]!.usd, at: tw[k]!.at } : null]));
-  return { deposits: depositCheck(mergeChainFlows(flows, chainSrc()), Date.now() - 8 * 86_400_000), todayByWallet, claimStepsTakenForDeposits: fix?.removed ?? null, thatWasUsd: fix?.removedUsd ?? null, wonWaitingForClaimUsd: unclaimedAt(loadSpans(), Date.now()), change24hUsd: base && now != null ? Math.round((now - base[1]) * 100) / 100 : null, flows24h: flows.filter((f) => f[0] > T).length, windows, worthAt: full?.at ?? null, notFull: whyNot };
+  return { deposits: depositCheck(mergeChainFlows(flows, chainSrc()), Date.now() - 8 * 86_400_000), todayByWallet, claimStepsTakenForDeposits: fix?.removed ?? null, thatWasUsd: fix?.removedUsd ?? null, wonWaitingForClaimUsd: unclaimedAt(loadSpans(), Date.now()), change24hUsd: base && now != null ? Math.round((now - base[1]) * 100) / 100 : null, flows24h: flows.filter((f) => f[0] > T).length, windows, flowsMoved: flowsMoved(), worthAt: full?.at ?? null, notFull: whyNot };
 }
 let memo: { at: number; v: Worth } | null = null;
 /** The dashboard's last worth reading and the deposits and withdrawals it takes out of its windows (src/truthcheck.ts). */
