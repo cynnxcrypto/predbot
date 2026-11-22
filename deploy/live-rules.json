@@ -263,8 +263,9 @@
     "fund": "go",
     "watch": {
       "note": "22 Nov 2026 22:58 KST, enrique: 'is there any workaround hyperliquid entries and exits being up to a minute late?'. on = Hyperliquid's public trade feed is followed (read only) and the delay from a trader's trade to our paper and real copy is measured (status hyperliquid.live.watch). fast = a trade by a followed trader has it looked at within about 2 s and the real copy acts at once; the minute's round stays as the fallback. First on without fast to measure the delay as it is, then fast.",
+      "fastNote": "22 Nov 2026 16:36 UTC: before, with the feed only: paper copies opened 281 s (median of 3, up to 502 s) and the one real copy 283 s after the trader's first trade. fast on: a trade by a followed trader has it looked at within about 2 s.",
       "on": true,
-      "fast": false
+      "fast": true
     },
     "trade": {
       "note": "OFF. Real copies of Hyperliquid traders on Hyperliquid, every coin (src/hyperliquid/live.ts). Same rules as the Solana perps copies: a trader is real on its own paper record (20+ closed copies, half won, ahead, a day old), then on its real record (cut when behind after 3 real trades or at traderStopUsd); its own leverage up to half of Hyperliquid's limit for the coin, isolated margin; one position per trader and per coin. To make the one test trade (smallest BTC long, about $11, closed at the next look) add \"testOnce\": \"<a new name>\". To trade, set on to true.",
