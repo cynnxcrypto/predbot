@@ -25,3 +25,16 @@ test("a flow the worth never shows, a small one, and a withdrawal", () => {
   assert.deepEqual(alignFlows(raw, [[5 * m, 10, "deposit"]]), [[5 * m, 10, "deposit"]]); // under $20: stays
   assert.deepEqual(alignFlows(raw, [[5 * m, -100, "Hyperliquid"]]), [[20 * m - 1, -100, "Hyperliquid"]]);
 });
+
+test("a deposit among the hourly estimates moves to the live step that took it in (15 Nov 08:37Z, 22 Nov 2026)", () => {
+  const m = 60_000;
+  // hourly estimates at 0 and 60 min (flag 1), live samples every 2 min from 90 min; the $202 shows only at 120 min
+  const s: [number, number, ...unknown[]][] = [[0, 700, 1], [60 * m, 720, 1]];
+  for (let k = 90; k <= 140; k += 2) s.push([k * m, k >= 120 ? 690 : 488]);
+  const fl: Flow[] = [[30 * m, 101, "Solana spot copy"], [30 * m, 101, "Solana spot rules"]];
+  const al = alignFlows(s, fl);
+  assert.deepEqual(al.map((f) => f[0]), [120 * m - 1, 120 * m - 1]);
+  // the window starting at the first live sample no longer counts the deposits as a gain
+  const net = netOfFlows(s as [number, number][], al);
+  assert.equal(net.find((p) => p[0] === 90 * m)![1], 690);
+});

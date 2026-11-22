@@ -225,21 +225,26 @@ export function flowsFromJumps(h: [number, number][]): Flow[] {
  * hour while the worth barely moved). A deposit is booked at its confirmed time, but the wallet's worth can show the
  * money only some samples later; every sample in between was lifted by the deposit without holding it, so a window
  * starting there counted the deposit as a gain. Each deposit or withdrawal of $20 or more is moved to just before the
- * first sample (within a day) where the total worth has moved by half of it from the last sample before it; when no
- * such sample is found it stays where it was. Moves between our own wallets are not passed here. Pure.
+ * first live sample (within a day) that steps by half of it from the sample before; when no such step is found it stays
+ * where it was. Moves between our own wallets are not passed here. Pure.
  */
 export function alignFlows(series: [number, number, ...unknown[]][], fl: Flow[]): Flow[] {
   if (series.length < 2) return fl;
   return fl
     .map((f): Flow => {
       if (Math.abs(f[1]) < 20) return f;
-      let i0 = -1;
-      for (let i = 0; i < series.length && series[i][0] <= f[0]; i++) i0 = i;
-      if (i0 < 0) return f;
-      const base = series[i0][1];
-      for (let j = i0 + 1; j < series.length && series[j][0] <= f[0] + 86_400_000; j++) {
-        const d = series[j][1] - base;
-        if (f[1] > 0 ? d >= 0.5 * f[1] : d <= 0.5 * f[1]) return series[j][0] - 1 > f[0] ? [series[j][0] - 1, f[1], f[2]] : f;
+      // the first STEP between two live samples (15 min apart at most, neither an hourly estimate) of half the flow or
+      // more, in its direction, from the last sample at or before it to a day after: where the worth took the money in.
+      // A step, not a rise from the sample before: the hourly estimates before the live samples are too rough to
+      // measure from (22 Nov 2026: the 15 Nov 08:37Z deposits sat there and were not moved).
+      let j = 1;
+      while (j < series.length && series[j][0] <= f[0]) j++;
+      for (; j < series.length && series[j][0] <= f[0] + 86_400_000; j++) {
+        const a = series[j - 1];
+        const b = series[j];
+        if (a[2] === 1 || b[2] === 1 || b[0] - a[0] > 15 * 60_000) continue;
+        const d = b[1] - a[1];
+        if (f[1] > 0 ? d >= 0.5 * f[1] : d <= 0.5 * f[1]) return b[0] - 1 > f[0] ? [b[0] - 1, f[1], f[2]] : f;
       }
       return f;
     })
