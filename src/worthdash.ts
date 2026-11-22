@@ -112,6 +112,10 @@ export function ownMoveFlows(moves: OwnMove[]): Flow[] {
   }
   return out;
 }
+/** The Polymarket "withdrawals" already booked from cash drops after the one real withdrawal (the bot's own, 11 Nov
+ * 2026) were bets bought (see flowsBetween): taken off. Pure. */
+export const PM_WITHDRAW_END = Date.parse("2026-11-12T00:00:00Z");
+export const noBuyWithdrawals = (fl: Flow[]): Flow[] => fl.filter((f) => !(f[2] === "Polymarket" && f[1] < 0 && f[0] >= PM_WITHDRAW_END));
 const effFlows = () => {
   const own = (() => {
     try {
@@ -120,7 +124,7 @@ const effFlows = () => {
       return [];
     }
   })();
-  const base = withConfirmed(mergeChainFlows(pending.length ? [...flows, ...pending] : flows, chainSrc()));
+  const base = noBuyWithdrawals(withConfirmed(mergeChainFlows(pending.length ? [...flows, ...pending] : flows, chainSrc())));
   return own.length ? [...base, ...own].sort((a, b) => a[0] - b[0]) : base;
 };
 let comp: Comp | null = null;
@@ -180,7 +184,9 @@ export function flowsBetween(a: Comp | null, b: Comp, px: number | null, t: numb
     // a claim can leave the "waiting" side a few samples before the cash shows it: compare with the most that was
     // waiting over the last samples, not only the last one
     if (d >= 20 && b.pk - Math.max(a.pk, ...(a.pkh ?? [])) > -0.5 * d) out.push([t, r2(d), "Polymarket"]);
-    if (d <= -20 && b.pst - a.pst < 0.5 * -d && b.pk - a.pk < 0.5 * -d) out.push([t, r2(d), "Polymarket"]);
+    // no withdrawal is read from a cash drop any more (22 Nov 2026, enrique on two "withdrew $25.56 / $22.32 Polymarket"
+    // markers: "what are these??"): both were copy bets the bot bought, the cash fell before the open bets showed them.
+    // Money only leaves this wallet through the bot's own moves, which are booked from their own records.
   }
   if (px != null) {
     if (a && a.sol != null && b.sol != null) {
@@ -238,7 +244,7 @@ export function settleBase(T: number, settle: number[]): number {
   for (const f of settle) if (f <= T && T <= f + SETTLE_MS && f - 1 < b) b = f - 1;
   return b;
 }
-const settleNow = () => settleTimes(withConfirmed(mergeChainFlows(pending.length ? [...flows, ...pending] : flows, chainSrc())));
+const settleNow = () => settleTimes(noBuyWithdrawals(withConfirmed(mergeChainFlows(pending.length ? [...flows, ...pending] : flows, chainSrc()))));
 /** The series with money put in or taken out removed: each past point is lifted by what was put in after it. */
 export function netOfFlows<T extends [number, number, ...unknown[]]>(h: T[], fl: Flow[]): T[] {
   return h.map((p) => {

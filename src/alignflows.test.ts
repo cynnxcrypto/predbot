@@ -30,3 +30,12 @@ test("7 d: a deposit the worth shows only in parts over the next hours is counte
   // the 1 h and 24 h windows keep their own start
   assert.deepEqual(worthWindows(h, 800, now, settle).filter((w) => w.k !== "7d"), worthWindows(h, 800, now).filter((w) => w.k !== "7d"));
 });
+
+test("Polymarket: a cash drop is never a withdrawal (bets bought before the open bets showed them)", async () => {
+  const { flowsBetween, noBuyWithdrawals } = await import("./worthdash.js");
+  const c = (pc: number, pst: number) => ({ pc, pk: 0, pst, sol: null, coins: 0, rules: null, perps: null });
+  assert.deepEqual(flowsBetween(c(200, 100), c(174.44, 100), null, 1), []);
+  const t21 = Date.parse("2026-11-21T20:01:00Z");
+  const t10 = Date.parse("2026-11-11T01:31:00Z");
+  assert.deepEqual(noBuyWithdrawals([[t10, -50, "Polymarket"], [t21, -25.56, "Polymarket"], [t21, 30, "Polymarket"], [t21, -20, "Hyperliquid"]]), [[t10, -50, "Polymarket"], [t21, 30, "Polymarket"], [t21, -20, "Hyperliquid"]]);
+});
