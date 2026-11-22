@@ -582,8 +582,8 @@ test("a trader's own history: closed positions out of its fills, and the same ba
     { coin: "ETH", time: "x" },
   ];
   assert.deepEqual(B.hlTrips(fills), [
-    { coin: "ETH", openAt: 1 * H, closeAt: 4 * H, pct: 0.018627 }, // 570 over 15 x 2040
-    { coin: "HYPE", openAt: 2 * H, closeAt: 6 * H, pct: -0.048095 }, // -1010 over 500 x 42
+    { coin: "ETH", openAt: 1 * H, closeAt: 4 * H, pct: 0.018627, dir: 1 }, // 570 over 15 x 2040
+    { coin: "HYPE", openAt: 2 * H, closeAt: 6 * H, pct: -0.048095, dir: -1 }, // -1010 over 500 x 42
   ]);
   assert.deepEqual(B.hlTrips(fills, 5 * H).map((x) => x.coin), ["HYPE"]);
   assert.deepEqual(B.hlTrips(null), []);
@@ -622,7 +622,7 @@ test("a followed trader's history is read once a day, and qualifies it unless ou
       (async (_u: string, init?: RequestInit) => {
         const body = JSON.parse(String(init?.body ?? "{}")) as { type: string; user?: string };
         if (/^userFills/.test(body.type)) asked.push(body.user!);
-        const out = body.type === "allMids" ? { BTC: "100000", ETH: "2000" } : /^userFills/.test(body.type) ? (body.user === A ? Array.from({ length: 22 }, (_, i) => fill(i, i % 2 === 0)).flat() : []) : { marginSummary: { accountValue: "1000000" }, assetPositions: [] };
+        const out = body.type === "allMids" ? { BTC: "100000", ETH: "2000" } : body.type === "candleSnapshot" ? Array.from({ length: 95 * 24 }, (_, i) => ({ t: now - (95 * 24 - i) * 3_600_000, c: "100000" })) : /^userFills/.test(body.type) ? (body.user === A ? Array.from({ length: 22 }, (_, i) => fill(i, i % 2 === 0)).flat() : []) : { marginSummary: { accountValue: "1000000" }, assetPositions: [] };
         return { ok: true, status: 200, json: async () => out };
       }) as unknown as typeof fetch,
   };
@@ -638,6 +638,12 @@ test("a followed trader's history is read once a day, and qualifies it unless ou
   assert.deepEqual([sum.followed, sum.read, sum.with20, sum.atBar, sum.atBarNotOnPaper], [2, 2, 1, 1, 1]);
   assert.deepEqual(sum.traders.map((x) => [x.id, x.closed, x.won, x.accountUsd]), [[rule, 22, 11, 2_000_000]]);
   assert.ok(!JSON.stringify(sum).includes(A.slice(10)), "no address in the status");
+  // the paper-only skill ranking (22 Nov 2026): BTC flat, so the excess is the raw result; all 22 closed in the last
+  // 30 hours, so it is ahead in only 1 of 3 periods and does not pass, though the live bar approves it
+  assert.equal(sum.skill.btcHours, 95 * 24);
+  assert.deepEqual([sum.skill.read, sum.skill.judged, sum.skill.pass, sum.skill.approvedButFail], [2, 1, 0, 1]);
+  assert.deepEqual(sum.skill.whyNot, { "ahead in under 2 of 3 periods": 1 });
+  assert.equal(sum.skill.traders[0].marketShare, 0);
   // five paper copies of ours, behind: the history does not carry it
   for (let i = 0; i < 5; i++) st.hlTrades.push({ trader: A, coin: "ETH", dir: 1, at: now - 1000 + i, exitAt: now, net: -0.01, why: "closed" });
   assert.equal(B.hlHistoryMeetsBar(rule, 0, now + 60_000), false);

@@ -22,6 +22,7 @@ import { join } from "node:path";
 import { DATA } from "../config.js";
 import { SOL, USDC } from "./pools.js";
 import { posRet, type Pos } from "./slow.js";
+import { entryGapPct, gapStats, parseCandles, skillOf, SKILL_MIN_N, SKILL_MIN_PERIODS_AHEAD, SKILL_MIN_T, SKILL_PERIODS, type Candles as BtcCandles, type Trip } from "../hyperliquid/skill.js";
 
 export type Bucket = "high" | "mid" | "low" | "meme";
 export const BUCKETS: readonly Bucket[] = ["high", "mid", "low", "meme"];
@@ -425,9 +426,12 @@ export const HIST_REFRESH_MS = 24 * 3_600_000;
 /** fill records read in one minute (20 of Hyperliquid's 1,200 weight each) */
 const HIST_PER_TICK = 3;
 const HIST_KEEP = 200;
+/** 22 Nov 2026: histories now keep each position's side, open time and coin; older ones are read again */
+const HIST_V = 2;
+const BTC_REFRESH_MS = 6 * 3_600_000;
 /** pages of 2,000 fills read from the start of the window; a trader with more gets its newest 2,000 as well */
 const HIST_PAGES = 4;
-export interface HlTrip { coin: string; openAt: number; closeAt: number; pct: number }
+export interface HlTrip { coin: string; openAt: number; closeAt: number; pct: number; dir: number }
 /**
  * A trader's closed positions out of its fills (userFills or userFillsByTime rows, any order). A position counts from the fill that
  * opens it from nothing to the fill that brings it back to nothing (or turns it round); one already open at the first
@@ -452,19 +456,19 @@ export function hlTrips(fills: unknown, sinceMs = 0): HlTrip[] {
   const zero = (v: number) => Math.abs(v) < 1e-9;
   for (const [coin, xs] of by) {
     xs.sort((a, b) => a.t - b.t);
-    let trip: { openAt: number; peak: number; pnl: number; pos: number } | null = null;
+    let trip: { openAt: number; peak: number; pnl: number; pos: number; dir: number } | null = null;
     for (const f of xs) {
       const after = f.start + f.d;
       // fills are missing between the last one and this (a gap between pages): the position is not followed across it
       if (trip && Math.abs(f.start - trip.pos) > 1e-6 * Math.max(1, Math.abs(trip.pos))) trip = null;
-      if (zero(f.start)) trip = { openAt: f.t, peak: 0, pnl: 0, pos: 0 };
+      if (zero(f.start)) trip = { openAt: f.t, peak: 0, pnl: 0, pos: 0, dir: Math.sign(f.d) };
       if (!trip) continue;
       trip.pos = after;
       trip.pnl += f.pnl;
       trip.peak = Math.max(trip.peak, Math.abs(f.start) * f.px, Math.abs(after) * f.px);
       const turned = !zero(after) && !zero(f.start) && Math.sign(after) !== Math.sign(f.start);
       if (zero(after) || turned) {
-        if (trip.peak >= HL_MIN_POS_USD && f.t - trip.openAt >= HIST_MIN_HOLD_MS && f.t > sinceMs) out.push({ coin, openAt: trip.openAt, closeAt: f.t, pct: Math.round((trip.pnl / trip.peak) * 1e6) / 1e6 });
+        if (trip.peak >= HL_MIN_POS_USD && f.t - trip.openAt >= HIST_MIN_HOLD_MS && f.t > sinceMs) out.push({ coin, openAt: trip.openAt, closeAt: f.t, pct: Math.round((trip.pnl / trip.peak) * 1e6) / 1e6, dir: trip.dir });
         // turned round: the other side starts here, but its fees and size are mixed into this fill: not counted
         trip = null;
       }
@@ -473,7 +477,7 @@ export function hlTrips(fills: unknown, sinceMs = 0): HlTrip[] {
   return out.sort((a, b) => a.closeAt - b.closeAt);
 }
 /** The bar on a list of closed positions: [when closed, result]. */
-export const histMeetsBar = (trips: [number, number][], sinceMs: number, now: number, days = HIST_DAYS) => {
+export const histMeetsBar = (trips: Trip[], sinceMs: number, now: number, days = HIST_DAYS) => {
   const xs = trips.filter((x) => x[0] > Math.max(sinceMs, now - days * 86_400_000));
   return xs.length >= TRADER_MIN_COPIES && xs.filter((x) => x[1] > 0).length * 2 >= xs.length && xs.reduce((a, x) => a + x[1], 0) > 0;
 };
@@ -594,6 +598,18 @@ export function hlSizeBack(fills: unknown, coin: string, dir: number, szNow: num
   return { sz0, hist };
 }
 /** The trader's account value on Hyperliquid (perps), or null. */
+/** The trader's average entry price of each open position, out of a clearinghouseState answer: coin -> price. */
+export function hlEntries(state: unknown): Record<string, number> {
+  const rows = (state as { assetPositions?: unknown })?.assetPositions;
+  const out: Record<string, number> = {};
+  if (!Array.isArray(rows)) return out;
+  for (const x of rows as { position?: Record<string, unknown> }[]) {
+    const p = x?.position;
+    const px = Number(p?.entryPx);
+    if (typeof p?.coin === "string" && px > 0) out[p.coin] = px;
+  }
+  return out;
+}
 export function hlAccountValue(state: unknown): number | null {
   const v = Number((state as { marginSummary?: { accountValue?: unknown } })?.marginSummary?.accountValue);
   return Number.isFinite(v) && v > 0 ? v : null;
@@ -673,6 +689,8 @@ interface HlOpen {
   share?: number;
   /** the trader's size after each of its fills since the copy opened, read back once for a copy older than sz0 */
   hist?: [number, number][];
+  /** the trader's own average entry price of the position when we first saw it (22 Nov 2026: our entry against theirs) */
+  their?: number;
 }
 interface HlTrade {
   trader: string;
@@ -684,6 +702,9 @@ interface HlTrade {
   why: "closed" | "max hold";
   lev?: number;
   worst?: number;
+  /** our paper entry and the trader's own average entry when we saw it (22 Nov 2026) */
+  entry?: number;
+  their?: number;
 }
 interface State {
   /** version of the coin sorting: an older file's coin list is read again at once */
@@ -708,7 +729,9 @@ interface State {
   hlMajorSeen?: Record<string, number>;
   hlNext: number;
   /** trader -> its own closed positions of the last month ([when closed, result]) and when they were read */
-  hlHist?: Record<string, { at: number; trips: [number, number][]; d?: number }>;
+  hlHist?: Record<string, { at: number; trips: Trip[]; d?: number; v?: number }>;
+  /** BTC hourly closes for the beat-the-market test (src/hyperliquid/skill.ts), and when they were read */
+  hlBtc?: { at: number; c: BtcCandles };
   hlOpen: HlOpen[];
   hlTrades: HlTrade[];
   mcap: Record<string, { b: Bucket | null; at: number }>;
@@ -1065,7 +1088,7 @@ async function hlTick(deps: BucketDeps, now: number) {
     const fee = hlCost(o.coin);
     const net = o.dir * (px / o.entry - 1) - 2 * fee - PERP_BORROW_HOUR * ((now - o.at) / 3_600_000);
     const worst = o.worst === undefined ? undefined : r(Math.max(o.worst, -o.dir * (px / o.entry - 1)), 6)!;
-    state.hlTrades.push({ trader: o.trader, coin: o.coin, dir: o.dir, at: o.at, exitAt: now, net: r(net, 6)!, why, lev: o.lev, worst });
+    state.hlTrades.push({ trader: o.trader, coin: o.coin, dir: o.dir, at: o.at, exitAt: now, net: r(net, 6)!, why, lev: o.lev, worst, entry: o.entry, ...(o.their ? { their: o.their } : {}) });
     state.hlOpen = state.hlOpen.filter((x) => x !== o);
   };
   // the prices first (MAIN's review, 16 Nov 2026): what a trader holds is written down as it is read, so a close seen in
@@ -1120,7 +1143,8 @@ async function hlTick(deps: BucketDeps, now: number) {
         const px = await mid(coin);
         const av = hlAccountValue(answer);
         const share = av ? r(Math.abs(after[coin] ?? 0) / av, 3) ?? undefined : undefined;
-        if (px && !state.hlOpen.some((x) => x.trader === a && x.coin === coin)) state.hlOpen.push({ trader: a, coin, dir, at: now, entry: px, lev: levs[coin], worst: 0, ...(sizes[coin] ? { sz0: sizes[coin], szNow: sizes[coin] } : {}), ...(share != null ? { share } : {}) });
+        const their = hlEntries(answer)[coin];
+        if (px && !state.hlOpen.some((x) => x.trader === a && x.coin === coin)) state.hlOpen.push({ trader: a, coin, dir, at: now, entry: px, lev: levs[coin], worst: 0, ...(sizes[coin] ? { sz0: sizes[coin], szNow: sizes[coin] } : {}), ...(share != null ? { share } : {}), ...(their ? { their } : {}) });
       }
     }
   }
@@ -1134,12 +1158,17 @@ async function hlTick(deps: BucketDeps, now: number) {
   state.hlHist ??= {};
   const listed = new Set(state.hlTraders.map((t) => t.address));
   for (const a of Object.keys(state.hlHist)) if (!listed.has(a)) delete state.hlHist[a];
-  const due = [...holding.filter((a) => listed.has(a)), ...state.hlTraders.map((t) => t.address)].filter((a, i, all) => all.indexOf(a) === i && (now - (state.hlHist![a]?.at ?? 0) > HIST_REFRESH_MS || state.hlHist![a]?.d !== HIST_DAYS)).slice(0, HIST_PER_TICK);
+  const due = [...holding.filter((a) => listed.has(a)), ...state.hlTraders.map((t) => t.address)].filter((a, i, all) => all.indexOf(a) === i && (now - (state.hlHist![a]?.at ?? 0) > HIST_REFRESH_MS || state.hlHist![a]?.d !== HIST_DAYS || state.hlHist![a]?.v !== HIST_V)).slice(0, HIST_PER_TICK);
   for (const a of due) {
     const fills = await hlFillsBack(deps, a, now - HIST_DAYS * 86_400_000);
     if (!fills) continue; // not read: asked again at the next look
     longRank = null;
-    state.hlHist[a] = { at: now, d: HIST_DAYS, trips: hlTrips(fills, now - HIST_DAYS * 86_400_000).slice(-HIST_KEEP).map((x) => [x.closeAt, x.pct]) };
+    state.hlHist[a] = { at: now, d: HIST_DAYS, v: HIST_V, trips: hlTrips(fills, now - HIST_DAYS * 86_400_000).slice(-HIST_KEEP).map((x): Trip => [x.closeAt, x.pct, x.openAt, x.dir, x.coin]) };
+  }
+  // BTC's hourly closes over the window, every 6 hours, for the beat-the-market ranking (paper only)
+  if (now - (state.hlBtc?.at ?? 0) > BTC_REFRESH_MS) {
+    const c = parseCandles(await hlPost(deps, { type: "candleSnapshot", req: { coin: "BTC", interval: "1h", startTime: now - (HIST_DAYS + 2) * 86_400_000, endTime: now } }).catch(() => null));
+    state.hlBtc = c.length ? { at: now, c } : { at: now - BTC_REFRESH_MS + 1_800_000, c: state.hlBtc?.c ?? [] };
   }
   for (const o of state.hlOpen.filter((x) => now - x.at >= HL_MAX_HOLD_MS)) await shut(o, "max hold");
   if (state.hlTrades.length > KEEP_TRADES) state.hlTrades = state.hlTrades.slice(-KEEP_TRADES);
@@ -1399,8 +1428,8 @@ export const perpMeetsBar = (rule: string, sinceMs = 0, now = Date.now(), minOur
  * positions' results, what copies of one size would have made). top = Infinity: all of them.
  */
 export const HIST_FIRST_DAYS = 30;
-const histSum = (trips: [number, number][], now: number) => trips.filter((x) => x[0] > now - HIST_DAYS * 86_400_000).reduce((a, x) => a + x[1], 0);
-const histOk = (rule: string, sinceMs: number, now: number): { at: number; trips: [number, number][] } | null => {
+const histSum = (trips: Trip[], now: number) => trips.filter((x) => x[0] > now - HIST_DAYS * 86_400_000).reduce((a, x) => a + x[1], 0);
+const histOk = (rule: string, sinceMs: number, now: number): { at: number; trips: Trip[] } | null => {
   const t = state.hlTraders.find((x) => traderRule(x.address) === rule);
   const h = t && state.hlHist?.[t.address];
   if (!h || now - h.at > 2 * HIST_REFRESH_MS) return null;
@@ -1457,7 +1486,60 @@ export function hlHistorySummary(now = Date.now(), top = Infinity) {
     atBar: rows.filter((x) => x.atBar).length,
     atBarNotOnPaper: rows.filter((x) => x.atBar && !x.paperAtBar).length,
     traders: rows.filter((x) => x.atBar).sort((a, b) => (b.sumPct ?? 0) - (a.sumPct ?? 0)).slice(0, 200),
+    skill: hlSkillSummary(now, (rule) => rows.some((x) => x.id === rule && x.atBar)),
+    entryGap: hlEntryGap(),
   };
+}
+/**
+ * PAPER ONLY second ranking (22 Nov 2026, enrique: "yeah" to building it beside the current bar; nothing live reads it):
+ * each followed trader's own closed positions put through src/hyperliquid/skill.ts (beats BTC by 2+ standard errors,
+ * ahead without its best 3, ahead in 2 of 3 periods), set against who the live bar approves today.
+ */
+export function hlSkillSummary(now = Date.now(), approved: (rule: string) => boolean = () => false) {
+  if (!loaded) load();
+  const btc = state.hlBtc?.c ?? [];
+  const since = now - HIST_DAYS * 86_400_000;
+  const rows = state.hlTraders.flatMap((t) => {
+    const h = state.hlHist?.[t.address];
+    if (!h || h.v !== HIST_V) return [];
+    const rule = traderRule(t.address);
+    return [{ id: rule, approvedNow: approved(rule), ...skillOf(h.trips, btc, since, now), accountUsd: t.acct ? Math.round(t.acct) : null }];
+  });
+  const judged = rows.filter((x) => x.n >= SKILL_MIN_N);
+  const why: Record<string, number> = {};
+  for (const x of judged) why[x.why] = (why[x.why] ?? 0) + 1;
+  // our own closed paper copies of the traders that pass, and of those the live bar approves that fail
+  const ours = (ids: string[]) => {
+    const xs = state.hlTrades.filter((t) => ids.includes(traderRule(t.trader)));
+    return { copies: xs.length, won: xs.filter((t) => t.net > 0).length, sumPct: r(xs.reduce((a, t) => a + t.net, 0) * 100, 2) };
+  };
+  const pass = judged.filter((x) => x.pass);
+  const failApproved = judged.filter((x) => !x.pass && x.approvedNow);
+  return {
+    note: `PAPER ONLY, nothing live reads this. A trader's own closed positions of the last ${HIST_DAYS} days ($${HL_MIN_POS_USD}+, held ${HIST_MIN_HOLD_MS / 60_000}+ min), each minus what the same side on BTC made over the same hours (BTC at beta 1, so small coins keep some market move). Passes: ${SKILL_MIN_N}+ closed, average beats BTC by ${SKILL_MIN_T}+ standard errors, still ahead without its best 3, ahead in ${SKILL_MIN_PERIODS_AHEAD} of ${SKILL_PERIODS} equal periods. marketShare = part of a trader's result that BTC's move explains.`,
+    btcHours: btc.length,
+    read: rows.length,
+    judged: judged.length,
+    pass: pass.length,
+    approvedNow: rows.filter((x) => x.approvedNow).length,
+    approvedAndPass: pass.filter((x) => x.approvedNow).length,
+    approvedButFail: failApproved.length,
+    passNotApproved: pass.filter((x) => !x.approvedNow).length,
+    whyNot: why,
+    ourPaperCopies: { pass: ours(pass.map((x) => x.id)), approvedButFail: ours(failApproved.map((x) => x.id)) },
+    traders: [...judged].sort((a, b) => (b.exT ?? -99) - (a.exT ?? -99)).slice(0, 40),
+  };
+}
+/**
+ * Our entry against the trader's (22 Nov 2026, enrique: "inform me of our delay and fill price"): the paper copy's
+ * price (the mid when we saw the position) against the trader's own average entry at that moment. Positive = we got a
+ * worse price than the trader. The trader's average includes adds made before we saw it, so on a position built in
+ * steps it overstates what the delay cost. Looks: copied traders every minute, the rest every 3-4 minutes.
+ */
+export function hlEntryGap() {
+  if (!loaded) load();
+  const xs = [...state.hlOpen.map((o) => entryGapPct(o.dir, o.entry, o.their ?? 0)), ...state.hlTrades.map((t) => entryGapPct(t.dir, t.entry ?? 0, t.their ?? 0))].filter((x): x is number => x != null);
+  return { note: "Paper copy's price (mid when we saw the position) against the trader's own average entry then, in %; positive = worse for us. Since 22 Nov 2026.", ...gapStats(xs) };
 }
 /** The perp paper positions that are open now (rules and copied traders' shorts), each with a name of its own. */
 export function perpPaperOpens(): { id: string; rule: string; coin: string; dir: number; at: number; lev?: number }[] {
@@ -1470,11 +1552,11 @@ export function perpPaperOpens(): { id: string; rule: string; coin: string; dir:
   ];
 }
 /** Every copied trader's open paper copy, on EVERY coin (the Hyperliquid front trades them all; Solana perps only three). */
-export function hlPaperOpens(): { id: string; rule: string; coin: string; dir: number; at: number; lev?: number; px?: number; left?: number; hist?: [number, number][]; share?: number }[] {
+export function hlPaperOpens(): { id: string; rule: string; coin: string; dir: number; at: number; lev?: number; px?: number; left?: number; hist?: [number, number][]; share?: number; their?: number }[] {
   if (!loaded) load();
   // left: the share of its opening size the trader still holds (never above 1: what it adds is not followed); share:
   // the position's value against the trader's account when it opened
-  return state.hlOpen.map((o) => ({ id: `${traderRule(o.trader)}:${o.coin}:${o.at}`, rule: traderRule(o.trader), coin: o.coin, dir: o.dir, at: o.at, lev: o.lev, px: o.entry, ...(o.sz0 && o.szNow ? { left: Math.min(1, o.szNow / o.sz0) } : {}), ...(o.sz0 && o.hist ? { hist: o.hist.map(([t, s]) => [t, Math.min(1, s / o.sz0!)] as [number, number]) } : {}), ...(o.share != null ? { share: o.share } : {}) }));
+  return state.hlOpen.map((o) => ({ id: `${traderRule(o.trader)}:${o.coin}:${o.at}`, rule: traderRule(o.trader), coin: o.coin, dir: o.dir, at: o.at, lev: o.lev, px: o.entry, ...(o.sz0 && o.szNow ? { left: Math.min(1, o.szNow / o.sz0) } : {}), ...(o.sz0 && o.hist ? { hist: o.hist.map(([t, s]) => [t, Math.min(1, s / o.sz0!)] as [number, number]) } : {}), ...(o.share != null ? { share: o.share } : {}), ...(o.their ? { their: o.their } : {}) }));
 }
 /**
  * Jupiter's order-book coins (gumlive.ts, 17 Nov 2026): a copied trader's open position on one of `coins` (never SOL,

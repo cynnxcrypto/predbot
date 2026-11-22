@@ -34,6 +34,7 @@
  *
  * Orders are signed by the trading key (it cannot withdraw). State: data/hyperliquid-live.json (server only).
  */
+import { entryGapPct, gapStats } from "./skill.js";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { ROOT } from "../config.js";
@@ -171,6 +172,8 @@ export interface PaperOpen {
   hist?: [number, number][];
   /** the position's value against the trader's account value when it opened (conviction), when known */
   share?: number;
+  /** the trader's own average entry price when the paper copy saw the position (22 Nov 2026) */
+  their?: number;
 }
 export interface HlDeps {
   cfg(): HlLiveConfig;
@@ -204,6 +207,10 @@ interface Pos {
   closeTries: number;
   /** opened later than the paper copy (a late copy) */
   late?: boolean;
+  /** our fill against the trader's own average entry, % (positive = worse for us), and seconds from seeing the
+   *  position on paper to our fill (22 Nov 2026, enrique: "inform me of our delay and fill price") */
+  gapPct?: number;
+  lagSec?: number;
   goneLooks?: number;
   unrealUsd?: number;
   markMs?: number;
@@ -235,6 +242,8 @@ interface Row {
   /** what the position was opened with (rows before 17 Nov 2026 21:40 KST have none) */
   collateralUsd?: number;
   wallet?: 2;
+  gapPct?: number;
+  lagSec?: number;
 }
 interface State {
   netUsd: number;
@@ -330,7 +339,7 @@ export const leverageFor = (traderLev: number | undefined, coin: Coin) => Math.m
 
 function book(p: Pos, netUsd: number, why: string, now: number, stop: number) {
   state.netUsd = r2(state.netUsd + netUsd);
-  state.rows.push({ t: now, rule: p.rule, coin: p.coin, side: p.dir > 0 ? "long" : "short", leverage: p.lev, netUsd: r2(netUsd), heldH: Math.round(((now - p.openedMs) / 3_600_000) * 100) / 100, why, collateralUsd: p.collUsd, ...(p.w ? { wallet: 2 as const } : {}) });
+  state.rows.push({ t: now, rule: p.rule, coin: p.coin, side: p.dir > 0 ? "long" : "short", leverage: p.lev, netUsd: r2(netUsd), heldH: Math.round(((now - p.openedMs) / 3_600_000) * 100) / 100, why, collateralUsd: p.collUsd, ...(p.w ? { wallet: 2 as const } : {}), ...(p.gapPct != null ? { gapPct: p.gapPct } : {}), ...(p.lagSec != null ? { lagSec: p.lagSec } : {}) });
   if (state.rows.length > 2000) state.rows = state.rows.slice(-2000);
   state.opens = state.opens.filter((x) => x !== p);
   if (p.rule === TEST_RULE || why.startsWith("closed on enrique's word")) return;
@@ -597,7 +606,8 @@ async function open(d: HlDeps, x: PaperOpen, collateralUsd: number, coins: Recor
     return "order not filled";
   }
   acct.freeUsd -= (f.sz * f.px) / lev;
-  state.opens.push({ rule: x.rule, coin: x.coin, paperId: x.id, dir: x.dir, lev, sz: f.sz, entryPx: f.px, collUsd: r2((f.sz * f.px) / lev), openOid: f.oid, openedMs: now, closeTries: 0, ...(late ? { late: true } : {}), ...(x.share != null ? { share: x.share } : {}), ...(x.left != null && x.left > 0 ? { left0: Math.min(1, x.left) } : {}), ...(w === 2 ? { w: 2 as const } : {}) });
+  const gapPct = x.their ? entryGapPct(x.dir, f.px, x.their) : null;
+  state.opens.push({ rule: x.rule, coin: x.coin, paperId: x.id, dir: x.dir, lev, sz: f.sz, entryPx: f.px, ...(gapPct != null ? { gapPct } : {}), ...(late ? {} : { lagSec: Math.max(0, Math.round((now - x.at) / 1000)) }), collUsd: r2((f.sz * f.px) / lev), openOid: f.oid, openedMs: now, closeTries: 0, ...(late ? { late: true } : {}), ...(x.share != null ? { share: x.share } : {}), ...(x.left != null && x.left > 0 ? { left0: Math.min(1, x.left) } : {}), ...(w === 2 ? { w: 2 as const } : {}) });
   state.held = [...state.held, x.id].slice(-4000);
   save();
   return "";
@@ -646,6 +656,13 @@ export function hlLiveSummary(cfg: HlLiveConfig = fileCfg(), meetsBar: (rule: st
       return { trader: rule, real: st.real, why: st.why, trades: all.trades, won: all.won, netUsd: r2(all.net), cutAt: state.demoted[rule] ?? null, sinceCut: { trades: real.trades, won: real.won, netUsd: r2(real.net) } };
     }),
     recent: state.rows.slice(-30).reverse(),
+    // our real fill against the trader's own average entry (positive = worse for us), and seconds from the paper
+    // copy seeing the position to our fill; a late copy waits on purpose, so it is counted apart (22 Nov 2026)
+    entryGap: (() => {
+      const all = [...state.rows.map((x) => ({ g: x.gapPct, l: x.lagSec })), ...state.opens.map((p) => ({ g: p.gapPct, l: p.lagSec }))];
+      const lags = all.map((x) => x.l).filter((x): x is number => x != null).sort((a, b) => a - b);
+      return { ...gapStats(all.map((x) => x.g).filter((x): x is number => x != null)), seenToFillSecMedian: lags.length ? lags[Math.floor(lags.length / 2)] : null, seenToFillN: lags.length };
+    })(),
     test: state.test ?? null,
     skipped: state.skipped,
     lastError: state.lastError,

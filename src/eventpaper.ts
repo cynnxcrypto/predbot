@@ -20,6 +20,7 @@ import { setTradeTap, startTradeStream, tradeStreamStatus } from "./pmstream.js"
 import { seenCandidates, seenNote, seenSave, seenStatus } from "./copyseen.js";
 import { copySellStatus, followSales, sellDue, type SellDeps } from "./copysell.js";
 import { autoFollowed, autoState, autoSummary, copyPromote, copyScan, scanDue } from "./copyscan.js";
+import { copySkillSummary } from "./copyskill.js";
 import { NEG_READY_FILE, spentOf, eventLiveAdapt, paperGate, setPaperBehind, paperBehindStatus, realRecord, eventLiveBusy, eventLiveBuy, eventRestBid, eventRestSync, eventDelayedSync, eventLiveConfig, eventLiveRows, eventLiveSettle, eventLiveSummary, eventLiveStop, type EventLiveRow, type NegRiskReady } from "./eventlive.js";
 import { JEV_CONTEXT, headlines, jevKey, jevStake, type JevStake } from "./jev.js";
 
@@ -2073,6 +2074,8 @@ const r2 = (x: number) => Math.round(x * 100) / 100;
  *    the best bid when we saw their sale (paper, no sale fee taken off).
  */
 /** Our price minus the wallet's, in cents rounded to a tenth (prices are whole cents: no float error at 2c / 5c / 10c). */
+/** When real copies began to be held to 5c above the wallet's price (16 Nov 2026 19:25 KST). */
+export const COPY_PRICE_CHECK_FROM = Date.UTC(2026, 10, 16, 10, 25);
 export const gapC = (ask: number, wallet: number) => Math.round((ask - wallet) * 1000) / 10;
 export function copyGapSummary(trades: PaperTrade[], real: EventLiveRow[], sold: Record<string, { t: number; bid: number | null; their: number }>) {
   const any = trades.filter((t) => t.rule.startsWith("copy-any-") && t.extra && typeof t.extra.wallet === "number");
@@ -2101,10 +2104,16 @@ export function copyGapSummary(trades: PaperTrade[], real: EventLiveRow[], sold:
     if (l) l.push(t);
     else twins.set(k, [t]);
   }
-  const twin = (r: EventLiveRow) => twins.get(`${r.rule.replace(/^copy-take-/, "copy-any-")}|${r.marketId}|${r.idx}`)?.find((t) => Math.abs(t.t - r.t) < 120_000);
+  // the NEAREST twin in time (22 Nov 2026: the first one within 2 minutes could be another buy of the same wallet on the
+  // same side, a cheaper rung of a ladder, which made the real gap look worse than the price our order was held to)
+  const twin = (r: EventLiveRow) => twins.get(`${r.rule.replace(/^copy-take-/, "copy-any-")}|${r.marketId}|${r.idx}`)?.filter((t) => Math.abs(t.t - r.t) < 120_000).sort((a, b) => Math.abs(a.t - r.t) - Math.abs(b.t - r.t))[0];
   const realDone = real.filter((r) => r.group === "copy" && r.shares > 0 && r.pnl != null);
   const matched = realDone.map((r) => ({ r, t: twin(r) })).filter((x) => x.t);
   const realByGap = GAPS.map(([lo, hi]) => ({ fromC: lo, toC: hi, ...tally(matched.filter((x) => inGap(gapC(x.r.ask, Number(x.t!.extra!.wallet)), lo, hi)).map((x) => ({ pnl: x.r.pnl!, cost: x.r.cost, won: Boolean(x.r.won) }))) }));
+  // since real copies are held to 5c above the wallet's price (live rules events.copy maxAbove, 16 Nov 2026 19:25 KST):
+  // copies before that had no price check, so the all-time buckets above 5c are mostly those
+  const checked = matched.filter((x) => x.r.t >= COPY_PRICE_CHECK_FROM);
+  const realSinceCheck = { from: new Date(COPY_PRICE_CHECK_FROM).toISOString(), n: checked.length, gapCMedian: checked.length ? r2(pct(checked.map((x) => gapC(x.r.ask, Number(x.t!.extra!.wallet))), 0.5)!) : null, byGap: GAPS.map(([lo, hi]) => ({ fromC: lo, toC: hi, ...tally(checked.filter((x) => inGap(gapC(x.r.ask, Number(x.t!.extra!.wallet)), lo, hi)).map((x) => ({ pnl: x.r.pnl!, cost: x.r.cost, won: Boolean(x.r.won) }))) })) };
   const realLag = matched.map((x) => Number(x.t!.extra!.lagSec));
   const realGap = matched.map((x) => gapC(x.r.ask, Number(x.t!.extra!.wallet)));
   // sells
@@ -2115,12 +2124,13 @@ export function copyGapSummary(trades: PaperTrade[], real: EventLiveRow[], sold:
   return {
     note: "Paper twin (copy-any) = every first buy of every copied wallet at the ask we saw. gap = our ask minus the price the wallet paid, cents. lag = their trade to our seeing it, s. sells = copies whose wallet sold the side before it settled: holdNet (what we do) vs sellNet (sold at the best bid when we saw their sale; paper, no sale fee).",
     paper: { n: any.length, settled: settled.length, gapCMedian: any.length ? r2(pct(any.map(gapOf), 0.5)!) : null, byGap, byLag, bySrc },
-    realCopies: { settled: realDone.length, matched: matched.length, lagSecMedian: pct(realLag, 0.5), lagSecP90: pct(realLag, 0.9), gapCMedian: realGap.length ? r2(pct(realGap, 0.5)!) : null, byGap: realByGap },
+    realCopies: { settled: realDone.length, matched: matched.length, lagSecMedian: pct(realLag, 0.5), lagSecP90: pct(realLag, 0.9), gapCMedian: realGap.length ? r2(pct(realGap, 0.5)!) : null, byGap: realByGap, sinceCheck: realSinceCheck },
     sells: { paper: paperSells, real: realSells },
   };
 }
 let copyGapAt = 0;
 let copyGapLast: unknown = null;
+let copySkillLast: unknown = null;
 function summarize() {
   const out: Record<string, unknown> = { at: Date.now(), health, openMark, wxCopy: { ...wxCopyStats, resting: state.rest.filter((x) => x.rule === "wx-copy-rest").length }, copyWallets: Object.fromEntries(Object.entries(copyStats).map(([k, v]) => {
     const l = [...(copyLags[k] ?? [])].sort((a, b) => a - b);
@@ -2143,8 +2153,15 @@ function summarize() {
     } catch (e) {
       copyGapLast = { error: (e as Error).message.slice(0, 100) };
     }
+    // the paper-only skill ranking of the copied wallets (22 Nov 2026), on the same 5-minute beat
+    try {
+      copySkillLast = copySkillSummary(state.trades);
+    } catch (e) {
+      copySkillLast = { error: (e as Error).message.slice(0, 100) };
+    }
   }
   out.copyGap = copyGapLast;
+  out.copySkill = copySkillLast;
   for (const [g, rules] of Object.entries(GROUPS)) {
     out[g] = {
       rules: rules.map((r) => {
