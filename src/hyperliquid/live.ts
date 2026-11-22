@@ -329,6 +329,7 @@ export const hlKeptTraders = () => {
 export const leverageFor = (traderLev: number | undefined, coin: Coin) => Math.max(1, Math.min(Math.floor(traderLev ?? 2), Math.max(1, Math.floor(coin.maxLeverage / 2))));
 
 function book(p: Pos, netUsd: number, why: string, now: number, stop: number) {
+  if (why === "the trader closed") noteDelay("realClose", p.rule, p.coin);
   state.netUsd = r2(state.netUsd + netUsd);
   state.rows.push({ t: now, rule: p.rule, coin: p.coin, side: p.dir > 0 ? "long" : "short", leverage: p.lev, netUsd: r2(netUsd), heldH: Math.round(((now - p.openedMs) / 3_600_000) * 100) / 100, why, collateralUsd: p.collUsd, ...(p.w ? { wallet: 2 as const } : {}) });
   if (state.rows.length > 2000) state.rows = state.rows.slice(-2000);
@@ -342,6 +343,16 @@ function book(p: Pos, netUsd: number, why: string, now: number, stop: number) {
 }
 
 let busy = false;
+/** the trade feed's delay measure (src/hyperliquid/watch.ts): told when a real copy opens or closes after its trader */
+let delayNote: ((kind: "realOpen" | "realClose", rule: string, coin: string) => void) | null = null;
+export const setHlDelayNote = (f: typeof delayNote) => void (delayNote = f);
+const noteDelay = (kind: "realOpen" | "realClose", rule: string, coin: string) => {
+  try {
+    delayNote?.(kind, rule, coin);
+  } catch {
+    // a measure never stops a trade
+  }
+};
 /** One look: close what is due, then open what is new. Never throws. */
 export async function hlLiveTick(d: HlDeps, now = Date.now()): Promise<void> {
   if (busy) return;
@@ -598,6 +609,7 @@ async function open(d: HlDeps, x: PaperOpen, collateralUsd: number, coins: Recor
   }
   acct.freeUsd -= (f.sz * f.px) / lev;
   state.opens.push({ rule: x.rule, coin: x.coin, paperId: x.id, dir: x.dir, lev, sz: f.sz, entryPx: f.px, collUsd: r2((f.sz * f.px) / lev), openOid: f.oid, openedMs: now, closeTries: 0, ...(late ? { late: true } : {}), ...(x.share != null ? { share: x.share } : {}), ...(x.left != null && x.left > 0 ? { left0: Math.min(1, x.left) } : {}), ...(w === 2 ? { w: 2 as const } : {}) });
+  if (!late && x.rule !== TEST_RULE) noteDelay("realOpen", x.rule, x.coin);
   state.held = [...state.held, x.id].slice(-4000);
   save();
   return "";

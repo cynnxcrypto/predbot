@@ -7,7 +7,7 @@ import { test } from "node:test";
 const dir = mkdtempSync(join(tmpdir(), "hlsetup-"));
 process.env.DATA_DIR = dir;
 import type { Chain } from "./fund.js";
-const { fundLook, hlPage, hlPrivate, hlPublic, parseFundMode, parseSecond, reachCheck, secondFundLook, secondPublic, startHyperliquid } = await import("./setup.js");
+const { fundLook, hlPage, hlPrivate, hlPublic, parseFundMode, parseSecond, parseWatch, reachCheck, serial, secondFundLook, secondPublic, startHyperliquid } = await import("./setup.js");
 
 test("the swap is real only when the repo file says go; a look that fails is reported, not thrown", async () => {
   assert.equal(parseFundMode('{"hyperliquid":{"fund":"go"}}'), "go");
@@ -75,4 +75,26 @@ test("the second wallet's money: moved once per name, only with enough free, wri
   assert.equal(await secondFundLook(d), "nothing to do", "an answer never seen is never sent twice");
   assert.deepEqual(secondPublic().funds.map((x) => [x.id, x.usd, x.result.split(":")[0]]), [["f1", 50, "sent"], ["f2", 50, "refused"], ["f3", 50, "not known"]]);
   assert.ok(!/0x[0-9a-fA-F]{40}/.test(JSON.stringify(secondPublic())));
+});
+
+test("the trade feed switch, and real looks one at a time with a look asked for meanwhile run right after", async () => {
+  assert.deepEqual(parseWatch('{"hyperliquid":{"watch":{"on":true,"fast":true}}}'), { on: true, fast: true });
+  assert.deepEqual(parseWatch('{"hyperliquid":{"watch":{"on":true}}}'), { on: true, fast: false });
+  assert.deepEqual(parseWatch('{"hyperliquid":{"watch":{"on":false,"fast":true}}}'), { on: false, fast: false });
+  assert.deepEqual(parseWatch("not json"), { on: false, fast: false });
+  let runs = 0;
+  let open = 0;
+  let most = 0;
+  const run = serial(async () => {
+    runs++;
+    most = Math.max(most, ++open);
+    await new Promise((ok) => setTimeout(ok, 20));
+    open--;
+    if (runs === 2) throw new Error("a look that fails");
+  });
+  await Promise.all([run(), run(), run(), run()]);
+  assert.equal(runs, 2, "the three asked for during the first run make one more");
+  assert.equal(most, 1);
+  await run();
+  assert.equal(runs, 3, "a failed run does not jam it");
 });
