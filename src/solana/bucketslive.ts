@@ -38,12 +38,12 @@ import { meetsBar, paperOpens, paperRecord, paperSymbolAt, setBucketsRealSummary
 import { namedWallet, signTransaction, type Wallet } from "./keys.js";
 import { SOL } from "./pools.js";
 
-export const HARD_STAKE_SOL = 0.05; // 21 Nov 2026, enrique: "that wallet should be using more cash" (was 0.03 since 18 Nov)
+export const HARD_STAKE_SOL = 0.1; // 23 Nov 2026 08:07 KST, enrique: "push spot rules 0.1 SOL a buy, up to 0.15 for winners, total loss stop 0.4 SOL, rule stop 0.15 SOL" (0.05 since 21 Nov)
 /** The most a rule that scaled up on its own real record may put in one trade (enrique, 17 Nov 2026 15:16 KST). */
-export const HARD_SCALED_STAKE_SOL = 0.07;
-export const HARD_MAX_LOSS_SOL = 0.2;
+export const HARD_SCALED_STAKE_SOL = 0.15; // 23 Nov 2026, enrique: "up to 0.15 for winners" (was 0.07)
+export const HARD_MAX_LOSS_SOL = 0.4; // 23 Nov 2026, enrique: "total loss stop 0.4 SOL" (was 0.2)
 export const HARD_MAX_OPEN = 500; // no count limit in practice: a buy is skipped only when the wallet has no free SOL
-export const HARD_RULE_STOP_SOL = 0.05;
+export const HARD_RULE_STOP_SOL = 0.15; // 23 Nov 2026, enrique: "rule stop 0.15 SOL" (was 0.05)
 /**
  * the most this strategy's own wallet may hold; clearly more in it means nothing is bought. 0.3 until 15 Nov 2026:
  * enrique funded the wallet himself with more than that and the guard held every buy (the test trade too). What can
