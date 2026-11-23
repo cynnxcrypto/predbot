@@ -58,26 +58,34 @@ export async function solanaNew(deps: TxDeps, address: string, s: TxSrc): Promis
   if (newest) s.cursor = newest;
 }
 
-/** Polymarket: the wallet's on-chain activity from the cursor (seconds) on, oldest first, one count per transaction. */
+/** Polymarket: the wallet's on-chain activity (trades, claims, splits, merges), newest first in cursor pages (the v2
+ * endpoint; the old one answers 410 since 23 Nov 2026), down to what was read before; one count per transaction. */
 export async function polymarketNew(deps: TxDeps, address: string, s: TxSrc): Promise<void> {
-  let start = typeof s.cursor === "number" ? s.cursor : 0;
+  const since = typeof s.cursor === "number" ? s.cursor : 0; // seconds of the newest row read before
   const seen = new Set(s.seen ?? []);
-  for (let page = 0; page < 400; page++) {
-    const R = (await get(deps, `https://data-api.polymarket.com/activity?user=${address}&limit=500&start=${start}&sortBy=TIMESTAMP&sortDirection=ASC`)) as { timestamp?: number; transactionHash?: string }[];
+  let newest = since;
+  let cursor = "";
+  const ms = (t: unknown) => (Number(t) > 1e12 ? Number(t) : Number(t) * 1000);
+  pages: for (let page = 0; page < 400; page++) {
+    const j = (await get(deps, `https://data-api.polymarket.com/v2/activity?user=${address}&limit=500${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`)) as { data?: Record<string, unknown>[]; pagination?: { next_cursor?: string | null } } | Record<string, unknown>[];
+    const R = Array.isArray(j) ? j : (j?.data ?? []);
     if (!Array.isArray(R)) throw new Error("polymarket: activity not read");
-    let fresh = 0;
     for (const x of R) {
-      if (!x?.transactionHash || x.timestamp == null || seen.has(x.transactionHash)) continue;
-      seen.add(x.transactionHash);
-      fresh++;
-      add(s.days, x.timestamp * 1000);
-      if (x.timestamp > start) start = x.timestamp;
+      const t = ms(x?.timestamp);
+      if (!isFinite(t)) continue;
+      if (t / 1000 < since) break pages; // older than what was read before: done
+      const h = String(x.transactionHash ?? x.transaction_hash ?? x.txHash ?? x.tx_hash ?? `${x.type}|${t}|${x.asset ?? x.conditionId ?? ""}|${x.size ?? ""}`);
+      if (seen.has(h)) continue;
+      seen.add(h);
+      add(s.days, t);
+      if (t / 1000 > newest) newest = Math.floor(t / 1000);
     }
-    if (R.length < 500 || !fresh) break;
+    const next = Array.isArray(j) ? "" : (j?.pagination?.next_cursor ?? "");
+    if (!R.length || !next || next === cursor) break;
+    cursor = next;
   }
-  s.cursor = start;
-  // only the hashes of the last second are needed to skip them on the next read
-  s.seen = [...seen].slice(-500);
+  s.cursor = newest;
+  s.seen = [...seen].slice(-2000);
 }
 
 /** Hyperliquid: fills and ledger moves (deposits, transfers, withdrawals) from the cursor (ms) on, one per hash. */

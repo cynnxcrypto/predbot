@@ -34,15 +34,20 @@ test("tx count: Solana pages back to the cursor, then reads only what is new", a
 test("tx count: Polymarket counts each transaction once, across pages and refreshes", async () => {
   const acts = Array.from({ length: 700 }, (_, i) => ({ timestamp: Math.floor(Y / 1000) + i, transactionHash: "h" + i }));
   acts.push({ timestamp: Math.floor(Y / 1000) + 5, transactionHash: "h5" }); // a second row of the same transaction
-  const d = mk((url) => {
-    const start = Number(new URL(url).searchParams.get("start"));
-    return acts.filter((x) => x.timestamp >= start).sort((a, b) => a.timestamp - b.timestamp).slice(0, 500);
-  });
+  const page = (url: string) => {
+    const desc = acts.slice().sort((a, b) => b.timestamp - a.timestamp);
+    const c = Number(new URL(url).searchParams.get("cursor") ?? 0);
+    return { data: desc.slice(c, c + 500), pagination: { next_cursor: c + 500 < desc.length ? String(c + 500) : null } };
+  };
+  const d = mk((url) => page(url));
   const s: TxSrc = { days: {} };
   await polymarketNew(d, "P", s);
   assert.equal(s.days[kday(Y)], 700);
   await polymarketNew(d, "P", s);
   assert.equal(s.days[kday(Y)], 700);
+  acts.push({ timestamp: Math.floor(T / 1000), transactionHash: "new" });
+  await polymarketNew(d, "P", s);
+  assert.equal(s.days[kday(T)], 1);
 });
 
 test("tx count: Hyperliquid fills and ledger moves, one per hash; an EVM nonce gives today from the day's first reading", async () => {
