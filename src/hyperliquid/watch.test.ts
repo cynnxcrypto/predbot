@@ -64,6 +64,7 @@ test("the trade feed: coins split over connections, trades by followed traders h
   const s = w.summary();
   assert.deepEqual(s.delays["paperOpen|feed"], { n: 1, medianS: 12, p90S: 12 });
   assert.deepEqual(s.delays["realOpen|real"], { n: 1, medianS: 12, p90S: 12 });
+  assert.deepEqual(s.delays["paperOpen|feed|fromLast"], { n: 1, medianS: 7.5, p90S: 7.5 }, "from the burst's last trade");
   assert.equal(s.tradesLastMinute, 3);
   assert.equal(s.ourTradersLastMinute, 2);
   assert.equal(s.open, 3);

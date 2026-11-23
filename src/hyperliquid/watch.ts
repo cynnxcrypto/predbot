@@ -245,10 +245,14 @@ export class HlTradeWatch {
       this.stats.unknownDelay++;
       return;
     }
-    const k = `${kind}|${src}`;
-    const xs = this.delays.get(k) ?? [];
-    xs.push(Math.max(0, now - b.start));
-    this.delays.set(k, xs.slice(-KEEP_DELAYS));
+    // from the first trade of the burst (what the trader started), and from its LAST trade before now (how fast we
+    // reacted to the trade that made the position copyable: a trader that builds a position in pieces, or one that
+    // crosses the size bar by price alone, starts long before it can be copied)
+    for (const [k, ms] of [[`${kind}|${src}`, now - b.start], [`${kind}|${src}|fromLast`, now - b.last]] as const) {
+      const xs = this.delays.get(k) ?? [];
+      xs.push(Math.max(0, ms));
+      this.delays.set(k, xs.slice(-KEEP_DELAYS));
+    }
   }
   /** The same, by the trader's short name (the real side knows only that). */
   noteRule(kind: DelayKind, rule: string, coin: string) {
