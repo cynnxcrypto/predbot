@@ -17,6 +17,7 @@ import { coinsOf, usdSend, post as hlPostApi } from "./exchange.js";
 import { hlAgent, hlAgent2, hlWallet, hlWallet2, hlWallet2Exists } from "./keys.js";
 import { fileCfg, hlKeptTraders, hlLiveSummary, hlLiveTick, setHlDelayNote, type HlDeps } from "./live.js";
 import { HlTradeWatch } from "./watch.js";
+import { hlHttpSummary } from "./ratelog.js";
 import { realVenue } from "./venue.js";
 import { hlPoke, hlQuickSummary, hlQuickTick, hlWatched, setHlFast, traderRule, hlBoard, hlHistoryAvgPct, hlHistoryMeetsBar, hlHistorySummary, hlPaperOpens, likedTraders, perpMeetsBar, setExtraTraders, setKeptTraders, traderListed, traderRecord } from "../solana/buckets.js";
 import { linkedTraders, startLinks } from "./links.js";
@@ -228,7 +229,7 @@ const watchCfg = () => {
   return watchCache.v;
 };
 let watcher: HlTradeWatch | null = null;
-const liveRun = { running: false, again: false, lastKick: 0, kicks: 0, timer: null as ReturnType<typeof setTimeout> | null };
+const liveRun = { running: false, again: false, lastKick: 0, kicks: 0, kickedAt: 0, timer: null as ReturnType<typeof setTimeout> | null };
 /** the real side's look, one at a time: a look asked for while one runs follows right after it */
 let runLive: () => Promise<void> = async () => undefined;
 /** a fast look changed a paper copy: the real side looks at once (at most one kick every KICK_MS) */
@@ -240,10 +241,28 @@ function kickLive() {
     liveRun.timer = null;
     liveRun.lastKick = Date.now();
     liveRun.kicks++;
+    liveRun.kickedAt ||= Date.now();
     void runLive();
   }, wait);
   liveRun.timer.unref?.();
 }
+/** how long each real look took (ms), the last 300; and how long a kick waited before its look started */
+const liveMs: number[] = [];
+const kickWaitMs: number[] = [];
+async function timed(f: () => Promise<void>) {
+  const t0 = Date.now();
+  if (liveRun.kickedAt) kickWaitMs.push(t0 - liveRun.kickedAt), (liveRun.kickedAt = 0), kickWaitMs.splice(0, Math.max(0, kickWaitMs.length - 300));
+  try {
+    await f();
+  } finally {
+    liveMs.push(Date.now() - t0);
+    liveMs.splice(0, Math.max(0, liveMs.length - 300));
+  }
+}
+const q = (xs: number[], f: number) => {
+  const s = [...xs].sort((a, b) => a - b);
+  return s.length ? Math.round(s[Math.min(s.length - 1, Math.floor(f * s.length))] / 100) / 10 : null;
+};
 /** Serializes calls of `tick`: one asked for while one runs is run once right after it. */
 export function serial(tick: () => Promise<void>, st = { running: false, again: false }): () => Promise<void> {
   return async () => {
@@ -295,7 +314,7 @@ function startWatch(fetcher: typeof fetch) {
   }, 500).unref();
 }
 /** For the status: no address. */
-export const hlWatchSummary = () => ({ ...watchCfg(), feed: watcher ? watcher.summary() : null, quick: hlQuickSummary(), realKicks: liveRun.kicks });
+export const hlWatchSummary = () => ({ ...watchCfg(), feed: watcher ? watcher.summary() : null, quick: hlQuickSummary(), realKicks: liveRun.kicks, realLook: { n: liveMs.length, medianS: q(liveMs, 0.5), p90S: q(liveMs, 0.9), maxS: q(liveMs, 1) }, kickWait: { n: kickWaitMs.length, medianS: q(kickWaitMs, 0.5), p90S: q(kickWaitMs, 0.9) }, hlApi: hlHttpSummary() });
 
 /** Called once when the bot starts. Never throws: a failure here must not stop the bot. */
 export function startHyperliquid(fetcher: typeof fetch = fetch): Promise<void> {
@@ -345,7 +364,7 @@ export function startHyperliquid(fetcher: typeof fetch = fetch): Promise<void> {
     }
     const deps: HlDeps = { cfg: fileCfg, venue: realVenue(address, fetcher), ...(venue2 ? { venue2 } : {}), paperOpens: hlPaperOpens, meetsBar, listed: traderListed, histAvgPct: (r) => hlHistoryAvgPct(r) };
     setKeptTraders(hlKeptTraders, "hyperliquid");
-    runLive = serial(() => hlLiveTick(deps), liveRun);
+    runLive = serial(() => timed(() => hlLiveTick(deps)), liveRun);
     setInterval(() => void runLive(), 20_000).unref();
   }
   startWatch(fetcher);

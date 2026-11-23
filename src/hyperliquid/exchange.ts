@@ -11,6 +11,7 @@ import { arrayify, concat, hexlify, hexZeroPad, splitSignature } from "@etherspr
 import { keccak256 } from "@ethersproject/keccak256";
 import type { Wallet } from "@ethersproject/wallet";
 import { HL_API } from "./fund.js";
+import { hlHttp } from "./ratelog.js";
 
 // ---- msgpack (only what an action holds: maps, lists, strings, whole numbers, true/false, null) ---------------------------
 export function pack(v: unknown): Uint8Array {
@@ -129,7 +130,11 @@ export function readOrder(answer: unknown): Fill {
 }
 
 export async function post(path: "info" | "exchange", body: unknown, fetcher: typeof fetch = fetch): Promise<unknown> {
-  const res = await fetcher(`${HL_API}/${path}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body), signal: AbortSignal.timeout(10_000) });
+  const res = await fetcher(`${HL_API}/${path}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body), signal: AbortSignal.timeout(10_000) }).catch((e) => {
+    hlHttp(null, "real");
+    throw e;
+  });
+  hlHttp(res.status, "real");
   if (!res.ok) throw new Error(`hyperliquid ${path} http ${res.status}`);
   return res.json();
 }

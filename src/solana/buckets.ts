@@ -23,6 +23,7 @@ import { DATA } from "../config.js";
 import { SOL, USDC } from "./pools.js";
 import { posRet, type Pos } from "./slow.js";
 import { entryGapPct, gapStats, parseCandles, skillOf, SKILL_MIN_N, SKILL_MIN_PERIODS_AHEAD, SKILL_MIN_T, SKILL_PERIODS, type Candles as BtcCandles, type Trip } from "../hyperliquid/skill.js";
+import { hlHttp } from "../hyperliquid/ratelog.js";
 
 export type Bucket = "high" | "mid" | "low" | "meme";
 export const BUCKETS: readonly Bucket[] = ["high", "mid", "low", "meme"];
@@ -952,6 +953,7 @@ async function perpTick(deps: BucketDeps, now: number) {
 // ---- perps: copy ----------------------------------------------------------------------------------------------------------
 async function hlPost(deps: BucketDeps, body: unknown): Promise<unknown> {
   const res = await deps.fetch()("https://api.hyperliquid.xyz/info", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body), signal: AbortSignal.timeout(10_000) }).catch(() => null);
+  hlHttp(res ? res.status : null, "paper");
   if (!res) throw new Error("traders: no answer");
   if (!res.ok) throw new Error(`traders: http ${res.status}`);
   return res.json().catch(() => {
