@@ -306,6 +306,7 @@ def summary():
     out["paperTests"] = _noaddr(s.get("paperTests"))
     out["walletLinks"] = s.get("walletLinks")  # 17 Nov 2026: likely new wallets of liked Hyperliquid traders, counts and short tags only (full addresses behind the password)
     out["solanaCopy"] = public_solana(s.get("solanaCopy"))  # 11 Nov 2026: paper wallet-copy speed test on Solana (src/solana/copyrun.ts), read-only; keys are scrubbed there
+    out["txTally"] = _noaddr(s.get("txTally"))  # 23 Nov 2026: on-chain transaction counts per wallet, ever and today (src/txcount.ts); counts only
     out["withdraw"] = s.get("withdraw")  # one-off withdrawal: stage, tries, confirmed, amounts; never an address or a transaction id
     # numbers only: never an address, token, signature or key; the wallet's balance stays off the public file too
     scl = {k: v for k, v in (s.get("solanaCopyLive") or {}).items() if k != "balanceSol"}

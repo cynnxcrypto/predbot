@@ -136,7 +136,8 @@ const sleep = (ms: number) => new Promise((ok) => setTimeout(ok, ms));
 let last: TxTally | null = null;
 let started = false;
 /** For the public status: counts only. */
-export const txPublic = () => last;
+let runErr: string | null = null;
+export const txPublic = () => last ?? (runErr ? { err: runErr } : null);
 /** Reads every wallet's chain now and every 10 minutes after, one source after another. */
 export function startTxCount(deps: TxDeps) {
   if (started) return;
@@ -169,8 +170,10 @@ export function startTxCount(deps: TxDeps) {
   const loop = async () => {
     try {
       await run();
+      runErr = null;
     } catch (e) {
-      console.log(`txcount: ${(e as Error).message}`);
+      runErr = String((e as Error).message ?? "error").replace(/api-key=[^&\s]+/g, "api-key=…").slice(0, 160);
+      console.log(`txcount: ${runErr}`);
     }
     setTimeout(loop, 10 * 60_000);
   };
