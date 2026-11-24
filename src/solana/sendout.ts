@@ -305,3 +305,18 @@ export function startSendOut(): void {
   };
   setInterval(() => void sendOutTick(d).catch(() => undefined), 30_000).unref();
 }
+
+/**
+ * The send-out is money taken out, never a loss (20 Nov 2026 rule: transfers we trigger are not a win or a loss).
+ * Booked on the worth chart as a withdrawal from each wallet at the SOL price of the minutes it went (24 Nov 2026
+ * 07:45-07:56 UTC, status solUsd 71.53-71.60). The 0.01 SOL test went twice from the spot copy wallet: the first try
+ * was given up as unseen but landed (the spot copy wallet's drop is 0.0515 SOL, not 0.0415). Read by status.ts.
+ */
+export const SENT_SOL_USD = 71.6;
+const PLACE: Record<string, string> = { "spot copy": "solana-spot-copy", "spot rules": "solana-spot-rules", perps: "solana-perps" };
+export function sendOutMoves(s: SendState = loadJson<SendState>(FILE, fresh())): { from: string; to: string; startedAt: number; endedAt: number; arrivedUsd: number }[] {
+  const out: { from: string; to: string; startedAt: number; endedAt: number; arrivedUsd: number }[] = [];
+  if (s.test?.confirmed && s.test.lamports) out.push({ from: "solana-spot-copy", to: "enrique", startedAt: s.test.at, endedAt: s.test.at, arrivedUsd: (2 * s.test.lamports * SENT_SOL_USD) / 1e9 });
+  for (const [k, w] of Object.entries(s.wallets)) for (const t of w.txs) if (t.confirmed && t.lamports && PLACE[k]) out.push({ from: PLACE[k], to: "enrique", startedAt: t.at, endedAt: t.at, arrivedUsd: (t.lamports * SENT_SOL_USD) / 1e9 });
+  return out;
+}

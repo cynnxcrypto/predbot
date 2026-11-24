@@ -24,7 +24,7 @@ import { BASE_BTN, LAB_BTN, LAB_CSS, LAB_HTML, LAB_JS } from "./labdash.js";
 import { kit as solKit } from "./solana/copylive.js";
 import { solanaCopyLiveSummary } from "./solana/copylive.js";
 import { withdrawSummary } from "./withdraw.js";
-import { sendOutSummary, startSendOut } from "./solana/sendout.js";
+import { sendOutMoves, sendOutSummary, startSendOut } from "./solana/sendout.js";
 import { startTxCount, txPublic, type TxState } from "./txcount.js";
 import { saveJson } from "./store.js";
 import { createServer } from "node:http";
@@ -143,7 +143,7 @@ export function serveStatus(recorder: Recorder, build: string, others: Recorder[
   // the two Solana strategy wallets' money in and out, from the chain as the truth check last read it (17 Nov 2026)
   setChainFlows(chainFix);
   // our own bridge moves are transfers, never a win or a loss on any card or window (20 Nov 2026, enrique)
-  setOwnMoves(() => bridgePublic().moves.map((m) => ({ from: m.from, to: m.to, startedAt: m.startedAt, endedAt: m.stage === "done" ? (m.endedAt ?? null) : null, arrivedUsd: m.arrivedUsd ?? 0 })));
+  setOwnMoves(() => [...bridgePublic().moves.map((m) => ({ from: m.from, to: m.to, startedAt: m.startedAt, endedAt: m.stage === "done" ? (m.endedAt ?? null) : null, arrivedUsd: m.arrivedUsd ?? 0 })), ...sendOutMoves()]);
   // on-chain transactions of every wallet, ever and today (23 Nov 2026, enrique: "basically like how many onchain tx")
   startTxCount({
     fetch: (...a) => fetch(...a),

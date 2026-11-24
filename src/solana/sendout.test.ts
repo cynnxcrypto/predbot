@@ -69,3 +69,9 @@ test("sendout: the test goes once, nothing else until it is confirmed; then each
   await sendOutTick(d);
   assert.equal(st.wallets["spot rules"].done, true);
 });
+
+test("sendout: confirmed SOL sends are booked as money taken out of their wallet", async () => {
+  const { sendOutMoves, SENT_SOL_USD } = await import("./sendout.js");
+  const m = sendOutMoves({ test: { sig: "t", at: 5, what: "test", lamports: 1e7, confirmed: true, dropped: false, err: null }, testTries: 2, wallets: { "spot rules": { ...fresh(), txs: [{ sig: "a", at: 9, what: "sol", lamports: 1e9, confirmed: true, dropped: false, err: null }, { sig: "b", at: 9, what: "close", confirmed: true, dropped: false, err: null }] } } });
+  assert.deepEqual(m.map((x) => [x.from, Math.round(x.arrivedUsd * 100) / 100]), [["solana-spot-copy", Math.round(0.02 * SENT_SOL_USD * 100) / 100], ["solana-spot-rules", SENT_SOL_USD]]);
+});
