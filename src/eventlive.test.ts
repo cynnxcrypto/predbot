@@ -413,3 +413,12 @@ test("noCrypto: parsed from the group, off by default", () => {
   assert.equal(on.groups.copy?.noCrypto, true);
   assert.equal(off.groups.copy?.noCrypto, false);
 });
+
+test("openKind: what an open bet is on", async () => {
+  const { openKind } = await import("./eventpaper.js");
+  assert.equal(openKind("Bitcoin Up or Down - November 23, 8:10PM-8:15PM ET", true), "crypto");
+  assert.equal(openKind("Will the highest temperature in Seoul be 5°C on November 25?", false), "weather");
+  assert.equal(openKind("Dota 2: Team Liquid vs DO KONCA - Game 2 Winner", true), "esports");
+  assert.equal(openKind("Brentford FC vs. Everton FC: O/U 9.5 Total Corners", true), "sports");
+  assert.equal(openKind("Will Trump speak to Emmanuel Macron by November 30?", false), "politics, news, other");
+});

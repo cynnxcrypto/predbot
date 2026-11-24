@@ -21,7 +21,7 @@ import { seenCandidates, seenNote, seenSave, seenStatus } from "./copyseen.js";
 import { copySellStatus, followSales, sellDue, type SellDeps } from "./copysell.js";
 import { autoFollowed, autoState, autoSummary, copyPromote, copyScan, scanDue } from "./copyscan.js";
 import { copySkillSummary } from "./copyskill.js";
-import { NEG_READY_FILE, spentOf, eventLiveAdapt, paperGate, setPaperBehind, paperBehindStatus, realRecord, eventLiveBusy, eventLiveBuy, eventRestBid, eventRestSync, eventDelayedSync, eventLiveConfig, eventLiveRows, eventLiveSettle, eventLiveSummary, eventLiveStop, type EventLiveRow, type NegRiskReady } from "./eventlive.js";
+import { NEG_READY_FILE, isCryptoTitle, spentOf, eventLiveAdapt, paperGate, setPaperBehind, paperBehindStatus, realRecord, eventLiveBusy, eventLiveBuy, eventRestBid, eventRestSync, eventDelayedSync, eventLiveConfig, eventLiveRows, eventLiveSettle, eventLiveSummary, eventLiveStop, type EventLiveRow, type NegRiskReady } from "./eventlive.js";
 import { JEV_CONTEXT, headlines, jevKey, jevStake, type JevStake } from "./jev.js";
 
 const GAMMA = "https://gamma-api.polymarket.com";
@@ -1915,7 +1915,15 @@ async function cricketTick() {
 // ---------- open real bets marked at the market price (14 Nov 2026, enrique: "expectations of open trades") ----------
 /** An open real bet whose match or end time has passed (15 Nov 2026, enrique: "predictions that shouldve resolved but didnt"). */
 type Overdue = { group: string; title: string; outcome: string; stake: number; hours: number; price: number | null; state: string };
-type OpenMark = { at: number; overdue?: Overdue[]; unclaimed?: { title: string; outcome: string; payout: number; hours: number; error: string | null }[]; n: number; stake: number; value: number; winning: number; losing: number; unknown: number; byDay: Record<string, { n: number; stake: number; value: number }>; byGroup: Record<string, { n: number; stake: number; value: number }> };
+/** A rough kind for a market, by its title (and whether Polymarket gives it a game start). Pure. */
+export function openKind(title: string, game: boolean | null | undefined): string {
+  if (isCryptoTitle(title)) return "crypto";
+  if (/temperature|°[CF]|precipitation|snow|rain\b/i.test(title)) return "weather";
+  if (/dota|counter-strike|\bcs2?\b|valorant|league of legends|\blol\b|overwatch|rainbow six|\bbo[1235]\b/i.test(title)) return "esports";
+  if (game || /\bvs\.?\b|o\/u|spread|\bwin on\b|total (goals|points|corners)|1st half/i.test(title)) return "sports";
+  return "politics, news, other";
+}
+type OpenMark = { at: number; overdue?: Overdue[]; unclaimed?: { title: string; outcome: string; payout: number; hours: number; error: string | null }[]; n: number; stake: number; value: number; winning: number; losing: number; unknown: number; byDay: Record<string, { n: number; stake: number; value: number }>; byGroup: Record<string, { n: number; stake: number; value: number }>; byKind?: Record<string, { n: number; stake: number; value: number }>; byRule?: Record<string, { n: number; stake: number; value: number }>; top?: { title: string; outcome: string; rule: string; stake: number; value: number }[] };
 let openMark: OpenMark | null = null;
 async function markOpenTick() {
   const rows = eventLiveRows().filter((r) => r.shares > 0 && r.pnl == null);
@@ -1949,12 +1957,21 @@ async function markOpenTick() {
     const gg = (m.byGroup[r.group] ??= { n: 0, stake: 0, value: 0 });
     gg.n += 1;
     gg.stake += r.cost;
-    gg.value += value;
+    gg.value += value;    // what the open bets are on (24 Nov 2026, enrique: "matches in play? what are we betting on")
+    const kind = openKind(r.title, g && Number.isFinite(tsOf(g.gameStartTime)));
+    for (const [tab, k] of [[(m.byKind ??= {}), kind], [(m.byRule ??= {}), r.rule.replace(/^copy-take-/, "")]] as const) {
+      const o = (tab[k] ??= { n: 0, stake: 0, value: 0 });
+      o.n += 1;
+      o.stake += r.cost;
+      o.value += value;
+    }
+    (m.top ??= []).push({ title: r.title.slice(0, 90), outcome: r.outcome.slice(0, 30), rule: r.rule.replace(/^copy-take-/, ""), stake: Math.round(r.cost * 100) / 100, value: Math.round(value * 100) / 100 });
   }
+  m.top = (m.top ?? []).sort((a, b) => b.stake - a.stake).slice(0, 8);
   const r2 = (x: number) => Math.round(x * 100) / 100;
   m.stake = r2(m.stake);
   m.value = r2(m.value);
-  for (const o of [...Object.values(m.byDay), ...Object.values(m.byGroup)]) {
+  for (const o of [...Object.values(m.byDay), ...Object.values(m.byGroup), ...Object.values(m.byKind ?? {}), ...Object.values(m.byRule ?? {})]) {
     o.stake = r2(o.stake);
     o.value = r2(o.value);
   }
