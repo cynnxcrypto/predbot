@@ -736,6 +736,19 @@ export function eventLiveSettle(marketId: string, pays: number[]): number {
   return n;
 }
 
+/**
+ * A crypto market by its title (24 Nov 2026, enrique: "is there a chance that avoiding copying crypto polymarket bets
+ * improves our numbers"): "Up or Down" windows and markets naming a coin. Pure.
+ */
+export const isCryptoTitle = (t: string) => /up or down|\b(bitcoin|btc|ethereum|eth|solana|xrp|dogecoin|doge|bnb|hyperliquid|hype|crypto|microstrategy)\b/i.test(t);
+/** Settled bets split crypto / other, all time and the last 7 days. Pure. */
+export function kindSplit(settled: { title: string; pnl?: number | null; won?: boolean | null; settledAt?: number | null; t: number }[], now: number) {
+  const agg = (xs: typeof settled) => ({ n: xs.length, won: xs.filter((r) => r.won === true).length, net: Math.round(xs.reduce((a, r) => a + (r.pnl ?? 0), 0) * 100) / 100 });
+  const wk = settled.filter((r) => (r.settledAt ?? r.t) >= now - 7 * 86_400_000);
+  const part = (xs: typeof settled, c: boolean) => xs.filter((r) => isCryptoTitle(r.title ?? "") === c);
+  return { crypto: { all: agg(part(settled, true)), d7: agg(part(wk, true)) }, other: { all: agg(part(settled, false)), d7: agg(part(wk, false)) } };
+}
+
 /** Public summary for the status file: no order ids, tokens or addresses. */
 export function eventLiveSummary(group: string) {
   const cfg = eventLiveConfig();
@@ -753,6 +766,7 @@ export function eventLiveSummary(group: string) {
     won: settled.filter((r) => r.won === true).length,
     net: Math.round(settled.reduce((s, r) => s + (r.pnl ?? 0), 0) * 100) / 100,
     todayNet: Math.round(settled.filter((r) => kstDay(r.settledAt ?? r.t) === today).reduce((s, r) => s + (r.pnl ?? 0), 0) * 100) / 100,
+    kinds: kindSplit(settled, Date.now()),
     open: filled.filter((r) => r.pnl == null).length,
     resting: rows.filter((r) => r.pnl == null && r.status === "resting").length,
     unknown: rows.filter((r) => r.status === "unknown" && r.pnl == null && !(r.shares > 0)).length,

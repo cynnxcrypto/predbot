@@ -390,3 +390,19 @@ test("recent cut: a trader ahead overall goes to paper at -$15 over its newest 1
   const swapped = [...bad.map((x, i) => ({ ...x, settledAt: 1 + i })), ...early.map((x, i) => ({ ...x, settledAt: 2000 + i }))];
   assert.equal(ruleAdapt(g, swapped, "a").state, "up");
 });
+
+test("crypto split: Up or Down and coin names are crypto, the rest is other", async () => {
+  const { isCryptoTitle, kindSplit } = await import("./eventlive.js");
+  assert.equal(isCryptoTitle("Bitcoin Up or Down - November 23, 8:10PM-8:15PM ET"), true);
+  assert.equal(isCryptoTitle("Will the price of Ethereum be above $3,000 on November 25?"), true);
+  assert.equal(isCryptoTitle("Will the highest temperature in Seoul be 5°C on November 25?"), false);
+  assert.equal(isCryptoTitle("Bengals vs. Commanders"), false);
+  const now = 1_000 * 86_400_000;
+  const k = kindSplit([
+    { title: "XRP Up or Down", pnl: -5, won: false, t: now - 86_400_000 },
+    { title: "Bengals vs. Commanders", pnl: 3, won: true, t: now - 10 * 86_400_000 },
+  ], now);
+  assert.deepEqual(k.crypto.all, { n: 1, won: 0, net: -5 });
+  assert.deepEqual(k.other.d7, { n: 0, won: 0, net: 0 });
+  assert.deepEqual(k.other.all, { n: 1, won: 1, net: 3 });
+});
