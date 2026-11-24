@@ -22,7 +22,7 @@ import { join } from "node:path";
 import { DATA } from "../config.js";
 import { SOL, USDC } from "./pools.js";
 import { posRet, type Pos } from "./slow.js";
-import { entryGapPct, gapStats, parseCandles, skillOf, SKILL_MIN_N, SKILL_MIN_PERIODS_AHEAD, SKILL_MIN_T, SKILL_PERIODS, type Candles as BtcCandles, type Trip } from "../hyperliquid/skill.js";
+import { entryGapPct, gapStats, parseCandles, skillOf, SKILL_MIN_N, SKILL_MIN_PERIODS_AHEAD, SKILL_MIN_T, SKILL_PERIODS, type Candles as BtcCandles, type Skill, type Trip } from "../hyperliquid/skill.js";
 import { hlHttp } from "../hyperliquid/ratelog.js";
 
 export type Bucket = "high" | "mid" | "low" | "meme";
@@ -1633,6 +1633,23 @@ export function hlHistorySummary(now = Date.now(), top = Infinity) {
  * each followed trader's own closed positions put through src/hyperliquid/skill.ts (beats BTC by 2+ standard errors,
  * ahead without its best 3, ahead in 2 of 3 periods), set against who the live bar approves today.
  */
+/** Each listed trader's skill test (src/hyperliquid/skill.ts) on a history read in the last 2 days, kept a minute. */
+let skillCache: { at: number; by: Map<string, Skill> } | null = null;
+export function hlSkill(rule: string, now = Date.now()): Skill | null {
+  if (!loaded) load();
+  if (!skillCache || now < skillCache.at || now - skillCache.at > 60_000) {
+    const by = new Map<string, Skill>();
+    const btc = state.hlBtc?.c ?? [];
+    for (const t of state.hlTraders) {
+      const h = state.hlHist?.[t.address];
+      if (h && h.v === HIST_V && now - h.at <= 2 * HIST_REFRESH_MS) by.set(traderRule(t.address), skillOf(h.trips, btc, now - HIST_DAYS * 86_400_000, now));
+    }
+    skillCache = { at: now, by };
+  }
+  return skillCache.by.get(rule) ?? null;
+}
+/** Does the trader pass the skill test (25 Nov 2026, enrique: "push skill bar: HL history traders must pass the skill test, passers get cash first"). */
+export const hlSkillPass = (rule: string, now = Date.now()) => !!hlSkill(rule, now)?.pass;
 export function hlSkillSummary(now = Date.now(), approved: (rule: string) => boolean = () => false) {
   if (!loaded) load();
   const btc = state.hlBtc?.c ?? [];

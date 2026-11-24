@@ -512,3 +512,30 @@ test("the trade feed's delay measure is told when a real copy opens and when it 
   assert.equal(_test.state().opens.length, 1, "a failing measure never stops a trade");
   setHlDelayNote(null);
 });
+
+test("skill bar (25 Nov 2026): passers are copied first and a non-passer leaves one base position of cash for them", async () => {
+  assert.equal(parseHlLive('{"hyperliquid":{"trade":{"on":true,"maxLossUsd":50,"skillBar":true}}}').skillBar, true);
+  assert.equal(parseHlLive('{"hyperliquid":{"trade":{"on":true,"maxLossUsd":50,"skillBar":"yes"}}}').skillBar, undefined);
+  const cfg: HlLiveConfig = { ...ON, skillBar: true };
+  // $25 free: room for one $10 copy plus a base position; the non-passer comes first in the paper list
+  const { w, d } = world({ cfg, bar: ["copy-aaaa1111", "copy-bbbb2222"], free: 25 });
+  d.skillPass = (rule) => rule === "copy-bbbb2222";
+  w.paper = [copy("copy-aaaa1111", "BTC", 1, T0), copy("copy-bbbb2222", "HYPE", 1, T0)];
+  await hlLiveTick(d, T0 + 1000);
+  assert.equal(w.orders.length, 1);
+  assert.equal(w.orders[0].coin, COINS.HYPE.index, "the passer got the money");
+  // with plenty of cash both are copied
+  _test.reset();
+  const rich = world({ cfg, bar: ["copy-aaaa1111", "copy-bbbb2222"], free: 100 });
+  rich.d.skillPass = (rule) => rule === "copy-bbbb2222";
+  rich.w.paper = [copy("copy-aaaa1111", "BTC", 1, T0), copy("copy-bbbb2222", "HYPE", 1, T0)];
+  await hlLiveTick(rich.d, T0 + 1000);
+  assert.equal(rich.w.orders.length, 2);
+  // switch off: plain order, no cash kept
+  _test.reset();
+  const off = world({ bar: ["copy-aaaa1111", "copy-bbbb2222"], free: 25 });
+  off.d.skillPass = (rule) => rule === "copy-bbbb2222";
+  off.w.paper = [copy("copy-aaaa1111", "BTC", 1, T0), copy("copy-bbbb2222", "HYPE", 1, T0)];
+  await hlLiveTick(off.d, T0 + 1000);
+  assert.equal(off.w.orders[0].coin, COINS.BTC.index);
+});

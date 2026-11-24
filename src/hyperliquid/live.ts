@@ -91,6 +91,11 @@ export interface HlLiveConfig {
    *  own history"): with real copies since its last cut, a trader stays only while they average perCopyUsd or more;
    *  with none, only while its own Hyperliquid history averages histPct % or more a position. Open copies are untouched. */
   keepBar?: { perCopyUsd: number; histPct: number };
+  /** SKILL BAR (25 Nov 2026, enrique: "push skill bar: HL history traders must pass the skill test, passers get cash
+   *  first"): a trader approved on its own history must also pass the skill test (src/hyperliquid/skill.ts: 20+
+   *  closed, beats BTC by 2+ standard errors, ahead without its best 3, ahead in 2 of 3 periods); in each look skill
+   *  passers are copied first, and a copy of a trader that does not pass leaves one base position of free money for them */
+  skillBar?: boolean;
 }
 /** Is this trader good enough to copy under the keep bar? Pure. */
 export function keepsTrader(real: { trades: number; net: number }, histAvgPct: number | null, kb: HlLiveConfig["keepBar"]): { ok: boolean; why: string } {
@@ -122,7 +127,7 @@ export function parseHlLive(text: string): HlLiveConfig {
     const lateWithin = clamp(num(p.lateWithinPct, 0), 0, HARD_LATE_PCT) / 100;
     const kb = p.keepBar && typeof p.keepBar === "object" ? (p.keepBar as Record<string, unknown>) : null;
     const keepBar = kb ? { keepBar: { perCopyUsd: clamp(num(kb.perCopyUsd, 0.5), 0, 50), histPct: clamp(num(kb.histPct, 2), 0, 50) } } : {};
-    return { on: true, collateralUsd, maxLossUsd, testOnce, lateWithin, ...keepBar, ...(p.historyBar === true ? { historyBar: true, historyTop: Math.floor(clamp(num(p.historyTop, 5), 0, HARD_HISTORY_TOP)) } : {}), ...closeAll, ...(s2 ? { second: { on: s2.on === true, testOnce: name(s2.testOnce), maxOpen: Math.floor(clamp(num(s2.maxOpen, SECOND_MAX_OPEN), 1, HARD_SECOND_MAX_OPEN)) } } : {}), maxOpen: Math.floor(clamp(num(p.maxOpen, 5), 1, HARD_MAX_OPEN)), traderStopUsd: clamp(num(p.traderStopUsd, 9), 1, HARD_TRADER_STOP_USD) };
+    return { on: true, collateralUsd, maxLossUsd, testOnce, lateWithin, ...keepBar, ...(p.historyBar === true ? { historyBar: true, historyTop: Math.floor(clamp(num(p.historyTop, 5), 0, HARD_HISTORY_TOP)) } : {}), ...(p.skillBar === true ? { skillBar: true } : {}), ...closeAll, ...(s2 ? { second: { on: s2.on === true, testOnce: name(s2.testOnce), maxOpen: Math.floor(clamp(num(s2.maxOpen, SECOND_MAX_OPEN), 1, HARD_SECOND_MAX_OPEN)) } } : {}), maxOpen: Math.floor(clamp(num(p.maxOpen, 5), 1, HARD_MAX_OPEN)), traderStopUsd: clamp(num(p.traderStopUsd, 9), 1, HARD_TRADER_STOP_USD) };
   } catch {
     return OFF;
   }
@@ -187,6 +192,8 @@ export interface HlDeps {
   listed(rule: string): boolean;
   /** the trader's own Hyperliquid history: average result a position, in %; null = not read */
   histAvgPct?(rule: string): number | null;
+  /** does the trader pass the skill test on its own history (skill bar) */
+  skillPass?(rule: string): boolean;
 }
 
 interface Pos {
@@ -547,9 +554,14 @@ export async function hlLiveTick(d: HlDeps, now = Date.now()): Promise<void> {
       state.test2.result = r || "opened";
     }
 
+    // skill passers first (skill bar): when the money is short they get it before the others
+    const passes = (rule: string) => !!cfg.skillBar && !!d.skillPass?.(rule);
+    const ordered = cfg.skillBar ? [...paper].sort((a, b) => Number(passes(b.rule)) - Number(passes(a.rule))) : paper;
+    /** a copy of a trader that does not pass may not take the last base position of free money (skill bar) */
+    const keptForPassers = (rule: string, wa: Account) => !!cfg.skillBar && !passes(rule) && wa.freeUsd < 2 * cfg.collateralUsd + 1;
     // ---- new copies ----
     if (cfg.on) {
-      for (const x of paper) {
+      for (const x of ordered) {
         if (state.seen.includes(x.id) || now - x.at > OPEN_WINDOW_MS) continue;
         if (!isReal(x.rule)) continue; // not marked seen: it is simply not ours to copy
         state.seen.push(x.id);
@@ -561,7 +573,7 @@ export async function hlLiveTick(d: HlDeps, now = Date.now()): Promise<void> {
           // a coin the first wallet holds for another trader goes to the second wallet (its own leverage, margin and
           // exit); held in both, or no second wallet: skipped
           const w = where(x.coin);
-          const why = !w ? "coin already held" : await open(d, x, convictionUsd(hlCollateral(x.rule, cfg.collateralUsd), x.share, realOf(x.rule)), coins, mids, w === 2 ? acct2! : acct, now, false, w);
+          const why = !w ? "coin already held" : keptForPassers(x.rule, w === 2 ? acct2! : acct) ? "cash kept for skill passers" : await open(d, x, convictionUsd(hlCollateral(x.rule, cfg.collateralUsd), x.share, realOf(x.rule)), coins, mids, w === 2 ? acct2! : acct, now, false, w);
           if (why) skip(why);
         }
       }
@@ -569,14 +581,14 @@ export async function hlLiveTick(d: HlDeps, now = Date.now()): Promise<void> {
 
     // ---- late copies: what a real trader still holds and we never held, while the price is still near its entry ----
     if (cfg.on && (cfg.lateWithin ?? 0) > 0 && loss() < cfg.maxLossUsd) {
-      for (const x of paper) {
+      for (const x of ordered) {
         const full1 = state.opens.filter((o) => !o.w).length >= cfg.maxOpen;
         if (now - x.at <= OPEN_WINDOW_MS || !(x.px && x.px > 0)) continue;
         if (state.held.includes(x.id) || state.lateOff.includes(x.id)) continue;
         if (!isReal(x.rule) || !d.listed(x.rule)) continue;
         const w = where(x.coin);
         const wa = w === 2 ? acct2! : acct;
-        if (!w || (w === 1 && full1) || wa.freeUsd < cfg.collateralUsd + 1) continue;
+        if (!w || (w === 1 && full1) || wa.freeUsd < cfg.collateralUsd + 1 || keptForPassers(x.rule, wa)) continue;
         const px = mids[x.coin];
         if (!(px > 0) || Math.abs(px / x.px - 1) > (cfg.lateWithin ?? 0)) continue;
         const why = await open(d, x, convictionUsd(hlCollateral(x.rule, cfg.collateralUsd), x.share, realOf(x.rule)), coins, mids, wa, now, true, w);
@@ -641,6 +653,7 @@ export function hlLiveSummary(cfg: HlLiveConfig = fileCfg(), meetsBar: (rule: st
     on: cfg.on,
     note: "REAL. Copies of Hyperliquid traders on Hyperliquid itself, every coin; isolated margin; a trader is real on its own paper record, then on its real record.",
     keepBar: cfg.keepBar ?? null,
+    skillBar: !!cfg.skillBar,
     limits: { collateralUsd: cfg.collateralUsd, maxOpen: cfg.maxOpen, maxLossUsd: cfg.maxLossUsd, traderStopUsd: cfg.traderStopUsd, lateWithinPct: Math.round((cfg.lateWithin ?? 0) * 10000) / 100 },
     // both wallets as one (the worth counts them as one), and each beside it
     account: state.account && state.account2 ? { at: Math.min(state.account.at, state.account2.at), valueUsd: r2(state.account.valueUsd + state.account2.valueUsd), freeUsd: r2(state.account.freeUsd + state.account2.freeUsd) } : (state.account ?? null),
