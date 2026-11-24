@@ -1,8 +1,8 @@
-run start 2026-11-24T10:04:39Z args: --budget-min 290 --start 2025-01-01
+run start 2026-11-24T22:35:41Z args: --budget-min 290 --start 2025-01-01
 pm: 0 days to do (0 re-pulls)
 results football-data files: 67
 results nfl games: 842
 results nhl games: 2782
 results mlb games: 5933
-results finance rows: 24096
+results finance rows: 24094
 results temperature stations: 70 updated 70
