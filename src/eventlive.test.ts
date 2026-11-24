@@ -406,3 +406,10 @@ test("crypto split: Up or Down and coin names are crypto, the rest is other", as
   assert.deepEqual(k.other.d7, { n: 0, won: 0, net: 0 });
   assert.deepEqual(k.other.all, { n: 1, won: 1, net: 3 });
 });
+
+test("noCrypto: parsed from the group, off by default", () => {
+  const on = parseEventLive(JSON.stringify({ mode: "live", events: { copy: { rules: ["a"], size: 3, noCrypto: true } } }), { funder: "0x1" });
+  const off = parseEventLive(JSON.stringify({ mode: "live", events: { copy: { rules: ["a"], size: 3 } } }), { funder: "0x1" });
+  assert.equal(on.groups.copy?.noCrypto, true);
+  assert.equal(off.groups.copy?.noCrypto, false);
+});
