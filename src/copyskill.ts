@@ -14,6 +14,15 @@ import { sumWithoutBest, tStat } from "./hyperliquid/skill.js";
 
 export const PM_SKILL_MIN_N = 40;
 export const PM_SKILL_MIN_T = 2;
+/** The last ranking worked out (the paper loop refreshes it every 5 minutes): wallet name -> pass and t. */
+let lastSkill = new Map<string, { pass: boolean; t: number }>();
+/** Proven tier: the wallet of this copy rule passes the skill test at minT+ standard errors (null map = none yet). */
+export const copyProven = (rule: string, minT: number) => {
+  if (!(minT > 0)) return false;
+  const s = lastSkill.get(rule.replace(/^copy-take-/, ""));
+  return !!s && s.pass && s.t >= minT;
+};
+export const _skillTest = { set: (m: Record<string, { pass: boolean; t: number }>) => void (lastSkill = new Map(Object.entries(m))) };
 
 type Copy = { rule: string; t: number; cost: number; pnl?: number | null; won?: boolean | null; fillable: boolean };
 const r = (x: number, d = 2) => Math.round(x * 10 ** d) / 10 ** d;
@@ -56,6 +65,7 @@ export function copySkillSummary(trades: Copy[]) {
     else by.set(k, [x]);
   }
   const rows = [...by.entries()].map(([name, xs]) => ({ name, ...walletSkill(xs) }));
+  lastSkill = new Map(rows.map((x) => [x.name, { pass: x.pass, t: x.t }]));
   const judged = rows.filter((x) => x.n >= PM_SKILL_MIN_N);
   const why: Record<string, number> = {};
   for (const x of judged) why[x.why] = (why[x.why] ?? 0) + 1;

@@ -34,7 +34,7 @@
  *
  * Orders are signed by the trading key (it cannot withdraw). State: data/hyperliquid-live.json (server only).
  */
-import { entryGapPct, gapStats } from "./skill.js";
+import { entryGapPct, gapStats, PROVEN_CUT_N, provenCut } from "./skill.js";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { ROOT } from "../config.js";
@@ -96,6 +96,10 @@ export interface HlLiveConfig {
    *  closed, beats BTC by 2+ standard errors, ahead without its best 3, ahead in 2 of 3 periods); in each look skill
    *  passers are copied first, and a copy of a trader that does not pass leaves one base position of free money for them */
   skillBar?: boolean;
+  /** PROVEN TIER (25 Nov 2026, enrique: 'push proven tier: 2.5+ standard errors not cut until 20+ real copies behind, bilberry back to real'): a trader that passes the
+   *  skill test at provenT+ standard errors is real and is not cut by the short-streak rules (cut sooner, trader stop,
+   *  keep bar); it goes back to paper only with PROVEN_CUT_N+ real copies (all of them) and behind. 0 = off */
+  provenT?: number;
 }
 /** Is this trader good enough to copy under the keep bar? Pure. */
 export function keepsTrader(real: { trades: number; net: number }, histAvgPct: number | null, kb: HlLiveConfig["keepBar"]): { ok: boolean; why: string } {
@@ -127,7 +131,7 @@ export function parseHlLive(text: string): HlLiveConfig {
     const lateWithin = clamp(num(p.lateWithinPct, 0), 0, HARD_LATE_PCT) / 100;
     const kb = p.keepBar && typeof p.keepBar === "object" ? (p.keepBar as Record<string, unknown>) : null;
     const keepBar = kb ? { keepBar: { perCopyUsd: clamp(num(kb.perCopyUsd, 0.5), 0, 50), histPct: clamp(num(kb.histPct, 2), 0, 50) } } : {};
-    return { on: true, collateralUsd, maxLossUsd, testOnce, lateWithin, ...keepBar, ...(p.historyBar === true ? { historyBar: true, historyTop: Math.floor(clamp(num(p.historyTop, 5), 0, HARD_HISTORY_TOP)) } : {}), ...(p.skillBar === true ? { skillBar: true } : {}), ...closeAll, ...(s2 ? { second: { on: s2.on === true, testOnce: name(s2.testOnce), maxOpen: Math.floor(clamp(num(s2.maxOpen, SECOND_MAX_OPEN), 1, HARD_SECOND_MAX_OPEN)) } } : {}), maxOpen: Math.floor(clamp(num(p.maxOpen, 5), 1, HARD_MAX_OPEN)), traderStopUsd: clamp(num(p.traderStopUsd, 9), 1, HARD_TRADER_STOP_USD) };
+    return { on: true, collateralUsd, maxLossUsd, testOnce, lateWithin, ...keepBar, ...(p.historyBar === true ? { historyBar: true, historyTop: Math.floor(clamp(num(p.historyTop, 5), 0, HARD_HISTORY_TOP)) } : {}), ...(p.skillBar === true ? { skillBar: true } : {}), ...(num(p.provenT, 0) > 0 ? { provenT: clamp(num(p.provenT, 0), 1, 10) } : {}), ...closeAll, ...(s2 ? { second: { on: s2.on === true, testOnce: name(s2.testOnce), maxOpen: Math.floor(clamp(num(s2.maxOpen, SECOND_MAX_OPEN), 1, HARD_SECOND_MAX_OPEN)) } } : {}), maxOpen: Math.floor(clamp(num(p.maxOpen, 5), 1, HARD_MAX_OPEN)), traderStopUsd: clamp(num(p.traderStopUsd, 9), 1, HARD_TRADER_STOP_USD) };
   } catch {
     return OFF;
   }
@@ -194,6 +198,8 @@ export interface HlDeps {
   histAvgPct?(rule: string): number | null;
   /** does the trader pass the skill test on its own history (skill bar) */
   skillPass?(rule: string): boolean;
+  /** proven tier: does the trader pass the skill test at this many standard errors */
+  proven?(rule: string, minT: number): boolean;
 }
 
 interface Pos {
@@ -344,13 +350,13 @@ export const hlKeptTraders = () => {
 /** The leverage of a copy: the trader's own, a whole number, never above half of Hyperliquid's limit for the coin. */
 export const leverageFor = (traderLev: number | undefined, coin: Coin) => Math.max(1, Math.min(Math.floor(traderLev ?? 2), Math.max(1, Math.floor(coin.maxLeverage / 2))));
 
-function book(p: Pos, netUsd: number, why: string, now: number, stop: number) {
+function book(p: Pos, netUsd: number, why: string, now: number, stop: number, proven = false) {
   if (why === "the trader closed") noteDelay("realClose", p.rule, p.coin);
   state.netUsd = r2(state.netUsd + netUsd);
   state.rows.push({ t: now, rule: p.rule, coin: p.coin, side: p.dir > 0 ? "long" : "short", leverage: p.lev, netUsd: r2(netUsd), heldH: Math.round(((now - p.openedMs) / 3_600_000) * 100) / 100, why, collateralUsd: p.collUsd, ...(p.w ? { wallet: 2 as const } : {}), ...(p.gapPct != null ? { gapPct: p.gapPct } : {}), ...(p.lagSec != null ? { lagSec: p.lagSec } : {}) });
   if (state.rows.length > 2000) state.rows = state.rows.slice(-2000);
   state.opens = state.opens.filter((x) => x !== p);
-  if (p.rule === TEST_RULE || why.startsWith("closed on enrique's word")) return;
+  if (p.rule === TEST_RULE || why.startsWith("closed on enrique's word") || proven) return;
   const cut = hlCutReason(realOf(p.rule), stop);
   if (cut) {
     state.demotedWhy[p.rule] = cut;
@@ -416,10 +422,13 @@ export async function hlLiveTick(d: HlDeps, now = Date.now()): Promise<void> {
     const [coins, mids] = [await v.coins(), await v.mids()];
     const paper = d.paperOpens();
     const stop = cfg.traderStopUsd || HARD_TRADER_STOP_USD - 1;
-    const isReal = (rule: string) => standing(realOf(rule), d.meetsBar(rule, state.demoted[rule] ?? 0, now), state.demotedWhy[rule]).real && keepsTrader(realOf(rule), d.histAvgPct?.(rule) ?? null, cfg.keepBar).ok;
+    // proven tier: real until PROVEN_CUT_N+ real copies (all of them, through any old cut) are behind
+    const allOf = (rule: string) => realRecord(state.rows.filter((x) => x.rule === rule && !isFlip(x)).map((x) => x.netUsd));
+    const isProven = (rule: string) => !!cfg.provenT && !!d.proven?.(rule, cfg.provenT);
+    const isReal = (rule: string) => isProven(rule) ? !provenCut(allOf(rule).trades, allOf(rule).net) : standing(realOf(rule), d.meetsBar(rule, state.demoted[rule] ?? 0, now), state.demotedWhy[rule]).real && keepsTrader(realOf(rule), d.histAvgPct?.(rule) ?? null, cfg.keepBar).ok;
     // a trader already behind under the sooner cut is cut now, not only at its next close
     for (const rule of new Set(state.rows.map((x) => x.rule))) {
-      if (rule === TEST_RULE) continue;
+      if (rule === TEST_RULE || isProven(rule)) continue;
       const c = hlCutReason(realOf(rule), stop);
       if (c) {
         state.demotedWhy[rule] = c;
@@ -475,7 +484,7 @@ export async function hlLiveTick(d: HlDeps, now = Date.now()): Promise<void> {
       if (!held || Math.sign(held.szi) !== p.dir) {
         // liquidated, or closed by hand: only after several looks in a row, and at what Hyperliquid's record says it made
         p.goneLooks = (p.goneLooks ?? 0) + 1;
-        if (p.goneLooks >= GONE_LOOKS) book(p, (p.openOid != null ? await pv.result([p.openOid], p.openedMs - 60_000).catch(() => null) : null) ?? -p.collUsd, "gone: liquidated or closed outside the bot", now, stop);
+        if (p.goneLooks >= GONE_LOOKS) book(p, (p.openOid != null ? await pv.result([p.openOid], p.openedMs - 60_000).catch(() => null) : null) ?? -p.collUsd, "gone: liquidated or closed outside the bot", now, stop, isProven(p.rule));
         continue;
       }
       p.goneLooks = 0;
@@ -534,7 +543,7 @@ export async function hlLiveTick(d: HlDeps, now = Date.now()): Promise<void> {
       const own = p.openOid != null && p.closeOids?.length ? await pv.result(oids, p.openedMs - 60_000).catch(() => null) : null;
       const net = own ?? (p.partUsd ?? 0) + p.dir * (f.px - p.entryPx) * sz - TAKER_FEE * sz * (f.px + p.entryPx);
       if (p.forceClose) state.ghosts = [...(state.ghosts ?? []), { coin: p.coin, dir: p.dir, sz, closePx: f.px, paperId: p.paperId, closedAt: now, lockedUsd: r2(net) }].slice(-200);
-      book(p, net, why, now, stop);
+      book(p, net, why, now, stop, isProven(p.rule));
       const tst = p.w ? state.test2 : state.test;
       if (p.rule === TEST_RULE && tst) tst.result = `opened and closed, ${r2(state.rows[state.rows.length - 1].netUsd)} USD`;
     }
@@ -646,7 +655,7 @@ export const fileCfg = (): HlLiveConfig => {
 };
 
 /** For the status and the dashboard tab. Traders by their short rule name only: no address. */
-export function hlLiveSummary(cfg: HlLiveConfig = fileCfg(), meetsBar: (rule: string, sinceMs: number, now: number) => boolean = () => false, now = Date.now(), histAvgPct: (rule: string) => number | null = () => null) {
+export function hlLiveSummary(cfg: HlLiveConfig = fileCfg(), meetsBar: (rule: string, sinceMs: number, now: number) => boolean = () => false, now = Date.now(), histAvgPct: (rule: string) => number | null = () => null, provenOf: (rule: string) => boolean = () => false) {
   if (!loaded) load();
   const rules = [...new Set([...state.rows.map((x) => x.rule), ...state.opens.map((x) => x.rule)])].filter((x) => x !== TEST_RULE);
   return {
@@ -674,11 +683,13 @@ export function hlLiveSummary(cfg: HlLiveConfig = fileCfg(), meetsBar: (rule: st
       const real = realOf(rule);
       const st0 = standing(real, meetsBar(rule, state.demoted[rule] ?? 0, now), state.demotedWhy[rule]);
       const kept = keepsTrader(real, histAvgPct(rule), cfg.keepBar);
-      const st = st0.real && !kept.ok ? { real: false, why: kept.why } : st0;
+      const all = realRecord(state.rows.filter((x) => x.rule === rule).map((x) => x.netUsd));
+      const allNoFlip = realRecord(state.rows.filter((x) => x.rule === rule && !isFlip(x)).map((x) => x.netUsd));
+      const pv = !!cfg.provenT && provenOf(rule);
+      const st = pv ? (provenCut(allNoFlip.trades, allNoFlip.net) ? { real: false, why: `paper: proven tier, but behind after ${allNoFlip.trades} real copies` } : { real: true, why: `real: proven tier (skill ${cfg.provenT}+ standard errors), cut only after ${PROVEN_CUT_N}+ real copies behind` }) : st0.real && !kept.ok ? { real: false, why: kept.why } : st0;
       // trades, won, netUsd: every real trade ever made with this trader, kept through a cut (what it made us);
       // sinceCut: the record the keep-or-cut rule looks at, which starts again at a cut
-      const all = realRecord(state.rows.filter((x) => x.rule === rule).map((x) => x.netUsd));
-      return { trader: rule, real: st.real, why: st.why, trades: all.trades, won: all.won, netUsd: r2(all.net), cutAt: state.demoted[rule] ?? null, sinceCut: { trades: real.trades, won: real.won, netUsd: r2(real.net) } };
+      return { trader: rule, real: st.real, why: st.why, proven: pv, trades: all.trades, won: all.won, netUsd: r2(all.net), cutAt: state.demoted[rule] ?? null, sinceCut: { trades: real.trades, won: real.won, netUsd: r2(real.net) } };
     }),
     recent: state.rows.slice(-30).reverse(),
     // our real fill against the trader's own average entry (positive = worse for us), and seconds from the paper

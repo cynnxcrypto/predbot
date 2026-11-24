@@ -1650,6 +1650,11 @@ export function hlSkill(rule: string, now = Date.now()): Skill | null {
 }
 /** Does the trader pass the skill test (25 Nov 2026, enrique: "push skill bar: HL history traders must pass the skill test, passers get cash first"). */
 export const hlSkillPass = (rule: string, now = Date.now()) => !!hlSkill(rule, now)?.pass;
+/** Proven tier (25 Nov 2026): passes the skill test at minT+ standard errors over BTC. */
+export const hlProven = (rule: string, minT: number, now = Date.now()) => {
+  const s = hlSkill(rule, now);
+  return minT > 0 && !!s && s.pass && (s.exT ?? 0) >= minT;
+};
 export function hlSkillSummary(now = Date.now(), approved: (rule: string) => boolean = () => false) {
   if (!loaded) load();
   const btc = state.hlBtc?.c ?? [];

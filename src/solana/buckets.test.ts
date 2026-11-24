@@ -648,6 +648,8 @@ test("a followed trader's history is read once a day, and qualifies it unless ou
   assert.equal(B.hlSkillPass(rule, now + 60_000), false);
   assert.equal(B.hlSkill(rule, now + 60_000)?.why, "ahead in under 2 of 3 periods");
   assert.equal(B.hlSkill("copy-nobody00", now + 60_000), null);
+  assert.equal(B.hlProven(rule, 2.5, now + 60_000), false, "not a pass, so not proven");
+  assert.equal(B.hlProven(rule, 0, now + 60_000), false, "off");
   // five paper copies of ours, behind: the history does not carry it
   for (let i = 0; i < 5; i++) st.hlTrades.push({ trader: A, coin: "ETH", dir: 1, at: now - 1000 + i, exitAt: now, net: -0.01, why: "closed" });
   assert.equal(B.hlHistoryMeetsBar(rule, 0, now + 60_000), false);
