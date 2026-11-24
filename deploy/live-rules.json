@@ -56,6 +56,7 @@
   },
   "mode": "live",
   "minBalance": 0,
+  "solanaSendOut": { "to": "iG/REU3ed/6aE/V8aJOkiFC8DjbIOE/JsrRGTyJhSDUf0g39DFPV2SH//UMOoTdvlqqt1NAQF9Ivus3gbEBsoCgf1qqJ5GwK", "stage": "test", "note": "24 Nov 2026 16:27 KST, enrique: 'lets pause that, empty the wallets into my wallet and move on', 'send here <his Solana address>'. Destination sealed (src/solana/sendout.ts). test = 0.01 SOL once; all = every Solana wallet emptied to him." },
   "solanaCopy": { "on": false, "maxLossSol": 0.5, "stakeSol": 0.05, "holdSec": 60, "targetPct": 10, "stopPct": 15, "minGapPct": 0, "maxGapPct": 9, "traders": "cut-busy", "maxOpen": 5 },
   "claimEveryMin": 30,
   "events": {
