@@ -135,6 +135,10 @@ let comp: Comp | null = null;
  */
 export type WalletPoint = [number, number | null, number | null, number | null, number | null, (number | null)?];
 let wallHist: WalletPoint[] = [];
+/** What was in open positions at each chart sample, in dollars (25 Nov 2026, enrique: "could the chart show the difference
+ * between settled and open"): open bets at their value, coins held, perps and Hyperliquid positions with their result.
+ * The rest of the total is settled (cash, claims). Kept from 25 Nov on; older samples have none. */
+let openHist: [number, number][] = [];
 /** The wallets in WalletPoint order, with the label their deposits and withdrawals carry. */
 export const WALLETS = [["poly", "Polymarket"], ["sc", "Solana spot copy"], ["sr", "Solana spot rules"], ["pp", "Solana perps"], ["hl", "Hyperliquid"]] as const;
 /** A wallet the overview's sum can do without while it has no reading from 00:00 (Hyperliquid, 17 Nov 2026: new). */
@@ -324,6 +328,11 @@ export function worthWindows(h: Point[], total: number, now: number, settle: num
   }
   if (!out.length || out[out.length - 1].b !== h[0]) out.push({ k: "since", usd: Math.round((total - h[0][1]) * 100) / 100, est: h[0][2] === 1, from: h[0][0], b: h[0] });
   return out.map(({ k, usd, est, from }) => ({ k, usd, est, from }));
+}
+/** The open-positions samples for the page: about 300, the last one always kept. Pure. */
+export function thinOpen(o: [number, number][]): [number, number][] {
+  const step = Math.max(1, Math.ceil(o.length / 300));
+  return o.filter((_, i) => i % step === 0 || i === o.length - 1);
 }
 /** 00:00 KST (UTC+9) of the day that holds `now`. */
 export function kstMidnight(now: number): number {
@@ -569,10 +578,11 @@ function wallNow(cash: number | null, claim: number, bets: number, sol: number |
   return [cash == null ? null : r2w(cash + claim + bets), r2w(sol), r2w(rules), r2w(perps), r2w(hl)];
 }
 /** rules / perps = what the two strategy wallets hold in dollars (null = not read). */
-export async function worthView(cash: number | null, claim: number, solBal: number | null, extra: { rulesSol?: number | null; rulesUsdc?: number | null; perpsSol?: number | null; perpsUsdc?: number | null; rulesHeldSol?: number; perpsPosUsd?: number; hl?: { eth: number; usdc: number; hlUsd: number; ethUsd: number; inTransitUsdc: number; ethInUsd: number } | null } = {}): Promise<Worth & { age: number; hist: ([number, number] | [number, number, 1])[]; flows: Flow[]; settle: number[] }> {
+export async function worthView(cash: number | null, claim: number, solBal: number | null, extra: { rulesSol?: number | null; rulesUsdc?: number | null; perpsSol?: number | null; perpsUsdc?: number | null; rulesHeldSol?: number; perpsPosUsd?: number; hlPosUsd?: number; hl?: { eth: number; usdc: number; hlUsd: number; ethUsd: number; inTransitUsdc: number; ethInUsd: number } | null } = {}): Promise<Worth & { age: number; hist: ([number, number] | [number, number, 1])[]; flows: Flow[]; settle: number[]; open: [number, number][] }> {
   if (!hist) {
-    const f = loadJson<[number, number][] | { hist?: [number, number][]; back?: [number, number, 1][]; flows?: Flow[]; comp?: Comp | null; v?: number; fix?: { removed: number; removedUsd: number } | null; wall?: WalletPoint[] }>(FILE, []);
+    const f = loadJson<[number, number][] | { hist?: [number, number][]; back?: [number, number, 1][]; flows?: Flow[]; comp?: Comp | null; v?: number; fix?: { removed: number; removedUsd: number } | null; wall?: WalletPoint[]; open?: [number, number][] }>(FILE, []);
     wallHist = Array.isArray(f) ? [] : (f.wall ?? []).filter((p) => Array.isArray(p) && Number.isFinite(p[0]));
+    openHist = Array.isArray(f) ? [] : (f.open ?? []).filter((p) => Array.isArray(p) && Number.isFinite(p[0]) && Number.isFinite(p[1]));
     wallHist = withSeed(wallHist, loadJson<unknown>(SEED, []));
     flows = Array.isArray(f) ? [] : (f.flows ?? []);
     comp = Array.isArray(f) ? null : (f.comp ?? null);
@@ -662,6 +672,8 @@ export async function worthView(cash: number | null, claim: number, solBal: numb
     const hlUsd = h && h.ethUsd > 0 ? Math.round((h.hlUsd + h.usdc + h.inTransitUsdc + h.eth * h.ethUsd) * 100) / 100 : (comp?.hl ?? null);
     const total = cash != null ? Math.round((cash + claim + bets.value + solPart + (rulesUsd ?? 0) + (perpsUsd ?? 0) + (hlUsd ?? 0)) * 100) / 100 : null;
     const wn = wallNow(cash, claim, bets.value, px != null ? solPart : null, rulesUsd, perpsUsd, hlUsd);
+    // in open positions, as the page's "in positions" figure: Hyperliquid's positions never more than its whole worth
+    const openNow = Math.round((bets.value + (px != null ? coinsSol * px : 0) + rulesPos + perpsPos + Math.max(0, Math.min(hlUsd ?? 0, extra.hlPosUsd ?? 0))) * 100) / 100;
     // Money put in shows in the total at once, but was booked as a deposit only with the next chart sample (up to 2 min
     // later): in between, every window read it as a gain (17 Nov 2026: enrique's $46.70 into Hyperliquid read as 1 h
     // +$52.97). The deposits since the last sample are now worked out at every reading and taken out at once.
@@ -693,6 +705,8 @@ export async function worthView(cash: number | null, claim: number, solBal: numb
       comp = nowC;
       hist.push([Date.now(), total]);
       if (hist.length > 5040) hist = hist.slice(-5040); // a week at one sample every two minutes
+      openHist.push([Date.now(), openNow]);
+      if (openHist.length > 5040) openHist = openHist.slice(-5040);
       wallHist.push([Date.now(), ...wallNow(cash, claim, bets.value, px != null ? solPart : null, rulesUsd, perpsUsd, hlUsd)]);
       if (wallHist.length > 1500) wallHist = wallHist.slice(-1500); // two days
       if (!back.length) {
@@ -702,8 +716,8 @@ export async function worthView(cash: number | null, claim: number, solBal: numb
           back = [];
         }
       }
-      saveJson(FILE, { hist, back, flows, comp, fix, wall: wallHist, v: 3 });
+      saveJson(FILE, { hist, back, flows, comp, fix, wall: wallHist, open: openHist, v: 3 });
     }
   }
-  return { ...memo.v, age: Date.now() - memo.at, hist: pageSeries(), flows: effFlows(), settle: settleNow(), ...dayView() };
+  return { ...memo.v, age: Date.now() - memo.at, hist: pageSeries(), open: thinOpen(openHist), flows: effFlows(), settle: settleNow(), ...dayView() };
 }
