@@ -318,3 +318,19 @@ test("queueExit: an open bet is queued once for a full sale, again only when its
   assert.equal(queueExit(r, 2_000), false);
   assert.equal(queueExit(r, 1_000 + 31 * 60_000), true, "stale: queued afresh");
 });
+
+test("eventLiveFillTokens: an open bet made before token ids were kept gets its id from the market", async () => {
+  const { eventLiveFillTokens } = await import("./eventlive.js");
+  const base = { t: 1, group: "copy", rule: "copy-take-x", conditionId: null, title: "T", outcome: "No", ask: 0.5, size: 3, cost: 3, shares: 6, fee: 0, ok: true, status: "matched", error: null, won: null, settledAt: null };
+  saveJson(EVENT_LIVE_FILE, [
+    { ...base, marketId: "m-old", idx: 1, pnl: null },
+    { ...base, marketId: "m-old", idx: 0, pnl: 1 },
+    { ...base, marketId: "m-other", idx: 1, pnl: null },
+    { ...base, marketId: "m-old", idx: 0, pnl: null, token: "999999999999" },
+  ]);
+  assert.equal(eventLiveFillTokens("m-old", ["bad", "1234567890123"]), 0, "ids that are not numbers are not taken");
+  assert.equal(eventLiveFillTokens("m-old", ["1111111111111", "2222222222222"]), 1);
+  const rows = eventLiveRows();
+  assert.deepEqual(rows.map((r) => r.token ?? null), ["2222222222222", null, null, "999999999999"]);
+  saveJson(EVENT_LIVE_FILE, []);
+});

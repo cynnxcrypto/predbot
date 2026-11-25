@@ -24,7 +24,7 @@ import { seenCandidates, seenNote, seenSave, seenStatus } from "./copyseen.js";
 import { copySellStatus, followSales, queueExit, sellDue, type SellDeps } from "./copysell.js";
 import { autoFollowed, autoState, autoSummary, copyPromote, copyScan, scanDue } from "./copyscan.js";
 import { copySkillSummary } from "./copyskill.js";
-import { NEG_READY_FILE, isCryptoTitle, spentOf, eventLiveAdapt, paperGate, setPaperBehind, paperBehindStatus, realRecord, eventLiveBusy, eventLiveBuy, eventRestBid, eventRestSync, eventDelayedSync, eventLiveConfig, eventLiveRows, eventLiveSettle, eventLiveSummary, eventLiveStop, type EventLiveRow, type NegRiskReady } from "./eventlive.js";
+import { NEG_READY_FILE, isCryptoTitle, spentOf, eventLiveAdapt, paperGate, setPaperBehind, paperBehindStatus, realRecord, eventLiveBusy, eventLiveBuy, eventRestBid, eventRestSync, eventDelayedSync, eventLiveConfig, eventLiveRows, eventLiveSettle, eventLiveFillTokens, eventLiveSummary, eventLiveStop, type EventLiveRow, type NegRiskReady } from "./eventlive.js";
 import { JEV_CONTEXT, headlines, jevKey, jevStake, type JevStake } from "./jev.js";
 
 const GAMMA = "https://gamma-api.polymarket.com";
@@ -1949,7 +1949,12 @@ async function markOpenTick() {
     const ends = g ? copyResolveAt(g) : NaN;
     const day = Number.isFinite(ends) ? kstDay(ends) : "unknown";
     // sell-out on his word (25 Nov 2026): a bet whose market ends after events.copy.exitAfter is sold whole
-    if (exitAfter && day !== "unknown" && day > exitAfter && r.group === "copy" && queueExit(r0, Date.now())) exitQueued += 1;
+    if (exitAfter && day !== "unknown" && day > exitAfter && r.group === "copy") {
+      // a bet made before 13 Nov has no token id: take it from the market, or it can never be sold
+      const tok = !r0.token && g ? jl<string[]>(g.clobTokenIds, []) : [];
+      if (tok.length === 2 && eventLiveFillTokens(r0.marketId, tok)) log(`sell-out: token id filled for ${r0.title.slice(0, 60)}`);
+      if (queueExit(r0, Date.now())) exitQueued += 1;
+    }
     const value = Number.isFinite(px) ? r.shares * px : r.cost;
     // game markets: 4 h after the start; others: 2 h after the end date
     const due = g && Number.isFinite(tsOf(g.gameStartTime)) ? tsOf(g.gameStartTime) + 4 * 3600_000 : ends + 2 * 3600_000;

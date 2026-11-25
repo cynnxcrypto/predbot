@@ -734,6 +734,23 @@ export async function eventDelayedSync(now = Date.now()): Promise<string[]> {
 }
 
 /** Settle real rows from a closed market's payout per share (1, 0 or 0.5). Returns how many rows changed. */
+/**
+ * Bets made before 13 Nov 2026 carry no token id (the field came later), so they could not be sold (25 Nov 2026: the
+ * sell-out left 6 such bets for markets ending in Dec-Jul). Fills the id from the market's own Gamma token list for
+ * every open row of that market that lacks one. Synchronous read-and-write, like the settle below. Returns how many.
+ */
+export function eventLiveFillTokens(marketId: string, tokens: string[]): number {
+  if (tokens.length !== 2 || !tokens.every((t) => /^\d{10,}$/.test(t))) return 0;
+  const rows = eventLiveRows();
+  let n = 0;
+  for (const r of rows) {
+    if (r.marketId !== marketId || r.token || r.pnl != null || !(r.idx === 0 || r.idx === 1)) continue;
+    r.token = tokens[r.idx];
+    n++;
+  }
+  if (n) saveJson(EVENT_LIVE_FILE, rows);
+  return n;
+}
 export function eventLiveSettle(marketId: string, pays: number[]): number {
   const rows = eventLiveRows();
   let n = 0;
