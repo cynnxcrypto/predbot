@@ -481,7 +481,7 @@ export function traderPace(wallet: string | undefined, atMs = Date.now()): Pace 
   if (!wallet) return "calm";
   return paceAt(signals.filter((x) => !x.fomo && x.feed === "helius transaction stream" && x.leaderTime > 0 && x.knownMs - x.leaderTime * 1000 <= 30_000), wallet, atMs);
 }
-export const shared = { verdict: (wallet: string | undefined) => traderVerdict(wallet), pace: (wallet: string | undefined) => traderPace(wallet), realFirst: (ms: number) => realFirst(ms), helius: () => helius(), jupiter: () => jupiter(), rpcUrl: () => rpcUrl(), slot: () => slotNow, waveAfter: (mint: string, sig: string, slot: number) => waveAfter(mint, sig, slot), fetch: () => net };
+export const shared = { solUsd: () => solUsd, verdict: (wallet: string | undefined) => traderVerdict(wallet), pace: (wallet: string | undefined) => traderPace(wallet), realFirst: (ms: number) => realFirst(ms), helius: () => helius(), jupiter: () => jupiter(), rpcUrl: () => rpcUrl(), slot: () => slotNow, waveAfter: (mint: string, sig: string, slot: number) => waveAfter(mint, sig, slot), fetch: () => net };
 
 // ---- one signal -------------------------------------------------------------------------------------------------
 async function tokenDecimals(mint: string): Promise<number> {

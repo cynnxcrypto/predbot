@@ -11,6 +11,11 @@
  *     back) and then sends all its SOL. A wallet still holding coins waits for them to be sold, at most 12 hours,
  *     then goes anyway (the coins stay; the status says how many).
  *   - a transaction that left is never sent again: it is followed until the chain confirms or drops it (2 minutes).
+ *   - 25 Nov 2026 (enrique, of the $DESSA left in the spot rules wallet: "yeah get rid of that position already"): coins
+ *     of BOTH token programs (Tokenkeg and Token-2022; the first pass saw only Tokenkeg and missed a Token-2022 coin)
+ *     are sold for SOL first when the wallet has SELL_MIN_LAMPORTS to pay the fees, at most MAX_SELLS tries per coin.
+ *     A wallet that was done is looked at again: anything that shows up in it (a coin, SOL sent in to pay the fees)
+ *     goes out the same way.
  *
  * deploy/live-rules.json: "solanaSendOut": { "to": "<sealed>", "stage": "test" | "all" }. No block, nothing happens.
  * State: data/sendout-state.json (server only). The public status carries the stage, done flags and errors in words,
@@ -22,6 +27,7 @@ import { join } from "node:path";
 import { DATA, ROOT } from "../config.js";
 import { loadJson, saveJson } from "../store.js";
 import { shared } from "./copyrun.js";
+import { kit } from "./copylive.js";
 import { base58decode, namedWallet, signTransaction, wallet, type Wallet } from "./keys.js";
 import { ATA_PROGRAM, SYSTEM_PROGRAM, TOKEN_PROGRAM, ata, buildTx, u64le, type Ix } from "./soltx.js";
 
@@ -66,14 +72,18 @@ export function openDest(sealed: string, secret: string): string | null {
   return t && isSolAddress(t) ? t : null;
 }
 
-export type Tx = { sig: string; at: number; what: string; lamports?: number; usdc?: number; confirmed: boolean; dropped: boolean; err: string | null };
-export type WalletState = { txs: Tx[]; coinsSeenAt: number | null; coinsLeft: number; done: boolean; error: string | null };
+export type Tx = { sig: string; at: number; what: string; lamports?: number; usdc?: number; solUsd?: number; confirmed: boolean; dropped: boolean; err: string | null };
+export type WalletState = { txs: Tx[]; coinsSeenAt: number | null; coinsLeft: number; done: boolean; error: string | null; sells?: Record<string, number> };
 export type SendState = { test: Tx | null; testTries: number; wallets: Record<string, WalletState> };
 const fresh = (): SendState => ({ test: null, testTries: 0, wallets: {} });
 const freshW = (): WalletState => ({ txs: [], coinsSeenAt: null, coinsLeft: 0, done: false, error: null });
 
-/** A wallet's view from the chain: SOL, token accounts (by program Tokenkeg only). */
-export type Holdings = { lamports: number; accounts: { address: string; mint: string; amount: bigint; decimals: number }[] };
+/** A wallet's view from the chain: SOL, token accounts of both token programs (program left out = Tokenkeg). */
+export type Holdings = { lamports: number; accounts: { address: string; mint: string; amount: bigint; decimals: number; program?: string }[] };
+export const TOKEN_2022 = "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb";
+/** SOL a wallet needs before it tries to sell a coin (a swap's fees, and the wrapped-SOL account it opens and closes). */
+export const SELL_MIN_LAMPORTS = 3_000_000;
+export const MAX_SELLS = 3;
 
 /** SPL Token: CreateIdempotent of `owner`'s associated account for `mint`, paid by `payer`. Pure. */
 export const createAtaIx = (payer: string, owner: string, mint: string): Ix => ({
@@ -95,8 +105,8 @@ export const transferCheckedIx = (from: string, mint: string, to: string, owner:
   data: Uint8Array.from([12, ...u64le(amount), decimals]),
 });
 /** SPL Token CloseAccount: an empty token account's rent goes back to its owner. Pure. */
-export const closeIx = (account: string, owner: string): Ix => ({
-  program: TOKEN_PROGRAM,
+export const closeIx = (account: string, owner: string, program: string = TOKEN_PROGRAM): Ix => ({
+  program,
   keys: [{ pubkey: account, writable: true }, { pubkey: owner, writable: true }, { pubkey: owner, signer: true }],
   data: Uint8Array.from([9]),
 });
@@ -112,6 +122,7 @@ export type Step =
   | { do: "usdc"; ixs: Ix[]; usdc: number }
   | { do: "close"; ixs: Ix[]; n: number }
   | { do: "sol"; ixs: Ix[]; lamports: number }
+  | { do: "sell"; mint: string }
   | { do: "wait"; why: string }
   | { do: "done" };
 
@@ -120,7 +131,6 @@ export type Step =
  * balance) make it wait, up to COIN_WAIT_MS from when they were first seen. Pure.
  */
 export function nextWalletStep(owner: string, dest: string, h: Holdings, ws: WalletState, now: number): Step {
-  if (ws.done) return { do: "done" };
   if (ws.txs.some((t) => !t.confirmed && !t.dropped)) return { do: "nothing", why: "a transaction is on its way" };
   const usdc = h.accounts.filter((a) => a.mint === SOL_USDC && a.amount > 0n);
   if (usdc.length) {
@@ -129,9 +139,12 @@ export function nextWalletStep(owner: string, dest: string, h: Holdings, ws: Wal
     return { do: "usdc", usdc: amt, ixs: [createAtaIx(owner, dest, SOL_USDC), transferCheckedIx(a.address, SOL_USDC, ata(dest, SOL_USDC), owner, a.amount, a.decimals)] };
   }
   const coins = h.accounts.filter((a) => a.mint !== SOL_USDC && a.amount > 0n);
-  if (coins.length && !(ws.coinsSeenAt != null && now - ws.coinsSeenAt >= COIN_WAIT_MS)) return { do: "wait", why: `${coins.length} coin(s) still held: waiting for them to be sold` };
+  const sellable = coins.find((a) => (ws.sells?.[a.mint] ?? 0) < MAX_SELLS);
+  if (sellable && h.lamports >= SELL_MIN_LAMPORTS) return { do: "sell", mint: sellable.mint };
+  if (sellable && ws.done) return { do: "wait", why: `${coins.length} coin(s) held and no SOL to pay the sell fee` };
+  if (coins.length && !ws.done && !(ws.coinsSeenAt != null && now - ws.coinsSeenAt >= COIN_WAIT_MS)) return { do: "wait", why: `${coins.length} coin(s) still held: waiting for them to be sold` };
   const empty = h.accounts.filter((a) => a.amount === 0n).slice(0, 10);
-  if (empty.length) return { do: "close", n: empty.length, ixs: empty.map((a) => closeIx(a.address, owner)) };
+  if (empty.length) return { do: "close", n: empty.length, ixs: empty.map((a) => closeIx(a.address, owner, a.program ?? TOKEN_PROGRAM)) };
   const lamports = h.lamports - FEE_LAMPORTS;
   if (lamports <= 0) return { do: "done" };
   return { do: "sol", lamports, ixs: [solTransferIx(owner, dest, lamports)] };
@@ -140,6 +153,9 @@ export function nextWalletStep(owner: string, dest: string, h: Holdings, ws: Wal
 type Rpc = <T>(method: string, params: unknown[]) => Promise<T>;
 export type Deps = {
   plan: () => { stage: string | null; dest: string | null; secret: string };
+  /** Sell every unit of a coin for SOL; true when none is left. */
+  sell?: (w: Wallet, mint: string) => Promise<boolean>;
+  solUsd?: () => number | null;
   wallets: () => [string, Wallet][];
   holdings: (owner: string) => Promise<Holdings>;
   blockhash: () => Promise<string>;
@@ -205,9 +221,16 @@ export async function sendOutTick(d: Deps): Promise<void> {
         const step = nextWalletStep(w.address, p.dest, h, st, d.now());
         st.error = null;
         if (step.do === "done") st.done = true;
-        else if (step.do === "wait" || step.do === "nothing") st.error = step.do === "wait" ? step.why : null;
-        else {
-          const t: Tx = { sig: "", at: d.now(), what: step.do, confirmed: false, dropped: false, err: null, ...(step.do === "sol" ? { lamports: step.lamports } : step.do === "usdc" ? { usdc: step.usdc } : {}) };
+        else if (step.do !== "nothing" && step.do !== "wait") st.done = false;
+        if (step.do === "sell") {
+          st.sells = { ...st.sells, [step.mint]: (st.sells?.[step.mint] ?? 0) + 1 };
+          d.save(s);
+          const gone = d.sell ? await d.sell(w, step.mint).catch(() => false) : false;
+          if (!gone) st.error = `a coin did not sell (try ${st.sells[step.mint]} of ${MAX_SELLS})`;
+        }
+        if (step.do === "wait" || step.do === "nothing") st.error = step.do === "wait" ? step.why : null;
+        else if (step.do === "usdc" || step.do === "close" || step.do === "sol") {
+          const t: Tx = { sig: "", at: d.now(), what: step.do, confirmed: false, dropped: false, err: null, ...(step.do === "sol" ? { lamports: step.lamports, ...(d.solUsd?.() ? { solUsd: d.solUsd() as number } : {}) } : step.do === "usdc" ? { usdc: step.usdc } : {}) };
           st.txs.push(t);
           try {
             t.sig = await sendIxs(d, w, step.ixs);
@@ -287,10 +310,17 @@ export function startSendOut(): void {
     ],
     holdings: async (owner) => {
       const bal = await rpc<{ value: number }>("getBalance", [owner, { commitment: "confirmed" }]);
-      const r = await rpc<{ value: { pubkey: string; account: { data: { parsed: { info: { mint: string; tokenAmount: { amount: string; decimals: number } } } } } }[] }>("getTokenAccountsByOwner", [owner, { programId: TOKEN_PROGRAM }, { encoding: "jsonParsed", commitment: "confirmed" }]);
-      return { lamports: bal.value, accounts: r.value.map((x) => ({ address: x.pubkey, mint: x.account.data.parsed.info.mint, amount: BigInt(x.account.data.parsed.info.tokenAmount.amount), decimals: x.account.data.parsed.info.tokenAmount.decimals })) };
+      type R = { value: { pubkey: string; account: { data: { parsed: { info: { mint: string; tokenAmount: { amount: string; decimals: number } } } } } }[] };
+      const accounts: Holdings["accounts"] = [];
+      for (const program of [TOKEN_PROGRAM, TOKEN_2022]) {
+        const r = await rpc<R>("getTokenAccountsByOwner", [owner, { programId: program }, { encoding: "jsonParsed", commitment: "confirmed" }]);
+        for (const x of r.value) accounts.push({ address: x.pubkey, mint: x.account.data.parsed.info.mint, amount: BigInt(x.account.data.parsed.info.tokenAmount.amount), decimals: x.account.data.parsed.info.tokenAmount.decimals, program });
+      }
+      return { lamports: bal.value, accounts };
     },
     blockhash: async () => (await rpc<{ value: { blockhash: string } }>("getLatestBlockhash", [{ commitment: "confirmed" }])).value.blockhash,
+    sell: (w, mint) => kit.sellAll(w, mint, 1_000_000, { sigs: [] } as unknown as Parameters<typeof kit.sellAll>[3]),
+    solUsd: () => shared.solUsd(),
     send: (b64) => rpc<string>("sendTransaction", [b64, { encoding: "base64", skipPreflight: false, preflightCommitment: "confirmed", maxRetries: 5 }]),
     status: async (sig) => {
       const r = await rpc<{ value: ({ confirmationStatus?: string; err: unknown } | null)[] }>("getSignatureStatuses", [[sig], { searchTransactionHistory: true }]);
@@ -317,6 +347,6 @@ const PLACE: Record<string, string> = { "spot copy": "solana-spot-copy", "spot r
 export function sendOutMoves(s: SendState = loadJson<SendState>(FILE, fresh())): { from: string; to: string; startedAt: number; endedAt: number; arrivedUsd: number }[] {
   const out: { from: string; to: string; startedAt: number; endedAt: number; arrivedUsd: number }[] = [];
   if (s.test?.confirmed && s.test.lamports) out.push({ from: "solana-spot-copy", to: "enrique", startedAt: s.test.at, endedAt: s.test.at, arrivedUsd: (2 * s.test.lamports * SENT_SOL_USD) / 1e9 });
-  for (const [k, w] of Object.entries(s.wallets)) for (const t of w.txs) if (t.confirmed && t.lamports && PLACE[k]) out.push({ from: PLACE[k], to: "enrique", startedAt: t.at, endedAt: t.at, arrivedUsd: (t.lamports * SENT_SOL_USD) / 1e9 });
+  for (const [k, w] of Object.entries(s.wallets)) for (const t of w.txs) if (t.confirmed && t.lamports && PLACE[k]) out.push({ from: PLACE[k], to: "enrique", startedAt: t.at, endedAt: t.at, arrivedUsd: (t.lamports * (t.solUsd ?? SENT_SOL_USD)) / 1e9 });
   return out;
 }
