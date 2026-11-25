@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 
 process.env.DATA_DIR = mkdtempSync(join(tmpdir(), "gasout-"));
-const { gasPlan, openTo, MAX_USD } = await import("./gasout.js");
+const { gasPlan, openTo, rpcHex, MAX_USD } = await import("./gasout.js");
 const { seal } = await import("../solana/sendout.js");
 
 const TO = "0x52908400098527886E0F7030069857D2E4169EE7"; // EIP-55 example address
@@ -22,4 +22,9 @@ test("gasout: a small amount, never above the cap, and the wallet keeps its own 
   assert.ok("why" in gasPlan(o, null, 1, 3000));
   assert.ok("why" in gasPlan(o, TO, 0.0008, 3000), "would leave under $1 of ETH");
   assert.ok("why" in gasPlan({ ...o, id: "" }, TO, 1, 3000));
+});
+test("gasout: amounts go to the node without leading zero digits", async () => {
+  const { BigNumber } = await import("@ethersproject/bignumber");
+  assert.equal(rpcHex(BigNumber.from("0x01c6bf52634000")), "0x1c6bf52634000");
+  assert.equal(rpcHex(BigNumber.from(0)), "0x0");
 });

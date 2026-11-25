@@ -21,6 +21,8 @@ import { ARBITRUM_CHAIN_ID, realChain, rpcCall } from "./fund.js";
 import { hlWallet } from "./keys.js";
 
 export const MAX_USD = 3;
+/** A JSON-RPC quantity: no leading zero digits (25 Nov 2026: "0x01c6..." was refused by the node). Pure. */
+export const rpcHex = (v: BigNumber) => v.toHexString().replace(/^0x0+(?=.)/, "0x");
 export const KEEP_ETH_USD = 1;
 const FILE = "gasout-state.json";
 
@@ -87,7 +89,7 @@ async function tick(): Promise<void> {
     } else {
       const to = openTo(o.to, secretOf()) as string;
       const value = parseUnits(plan.eth.toFixed(6), 18);
-      const req = { from: w.address, to, value: value.toHexString() };
+      const req = { from: w.address, to, value: rpcHex(value) };
       const gas = BigNumber.from(await rpcCall<string>("eth_estimateGas", [req])).mul(13).div(10);
       const gasPrice = BigNumber.from(await rpcCall<string>("eth_gasPrice", [])).mul(3).div(2);
       const nonce = Number(await rpcCall<string>("eth_getTransactionCount", [w.address, "pending"]));
