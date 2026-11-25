@@ -15,10 +15,13 @@
  *    the maker variant bids 1c under and counts as filled if the ask reaches the bid within 6 h.
  * Every rule is $5 at the real ask (walking the book), taker fee rate x p x (1-p) per share, held to settlement.
  */
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { ROOT } from "./config.js";
 import { loadJson, saveJson } from "./store.js";
 import { setTradeTap, startTradeStream, tradeStreamStatus } from "./pmstream.js";
 import { seenCandidates, seenNote, seenSave, seenStatus } from "./copyseen.js";
-import { copySellStatus, followSales, sellDue, type SellDeps } from "./copysell.js";
+import { copySellStatus, followSales, queueExit, sellDue, type SellDeps } from "./copysell.js";
 import { autoFollowed, autoState, autoSummary, copyPromote, copyScan, scanDue } from "./copyscan.js";
 import { copySkillSummary } from "./copyskill.js";
 import { NEG_READY_FILE, isCryptoTitle, spentOf, eventLiveAdapt, paperGate, setPaperBehind, paperBehindStatus, realRecord, eventLiveBusy, eventLiveBuy, eventRestBid, eventRestSync, eventDelayedSync, eventLiveConfig, eventLiveRows, eventLiveSettle, eventLiveSummary, eventLiveStop, type EventLiveRow, type NegRiskReady } from "./eventlive.js";
@@ -1928,6 +1931,15 @@ let openMark: OpenMark | null = null;
 async function markOpenTick() {
   const rows = eventLiveRows().filter((r) => r.shares > 0 && r.pnl == null);
   const m: OpenMark = { at: Date.now(), n: 0, stake: 0, value: 0, winning: 0, losing: 0, unknown: 0, byDay: {}, byGroup: {} };
+  const exitAfter = (() => {
+    try {
+      const v = (JSON.parse(readFileSync(join(ROOT, "deploy", "live-rules.json"), "utf8")) as { events?: { copy?: { exitAfter?: unknown } } }).events?.copy?.exitAfter;
+      return typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : "";
+    } catch {
+      return "";
+    }
+  })();
+  let exitQueued = 0;
   const cache = new Map<string, GMarket | null>();
   for (const r0 of rows) {
     const r = { ...r0, cost: spentOf(r0) };
@@ -1936,6 +1948,8 @@ async function markOpenTick() {
     const px = g ? jl<string[]>(g.outcomePrices, []).map(Number)[r.idx] : NaN;
     const ends = g ? copyResolveAt(g) : NaN;
     const day = Number.isFinite(ends) ? kstDay(ends) : "unknown";
+    // sell-out on his word (25 Nov 2026): a bet whose market ends after events.copy.exitAfter is sold whole
+    if (exitAfter && day !== "unknown" && day > exitAfter && r.group === "copy" && queueExit(r0, Date.now())) exitQueued += 1;
     const value = Number.isFinite(px) ? r.shares * px : r.cost;
     // game markets: 4 h after the start; others: 2 h after the end date
     const due = g && Number.isFinite(tsOf(g.gameStartTime)) ? tsOf(g.gameStartTime) + 4 * 3600_000 : ends + 2 * 3600_000;
@@ -1984,6 +1998,7 @@ async function markOpenTick() {
   // paper trades still open 3 days after they were made (most paper markets settle within a day)
   (m as OpenMark & { paperOld?: number; paperOpen?: number }).paperOpen = state.trades.filter((t) => t.pnl == null).length;
   (m as OpenMark & { paperOld?: number }).paperOld = state.trades.filter((t) => t.pnl == null && m.at - t.t > 3 * 86400_000).length;
+  if (exitQueued) log(`sell-out: ${exitQueued} open real bet(s) ending after ${exitAfter} queued for sale`);
   openMark = m;
 }
 // ---------- settlement and summary ----------

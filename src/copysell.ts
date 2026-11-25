@@ -645,3 +645,24 @@ export const _copySellTest = {
   client: (c: unknown) => void (clientTest = c as Client | null),
   state: () => state(),
 };
+
+/**
+ * SELL OUT ON HIS WORD (25 Nov 2026, enrique: "okay fuck polymarket, transfer that to hyperliquid", then "sell
+ * everything that doesnt settle today or tomorrow, move that"): an open real bet is queued for a full sale through the
+ * same sale path as a copied wallet's exit (keep 0 = all of it). Called by the open-marks pass for every bet whose
+ * market ends after events.copy.exitAfter (a KST day). A queued sale that ran out of tries is queued afresh. Returns
+ * true when it was queued now.
+ */
+export function queueExit(r: EventLiveRow, now: number): boolean {
+  const s = state();
+  const key = keyOf(r);
+  const p = s.pos[key];
+  if (p && p.wallet === EXIT && !p.pending && !(now - p.at > DUE_MS || p.tries >= MAX_TRIES)) return false;
+  if (p?.pending) return false;
+  const den = r.shares * r.ask * (1 - r.ask);
+  const feeRate = den > 0 && Number.isFinite(r.fee / den) ? Math.min(0.1, Math.max(0, r.fee / den)) : 0;
+  s.pos[key] = { wallet: EXIT, title: r.title, shares0: r.shares, keep: 0, at: now, their: 0, feeRate, tries: 0, lastTry: 0 };
+  save();
+  return true;
+}
+export const EXIT = "sell-out (enrique)";

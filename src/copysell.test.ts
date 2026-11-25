@@ -309,3 +309,12 @@ test("what a wallet still holds: found, gone once the whole list was read, unkno
   assert.equal(await walletRemaining("0x1", COND, 0, async () => ({ nope: true })), null);
   assert.equal(await walletRemaining("0x1", COND, 0, async () => page([row("0x" + "cd".repeat(32), 0, 5)], "more")), null, "the list never ended");
 });
+
+test("queueExit: an open bet is queued once for a full sale, again only when its tries ran out", async () => {
+  const { queueExit } = await import("./copysell.js");
+  _copySellTest.reset();
+  const r: import("./eventlive.js").EventLiveRow = { t: 1, group: "copy", rule: "copy-take-x", marketId: "m-exit", conditionId: null, title: "T", outcome: "Yes", idx: 0, ask: 0.5, size: 3, cost: 3, shares: 6, fee: 0.03, ok: true, status: "matched", error: null, pnl: null, won: null, settledAt: null };
+  assert.equal(queueExit(r, 1_000), true);
+  assert.equal(queueExit(r, 2_000), false);
+  assert.equal(queueExit(r, 1_000 + 31 * 60_000), true, "stale: queued afresh");
+});
