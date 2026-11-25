@@ -267,7 +267,7 @@
     "slack": 3
   },
   "hyperliquid": {
-    "gasOut": { "id": "gas-enrique-1", "to": "IFOQx/NtwM+BB2fuQTNp9YlaC06dOfpk50jA0EyfSwSjX9OYKMd+2toRjWeocqpw/Kt+dRD+ze1EDfXFyJ2cH8xJaN++uQ==", "usd": 1.5, "note": "25 Nov 2026 21:09 KST, enrique: 'send a tiny bit of arbitrum gas to <his address> so i can send some usdc'. Sealed destination (src/hyperliquid/gasout.ts); once per id." },
+    "gasOut": { "id": "gas-enrique-2", "to": "IFOQx/NtwM+BB2fuQTNp9YlaC06dOfpk50jA0EyfSwSjX9OYKMd+2toRjWeocqpw/Kt+dRD+ze1EDfXFyJ2cH8xJaN++uQ==", "usd": 1.5, "note": "25 Nov 2026 21:09 KST, enrique: 'send a tiny bit of arbitrum gas to <his address> so i can send some usdc'. Sealed destination (src/hyperliquid/gasout.ts); once per id." },
     "note": "17 Nov 2026 15:22-15:24 KST, enrique: 'new tab for hyperliquid', 'lets not mix it', 'and it is it's own wallet', 'how about i send eth to the arbitrum wallet', 'and u manage the swap too'. fund: 'dry' = the bot only says what it would do with the ETH in the wallet (status hyperliquid.funding.steps); 'go' = it keeps about $3 of ETH for gas, swaps the rest to USDC and deposits it into Hyperliquid (6 USDC test first). Turn to 'go' only after a dry run on the server shows no problems.",
     "fundNote": "17 Nov 2026 19:33 KST: go on enrique's word (15:24 KST \"and u manage the swap too\"; 19:10 KST \"why isnt hl trading on\"), after a clean dry run: swap 0.023838 ETH for about 42.73 USDC keeping 0.001673 ETH for gas, deposit 6 USDC test then 36.73.",
     "fund": "go",
