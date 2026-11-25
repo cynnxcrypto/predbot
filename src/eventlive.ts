@@ -87,7 +87,7 @@ export type EventLiveRow = {
  *  Polymarket does) until it is finished; only the filled shares are paid for. */
 export const spentOf = (r: { status: string | null; shares: number; ask: number; cost: number }) => (r.status === "resting" ? Math.round(r.shares * r.ask * 1e6) / 1e6 : r.cost);
 const held = (r: EventLiveRow) => r.shares > 0 || r.status === "unknown" || r.status === "resting" || (r.status === "delayed" && r.pnl == null);
-export type EventLiveGroup = { rules: string[]; size: number; maxAsk: number; minDepth: number; dayLosses: number; maxOpen: number; maxLoss: number; negRisk: boolean; maxSize: number; maxDays: number; perWallet: number; stopNet: number; openUsd: number; walletUsd: number; adaptN: number; adaptStop: number; adaptBoost: number; steps: "" | "wallet" | "rule"; cutN: number; cutLoss: number; recentN: number; recentLoss: number; probationN: number; houseUsd: number; ladder: [number, number, number][]; maxAbove?: number; autoReal?: boolean; aheadSize?: number; houseBets?: number; noCrypto?: boolean };
+export type EventLiveGroup = { rules: string[]; size: number; maxAsk: number; minDepth: number; dayLosses: number; maxOpen: number; maxLoss: number; negRisk: boolean; maxSize: number; maxDays: number; perWallet: number; stopNet: number; openUsd: number; walletUsd: number; adaptN: number; adaptStop: number; adaptBoost: number; steps: "" | "wallet" | "rule"; cutN: number; cutLoss: number; recentN: number; recentLoss: number; probationN: number; houseUsd: number; ladder: [number, number, number][]; maxAbove?: number; autoReal?: boolean; aheadSize?: number; houseBets?: number; noCrypto?: boolean; stopNew?: boolean };
 export type EventLiveConfig = { mode: string; minBalance: number; lossCap?: LossCap; groups: Record<string, EventLiveGroup> };
 
 /** No single real event bet is ever larger than this (13 Nov 2026, enrique: "Min $3 max $10"). */
@@ -112,7 +112,7 @@ export function parseEventLive(repoText: string, local: { mode?: string; funder?
     const size = Math.min(MAX_STAKE, num(v.size, 0));
     if (!rules.length || !(size >= 1)) continue;
     const maxSize = Math.min(MAX_STAKE, Math.max(size, num(v.maxSize, size)));
-    groups[g] = { rules, size, maxAsk: Math.min(0.99, num(v.maxAsk, 0.96)), minDepth: Math.max(0, num(v.minDepth, 25)), dayLosses: Math.max(1, Math.floor(num(v.dayLosses, 2))), maxOpen: Math.max(1, Math.floor(num(v.maxOpen, 4))), maxLoss: Math.max(0, num(v.maxLoss, 12)), negRisk: v.negRisk === true, maxSize, maxDays: Math.max(0, num(v.maxDays, 0)), perWallet: Math.max(0, Math.floor(num(v.perWallet, 0))), stopNet: Math.max(0, num(v.stopNet, 0)), openUsd: Math.max(0, num(v.openUsd, 0)), walletUsd: Math.max(0, num(v.walletUsd, 0)), adaptN: Math.max(0, Math.floor(num(v.adaptN, 0))), adaptStop: Math.max(0, num(v.adaptStop, 0)), adaptBoost: Math.min(3, Math.max(1, num(v.adaptBoost, 1))), steps: v.steps === "wallet" || v.steps === "rule" ? v.steps : "", cutN: Math.max(0, Math.floor(num(v.cutN, 0))), cutLoss: Math.max(0, num(v.cutLoss, 0)), recentN: Math.max(0, Math.floor(num(v.recentN, 0))), recentLoss: Math.max(0, num(v.recentLoss, 0)), probationN: Math.max(0, Math.floor(num(v.probationN, 0))), houseUsd: Math.max(0, num(v.houseUsd, 0)), ladder: (Array.isArray(v.ladder) ? (v.ladder as unknown[]) : []).filter((x): x is number[] => Array.isArray(x) && x.length === 3 && x.every((y) => typeof y === "number" && Number.isFinite(y) && y >= 0)).map((x) => [Math.floor(x[0]), x[1], Math.min(MAX_STAKE, Math.max(size, x[2]))] as [number, number, number]), maxAbove: Math.min(0.5, Math.max(0, num(v.maxAbove, 0))), autoReal: v.autoReal !== false, aheadSize: Math.min(MAX_STAKE, Math.max(0, num(v.aheadSize, 0))), houseBets: Math.min(20, Math.max(0, num(v.houseBets, 0))), noCrypto: v.noCrypto === true };
+    groups[g] = { rules, size, maxAsk: Math.min(0.99, num(v.maxAsk, 0.96)), minDepth: Math.max(0, num(v.minDepth, 25)), dayLosses: Math.max(1, Math.floor(num(v.dayLosses, 2))), maxOpen: Math.max(1, Math.floor(num(v.maxOpen, 4))), maxLoss: Math.max(0, num(v.maxLoss, 12)), negRisk: v.negRisk === true, maxSize, maxDays: Math.max(0, num(v.maxDays, 0)), perWallet: Math.max(0, Math.floor(num(v.perWallet, 0))), stopNet: Math.max(0, num(v.stopNet, 0)), openUsd: Math.max(0, num(v.openUsd, 0)), walletUsd: Math.max(0, num(v.walletUsd, 0)), adaptN: Math.max(0, Math.floor(num(v.adaptN, 0))), adaptStop: Math.max(0, num(v.adaptStop, 0)), adaptBoost: Math.min(3, Math.max(1, num(v.adaptBoost, 1))), steps: v.steps === "wallet" || v.steps === "rule" ? v.steps : "", cutN: Math.max(0, Math.floor(num(v.cutN, 0))), cutLoss: Math.max(0, num(v.cutLoss, 0)), recentN: Math.max(0, Math.floor(num(v.recentN, 0))), recentLoss: Math.max(0, num(v.recentLoss, 0)), probationN: Math.max(0, Math.floor(num(v.probationN, 0))), houseUsd: Math.max(0, num(v.houseUsd, 0)), ladder: (Array.isArray(v.ladder) ? (v.ladder as unknown[]) : []).filter((x): x is number[] => Array.isArray(x) && x.length === 3 && x.every((y) => typeof y === "number" && Number.isFinite(y) && y >= 0)).map((x) => [Math.floor(x[0]), x[1], Math.min(MAX_STAKE, Math.max(size, x[2]))] as [number, number, number]), maxAbove: Math.min(0.5, Math.max(0, num(v.maxAbove, 0))), autoReal: v.autoReal !== false, aheadSize: Math.min(MAX_STAKE, Math.max(0, num(v.aheadSize, 0))), houseBets: Math.min(20, Math.max(0, num(v.houseBets, 0))), noCrypto: v.noCrypto === true, stopNew: v.stopNew === true };
   }
   const since = typeof repo.lossCap?.since === "number" ? repo.lossCap.since : Date.parse(String(repo.lossCap?.since ?? ""));
   const maxLoss = Number(repo.lossCap?.maxLoss);
@@ -431,6 +431,9 @@ export async function eventLiveBuy(group: string, p: { rule: string; marketId: s
   // NO CRYPTO (24 Nov 2026): real copies of crypto markets lost $31.88 on 75 bets while the rest made $51.99 on 555;
   // with "noCrypto": true in the group, a crypto market stays on paper.
   if (cfg.groups[group]?.noCrypto && isCryptoTitle(p.title ?? "")) return "crypto market: real copies of crypto are off";
+  // STOPPED (25 Nov 2026, enrique: "okay fuck polymarket, transfer that to hyperliquid"): no new real bet at all; the
+  // open ones still settle, are claimed and follow their traders' sells.
+  if (cfg.groups[group]?.stopNew) return "Polymarket real copies stopped: no new bets";
   if (stopping) return "restart pending: no new real order";
   if (busy) return "another real order is in flight";
   busy = true;
@@ -532,6 +535,7 @@ export function restShares(stake: number, price: number): number {
 export async function eventRestBid(group: string, p: { rule: string; marketId: string; title: string; outcome: string; idx: number; token: string; price: number; conditionId: string | null; until: number; resolveAt?: number }): Promise<string | null> {
   const cfg = eventLiveConfig();
   if (!cfg.groups[group]?.rules.includes(p.rule)) return null;
+  if (cfg.groups[group]?.stopNew) return "Polymarket real copies stopped: no new bets";
   if (stopping) return "restart pending: no new real order";
   if (busy) return "another real order is in flight";
   busy = true;

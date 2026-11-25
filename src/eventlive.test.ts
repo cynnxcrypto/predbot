@@ -422,3 +422,10 @@ test("openKind: what an open bet is on", async () => {
   assert.equal(openKind("Brentford FC vs. Everton FC: O/U 9.5 Total Corners", true), "sports");
   assert.equal(openKind("Will Trump speak to Emmanuel Macron by November 30?", false), "politics, news, other");
 });
+
+test("stopNew: parsed from the group, off by default", () => {
+  const on = parseEventLive(JSON.stringify({ mode: "live", events: { copy: { rules: ["a"], size: 3, stopNew: true } } }), { funder: "0x1" });
+  const off = parseEventLive(JSON.stringify({ mode: "live", events: { copy: { rules: ["a"], size: 3 } } }), { funder: "0x1" });
+  assert.equal(on.groups.copy?.stopNew, true);
+  assert.equal(off.groups.copy?.stopNew, false);
+});
