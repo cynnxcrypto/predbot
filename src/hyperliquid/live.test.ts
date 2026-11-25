@@ -512,3 +512,64 @@ test("the trade feed's delay measure is told when a real copy opens and when it 
   assert.equal(_test.state().opens.length, 1, "a failing measure never stops a trade");
   setHlDelayNote(null);
 });
+
+test("skill bar (25 Nov 2026): passers are copied first and a non-passer leaves one base position of cash for them", async () => {
+  assert.equal(parseHlLive('{"hyperliquid":{"trade":{"on":true,"maxLossUsd":50,"skillBar":true}}}').skillBar, true);
+  assert.equal(parseHlLive('{"hyperliquid":{"trade":{"on":true,"maxLossUsd":50,"skillBar":"yes"}}}').skillBar, undefined);
+  const cfg: HlLiveConfig = { ...ON, skillBar: true };
+  // $25 free: room for one $10 copy plus a base position; the non-passer comes first in the paper list
+  const { w, d } = world({ cfg, bar: ["copy-aaaa1111", "copy-bbbb2222"], free: 25 });
+  d.skillPass = (rule) => rule === "copy-bbbb2222";
+  w.paper = [copy("copy-aaaa1111", "BTC", 1, T0), copy("copy-bbbb2222", "HYPE", 1, T0)];
+  await hlLiveTick(d, T0 + 1000);
+  assert.equal(w.orders.length, 1);
+  assert.equal(w.orders[0].coin, COINS.HYPE.index, "the passer got the money");
+  // with plenty of cash both are copied
+  _test.reset();
+  const rich = world({ cfg, bar: ["copy-aaaa1111", "copy-bbbb2222"], free: 100 });
+  rich.d.skillPass = (rule) => rule === "copy-bbbb2222";
+  rich.w.paper = [copy("copy-aaaa1111", "BTC", 1, T0), copy("copy-bbbb2222", "HYPE", 1, T0)];
+  await hlLiveTick(rich.d, T0 + 1000);
+  assert.equal(rich.w.orders.length, 2);
+  // switch off: plain order, no cash kept
+  _test.reset();
+  const off = world({ bar: ["copy-aaaa1111", "copy-bbbb2222"], free: 25 });
+  off.d.skillPass = (rule) => rule === "copy-bbbb2222";
+  off.w.paper = [copy("copy-aaaa1111", "BTC", 1, T0), copy("copy-bbbb2222", "HYPE", 1, T0)];
+  await hlLiveTick(off.d, T0 + 1000);
+  assert.equal(off.w.orders[0].coin, COINS.BTC.index);
+});
+
+test("proven tier (25 Nov 2026): not cut by losing streaks, real off the paper bar, cut only after 20+ real copies behind", async () => {
+  assert.equal(parseHlLive('{"hyperliquid":{"trade":{"on":true,"maxLossUsd":50,"provenT":2.5}}}').provenT, 2.5);
+  assert.equal(parseHlLive('{"hyperliquid":{"trade":{"on":true,"maxLossUsd":50}}}').provenT, undefined);
+  const cfg: HlLiveConfig = { ...ON, provenT: 2.5 };
+  // not at any bar, behind on 3 real copies: an ordinary trader would be cut; the proven one is copied
+  const { w, d } = world({ cfg, bar: [], free: 100 });
+  d.proven = (rule, t) => rule === "copy-aaaa1111" && t === 2.5;
+  const st = _test.state();
+  for (let i = 0; i < 3; i++) st.rows.push({ t: T0 - 10_000 + i, rule: "copy-aaaa1111", coin: "DOGE", side: "long", leverage: 2, netUsd: -2, heldH: 2, why: "the trader closed", collateralUsd: 10 });
+  w.paper = [copy("copy-aaaa1111", "BTC", 1, T0), copy("copy-bbbb2222", "HYPE", 1, T0)];
+  await hlLiveTick(d, T0 + 1000);
+  assert.equal(w.orders.length, 1, "only the proven trader");
+  assert.equal(st.demoted["copy-aaaa1111"], undefined, "not cut at the look");
+  const sum = hlLiveSummary(cfg, () => false, T0 + 2000, () => null, (r) => r === "copy-aaaa1111");
+  assert.equal(sum.traders.find((x) => x.trader === "copy-aaaa1111")?.real, true);
+  assert.match(sum.traders.find((x) => x.trader === "copy-aaaa1111")!.why, /proven tier/);
+  // 20 real copies and behind: back to paper
+  _test.reset();
+  const b = world({ cfg, bar: [], free: 100 });
+  b.d.proven = () => true;
+  for (let i = 0; i < 20; i++) _test.state().rows.push({ t: T0 - 10_000 + i, rule: "copy-aaaa1111", coin: "DOGE", side: "long", leverage: 2, netUsd: i % 2 ? 1 : -1.2, heldH: 2, why: "the trader closed", collateralUsd: 10 });
+  b.w.paper = [copy("copy-aaaa1111", "BTC", 1, T0)];
+  await hlLiveTick(b.d, T0 + 1000);
+  assert.equal(b.w.orders.length, 0);
+  // switch off: the same 3-loss trader is not copied
+  _test.reset();
+  const o = world({ bar: [], free: 100 });
+  o.d.proven = () => true;
+  for (let i = 0; i < 3; i++) _test.state().rows.push({ t: T0 - 10_000 + i, rule: "copy-aaaa1111", coin: "DOGE", side: "long", leverage: 2, netUsd: -2, heldH: 2, why: "the trader closed", collateralUsd: 10 });
+  o.w.paper = [copy("copy-aaaa1111", "BTC", 1, T0)];
+  await hlLiveTick(o.d, T0 + 1000);
+  assert.equal(o.w.orders.length, 0);
+});

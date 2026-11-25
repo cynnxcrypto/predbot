@@ -18,6 +18,15 @@ export const SKILL_MIN_N = 20;
 export const SKILL_MIN_T = 2;
 export const SKILL_PERIODS = 3;
 export const SKILL_MIN_PERIODS_AHEAD = 2;
+/**
+ * PROVEN TIER (25 Nov 2026, enrique: "push proven tier: 2.5+ standard errors not cut until 20+ real copies behind, bilberry back to real"):
+ * a trader that passes the skill test at provenT+ standard errors is not cut by the short-streak rules; it goes back to
+ * paper only when it has PROVEN_CUT_N+ real copies and is behind on them (all of its real copies, through any old cut).
+ * The wallet-wide loss caps still hold.
+ */
+export const PROVEN_CUT_N = 20;
+/** Is a proven trader's own real record bad enough to cut it: PROVEN_CUT_N+ real copies and behind. */
+export const provenCut = (n: number, net: number) => n >= PROVEN_CUT_N && net < 0;
 
 /** One closed position: [closed at, result, opened at?, side (+1 long, -1 short)?, coin?]. Older rows have only 2. */
 export type Trip = [number, number, number?, number?, string?];

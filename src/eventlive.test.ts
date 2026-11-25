@@ -429,3 +429,30 @@ test("stopNew: parsed from the group, off by default", () => {
   assert.equal(on.groups.copy?.stopNew, true);
   assert.equal(off.groups.copy?.stopNew, false);
 });
+
+test("proven tier (25 Nov 2026): a wallet passing the skill test at provenT+ skips the short-streak cuts until 20+ real bets behind", async () => {
+  const { _skillTest } = await import("./copyskill.js");
+  const NOW6 = Date.parse("2026-11-25T03:00:00Z");
+  const cfg = parseEventLive(JSON.stringify({ mode: "live", events: { copy: { rules: ["copy-take-bilberry", "copy-take-other"], size: 3, maxSize: 10, maxOpen: 999, maxLoss: 1000, adaptN: 10, adaptStop: 10, cutN: 3, cutLoss: 5, recentN: 10, recentLoss: 15, minDepth: 0, maxAsk: 0.97, provenT: 2.5 } } }), { funder: "0x1" });
+  const g = cfg.groups.copy;
+  assert.equal(g.provenT, 2.5);
+  const r = (rule: string, pnl: number, i: number): EventLiveRow => ({ t: i, group: "copy", rule, marketId: `m${rule}${i}`, conditionId: null, title: "", outcome: "", idx: 0, ask: 0.5, size: 3, cost: 3, shares: 6, fee: 0, ok: true, status: "matched", error: null, pnl, won: pnl > 0, settledAt: i });
+  // ahead overall, but its newest 10 are $18 down: the recent cut would send it to paper
+  const xs = [...Array.from({ length: 10 }, (_, i) => r("copy-take-bilberry", 4, i)), ...Array.from({ length: 10 }, (_, i) => r("copy-take-bilberry", -1.8, 10 + i))];
+  assert.equal(ruleAdapt(g, xs, "copy-take-bilberry").state, "paper");
+  assert.equal(ruleAdapt(g, xs, "copy-take-bilberry", true).state, "up", "proven: not cut by the streak");
+  // proven but 20+ real bets and behind: back to paper
+  const behind = Array.from({ length: 20 }, (_, i) => r("copy-take-bilberry", i % 2 ? 1 : -1.2, i));
+  assert.deepEqual(ruleAdapt(g, behind, "copy-take-bilberry", true), { state: "paper", n: 20, net: -2, proven: true });
+  assert.equal(ruleAdapt(g, behind.slice(0, 19), "copy-take-bilberry", true).state, "flat", "19 behind: stays");
+  // the block reads the ranking: bilberry at t 2.9 is proven, another passer at 2.1 is not
+  _skillTest.set({ bilberry: { pass: true, t: 2.9 }, other: { pass: true, t: 2.1 } });
+  assert.equal(eventLiveBlock(cfg, "copy", "copy-take-bilberry", "new", 0.5, 10, true, xs, NOW6, 3), null);
+  const other = xs.map((x) => ({ ...x, rule: "copy-take-other", marketId: x.marketId.replace("bilberry", "other") }));
+  assert.match(eventLiveBlock(cfg, "copy", "copy-take-other", "new", 0.5, 10, true, other, NOW6, 3)!, /back to paper/);
+  // switch off: nobody is proven
+  _skillTest.set({ bilberry: { pass: true, t: 2.9 } });
+  const off = { ...cfg, groups: { copy: { ...g, provenT: 0 } } };
+  assert.match(eventLiveBlock(off, "copy", "copy-take-bilberry", "new", 0.5, 10, true, xs, NOW6, 3)!, /back to paper/);
+  _skillTest.set({});
+});

@@ -19,7 +19,7 @@ import { fileCfg, hlKeptTraders, hlLiveSummary, hlLiveTick, setHlDelayNote, type
 import { HlTradeWatch } from "./watch.js";
 import { hlHttpSummary } from "./ratelog.js";
 import { realVenue } from "./venue.js";
-import { hlPoke, hlQuickSummary, hlQuickTick, hlWatched, setHlFast, traderRule, hlBoard, hlHistoryAvgPct, hlHistoryMeetsBar, hlHistorySummary, hlPaperOpens, likedTraders, perpMeetsBar, setExtraTraders, setKeptTraders, traderListed, traderRecord } from "../solana/buckets.js";
+import { hlPoke, hlQuickSummary, hlQuickTick, hlWatched, setHlFast, traderRule, hlBoard, hlHistoryAvgPct, hlHistoryMeetsBar, hlHistorySummary, hlProven, hlSkillPass, hlPaperOpens, likedTraders, perpMeetsBar, setExtraTraders, setKeptTraders, traderListed, traderRecord } from "../solana/buckets.js";
 import { linkedTraders, startLinks } from "./links.js";
 
 interface Reach {
@@ -362,7 +362,7 @@ export function startHyperliquid(fetcher: typeof fetch = fetch): Promise<void> {
         venue2 = undefined;
       }
     }
-    const deps: HlDeps = { cfg: fileCfg, venue: realVenue(address, fetcher), ...(venue2 ? { venue2 } : {}), paperOpens: hlPaperOpens, meetsBar, listed: traderListed, histAvgPct: (r) => hlHistoryAvgPct(r) };
+    const deps: HlDeps = { cfg: fileCfg, venue: realVenue(address, fetcher), ...(venue2 ? { venue2 } : {}), paperOpens: hlPaperOpens, meetsBar, listed: traderListed, histAvgPct: (r) => hlHistoryAvgPct(r), skillPass: (r) => hlSkillPass(r), proven: (r, t) => hlProven(r, t) };
     setKeptTraders(hlKeptTraders, "hyperliquid");
     runLive = serial(() => timed(() => hlLiveTick(deps)), liveRun);
     setInterval(() => void runLive(), 20_000).unref();
@@ -372,9 +372,15 @@ export function startHyperliquid(fetcher: typeof fetch = fetch): Promise<void> {
 }
 
 /** A trader's bar on Hyperliquid counts its paper copies on every coin (the Solana perps side wants some on SOL, BTC or ETH). */
-const meetsBar = (rule: string, sinceMs: number, now: number) => perpMeetsBar(rule, sinceMs, now, 0) || (!!fileCfg().historyBar && hlHistoryMeetsBar(rule, sinceMs, now, fileCfg().historyTop ?? 5));
+// skill bar (25 Nov 2026, enrique: "push skill bar: HL history traders must pass the skill test, passers get cash
+// first"): on its own history a trader also has to pass the skill test; the paper-copy bar is unchanged
+const meetsBar = (rule: string, sinceMs: number, now: number) => {
+  const c = fileCfg();
+  // proven tier (25 Nov 2026): a trader at provenT+ standard errors is at the bar too
+  return perpMeetsBar(rule, sinceMs, now, 0) || (!!c.historyBar && hlHistoryMeetsBar(rule, sinceMs, now, c.historyTop ?? 5) && (!c.skillBar || hlSkillPass(rule, now))) || (!!c.provenT && hlProven(rule, c.provenT, now));
+};
 /** The real copies, for the status and the tab (traders by short name, no address). */
-export const hlLive = () => ({ ...hlLiveSummary(fileCfg(), meetsBar, Date.now(), (r) => hlHistoryAvgPct(r)), secondWallet: secondPublic(), history: { on: !!fileCfg().historyBar, ...hlHistorySummary(Date.now(), fileCfg().historyTop ?? 5) }, watch: hlWatchSummary() });
+export const hlLive = () => ({ ...hlLiveSummary(fileCfg(), meetsBar, Date.now(), (r) => hlHistoryAvgPct(r), (r) => hlProven(r, fileCfg().provenT ?? 0)), secondWallet: secondPublic(), history: { on: !!fileCfg().historyBar, ...hlHistorySummary(Date.now(), fileCfg().historyTop ?? 5) }, watch: hlWatchSummary() });
 
 /** For the public status: no address, no key, no balance. */
 export function hlPublic() {
