@@ -81,6 +81,16 @@ test("sendout: the test goes once, nothing else until it is confirmed; then each
   lamports = 0;
   await sendOutTick(d);
   assert.equal(st.wallets["spot rules"].done, true);
+  // SOL comes in later (a bridge move paying the sell fee): nothing goes while the move is on its way, then it goes too
+  lamports = 1e8;
+  let held = true;
+  d.held = () => held;
+  await sendOutTick(d);
+  assert.equal(sent.length, 2, "held: the bridge sees its own arrival first");
+  held = false;
+  await sendOutTick(d);
+  assert.equal(sent.length, 3);
+  assert.equal(st.wallets["spot rules"].txs.at(-1)?.lamports, 1e8 - FEE_LAMPORTS);
 });
 
 test("sendout: confirmed SOL sends are booked as money taken out of their wallet", async () => {

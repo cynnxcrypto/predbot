@@ -71,3 +71,9 @@ const active = (m: Move) => m.stage !== "done" && m.stage !== "stopped";
 export function bridgeHoldsHyperliquid(): boolean {
   return Object.values(loadBridge().moves).some((m) => active(m) && m.stage !== "new" && (m.from === "hyperliquid" || m.to === "hyperliquid"));
 }
+
+/** True while a real move is still going into or out of `place` (25 Nov 2026: the Solana send-out waits for SOL a move
+ *  is bringing in, so the move can see its own arrival before the wallet is emptied). */
+export function bridgeHoldsPlace(place: Place): boolean {
+  return Object.values(loadBridge().moves).some((m) => active(m) && (m.from === place || m.to === place));
+}

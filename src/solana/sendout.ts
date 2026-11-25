@@ -28,6 +28,7 @@ import { DATA, ROOT } from "../config.js";
 import { loadJson, saveJson } from "../store.js";
 import { shared } from "./copyrun.js";
 import { kit } from "./copylive.js";
+import { bridgeHoldsPlace, type Place } from "../bridge/state.js";
 import { base58decode, namedWallet, signTransaction, wallet, type Wallet } from "./keys.js";
 import { ATA_PROGRAM, SYSTEM_PROGRAM, TOKEN_PROGRAM, ata, buildTx, u64le, type Ix } from "./soltx.js";
 
@@ -156,6 +157,8 @@ export type Deps = {
   /** Sell every unit of a coin for SOL; true when none is left. */
   sell?: (w: Wallet, mint: string) => Promise<boolean>;
   solUsd?: () => number | null;
+  /** A wallet a bridge move is still going into or out of waits (its label). */
+  held?: (label: string) => boolean;
   wallets: () => [string, Wallet][];
   holdings: (owner: string) => Promise<Holdings>;
   blockhash: () => Promise<string>;
@@ -212,6 +215,10 @@ export async function sendOutTick(d: Deps): Promise<void> {
     if (p.stage !== "all") return d.save(s);
     for (const [label, w] of ws) {
       const st = (s.wallets[label] ??= freshW());
+      if (d.held?.(label)) {
+        st.error = "a bridge move into this wallet is still on its way";
+        continue;
+      }
       for (const t of st.txs) await follow(d, t);
       try {
         const h = await d.holdings(w.address);
@@ -321,6 +328,7 @@ export function startSendOut(): void {
     blockhash: async () => (await rpc<{ value: { blockhash: string } }>("getLatestBlockhash", [{ commitment: "confirmed" }])).value.blockhash,
     sell: (w, mint) => kit.sellAll(w, mint, 1_000_000, { sigs: [] } as unknown as Parameters<typeof kit.sellAll>[3]),
     solUsd: () => shared.solUsd(),
+    held: (label) => (PLACE[label] ? bridgeHoldsPlace(PLACE[label] as Place) : false),
     send: (b64) => rpc<string>("sendTransaction", [b64, { encoding: "base64", skipPreflight: false, preflightCommitment: "confirmed", maxRetries: 5 }]),
     status: async (sig) => {
       const r = await rpc<{ value: ({ confirmationStatus?: string; err: unknown } | null)[] }>("getSignatureStatuses", [[sig], { searchTransactionHistory: true }]);
