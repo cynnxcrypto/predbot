@@ -28,3 +28,17 @@ test("gasout: amounts go to the node without leading zero digits", async () => {
   assert.equal(rpcHex(BigNumber.from("0x01c6bf52634000")), "0x1c6bf52634000");
   assert.equal(rpcHex(BigNumber.from(0)), "0x0");
 });
+test("manual deposits: good rows become money into the Hyperliquid wallet, bad rows are left out", async () => {
+  const { manualDeposits } = await import("./gasout.js");
+  const t = JSON.stringify({ hyperliquid: { manualDeposits: [{ at: "2026-11-25T14:01:11Z", usd: 56.23 }, { at: "nope", usd: 5 }, { at: "2026-11-25T14:01:11Z", usd: -1 }] } });
+  assert.deepEqual(manualDeposits(t), [{ from: "enrique", to: "hyperliquid", startedAt: Date.parse("2026-11-25T14:01:11Z"), endedAt: Date.parse("2026-11-25T14:01:11Z"), arrivedUsd: 56.23 }]);
+  assert.deepEqual(manualDeposits("{}"), []);
+});
+test("fund: USDC that arrives from outside counts as money in; our bridge arrivals and busy times do not", async () => {
+  const { usdcIn } = await import("./fund.js");
+  assert.equal(usdcIn({ lastUsdc: 0.5 }, 56.73, 0, false), 56.23);
+  assert.equal(usdcIn({}, 56.73, 0, false), 0, "no baseline yet");
+  assert.equal(usdcIn({ lastUsdc: 0 }, 36.85, 36.85, false), 0, "a bridge move brought it");
+  assert.equal(usdcIn({ lastUsdc: 0 }, 30, 0, true), 0, "a bridge move is using the wallet");
+  assert.equal(usdcIn({ lastUsdc: 5 }, 5.4, 0, false), 0);
+});

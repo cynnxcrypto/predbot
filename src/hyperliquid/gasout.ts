@@ -126,3 +126,23 @@ export function gasOutMoves(): { from: string; to: string; startedAt: number; en
 export function startGasOut(): void {
   setInterval(() => void tick().catch(() => undefined), 60_000).unref();
 }
+
+/**
+ * Money enrique sent that the funding could not tell from a gain (25 Nov 2026: $56.23 of USDC at 23:01 KST, before
+ * USDC arrivals were counted): deploy/live-rules.json "hyperliquid.manualDeposits": [{ "at": "ISO time", "usd": n }].
+ * Booked as deposits into the Hyperliquid wallet, never a gain. Bad rows are left out.
+ */
+export function manualDeposits(text?: string): { from: string; to: string; startedAt: number; endedAt: number; arrivedUsd: number }[] {
+  try {
+    const t = text ?? readFileSync(join(ROOT, "deploy", "live-rules.json"), "utf8");
+    const list = (JSON.parse(t) as { hyperliquid?: { manualDeposits?: { at?: unknown; usd?: unknown }[] } }).hyperliquid?.manualDeposits;
+    if (!Array.isArray(list)) return [];
+    return list.flatMap((d) => {
+      const at = Date.parse(String(d.at ?? ""));
+      const usd = Number(d.usd);
+      return Number.isFinite(at) && usd > 0 && usd < 10_000 ? [{ from: "enrique", to: "hyperliquid", startedAt: at, endedAt: at, arrivedUsd: usd }] : [];
+    });
+  } catch {
+    return [];
+  }
+}

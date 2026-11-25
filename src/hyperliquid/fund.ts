@@ -19,7 +19,7 @@ import { Interface } from "@ethersproject/abi";
 import { BigNumber } from "@ethersproject/bignumber";
 import { formatUnits, parseUnits } from "@ethersproject/units";
 import { loadJson, saveJson } from "../store.js";
-import { bridgeHoldsHyperliquid } from "../bridge/state.js";
+import { bridgeHoldsHyperliquid, loadBridge } from "../bridge/state.js";
 import { hlWallet } from "./keys.js";
 
 export const ARBITRUM_CHAIN_ID = 42161;
@@ -83,6 +83,12 @@ export interface FundState {
    * only ever spends ETH). The dashboard books a rise of this as a deposit, never as a gain. */
   lastEth?: number;
   ethInUsd?: number;
+  /** USDC on Arbitrum at the end of the last run, and when (25 Nov 2026: enrique sent USDC, not ETH, and the $56.23 read
+   * as a gain). A rise not explained by a bridge move into the wallet is his money: added to ethInUsd (the money-in
+   * total the dashboard books as deposits). */
+  lastUsdc?: number;
+  lastUsdcAt?: number;
+  usdcInUsd?: number;
   log?: { t: number; what: string; amount: number; tx: string }[];
 }
 const FILE = "hyperliquid-fund.json";
@@ -209,6 +215,26 @@ async function settle(c: Chain, st: FundState, steps: string[], waitMs: number):
  * One run. Dry (the default) reads, checks and says what it would do. With go it does it: swap, test deposit, wait
  * for Hyperliquid to show it, the rest. Safe to run again at any point: it picks up from what the wallet holds.
  */
+/** USDC that bridge moves into Hyperliquid's wallet brought since `since` (they land as USDC on Arbitrum). */
+function bridgeArrivals(since: number): number {
+  try {
+    return Object.values(loadBridge().moves)
+      .filter((m) => m.to === "hyperliquid" && m.stage === "done" && (m.endedAt ?? 0) >= since)
+      .reduce((a, m) => a + (m.arrived || 0), 0);
+  } catch {
+    return 0;
+  }
+}
+/**
+ * USDC that came into the Arbitrum wallet from outside since the last run: the rise over the last reading, less what our
+ * own bridge moves brought. Nothing while a bridge move uses the wallet (its money comes and goes), nothing on the
+ * first reading (no baseline), and nothing under $1. Pure.
+ */
+export function usdcIn(st: { lastUsdc?: number }, usdc: number, bridged: number, bridgeBusy: boolean): number {
+  if (bridgeBusy || st.lastUsdc == null) return 0;
+  const rise = usdc - st.lastUsdc - bridged;
+  return rise >= 1 ? r2(rise) : 0;
+}
 export async function fund(c: Chain, opt: { go: boolean; waitMs?: number; stage?: (s: string) => void } = { go: false }): Promise<FundReport> {
   const at = (s: string) => opt.stage?.(s);
   at("checking the chain and the contracts");
@@ -226,11 +252,16 @@ export async function fund(c: Chain, opt: { go: boolean; waitMs?: number; stage?
   const m0 = hl0 > 0 ? hl0 : await c.refPrice().catch(() => 0);
   const ethUsd = Number.isFinite(m0) && m0 > 0 ? m0 : 0;
   if (ethUsd && w.eth > (st.lastEth ?? 0) + 1e-9) st.ethInUsd = r2((st.ethInUsd ?? 0) + (w.eth - (st.lastEth ?? 0)) * ethUsd);
+  const inUsdc = usdcIn(st, w.usdc, bridgeArrivals(st.lastUsdcAt ?? Date.now()), bridgeHoldsHyperliquid());
+  if (inUsdc > 0) {
+    st.usdcInUsd = r2((st.usdcInUsd ?? 0) + inUsdc);
+    st.ethInUsd = r2((st.ethInUsd ?? 0) + inUsdc);
+  }
   const out = (done: boolean): FundReport => {
-    if (ethUsd) {
-      st.lastEth = w.eth;
-      save();
-    }
+    if (ethUsd) st.lastEth = w.eth;
+    st.lastUsdc = w.usdc;
+    st.lastUsdcAt = Date.now();
+    save();
     return { dry: !opt.go, problems, steps, eth: r6(w.eth), usdc: r2(w.usdc), hlUsd: w.hlUsd === null ? null : r2(w.hlUsd), ethUsd: ethUsd ? r2(ethUsd) : 0, inTransitUsdc: r2(st.pending?.usdc ?? 0), ethInUsd: st.ethInUsd ?? 0, done };
   };
   if (problems.length) return out(false);
