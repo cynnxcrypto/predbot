@@ -28,7 +28,7 @@ import { DATA } from "../config.js";
  * position, one leverage and one liquidation price per coin per account, so a second trader's copy on a coin the
  * first wallet already holds goes there. Same rules for its files; its address is written nowhere else.
  */
-export type HlKeyName = "wallet" | "agent" | "wallet-2" | "agent-2";
+export type HlKeyName = "wallet" | "agent" | "wallet-2" | "agent-2" | "wallet-3" | "agent-3";
 const file = (name: HlKeyName) => join(DATA, `hyperliquid-${name}.json`);
 export const addressFile = () => join(DATA, "hyperliquid-wallet-address.txt");
 
@@ -65,6 +65,9 @@ export const hlWalletExists = (): boolean => existsSync(file("wallet"));
 export const hlWallet2 = (): Wallet => keyAt("wallet-2");
 export const hlAgent2 = (): Wallet => keyAt("agent-2");
 export const hlWallet2Exists = (): boolean => existsSync(file("wallet-2"));
+/** The third wallet and its trading key (26 Nov 2026; made on first call, like the others). */
+export const hlWallet3 = (): Wallet => keyAt("wallet-3");
+export const hlAgent3 = (): Wallet => keyAt("agent-3");
 
 /** Test hook: forget the cached keys (tests point DATA_DIR at a scratch folder). */
 export const _forget = () => cache.clear();

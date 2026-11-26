@@ -592,7 +592,7 @@ test("cash between wallets: ensureCash moves from the other wallet and the copy 
   const a2: Account = { valueUsd: 100, freeUsd: 80, positions: {} };
   _rebTest.setPair({ 1: a1, 2: a2 });
   const sent: [number, number][] = [];
-  const d = { venue2: {}, move: async (from: 1 | 2, usd: number) => (sent.push([from, usd]), "") } as unknown as HlDeps;
+  const d = { venue2: {}, move: async (from: 1 | 2, _to: number, usd: number) => (sent.push([from, usd]), "") } as unknown as HlDeps;
   assert.equal(await _rebTest.ensureCash(d, 1, a1, 11, T0), "");
   assert.deepEqual(sent, [[2, 40]]);
   assert.equal(a1.freeUsd, 45);
@@ -611,4 +611,68 @@ test("cash between wallets: ensureCash moves from the other wallet and the copy 
   assert.equal(_rebTest.moves().at(-1)?.result, "refused: Insufficient balance");
   _rebTest.setPair(null);
   _rebTest.reset();
+});
+
+test("the third wallet: a coin wallets 1 and 2 both hold goes to wallet 3, funded from the wallet with the most free cash; skips are logged with their coin", async () => {
+  const cfg = { ...ON, second: { on: true, testOnce: "", maxOpen: 4 }, third: { on: true } };
+  assert.deepEqual(parseHlLive('{"hyperliquid":{"trade":{"on":true,"maxLossUsd":50,"third":{"on":true}}}}').third, { on: true });
+  assert.equal(parseHlLive('{"hyperliquid":{"trade":{"on":true,"maxLossUsd":50}}}').third, undefined);
+  const { w, w2, d } = two({ cfg, bar: ["copy-aaaa1111", "copy-bbbb2222", "copy-cccc3333", "copy-dddd4444"] });
+  const name = (c: Coin) => Object.keys(COINS).find((k) => COINS[k].index === c.index)!;
+  const w3 = { acct: { valueUsd: 0, freeUsd: 0, positions: {} } as Account, orders: [] as { coin: number; buy: boolean; sz: number; reduce: boolean }[], lev: [] as [number, number][], agentCalls: 0, oid: 2000 };
+  d.venue3 = {
+    coins: async () => COINS,
+    mids: async () => w.mids,
+    account: async () => structuredClone(w3.acct),
+    agent: async () => (w3.agentCalls++, ""),
+    setLeverage: async (c, l) => (w3.lev.push([c.index, l]), ""),
+    order: async (c, buy, _px, sz, reduce): Promise<Fill> => {
+      const coin = name(c);
+      w3.orders.push({ coin: c.index, buy, sz, reduce });
+      if (reduce) delete w3.acct.positions[coin];
+      else w3.acct.positions[coin] = { szi: buy ? sz : -sz, entryPx: w.mids[coin], unrealUsd: 0, marginUsd: 10 };
+      return { filled: true, sz, px: w.mids[coin], oid: ++w3.oid, error: null };
+    },
+    result: async () => null,
+  };
+  const moved: [number, number, number][] = [];
+  d.move = async (from, to, usd) => {
+    moved.push([from, to, usd]);
+    const src = from === 1 ? w.acct : from === 2 ? w2.acct : w3.acct;
+    const dst = to === 1 ? w.acct : to === 2 ? w2.acct : w3.acct;
+    src.freeUsd -= usd;
+    src.valueUsd -= usd;
+    dst.freeUsd += usd;
+    dst.valueUsd += usd;
+    return "";
+  };
+  // first look: wallet 3 has no money: $40 comes from wallet 1 (the most free cash), nothing else happens there
+  await hlLiveTick(d, T0 + 1000);
+  assert.deepEqual(moved, [[1, 3, 40]]);
+  assert.equal(w3.agentCalls, 0);
+  await hlLiveTick(d, T0 + 2000);
+  assert.equal(w3.agentCalls, 1, "its trading key is named once it has money");
+  assert.deepEqual(moved.length, 1, "funded once");
+  w.paper = [copy("copy-aaaa1111", "HYPE", 1, T0 + 3000, 2)];
+  await hlLiveTick(d, T0 + 4000);
+  w.paper.push(copy("copy-bbbb2222", "HYPE", -1, T0 + 5000, 5));
+  await hlLiveTick(d, T0 + 6000);
+  w.paper.push(copy("copy-cccc3333", "HYPE", 1, T0 + 7000, 3));
+  await hlLiveTick(d, T0 + 8000);
+  assert.deepEqual([w.orders.length, w2.orders.length, w3.orders.length], [1, 1, 1], "held in wallets 1 and 2: the third trader goes to wallet 3");
+  assert.deepEqual(w3.lev, [[5, 3]], "its own leverage");
+  w.paper.push(copy("copy-dddd4444", "HYPE", 1, T0 + 9000, 3));
+  await hlLiveTick(d, T0 + 10_000);
+  assert.equal(_test.state().skipped["coin already held"], 1, "held in all three: skipped");
+  const s = hlLiveSummary(d.cfg(), () => true, T0 + 10_000);
+  assert.deepEqual(s.opens.map((x) => x.wallet), [1, 2, 3]);
+  assert.deepEqual([s.third?.on, s.third?.open, s.third?.keyNamed], [true, 1, true]);
+  assert.deepEqual(s.skipLog.map((x) => [x.trader, x.coin, x.why]), [["copy-dddd4444", "HYPE", "coin already held"]]);
+  assert.equal(s.second?.open, 1, "wallet 3's copy is not counted as wallet 2's");
+  // the third trader closes: only wallet 3's position closes
+  w.paper = w.paper.filter((x) => x.rule !== "copy-cccc3333");
+  await hlLiveTick(d, T0 + 70_000);
+  assert.equal(w3.orders.at(-1)?.reduce, true);
+  assert.deepEqual([w.orders.length, w2.orders.length], [1, 1]);
+  assert.equal(_test.state().rows.at(-1)?.wallet, 3);
 });

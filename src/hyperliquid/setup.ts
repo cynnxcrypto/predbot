@@ -14,8 +14,8 @@ import { ROOT } from "../config.js";
 import { loadJson, saveJson } from "../store.js";
 import { ARBITRUM_CHAIN_ID, ARBITRUM_RPC, CREDIT_WAIT_MS, HL_API, fund, fundHistory, realChain, type Chain, type FundReport } from "./fund.js";
 import { coinsOf, usdSend, post as hlPostApi } from "./exchange.js";
-import { hlAgent, hlAgent2, hlWallet, hlWallet2, hlWallet2Exists } from "./keys.js";
-import { fileCfg, hlKeptTraders, hlLiveSummary, hlLiveTick, setHlDelayNote, type HlDeps } from "./live.js";
+import { hlAgent, hlAgent2, hlAgent3, hlWallet, hlWallet2, hlWallet2Exists, hlWallet3 } from "./keys.js";
+import { fileCfg, hlKeptTraders, hlLiveSummary, hlLiveTick, setHlDelayNote, setWalletAddrs, type HlDeps } from "./live.js";
 import { HlTradeWatch } from "./watch.js";
 import { hlHttpSummary } from "./ratelog.js";
 import { realVenue } from "./venue.js";
@@ -92,6 +92,17 @@ const secondCfg = () => {
   }
 };
 let address2 = "";
+let address3 = "";
+/** the third wallet (26 Nov 2026, enrique: "yeah third wallet sounds good"): made when deploy/live-rules.json has
+ *  hyperliquid.trade.third; its money comes from the cash moves between wallets (src/hyperliquid/live.ts) */
+const thirdWanted = () => {
+  try {
+    const t = (JSON.parse(readFileSync(join(ROOT, "deploy", "live-rules.json"), "utf8")) as { hyperliquid?: { trade?: { third?: unknown } } }).hyperliquid?.trade?.third;
+    return !!t && typeof t === "object";
+  } catch {
+    return false;
+  }
+};
 let secondBusy = false;
 export interface SecondDeps {
   cfg(): { wanted: boolean; fund: { id: string; usd: number } | null };
@@ -128,6 +139,7 @@ export async function secondFundLook(d: SecondDeps, now = Date.now()): Promise<s
 /** For the public status: no address. */
 /** The second wallet's public address, for the password-protected dashboard only (never the public status). */
 export const hlAddress2 = () => address2 || null;
+export const hlAddress3 = () => address3 || null;
 export const hlAddress1 = () => address || null;
 export const secondPublic = () => ({ wallet: address2 ? "made" : hlWallet2Exists() ? "on disk" : "none", funds: loadJson<SecondState>(SECOND, { funds: [] }).funds });
 
@@ -149,8 +161,9 @@ export async function fundLook(chain: Chain, mode: FundMode = fundMode()): Promi
     const got = await Promise.race([run, late]);
     // the second wallet's money is ours too: the worth counts both accounts as one. A look in which it is not read
     // gives no figure at all (the worth then keeps its last full reading), never the first wallet's alone
-    if (address2 && got.hlUsd !== null) {
-      const v2 = await chain.hlValue(address2).catch(() => null);
+    for (const a of [address2, address3]) {
+      if (!a || got.hlUsd === null) continue;
+      const v2 = await chain.hlValue(a).catch(() => null);
       got.hlUsd = v2 === null ? null : Math.round((got.hlUsd + v2) * 100) / 100;
     }
     funding = { ...got, at: Date.now(), mode };
@@ -362,12 +375,27 @@ export function startHyperliquid(fetcher: typeof fetch = fetch): Promise<void> {
         venue2 = undefined;
       }
     }
-    // cash between the two wallets so a copy is not skipped (src/hyperliquid/live.ts rebalancePlan, 26 Nov 2026)
-    const move = async (from: 1 | 2, usd: number): Promise<string> => {
-      const a = (await usdSend(from === 1 ? hlWallet() : hlWallet2(), from === 1 ? address2 : address, usd, fetcher)) as { status?: string; response?: unknown };
+    let venue3: HlDeps["venue3"];
+    if (thirdWanted()) {
+      try {
+        address3 = hlWallet3().address;
+        hlAgent3();
+        venue3 = realVenue(address3, fetcher, { wallet: hlWallet3, agent: hlAgent3 });
+      } catch {
+        address3 = "";
+        venue3 = undefined;
+      }
+    }
+    setWalletAddrs(() => [address || null, address2 || null, address3 || null]);
+    // cash between our wallets so a copy is not skipped (src/hyperliquid/live.ts rebalancePlan, 26 Nov 2026)
+    const keyOf = (w: 1 | 2 | 3) => (w === 3 ? hlWallet3() : w === 2 ? hlWallet2() : hlWallet());
+    const addrOf = (w: 1 | 2 | 3) => (w === 3 ? address3 : w === 2 ? address2 : address);
+    const move = async (from: 1 | 2 | 3, to: 1 | 2 | 3, usd: number): Promise<string> => {
+      if (!addrOf(from) || !addrOf(to) || from === to) return "no such wallet";
+      const a = (await usdSend(keyOf(from), addrOf(to), usd, fetcher)) as { status?: string; response?: unknown };
       return a?.status === "ok" ? "" : (typeof a?.response === "string" ? a.response : "no ok from Hyperliquid").replace(/0x[0-9a-fA-F]{40,}/g, "…").slice(0, 120);
     };
-    const deps: HlDeps = { cfg: fileCfg, venue: realVenue(address, fetcher), ...(venue2 ? { venue2, move } : {}), paperOpens: hlPaperOpens, meetsBar, listed: traderListed, histAvgPct: (r) => hlHistoryAvgPct(r), skillPass: (r) => hlSkillPass(r), proven: (r, t) => hlProven(r, t) };
+    const deps: HlDeps = { cfg: fileCfg, venue: realVenue(address, fetcher), ...(venue2 ? { venue2 } : {}), ...(venue3 ? { venue3 } : {}), ...(venue2 || venue3 ? { move } : {}), paperOpens: hlPaperOpens, meetsBar, listed: traderListed, histAvgPct: (r) => hlHistoryAvgPct(r), skillPass: (r) => hlSkillPass(r), proven: (r, t) => hlProven(r, t) };
     setKeptTraders(hlKeptTraders, "hyperliquid");
     runLive = serial(() => timed(() => hlLiveTick(deps)), liveRun);
     setInterval(() => void runLive(), 20_000).unref();

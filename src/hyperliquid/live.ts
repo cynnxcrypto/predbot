@@ -84,6 +84,9 @@ export interface HlLiveConfig {
   historyTop?: number;
   /** the second wallet (overlaps): on = a copy the first wallet cannot hold goes there; testOnce = its one test trade */
   second?: { on: boolean; testOnce: string; maxOpen: number };
+  /** the third wallet (26 Nov 2026, enrique: "yeah third wallet sounds good"): a copy whose coin wallets 1 and 2 both
+   *  hold goes here, its own leverage and exit; funded and topped up by the cash moves between wallets */
+  third?: { on: boolean };
   /** once per name: close every position open at that moment in both wallets (20 Nov 2026, enrique: "close all
    *  hyperliquid positions and lets see what happens next"); new copies go on as usual ("why no new real copies open
    *  wtf"). A forced close does not count for or against the trader */
@@ -125,14 +128,16 @@ export function parseHlLive(text: string): HlLiveConfig {
     const name = (v: unknown) => (typeof v === "string" && /^[a-z0-9-]{1,40}$/.test(v) ? v : "");
     const testOnce = name(p.testOnce);
     const s2 = p.second && typeof p.second === "object" ? (p.second as Record<string, unknown>) : null;
+    const s3 = p.third && typeof p.third === "object" ? (p.third as Record<string, unknown>) : null;
+    const third = s3 ? { third: { on: s3.on === true } } : {};
     const maxLossUsd = clamp(num(p.maxLossUsd, 0), 0, HARD_MAX_LOSS_USD);
     const collateralUsd = clamp(num(p.collateralUsd, MIN_COLLATERAL_USD), MIN_COLLATERAL_USD, HARD_COLLATERAL_USD);
     const closeAll = name(p.closeAllOnce) ? { closeAllOnce: name(p.closeAllOnce) } : {};
-    if (p.on !== true || !(maxLossUsd > 0)) return { ...OFF, collateralUsd, testOnce, ...closeAll, ...(s2 ? { second: { on: false, testOnce: name(s2.testOnce), maxOpen: 0 } } : {}) };
+    if (p.on !== true || !(maxLossUsd > 0)) return { ...OFF, collateralUsd, testOnce, ...closeAll, ...(s2 ? { second: { on: false, testOnce: name(s2.testOnce), maxOpen: 0 } } : {}), ...(s3 ? { third: { on: false } } : {}) };
     const lateWithin = clamp(num(p.lateWithinPct, 0), 0, HARD_LATE_PCT) / 100;
     const kb = p.keepBar && typeof p.keepBar === "object" ? (p.keepBar as Record<string, unknown>) : null;
     const keepBar = kb ? { keepBar: { perCopyUsd: clamp(num(kb.perCopyUsd, 0.5), 0, 50), histPct: clamp(num(kb.histPct, 2), 0, 50) } } : {};
-    return { on: true, collateralUsd, maxLossUsd, testOnce, lateWithin, ...keepBar, ...(p.historyBar === true ? { historyBar: true, historyTop: Math.floor(clamp(num(p.historyTop, 5), 0, HARD_HISTORY_TOP)) } : {}), ...(p.skillBar === true ? { skillBar: true } : {}), ...(num(p.provenT, 0) > 0 ? { provenT: clamp(num(p.provenT, 0), 1, 10) } : {}), ...closeAll, ...(s2 ? { second: { on: s2.on === true, testOnce: name(s2.testOnce), maxOpen: Math.floor(clamp(num(s2.maxOpen, SECOND_MAX_OPEN), 1, HARD_SECOND_MAX_OPEN)) } } : {}), maxOpen: Math.floor(clamp(num(p.maxOpen, 5), 1, HARD_MAX_OPEN)), traderStopUsd: clamp(num(p.traderStopUsd, 9), 1, HARD_TRADER_STOP_USD) };
+    return { on: true, collateralUsd, maxLossUsd, testOnce, lateWithin, ...keepBar, ...(p.historyBar === true ? { historyBar: true, historyTop: Math.floor(clamp(num(p.historyTop, 5), 0, HARD_HISTORY_TOP)) } : {}), ...(p.skillBar === true ? { skillBar: true } : {}), ...(num(p.provenT, 0) > 0 ? { provenT: clamp(num(p.provenT, 0), 1, 10) } : {}), ...closeAll, ...(s2 ? { second: { on: s2.on === true, testOnce: name(s2.testOnce), maxOpen: Math.floor(clamp(num(s2.maxOpen, SECOND_MAX_OPEN), 1, HARD_SECOND_MAX_OPEN)) } } : {}), ...third, maxOpen: Math.floor(clamp(num(p.maxOpen, 5), 1, HARD_MAX_OPEN)), traderStopUsd: clamp(num(p.traderStopUsd, 9), 1, HARD_TRADER_STOP_USD) };
   } catch {
     return OFF;
   }
@@ -190,8 +195,10 @@ export interface HlDeps {
   venue: Venue;
   /** the second wallet's account (overlaps); none = there is no second wallet */
   venue2?: Venue;
-  /** move USDC inside Hyperliquid from one of our wallets to the other: "" when Hyperliquid said ok, else why not */
-  move?(from: 1 | 2, usd: number): Promise<string>;
+  /** the third wallet's account (a coin wallets 1 and 2 both hold); none = there is no third wallet */
+  venue3?: Venue;
+  /** move USDC inside Hyperliquid between our wallets: "" when Hyperliquid said ok, else why not */
+  move?(from: W, to: W, usd: number): Promise<string>;
   paperOpens(): PaperOpen[];
   /** does this trader's paper record made after `sinceMs` meet the bar for real? */
   meetsBar(rule: string, sinceMs: number, now: number): boolean;
@@ -244,7 +251,7 @@ interface Pos {
   /** the trader's position against its account when copied (conviction) */
   share?: number;
   /** 2 = held in the second wallet (the coin was taken in the first by another trader's copy) */
-  w?: 2;
+  w?: 2 | 3;
 }
 interface Row {
   t: number;
@@ -257,7 +264,7 @@ interface Row {
   why: string;
   /** what the position was opened with (rows before 17 Nov 2026 21:40 KST have none) */
   collateralUsd?: number;
-  wallet?: 2;
+  wallet?: 2 | 3;
   gapPct?: number;
   lagSec?: number;
 }
@@ -279,6 +286,11 @@ interface State {
   /** the second wallet: its account, its trading key named, its one test trade, its last trouble */
   account2?: { at: number; valueUsd: number; freeUsd: number };
   agentOk2?: boolean;
+  account3?: { at: number; valueUsd: number; freeUsd: number };
+  agentOk3?: boolean;
+  lastError3?: string;
+  /** every skipped copy with its coin (26 Nov 2026, enrique: wallet 3 "go" with the skip log), newest last */
+  skipLog?: { t: number; rule: string; coin: string; dir: number; why: string; paperId: string }[];
   test2?: { id: string; at: number; result: string };
   /** the last closeAllOnce name carried out */
   closeAllId?: string;
@@ -308,7 +320,11 @@ const load = () => {
   }
 };
 const save = () => saveJson(FILE, state);
-const skip = (why: string) => void (state.skipped[why] = (state.skipped[why] ?? 0) + 1);
+const skip = (why: string, x?: { rule: string; coin: string; dir: number; id: string }) => {
+  state.skipped[why] = (state.skipped[why] ?? 0) + 1;
+  if (x) state.skipLog = [...(state.skipLog ?? []), { t: Date.now(), rule: x.rule, coin: x.coin, dir: x.dir, why, paperId: x.id }].slice(-300);
+};
+export type W = 1 | 2 | 3;
 /**
  * A copy opened and closed within a few minutes for cents: not a trade of the trader's, but its position slipping in
  * and out of the followed list (fixed at the source 17 Nov 2026, src/solana/buckets.ts HL_KEEP_POS_USD). Such rows stay
@@ -358,7 +374,7 @@ export const leverageFor = (traderLev: number | undefined, coin: Coin) => Math.m
 function book(p: Pos, netUsd: number, why: string, now: number, stop: number, proven = false) {
   if (why === "the trader closed") noteDelay("realClose", p.rule, p.coin);
   state.netUsd = r2(state.netUsd + netUsd);
-  state.rows.push({ t: now, rule: p.rule, coin: p.coin, side: p.dir > 0 ? "long" : "short", leverage: p.lev, netUsd: r2(netUsd), heldH: Math.round(((now - p.openedMs) / 3_600_000) * 100) / 100, why, collateralUsd: p.collUsd, ...(p.w ? { wallet: 2 as const } : {}), ...(p.gapPct != null ? { gapPct: p.gapPct } : {}), ...(p.lagSec != null ? { lagSec: p.lagSec } : {}) });
+  state.rows.push({ t: now, rule: p.rule, coin: p.coin, side: p.dir > 0 ? "long" : "short", leverage: p.lev, netUsd: r2(netUsd), heldH: Math.round(((now - p.openedMs) / 3_600_000) * 100) / 100, why, collateralUsd: p.collUsd, ...(p.w ? { wallet: p.w } : {}), ...(p.gapPct != null ? { gapPct: p.gapPct } : {}), ...(p.lagSec != null ? { lagSec: p.lagSec } : {}) });
   if (state.rows.length > 2000) state.rows = state.rows.slice(-2000);
   state.opens = state.opens.filter((x) => x !== p);
   if (p.rule === TEST_RULE || why.startsWith("closed on enrique's word") || proven) return;
@@ -401,7 +417,7 @@ export async function hlLiveTick(d: HlDeps, now = Date.now()): Promise<void> {
     }
     // THE SECOND WALLET (overlaps): one book, two accounts. A look in which it cannot be read leaves its positions as
     // they are (never counted as gone) and opens nothing there.
-    const v2 = d.venue2 && (cfg.second?.on || test2Due || state.opens.some((p) => p.w)) ? d.venue2 : undefined;
+    const v2 = d.venue2 && (cfg.second?.on || test2Due || state.opens.some((p) => p.w === 2)) ? d.venue2 : undefined;
     let acct2: Account | null = null;
     if (v2) {
       state.lastError2 = "";
@@ -419,11 +435,35 @@ export async function hlLiveTick(d: HlDeps, now = Date.now()): Promise<void> {
       }
     }
     const ready2 = !!acct2 && !!state.agentOk2;
-    pair = { 1: acct, 2: ready2 ? acct2 : null };
-    /** where a new copy on this coin can go: 1 the first wallet, 2 the second (the first holds the coin already), 0 nowhere */
-    const where = (c: string): 0 | 1 | 2 => {
+    // THE THIRD WALLET (26 Nov 2026): same as the second, for a coin wallets 1 and 2 both hold. Its first money comes
+    // from the cash moves (REB_USD from the wallet with the most free cash) so its trading key can be named.
+    const v3 = d.venue3 && (cfg.third?.on || state.opens.some((p) => p.w === 3)) ? d.venue3 : undefined;
+    let acct3: Account | null = null;
+    if (v3) {
+      state.lastError3 = "";
+      acct3 = await v3.account().catch((e) => ((state.lastError3 = `third wallet not read: ${String((e as Error)?.message ?? e).replace(/0x[0-9a-fA-F]{40,}/g, "…").slice(0, 100)}`), null));
+      if (acct3) {
+        state.account3 = { at: now, valueUsd: r2(acct3.valueUsd), freeUsd: r2(acct3.freeUsd) };
+        if (!state.agentOk3) {
+          if (!(acct3.valueUsd > 0)) {
+            state.lastError3 = "no money in the third wallet yet";
+            if (cfg.third?.on && !(state.moves ?? []).some((m) => m.to === 3 && now - m.at < 10 * 60_000)) await ensureCash(d, 3, acct3, REB_USD, now, { 1: acct, 2: ready2 ? acct2 : null, 3: acct3 });
+          } else {
+            const why = await v3.agent().catch((e) => String((e as Error)?.message ?? e).replace(/0x[0-9a-fA-F]{40,}/g, "…").slice(0, 100));
+            if (why) state.lastError3 = `third wallet trading key: ${why}`;
+            else state.agentOk3 = true;
+          }
+        }
+      }
+    }
+    const ready3 = !!acct3 && !!state.agentOk3;
+    pair = { 1: acct, 2: ready2 ? acct2 : null, 3: ready3 ? acct3 : null };
+    const acctOf = (w: W): Account => (w === 3 ? acct3! : w === 2 ? acct2! : acct);
+    /** where a new copy on this coin can go: 1 the first wallet, 2 the second (the first holds the coin), 3 the third (both hold it), 0 nowhere */
+    const where = (c: string): 0 | W => {
       if (!state.opens.some((o) => !o.w && o.coin === c) && !acct.positions[c]) return 1;
-      return cfg.second?.on && ready2 && state.opens.filter((o) => o.w).length < cfg.second.maxOpen && !state.opens.some((o) => o.w && o.coin === c) && !acct2!.positions[c] ? 2 : 0;
+      if (cfg.second?.on && ready2 && state.opens.filter((o) => o.w === 2).length < cfg.second.maxOpen && !state.opens.some((o) => o.w === 2 && o.coin === c) && !acct2!.positions[c]) return 2;
+      return cfg.third?.on && ready3 && !state.opens.some((o) => o.w === 3 && o.coin === c) && !acct3!.positions[c] ? 3 : 0;
     };
     const [coins, mids] = [await v.coins(), await v.mids()];
     const paper = d.paperOpens();
@@ -482,8 +522,8 @@ export async function hlLiveTick(d: HlDeps, now = Date.now()): Promise<void> {
     }
     // ---- what we hold: mark it, close what is due ----
     for (const p of [...state.opens]) {
-      const pa = p.w ? acct2 : acct;
-      const pv = p.w ? v2 : v;
+      const pa = p.w === 3 ? acct3 : p.w === 2 ? acct2 : acct;
+      const pv = p.w === 3 ? v3 : p.w === 2 ? v2 : v;
       if (!pa || !pv) continue; // the second wallet was not read in this look
       const held = pa.positions[p.coin];
       const coin = coins[p.coin];
@@ -538,7 +578,7 @@ export async function hlLiveTick(d: HlDeps, now = Date.now()): Promise<void> {
       const f = await pv.order(coin, p.dir < 0, px * (1 - p.dir * slip), sz, true);
       p.closeTries++;
       if (!f.filled) {
-        if (/does not exist/i.test(f.error ?? "")) p.w ? (state.agentOk2 = false) : (state.agentOk = false);
+        if (/does not exist/i.test(f.error ?? "")) p.w === 3 ? (state.agentOk3 = false) : p.w === 2 ? (state.agentOk2 = false) : (state.agentOk = false);
         state.lastError = `${p.coin} close: ${f.error}`;
         continue;
       }
@@ -550,7 +590,7 @@ export async function hlLiveTick(d: HlDeps, now = Date.now()): Promise<void> {
       const net = own ?? (p.partUsd ?? 0) + p.dir * (f.px - p.entryPx) * sz - TAKER_FEE * sz * (f.px + p.entryPx);
       if (p.forceClose) state.ghosts = [...(state.ghosts ?? []), { coin: p.coin, dir: p.dir, sz, closePx: f.px, paperId: p.paperId, closedAt: now, lockedUsd: r2(net) }].slice(-200);
       book(p, net, why, now, stop, isProven(p.rule));
-      const tst = p.w ? state.test2 : state.test;
+      const tst = p.w === 3 ? undefined : p.w === 2 ? state.test2 : state.test;
       if (p.rule === TEST_RULE && tst) tst.result = `opened and closed, ${r2(state.rows[state.rows.length - 1].netUsd)} USD`;
     }
 
@@ -562,7 +602,7 @@ export async function hlLiveTick(d: HlDeps, now = Date.now()): Promise<void> {
       state.test.result = r || "opened";
     }
     // the second wallet's one test trade: only once it has money and its trading key is named (the name is not used up before)
-    if (test2Due && ready2 && !state.opens.some((x) => x.w && (x.rule === TEST_RULE || x.coin === "BTC")) && !acct2!.positions.BTC) {
+    if (test2Due && ready2 && !state.opens.some((x) => x.w === 2 && (x.rule === TEST_RULE || x.coin === "BTC")) && !acct2!.positions.BTC) {
       state.test2 = { id: cfg.second!.testOnce, at: now, result: "tried" };
       save();
       const r = await open(d, { id: `test2:${cfg.second!.testOnce}`, rule: TEST_RULE, coin: "BTC", dir: 1, at: now, lev: 1 }, MIN_ORDER_USD, coins, mids, acct2!, now, false, 2);
@@ -581,15 +621,15 @@ export async function hlLiveTick(d: HlDeps, now = Date.now()): Promise<void> {
         if (!isReal(x.rule)) continue; // not marked seen: it is simply not ours to copy
         state.seen.push(x.id);
         if (state.seen.length > 4000) state.seen = state.seen.slice(-4000);
-        if (loss() >= cfg.maxLossUsd) (skip("loss cap reached"));
-        else if (!d.listed(x.rule)) skip("trader off the list");
-        else if (state.opens.filter((o) => !o.w).length >= cfg.maxOpen && where(x.coin) !== 2) skip("all positions in use");
+        if (loss() >= cfg.maxLossUsd) skip("loss cap reached", x);
+        else if (!d.listed(x.rule)) skip("trader off the list", x);
+        else if (state.opens.filter((o) => !o.w).length >= cfg.maxOpen && where(x.coin) < 2) skip("all positions in use", x);
         else {
           // a coin the first wallet holds for another trader goes to the second wallet (its own leverage, margin and
           // exit); held in both, or no second wallet: skipped
           const w = where(x.coin);
-          const why = !w ? "coin already held" : keptForPassers(x.rule, w === 2 ? acct2! : acct) ? "cash kept for skill passers" : await open(d, x, convictionUsd(hlCollateral(x.rule, cfg.collateralUsd), x.share, realOf(x.rule)), coins, mids, w === 2 ? acct2! : acct, now, false, w);
-          if (why) skip(why);
+          const why = !w ? "coin already held" : keptForPassers(x.rule, acctOf(w)) ? "cash kept for skill passers" : await open(d, x, convictionUsd(hlCollateral(x.rule, cfg.collateralUsd), x.share, realOf(x.rule)), coins, mids, acctOf(w), now, false, w);
+          if (why) skip(why, x);
         }
       }
     }
@@ -602,14 +642,14 @@ export async function hlLiveTick(d: HlDeps, now = Date.now()): Promise<void> {
         if (state.held.includes(x.id) || state.lateOff.includes(x.id)) continue;
         if (!isReal(x.rule) || !d.listed(x.rule)) continue;
         const w = where(x.coin);
-        const wa = w === 2 ? acct2! : acct;
+        const wa = w ? acctOf(w) : acct;
         if (!w || (w === 1 && full1) || keptForPassers(x.rule, wa)) continue;
         if (wa.freeUsd < cfg.collateralUsd + 1 && (await ensureCash(d, w, wa, cfg.collateralUsd + 1, now))) continue;
         const px = mids[x.coin];
         if (!(px > 0) || Math.abs(px / x.px - 1) > (cfg.lateWithin ?? 0)) continue;
         const why = await open(d, x, convictionUsd(hlCollateral(x.rule, cfg.collateralUsd), x.share, realOf(x.rule)), coins, mids, wa, now, true, w);
         if (why) {
-          skip(`late copy: ${why}`);
+          skip(`late copy: ${why}`, x);
           state.lateOff = [...state.lateOff, x.id].slice(-500);
         }
       }
@@ -635,30 +675,36 @@ export async function hlLiveTick(d: HlDeps, now = Date.now()): Promise<void> {
 export const REB_USD = 40;
 export const REB_KEEP = 20;
 export const REB_LOST = 10 * 60_000;
-export type CashMove = { at: number; from: 1 | 2; usd: number; result: string };
+export type CashMove = { at: number; from: W; to?: W; usd: number; result: string };
 /** How much to move to wallet `to` when it is `short` dollars short, or why not. Pure. */
-export function rebalancePlan(to: 1 | 2, short: number, giverFree: number, moves: CashMove[], now: number): { usd: number } | { why: string } {
+export function rebalancePlan(to: W, short: number, giverFree: number, moves: CashMove[], now: number): { usd: number } | { why: string } {
   // a move whose answer was lost may still land: never another on a guess for a few minutes
   if (moves.some((m) => (m.result === "tried" || m.result.startsWith("not known")) && now - m.at < REB_LOST)) return { why: "a move's answer was lost a few minutes ago" };
   const usd = Math.max(REB_USD, Math.ceil(short));
   if (!(giverFree - usd >= REB_KEEP)) return { why: `the other wallet has only $${Math.max(0, giverFree).toFixed(2)} free` };
   return { usd };
 }
-/** Both wallets' accounts as read this look (wallet 2 null when not read). */
-let pair: { 1: Account; 2: Account | null } | null = null;
-/** Make room for a copy needing `need` free dollars in wallet `w`: "" when there is (now) enough, else why not. */
-async function ensureCash(d: HlDeps, w: 1 | 2, acct: Account, need: number, now: number): Promise<string> {
+/** The wallets' public addresses (set by src/hyperliquid/setup.ts), for the sealed cash note only. */
+let walletAddrs: (() => (string | null)[]) | null = null;
+export const setWalletAddrs = (f: () => (string | null)[]) => void (walletAddrs = f);
+/** Our wallets' accounts as read this look (null when not read or not ready). */
+let pair: { 1: Account; 2: Account | null; 3?: Account | null } | null = null;
+/** Make room for a copy needing `need` free dollars in wallet `w`: "" when there is (now) enough, else why not. The
+ *  money comes from the other wallet with the most free cash. */
+async function ensureCash(d: HlDeps, w: W, acct: Account, need: number, now: number, accts = pair): Promise<string> {
   if (acct.freeUsd >= need) return "";
-  const other = pair?.[w === 1 ? 2 : 1];
-  if (!d.move || !other || !d.venue2) return "not enough free money";
+  if (!d.move || !accts) return "not enough free money";
+  const givers = ([1, 2, 3] as W[]).filter((k) => k !== w && accts[k]).sort((a, b) => accts[b]!.freeUsd - accts[a]!.freeUsd);
+  if (!givers.length) return "not enough free money";
+  const from = givers[0];
+  const other = accts[from]!;
   const plan = rebalancePlan(w, need - acct.freeUsd, other.freeUsd, state.moves ?? [], now);
   if ("why" in plan) return "not enough free money";
-  const from: 1 | 2 = w === 1 ? 2 : 1;
-  const row: CashMove = { at: now, from, usd: plan.usd, result: "tried" };
+  const row: CashMove = { at: now, from, to: w, usd: plan.usd, result: "tried" };
   state.moves = [...(state.moves ?? []), row].slice(-50);
   save(); // written before the money moves: a lost answer never sends twice in a row
   row.result = await d
-    .move(from, plan.usd)
+    .move(from, w, plan.usd)
     .then((r) => (r ? `refused: ${r}` : "sent"))
     .catch((e) => `not known: ${String((e as Error)?.message ?? e).replace(/0x[0-9a-fA-F]{40,}/g, "…").slice(0, 100)}`);
   save();
@@ -668,12 +714,12 @@ async function ensureCash(d: HlDeps, w: 1 | 2, acct: Account, need: number, now:
   return acct.freeUsd >= need ? "" : "not enough free money";
 }
 /** For tests only. */
-export const _rebTest = { setPair: (p: typeof pair) => void (pair = p), ensureCash, moves: () => state.moves ?? [], reset: () => void (state.moves = []) };
+export const _rebTest = { setPair: (p: typeof pair) => void (pair = p), ensureCash: (d: HlDeps, w: W, a: Account, need: number, now: number) => ensureCash(d, w, a, need, now), moves: () => state.moves ?? [], reset: () => void (state.moves = []) };
 
 /** Open one copy. Returns "" when it is open, else why not. */
-async function open(d: HlDeps, x: PaperOpen, collateralUsd: number, coins: Record<string, Coin>, mids: Record<string, number>, acct: Account, now: number, late = false, w: 1 | 2 = 1): Promise<string> {
-  const venue = w === 2 ? d.venue2 : d.venue;
-  if (!venue) return "no second wallet";
+async function open(d: HlDeps, x: PaperOpen, collateralUsd: number, coins: Record<string, Coin>, mids: Record<string, number>, acct: Account, now: number, late = false, w: W = 1): Promise<string> {
+  const venue = w === 3 ? d.venue3 : w === 2 ? d.venue2 : d.venue;
+  if (!venue) return w === 3 ? "no third wallet" : "no second wallet";
   const coin = coins[x.coin];
   const px = mids[x.coin];
   if (!coin || !(px > 0)) return "coin not on Hyperliquid's list";
@@ -688,13 +734,13 @@ async function open(d: HlDeps, x: PaperOpen, collateralUsd: number, coins: Recor
   if (lv) return `leverage not set`;
   const f = await venue.order(coin, x.dir > 0, px * (1 + x.dir * OPEN_SLIP), sz, false);
   if (!f.filled) {
-    if (/does not exist/i.test(f.error ?? "")) w === 2 ? (state.agentOk2 = false) : (state.agentOk = false);
+    if (/does not exist/i.test(f.error ?? "")) w === 3 ? (state.agentOk3 = false) : w === 2 ? (state.agentOk2 = false) : (state.agentOk = false);
     state.lastError = `${x.coin} open: ${f.error}`;
     return "order not filled";
   }
   acct.freeUsd -= (f.sz * f.px) / lev;
   const gapPct = x.their ? entryGapPct(x.dir, f.px, x.their) : null;
-  state.opens.push({ rule: x.rule, coin: x.coin, paperId: x.id, dir: x.dir, lev, sz: f.sz, entryPx: f.px, ...(gapPct != null ? { gapPct } : {}), ...(late ? {} : { lagSec: Math.max(0, Math.round((now - x.at) / 1000)) }), collUsd: r2((f.sz * f.px) / lev), openOid: f.oid, openedMs: now, closeTries: 0, ...(late ? { late: true } : {}), ...(x.share != null ? { share: x.share } : {}), ...(x.left != null && x.left > 0 ? { left0: Math.min(1, x.left) } : {}), ...(w === 2 ? { w: 2 as const } : {}) });
+  state.opens.push({ rule: x.rule, coin: x.coin, paperId: x.id, dir: x.dir, lev, sz: f.sz, entryPx: f.px, ...(gapPct != null ? { gapPct } : {}), ...(late ? {} : { lagSec: Math.max(0, Math.round((now - x.at) / 1000)) }), collUsd: r2((f.sz * f.px) / lev), openOid: f.oid, openedMs: now, closeTries: 0, ...(late ? { late: true } : {}), ...(x.share != null ? { share: x.share } : {}), ...(x.left != null && x.left > 0 ? { left0: Math.min(1, x.left) } : {}), ...(w === 2 ? { w: 2 as const } : w === 3 ? { w: 3 as const } : {}) });
   if (!late && x.rule !== TEST_RULE) noteDelay("realOpen", x.rule, x.coin);
   state.held = [...state.held, x.id].slice(-4000);
   save();
@@ -720,14 +766,20 @@ export function hlLiveSummary(cfg: HlLiveConfig = fileCfg(), meetsBar: (rule: st
     skillBar: !!cfg.skillBar,
     limits: { collateralUsd: cfg.collateralUsd, maxOpen: cfg.maxOpen, maxLossUsd: cfg.maxLossUsd, traderStopUsd: cfg.traderStopUsd, lateWithinPct: Math.round((cfg.lateWithin ?? 0) * 10000) / 100 },
     // both wallets as one (the worth counts them as one), and each beside it
-    account: state.account && state.account2 ? { at: Math.min(state.account.at, state.account2.at), valueUsd: r2(state.account.valueUsd + state.account2.valueUsd), freeUsd: r2(state.account.freeUsd + state.account2.freeUsd) } : (state.account ?? null),
-    second: cfg.second || state.account2 ? { on: !!cfg.second?.on, account: state.account2 ?? null, first: state.account ?? null, keyNamed: !!state.agentOk2, test: state.test2 ?? null, open: state.opens.filter((p) => p.w).length, lastError: state.lastError2 ?? "" } : null,
+    account: state.account ? (() => {
+      const all = [state.account, state.account2, state.account3].filter((a): a is NonNullable<typeof a> => !!a);
+      return { at: Math.min(...all.map((a) => a.at)), valueUsd: r2(all.reduce((t, a) => t + a.valueUsd, 0)), freeUsd: r2(all.reduce((t, a) => t + a.freeUsd, 0)) };
+    })() : null,
+    second: cfg.second || state.account2 ? { on: !!cfg.second?.on, account: state.account2 ?? null, first: state.account ?? null, keyNamed: !!state.agentOk2, test: state.test2 ?? null, open: state.opens.filter((p) => p.w === 2).length, lastError: state.lastError2 ?? "" } : null,
+    third: cfg.third || state.account3 ? { on: !!cfg.third?.on, keyNamed: !!state.agentOk3, open: state.opens.filter((p) => p.w === 3).length, lastError: state.lastError3 ?? "" } : null,
+    // every skipped copy with its coin, newest first (the public status keeps the last 30)
+    skipLog: (state.skipLog ?? []).slice(-30).reverse().map((x) => ({ t: x.t, trader: x.rule, coin: x.coin, side: x.dir > 0 ? "long" : "short", why: x.why })),
     // 26 Nov 2026: both wallets' value and free cash, sealed with the server's jev key (the public status carries no
     // balance; deploy/report.py drops "account"): MAIN opens it to answer enrique's "free cash in both wallets"
     cashSealed: (() => {
       try {
         const k = readFileSync(join(DATA, "jev-key.txt"), "utf8").trim();
-        return k && state.account ? seal(JSON.stringify({ w1: state.account, w2: state.account2 ?? null }), k) : null;
+        return k && state.account ? seal(JSON.stringify({ w1: state.account, w2: state.account2 ?? null, w3: state.account3 ?? null, addrs: walletAddrs?.() ?? null }), k) : null;
       } catch {
         return null;
       }

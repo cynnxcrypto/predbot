@@ -336,7 +336,7 @@ type Deps = {
   /** what the dashboard serves for its day by day, from the same server functions (16 Nov 2026); left out = not checked */
   dayServed?: () => ServedDays;
   /** Hyperliquid: our two wallets' addresses (null when not set up) and the positions our books hold open (20 Nov 2026) */
-  hl?: () => { addrs: (string | null)[]; opens: { coin: string; wallet: 1 | 2 }[] };
+  hl?: () => { addrs: (string | null)[]; opens: { coin: string; wallet: 1 | 2 | 3 }[] };
 };
 let deps: Deps | null = null;
 let last: { at: number; items: Item[]; extra: Record<string, unknown> } | null = null;
