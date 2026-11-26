@@ -15,6 +15,7 @@ import { loadJson, saveJson } from "../store.js";
 import { ARBITRUM_CHAIN_ID, ARBITRUM_RPC, CREDIT_WAIT_MS, HL_API, fund, fundHistory, realChain, type Chain, type FundReport } from "./fund.js";
 import { coinsOf, usdSend, post as hlPostApi } from "./exchange.js";
 import { hlAgent, hlAgent2, hlAgent3, hlWallet, hlWallet2, hlWallet2Exists, hlWallet3 } from "./keys.js";
+import { startRecon } from "./recon.js";
 import { fileCfg, hlKeptTraders, hlLiveSummary, hlLiveTick, setHlDelayNote, setWalletAddrs, type HlDeps } from "./live.js";
 import { HlTradeWatch } from "./watch.js";
 import { hlHttpSummary } from "./ratelog.js";
@@ -387,6 +388,7 @@ export function startHyperliquid(fetcher: typeof fetch = fetch): Promise<void> {
       }
     }
     setWalletAddrs(() => [address || null, address2 || null, address3 || null]);
+    startRecon(() => [address || null, address2 || null, address3 || null], fetcher);
     // cash between our wallets so a copy is not skipped (src/hyperliquid/live.ts rebalancePlan, 26 Nov 2026)
     const keyOf = (w: 1 | 2 | 3) => (w === 3 ? hlWallet3() : w === 2 ? hlWallet2() : hlWallet());
     const addrOf = (w: 1 | 2 | 3) => (w === 3 ? address3 : w === 2 ? address2 : address);

@@ -39,6 +39,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { DATA, ROOT } from "../config.js";
 import { seal } from "../solana/sendout.js";
+import { reconNow } from "./recon.js";
 import { loadJson, saveJson } from "../store.js";
 import { cutReason, perpLadder, realRecord, standing, type RealRecord } from "../solana/realfirst.js";
 import type { Coin, Fill } from "./exchange.js";
@@ -780,6 +781,16 @@ export function hlLiveSummary(cfg: HlLiveConfig = fileCfg(), meetsBar: (rule: st
       try {
         const k = readFileSync(join(DATA, "jev-key.txt"), "utf8").trim();
         return k && state.account ? seal(JSON.stringify({ w1: state.account, w2: state.account2 ?? null, w3: state.account3 ?? null, addrs: walletAddrs?.() ?? null }), k) : null;
+      } catch {
+        return null;
+      }
+    })(),
+    // Hyperliquid's own fills, funding and money moves per wallet since 17 Nov (src/hyperliquid/recon.ts), sealed
+    reconSealed: (() => {
+      try {
+        const k = readFileSync(join(DATA, "jev-key.txt"), "utf8").trim();
+        const r = reconNow();
+        return k && r ? seal(JSON.stringify(r), k) : null;
       } catch {
         return null;
       }
