@@ -1939,6 +1939,17 @@ async function markOpenTick() {
       return "";
     }
   })();
+  // 26 Nov 2026, enrique on the old bets whose end date passed but whose market still trades ("sell them to claim
+  // whatever and settle", then "yeah sell em"): events.copy.exitOverdueH sells an overdue copy bet whole once its due
+  // time is that many hours past, while Polymarket still takes orders. 0 or missing = off.
+  const exitOverdueH = (() => {
+    try {
+      const v = Number((JSON.parse(readFileSync(join(ROOT, "deploy", "live-rules.json"), "utf8")) as { events?: { copy?: { exitOverdueH?: unknown } } }).events?.copy?.exitOverdueH);
+      return Number.isFinite(v) && v > 0 ? v : 0;
+    } catch {
+      return 0;
+    }
+  })();
   let exitQueued = 0;
   const cache = new Map<string, GMarket | null>();
   for (const r0 of rows) {
@@ -1961,6 +1972,14 @@ async function markOpenTick() {
     if (Number.isFinite(due) && m.at > due) {
       const u = String((g as { umaResolutionStatus?: string } | null)?.umaResolutionStatus ?? "");
       const state = !g ? "market not readable" : g.closed ? "closed on Polymarket, our settle has not run yet" : u ? `waiting on the resolution (${u})` : g.acceptingOrders === false ? "trading stopped, waiting on the resolution" : "still trading, result not proposed yet";
+      if (exitOverdueH && r.group === "copy" && g && !g.closed && g.acceptingOrders !== false && m.at - due >= exitOverdueH * 3600_000) {
+        const tok = !r0.token ? jl<string[]>(g.clobTokenIds, []) : [];
+        if (tok.length === 2 && eventLiveFillTokens(r0.marketId, tok)) log(`sell-out: token id filled for ${r0.title.slice(0, 60)}`);
+        if (queueExit(r0, Date.now())) {
+          exitQueued += 1;
+          log(`sell-out: overdue bet queued for sale: ${r0.title.slice(0, 60)}`);
+        }
+      }
       (m.overdue ??= []).push({ group: r.group, title: r.title.slice(0, 80), outcome: r.outcome.slice(0, 30), stake: Math.round(r.cost * 100) / 100, hours: Math.round((m.at - (due - (Number.isFinite(tsOf(g?.gameStartTime)) ? 4 : 2) * 3600_000)) / 360_000) / 10, price: Number.isFinite(px) ? px : null, state });
     }
     m.n += 1;
