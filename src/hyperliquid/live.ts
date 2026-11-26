@@ -170,6 +170,8 @@ export interface Venue {
   order(coin: Coin, buy: boolean, px: number, sz: number, reduceOnly: boolean): Promise<Fill>;
   /** what Hyperliquid's own record says these orders made: closed profit minus fees; null when it cannot be read */
   result(oids: number[], sinceMs: number): Promise<number | null>;
+  /** what a position that left without our close made, from Hyperliquid's fills (venue.ts readGone) */
+  gone?(coin: string, dir: number, openedMs: number, openOid: number | null): Promise<number | null>;
   /** the account's fills since a time (for rebuilding ghosts) */
   fills?(sinceMs: number): Promise<{ coin: string; px: number; sz: number; time: number; dir: string }[]>;
 }
@@ -268,6 +270,9 @@ interface Row {
   wallet?: 2 | 3;
   gapPct?: number;
   lagSec?: number;
+  /** a "gone" row re-read from Hyperliquid's fills (26 Nov 2026): "done" (was = what it was booked at) or tries */
+  goneFix?: "done" | number;
+  was?: number;
 }
 interface State {
   netUsd: number;
@@ -521,6 +526,27 @@ export async function hlLiveTick(d: HlDeps, now = Date.now()): Promise<void> {
       state.closeAllId = cfg.closeAllOnce;
       save();
     }
+    // ---- "gone" rows booked at the opening fee only before 26 Nov 2026: re-read from Hyperliquid's fills, a few a look ----
+    {
+      let n = 0;
+      for (const r of state.rows) {
+        if (n >= 4) break;
+        if (!r.why.startsWith("gone") || r.goneFix === "done" || (typeof r.goneFix === "number" && r.goneFix >= 3)) continue;
+        const rv = r.wallet === 3 ? v3 : r.wallet === 2 ? v2 : v;
+        if (!rv?.gone) continue;
+        n++;
+        const g = await rv.gone(r.coin, r.side === "long" ? 1 : -1, r.t - r.heldH * 3_600_000, null).catch(() => null);
+        if (g == null) {
+          r.goneFix = (typeof r.goneFix === "number" ? r.goneFix : 0) + 1;
+          continue;
+        }
+        r.was = r.netUsd;
+        r.netUsd = r2(g);
+        state.netUsd = r2(state.netUsd + g - r.was);
+        r.goneFix = "done";
+      }
+      if (n) save();
+    }
     // ---- what we hold: mark it, close what is due ----
     for (const p of [...state.opens]) {
       const pa = p.w === 3 ? acct3 : p.w === 2 ? acct2 : acct;
@@ -531,7 +557,11 @@ export async function hlLiveTick(d: HlDeps, now = Date.now()): Promise<void> {
       if (!held || Math.sign(held.szi) !== p.dir) {
         // liquidated, or closed by hand: only after several looks in a row, and at what Hyperliquid's record says it made
         p.goneLooks = (p.goneLooks ?? 0) + 1;
-        if (p.goneLooks >= GONE_LOOKS) book(p, (p.openOid != null ? await pv.result([p.openOid], p.openedMs - 60_000).catch(() => null) : null) ?? -p.collUsd, "gone: liquidated or closed outside the bot", now, stop, isProven(p.rule));
+        if (p.goneLooks >= GONE_LOOKS) {
+          const g = pv.gone ? await pv.gone(p.coin, p.dir, p.openedMs, p.openOid).catch(() => null) : null;
+          book(p, g ?? (p.openOid != null ? await pv.result([p.openOid], p.openedMs - 60_000).catch(() => null) : null) ?? -p.collUsd, "gone: liquidated or closed outside the bot", now, stop, isProven(p.rule));
+          if (g != null) state.rows[state.rows.length - 1].goneFix = "done";
+        }
         continue;
       }
       p.goneLooks = 0;

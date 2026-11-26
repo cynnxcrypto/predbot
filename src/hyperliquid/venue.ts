@@ -37,6 +37,42 @@ export function readResult(fills: unknown, oids: number[]): number | null {
   return Number.isFinite(net) ? net : null;
 }
 
+type RawFill = { coin?: string; dir?: string; sz?: string; closedPnl?: string; fee?: string; oid?: number; time?: number };
+/**
+ * What a position that left WITHOUT our close made (a liquidation, or a close by hand), from Hyperliquid's own fills:
+ * its opening order (by oid, else the opening fill of that coin and side within 3 minutes of when we opened), then the
+ * closing fills of that side after it until its whole size is out. Null when the record does not hold all of it.
+ * (26 Nov 2026: these were booked at the opening fee only, e.g. a BTC liquidation of -$22.65 as -$0.27, so our
+ * closed-copy total read +$169 while Hyperliquid's own was +$59.)
+ */
+export function readGone(fills: unknown, coin: string, dir: number, openedMs: number, openOid: number | null): number | null {
+  if (!Array.isArray(fills)) return null;
+  const fs = (fills as RawFill[]).filter((f) => f?.coin === coin).sort((a, b) => Number(a.time) - Number(b.time));
+  const openDir = dir > 0 ? "Open Long" : "Open Short";
+  const closeDir = dir > 0 ? "Close Long" : "Close Short";
+  let oid = openOid;
+  if (oid == null) {
+    const o = fs.find((f) => f.dir === openDir && Math.abs(Number(f.time) - openedMs) <= 180_000);
+    if (!o) return null;
+    oid = Number(o.oid);
+  }
+  const opens = fs.filter((f) => Number(f.oid) === oid);
+  if (!opens.length) return null;
+  const pnl = (f: RawFill) => Number(f.closedPnl ?? 0) - Number(f.fee ?? 0);
+  const sz = opens.reduce((s, f) => s + Number(f.sz), 0);
+  const start = Math.min(...opens.map((f) => Number(f.time)));
+  let net = opens.reduce((s, f) => s + pnl(f), 0);
+  let left = sz;
+  for (const f of fs) {
+    if (left <= sz * 0.001) break;
+    if (Number(f.time) < start || f.dir !== closeDir || Number(f.oid) === oid) continue;
+    left -= Number(f.sz);
+    net += pnl(f);
+  }
+  if (left > sz * 0.01) return null;
+  return Number.isFinite(net) ? Math.round(net * 100) / 100 : null;
+}
+
 /** `keys`: the wallet and the trading key of the account (the first wallet's unless given). */
 export function realVenue(address: string, fetcher: typeof fetch = fetch, keys: { wallet: () => Wallet; agent: () => Wallet } = { wallet: hlWallet, agent: hlAgent }): Venue {
   let coins: { at: number; v: Record<string, Coin> } | null = null;
@@ -61,6 +97,7 @@ export function realVenue(address: string, fetcher: typeof fetch = fetch, keys: 
     },
     setLeverage: async (coin, leverage) => errOf(await send(keys.agent(), leverageAction(coin, leverage), fetcher)),
     order: async (coin, buy, px, sz, reduceOnly) => readOrder(await send(keys.agent(), orderAction(coin, buy, px, sz, reduceOnly), fetcher)),
+    gone: async (coin, dir, openedMs, openOid) => readGone(await post("info", { type: "userFillsByTime", user: address, startTime: Math.floor(openedMs - 300_000) }, fetcher), coin, dir, openedMs, openOid),
     result: async (oids, sinceMs) => readResult(await post("info", { type: "userFillsByTime", user: address, startTime: Math.floor(sinceMs) }, fetcher), oids),
     fills: async (sinceMs) => {
       const j = (await post("info", { type: "userFillsByTime", user: address, startTime: Math.floor(sinceMs) }, fetcher)) as { coin?: string; px?: string; sz?: string; time?: number; dir?: string }[];
