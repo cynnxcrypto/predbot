@@ -293,6 +293,8 @@ def summary():
         if isinstance(out["hyperliquid"]["live"].get("second"), dict):  # 19 Nov 2026: the second wallet's balances too
             out["hyperliquid"]["live"]["second"].pop("account", None)
             out["hyperliquid"]["live"]["second"].pop("first", None)
+        if isinstance(out["hyperliquid"]["live"].get("third"), dict):  # 26 Nov 2026: the third wallet's balance too
+            out["hyperliquid"]["live"]["third"].pop("account", None)
     # 19 Nov 2026: the bridge (src/bridge, stage, problems and steps of a move; dry by default) and the paper tests
     # (src/lab): both say no address by design; anything that still looks like one is cut here as well
     def _noaddr(v):

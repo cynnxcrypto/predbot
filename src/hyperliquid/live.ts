@@ -771,7 +771,7 @@ export function hlLiveSummary(cfg: HlLiveConfig = fileCfg(), meetsBar: (rule: st
       return { at: Math.min(...all.map((a) => a.at)), valueUsd: r2(all.reduce((t, a) => t + a.valueUsd, 0)), freeUsd: r2(all.reduce((t, a) => t + a.freeUsd, 0)) };
     })() : null,
     second: cfg.second || state.account2 ? { on: !!cfg.second?.on, account: state.account2 ?? null, first: state.account ?? null, keyNamed: !!state.agentOk2, test: state.test2 ?? null, open: state.opens.filter((p) => p.w === 2).length, lastError: state.lastError2 ?? "" } : null,
-    third: cfg.third || state.account3 ? { on: !!cfg.third?.on, keyNamed: !!state.agentOk3, open: state.opens.filter((p) => p.w === 3).length, lastError: state.lastError3 ?? "" } : null,
+    third: cfg.third || state.account3 ? { on: !!cfg.third?.on, account: state.account3 ?? null, keyNamed: !!state.agentOk3, open: state.opens.filter((p) => p.w === 3).length, lastError: state.lastError3 ?? "" } : null,
     // every skipped copy with its coin, newest first (the public status keeps the last 30)
     skipLog: (state.skipLog ?? []).slice(-30).reverse().map((x) => ({ t: x.t, trader: x.rule, coin: x.coin, side: x.dir > 0 ? "long" : "short", why: x.why })),
     // 26 Nov 2026: both wallets' value and free cash, sealed with the server's jev key (the public status carries no
