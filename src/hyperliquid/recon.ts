@@ -18,6 +18,8 @@ export type ReconWallet = {
   funding: number;
   fills: number;
   fundingRows: number;
+  /** closed profit less fees by coin (for matching against our own rows) */
+  byCoin: Record<string, number>;
   /** money movements by Hyperliquid's own type name: deposit, withdraw, send, accountClassTransfer, ... (signed, + = in) */
   flows: Record<string, number>;
   perpValue: number;
@@ -89,12 +91,17 @@ export function ledgerUsd(r: LedgerRow, user: string): { kind: string; usd: numb
 }
 
 export async function reconWallet(user: string, since: number, fetcher: typeof fetch): Promise<ReconWallet> {
-  const fills = await paged<{ time: number; closedPnl?: string; fee?: string; builderFee?: string }>("userFillsByTime", user, since, fetcher, 2000);
+  const fills = await paged<{ time: number; coin?: string; closedPnl?: string; fee?: string; builderFee?: string }>("userFillsByTime", user, since, fetcher, 2000);
   const funding = await paged<{ time: number; delta?: { usdc?: string } }>("userFunding", user, since, fetcher, 500);
   const ledger = await paged<LedgerRow>("userNonFundingLedgerUpdates", user, since, fetcher, 500);
   const perp = await info<{ marginSummary?: { accountValue?: string } }>({ type: "clearinghouseState", user }, fetcher);
   const spot = await info<{ balances?: { coin: string; total: string }[] }>({ type: "spotClearinghouseState", user }, fetcher);
   const flows: Record<string, number> = {};
+  const byCoin: Record<string, number> = {};
+  for (const f of fills) {
+    const c = f.coin ?? "?";
+    byCoin[c] = r2((byCoin[c] ?? 0) + Number(f.closedPnl ?? 0) - Number(f.fee ?? 0) - Number(f.builderFee ?? 0));
+  }
   for (const r of ledger) {
     const x = ledgerUsd(r, user);
     if (x) flows[x.kind] = r2((flows[x.kind] ?? 0) + x.usd);
@@ -106,6 +113,7 @@ export async function reconWallet(user: string, since: number, fetcher: typeof f
     funding: r2(funding.reduce((s, f) => s + Number(f.delta?.usdc ?? 0), 0)),
     fills: fills.length,
     fundingRows: funding.length,
+    byCoin,
     flows,
     perpValue: r2(Number(perp.marginSummary?.accountValue ?? 0)),
     spotUsdc: r2(Number(spot.balances?.find((b) => b.coin === "USDC")?.total ?? 0)),
@@ -125,7 +133,7 @@ export function startRecon(addrs: () => (string | null)[], fetcher: typeof fetch
         continue;
       }
       wallets.push(
-        await reconWallet(a, RECON_SINCE, fetcher).catch((e) => ({ at: Date.now(), closedPnl: 0, fees: 0, funding: 0, fills: 0, fundingRows: 0, flows: {}, perpValue: 0, spotUsdc: 0, error: String((e as Error)?.message ?? e).replace(/0x[0-9a-fA-F]{40,}/g, "…").slice(0, 100) })),
+        await reconWallet(a, RECON_SINCE, fetcher).catch((e) => ({ at: Date.now(), closedPnl: 0, fees: 0, funding: 0, fills: 0, fundingRows: 0, byCoin: {}, flows: {}, perpValue: 0, spotUsdc: 0, error: String((e as Error)?.message ?? e).replace(/0x[0-9a-fA-F]{40,}/g, "…").slice(0, 100) })),
       );
     }
     last = { at: Date.now(), since: RECON_SINCE, wallets };

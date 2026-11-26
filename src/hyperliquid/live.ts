@@ -790,7 +790,16 @@ export function hlLiveSummary(cfg: HlLiveConfig = fileCfg(), meetsBar: (rule: st
       try {
         const k = readFileSync(join(DATA, "jev-key.txt"), "utf8").trim();
         const r = reconNow();
-        return k && r ? seal(JSON.stringify(r), k) : null;
+        // our own closed rows by wallet and coin since the same start, to find where the two disagree
+        const ours: Record<string, Record<string, { n: number; usd: number }>> = {};
+        for (const x of state.rows) {
+          if (x.t < r?.since!) continue;
+          const w = String(x.wallet ?? 1);
+          const o = ((ours[w] ??= {})[x.coin] ??= { n: 0, usd: 0 });
+          o.n++;
+          o.usd = r2(o.usd + x.netUsd);
+        }
+        return k && r ? seal(JSON.stringify({ ...r, ours, oursAll: state.rows.length }), k) : null;
       } catch {
         return null;
       }
