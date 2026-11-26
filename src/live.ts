@@ -600,6 +600,20 @@ function noteRelayCall() {
 export function relayerUsedToday(): number {
   return loadJson<Record<string, number>>("relayer-usage.json", {})[utcDay()] ?? 0;
 }
+/**
+ * WON EVENT BETS ARE CLAIMED SOONER (26 Nov 2026). The 3-hour gap between event claims dates from 23 Oct, when crypto
+ * claims used ~65 relayer calls a day; crypto real is off since 24 Nov and the Polymarket cash is being moved to
+ * Hyperliquid, so $121 of won bets sat unclaimed for hours (and a relayer "connection error" waited 3 hours to retry).
+ * Now: the next batch of a kind goes EVENT_CLAIM_GAP after the last one, and a failed claim is retried after
+ * EVENT_RETRY_GAP (still 5 tries per market). While the relayer is busy for other reasons (EVENT_CLAIM_BUSY calls used
+ * today) the old 3-hour pace comes back. Pure.
+ */
+export const EVENT_CLAIM_GAP = 20 * 60_000;
+export const EVENT_RETRY_GAP = 30 * 60_000;
+export const EVENT_CLAIM_BUSY = 40;
+export function eventClaimGaps(usedToday: number): { gap: number; retry: number } {
+  return usedToday >= EVENT_CLAIM_BUSY ? { gap: 3 * 3600_000, retry: 3 * 3600_000 } : { gap: EVENT_CLAIM_GAP, retry: EVENT_RETRY_GAP };
+}
 /** The relayer runs one batch at a time from our wallet; the traders share this lock. */
 let relayBusy = false;
 /** Every trader, so the BTC 5m one can claim all series' wins in one transaction. */
@@ -1547,8 +1561,8 @@ export class LiveTrader {
    */
   /**
    * Claim won real event bets (src/eventlive.ts, tennis since 10 Nov 2026). Kept apart from the crypto batch on purpose:
-   * one unresolved condition reverts a whole relayer batch, and that must never hold up the crypto claims. At most one
-   * transaction every 3 hours, rows settled 30+ minutes ago, 8 per batch, 5 tries each; no wrap here: the USDC.e that
+   * one unresolved condition reverts a whole relayer batch, and that must never hold up the crypto claims. Paced by
+   * eventClaimGaps (20 minutes apart, retry after 30; 3 hours on a busy relayer day), rows settled 30+ minutes ago, 8 per batch, 5 tries each; no wrap here: the USDC.e that
    * comes out is wrapped into pUSD by the next crypto claim. data/eventlive-claims.json is written only by this process.
    */
   private async redeemEvents(): Promise<boolean> {
@@ -1558,9 +1572,10 @@ export class LiveTrader {
     const rows = loadJson<{ conditionId?: string | null; shares?: number; pay?: number | null; settledAt?: number | null; negRisk?: boolean; token?: string }[]>("eventlive.json", []);
     // Plain and grouped (neg-risk) bets are claimed in separate transactions, each kind at most once every 3 hours: the
     // grouped claim is new (12 Nov 2026) and must never be able to revert a batch of plain claims.
+    const pace = eventClaimGaps(relayerUsedToday());
     for (const neg of [false, true]) {
       const last = Math.max(0, ...Object.values(done).filter((d) => Boolean(d.negRisk) === neg).map((d) => d.at ?? 0));
-      if (now - last < 3 * 3600_000) continue;
+      if (now - last < pace.gap) continue;
       const byCond = new Map<string, { shares: number; tokens: string[] }>();
       for (const r of Array.isArray(rows) ? rows : []) {
         if (Boolean(r.negRisk) !== neg || !r.conditionId || !/^0x[0-9a-fA-F]{64}$/.test(r.conditionId) || !((r.shares ?? 0) > 0) || !((r.pay ?? 0) > 0) || !(r.settledAt != null && r.settledAt < now - 30 * 60_000)) continue;
@@ -1587,7 +1602,7 @@ export class LiveTrader {
       const rc = (cond: string) => (done[cond]?.reclaims ?? 0) + (again.has(cond) ? 1 : 0);
       const fail = (cond: string, text: string) => {
         const tries = (done[cond]?.tries ?? 0) + 1;
-        done[cond] = { at: Date.now(), tx: null, tries, nextAt: Math.max(relayerBlockedUntil, Date.now() + 3 * 3600_000), error: text, ...(neg ? { negRisk: true } : {}), ...(rc(cond) ? { reclaims: rc(cond) } : {}) };
+        done[cond] = { at: Date.now(), tx: null, tries, nextAt: Math.max(relayerBlockedUntil, Date.now() + pace.retry), error: text, ...(neg ? { negRisk: true } : {}), ...(rc(cond) ? { reclaims: rc(cond) } : {}) };
         if (tries >= 5) console.log(`live: giving up on claiming event market ${cond.slice(0, 10)} after 5 tries (${text}); claim it on polymarket.com`);
       };
       try {

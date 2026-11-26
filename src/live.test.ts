@@ -149,3 +149,10 @@ test("lossCap: settled real losses + open fills + reserved orders + the new orde
   assert.match(String(capBlocks(cap, 3)), /loss cap/); // 48 + 3 reserved = 51
   assert.equal(capBlocks(undefined, 3), null);
 });
+
+test("event claims: 20 minutes apart and a 30-minute retry; the old 3-hour pace on a busy relayer day", async () => {
+  const { eventClaimGaps, EVENT_CLAIM_BUSY } = await import("./live.js");
+  assert.deepEqual(eventClaimGaps(0), { gap: 20 * 60_000, retry: 30 * 60_000 });
+  assert.deepEqual(eventClaimGaps(EVENT_CLAIM_BUSY - 1), { gap: 20 * 60_000, retry: 30 * 60_000 });
+  assert.deepEqual(eventClaimGaps(EVENT_CLAIM_BUSY), { gap: 3 * 3600_000, retry: 3 * 3600_000 });
+});
