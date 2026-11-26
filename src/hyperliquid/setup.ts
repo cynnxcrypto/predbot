@@ -362,7 +362,12 @@ export function startHyperliquid(fetcher: typeof fetch = fetch): Promise<void> {
         venue2 = undefined;
       }
     }
-    const deps: HlDeps = { cfg: fileCfg, venue: realVenue(address, fetcher), ...(venue2 ? { venue2 } : {}), paperOpens: hlPaperOpens, meetsBar, listed: traderListed, histAvgPct: (r) => hlHistoryAvgPct(r), skillPass: (r) => hlSkillPass(r), proven: (r, t) => hlProven(r, t) };
+    // cash between the two wallets so a copy is not skipped (src/hyperliquid/live.ts rebalancePlan, 26 Nov 2026)
+    const move = async (from: 1 | 2, usd: number): Promise<string> => {
+      const a = (await usdSend(from === 1 ? hlWallet() : hlWallet2(), from === 1 ? address2 : address, usd, fetcher)) as { status?: string; response?: unknown };
+      return a?.status === "ok" ? "" : (typeof a?.response === "string" ? a.response : "no ok from Hyperliquid").replace(/0x[0-9a-fA-F]{40,}/g, "…").slice(0, 120);
+    };
+    const deps: HlDeps = { cfg: fileCfg, venue: realVenue(address, fetcher), ...(venue2 ? { venue2, move } : {}), paperOpens: hlPaperOpens, meetsBar, listed: traderListed, histAvgPct: (r) => hlHistoryAvgPct(r), skillPass: (r) => hlSkillPass(r), proven: (r, t) => hlProven(r, t) };
     setKeptTraders(hlKeptTraders, "hyperliquid");
     runLive = serial(() => timed(() => hlLiveTick(deps)), liveRun);
     setInterval(() => void runLive(), 20_000).unref();

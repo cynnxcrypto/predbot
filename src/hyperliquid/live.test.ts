@@ -573,3 +573,42 @@ test("proven tier (25 Nov 2026): not cut by losing streaks, real off the paper b
   await hlLiveTick(o.d, T0 + 1000);
   assert.equal(o.w.orders.length, 0);
 });
+
+test("cash between wallets: plan moves $40 (or what is short), keeps $20 in the giver, waits only after a lost answer", async () => {
+  const { rebalancePlan, REB_LOST } = await import("./live.js");
+  assert.deepEqual(rebalancePlan(1, 3, 100, [], T0), { usd: 40 });
+  assert.deepEqual(rebalancePlan(2, 55, 100, [], T0), { usd: 55 });
+  assert.ok("why" in rebalancePlan(1, 3, 59, [], T0), "giver would keep under $20");
+  assert.deepEqual(rebalancePlan(1, 3, 60, [{ at: T0 - 1000, from: 2, usd: 40, result: "sent" }], T0), { usd: 40 }, "no time limit after a sent move");
+  assert.deepEqual(rebalancePlan(2, 3, 60, [{ at: T0 - 1000, from: 2, usd: 40, result: "sent" }], T0), { usd: 40 }, "back the other way too");
+  assert.ok("why" in rebalancePlan(1, 3, 100, [{ at: T0 - 1000, from: 2, usd: 40, result: "not known: timeout" }], T0));
+  assert.deepEqual(rebalancePlan(1, 3, 100, [{ at: T0 - REB_LOST, from: 2, usd: 40, result: "tried" }], T0), { usd: 40 });
+});
+
+test("cash between wallets: ensureCash moves from the other wallet and the copy has room; a refusal leaves it skipped", async () => {
+  const { _rebTest } = await import("./live.js");
+  _rebTest.reset();
+  const a1: Account = { valueUsd: 50, freeUsd: 5, positions: {} };
+  const a2: Account = { valueUsd: 100, freeUsd: 80, positions: {} };
+  _rebTest.setPair({ 1: a1, 2: a2 });
+  const sent: [number, number][] = [];
+  const d = { venue2: {}, move: async (from: 1 | 2, usd: number) => (sent.push([from, usd]), "") } as unknown as HlDeps;
+  assert.equal(await _rebTest.ensureCash(d, 1, a1, 11, T0), "");
+  assert.deepEqual(sent, [[2, 40]]);
+  assert.equal(a1.freeUsd, 45);
+  assert.equal(a2.freeUsd, 40);
+  assert.equal(_rebTest.moves().at(-1)?.result, "sent");
+  // wallet 2 now short: moved straight back (no time limit), wallet 1 keeps $20? 45 - 40 = 5 < 20: no
+  a2.freeUsd = 2;
+  assert.equal(await _rebTest.ensureCash(d, 2, a2, 11, T0 + 1000), "not enough free money");
+  a1.freeUsd = 70;
+  assert.equal(await _rebTest.ensureCash(d, 2, a2, 11, T0 + 2000), "");
+  assert.deepEqual(sent.at(-1), [1, 40]);
+  const refuse = { venue2: {}, move: async () => "Insufficient balance" } as unknown as HlDeps;
+  a1.freeUsd = 1;
+  a2.freeUsd = 100;
+  assert.equal(await _rebTest.ensureCash(refuse, 1, a1, 11, T0 + 3000), "not enough free money");
+  assert.equal(_rebTest.moves().at(-1)?.result, "refused: Insufficient balance");
+  _rebTest.setPair(null);
+  _rebTest.reset();
+});

@@ -189,6 +189,8 @@ export interface HlDeps {
   venue: Venue;
   /** the second wallet's account (overlaps); none = there is no second wallet */
   venue2?: Venue;
+  /** move USDC inside Hyperliquid from one of our wallets to the other: "" when Hyperliquid said ok, else why not */
+  move?(from: 1 | 2, usd: number): Promise<string>;
   paperOpens(): PaperOpen[];
   /** does this trader's paper record made after `sinceMs` meet the bar for real? */
   meetsBar(rule: string, sinceMs: number, now: number): boolean;
@@ -285,6 +287,8 @@ interface State {
    *  market continues in the direction these positions we had pointed, then u fucked up"): from our close price */
   ghosts?: { coin: string; dir: number; sz: number; closePx: number; paperId: string; closedAt: number; nowPx?: number; exitPx?: number; exitAt?: number; lockedUsd: number }[];
   lastError2?: string;
+  /** cash moved between our two wallets so a copy is not skipped (rebalancePlan), newest last */
+  moves?: CashMove[];
 }
 const fresh = (): State => ({ netUsd: 0, opens: [], rows: [], demoted: {}, demotedWhy: {}, seen: [], held: [], lateOff: [], skipped: {}, lastError: "" });
 let state: State = fresh();
@@ -414,6 +418,7 @@ export async function hlLiveTick(d: HlDeps, now = Date.now()): Promise<void> {
       }
     }
     const ready2 = !!acct2 && !!state.agentOk2;
+    pair = { 1: acct, 2: ready2 ? acct2 : null };
     /** where a new copy on this coin can go: 1 the first wallet, 2 the second (the first holds the coin already), 0 nowhere */
     const where = (c: string): 0 | 1 | 2 => {
       if (!state.opens.some((o) => !o.w && o.coin === c) && !acct.positions[c]) return 1;
@@ -597,7 +602,8 @@ export async function hlLiveTick(d: HlDeps, now = Date.now()): Promise<void> {
         if (!isReal(x.rule) || !d.listed(x.rule)) continue;
         const w = where(x.coin);
         const wa = w === 2 ? acct2! : acct;
-        if (!w || (w === 1 && full1) || wa.freeUsd < cfg.collateralUsd + 1 || keptForPassers(x.rule, wa)) continue;
+        if (!w || (w === 1 && full1) || keptForPassers(x.rule, wa)) continue;
+        if (wa.freeUsd < cfg.collateralUsd + 1 && (await ensureCash(d, w, wa, cfg.collateralUsd + 1, now))) continue;
         const px = mids[x.coin];
         if (!(px > 0) || Math.abs(px / x.px - 1) > (cfg.lateWithin ?? 0)) continue;
         const why = await open(d, x, convictionUsd(hlCollateral(x.rule, cfg.collateralUsd), x.share, realOf(x.rule)), coins, mids, wa, now, true, w);
@@ -616,6 +622,53 @@ export async function hlLiveTick(d: HlDeps, now = Date.now()): Promise<void> {
   }
 }
 
+/**
+ * CASH BETWEEN THE TWO WALLETS (26 Nov 2026, enrique: "i want some system about it that makes sense, i also dont want
+ * to be sending cash back and forth extremely frequently and burn cash in gas fees or whatever, but i also dont want to
+ * skip opening positions", then "yea" to the rule, then "okay if there's no gas fees then lets move the cash every
+ * single time we think we need to"): whenever a copy would be skipped for lack of cash in one wallet and the other has
+ * free cash, REB_USD (or what is short, if more) moves to it inside Hyperliquid (no bridge, no gas); the giver keeps
+ * REB_KEEP free. No time limit between moves; only a move whose answer was lost holds the next for REB_LOST. The copy
+ * then opens.
+ */
+export const REB_USD = 40;
+export const REB_KEEP = 20;
+export const REB_LOST = 10 * 60_000;
+export type CashMove = { at: number; from: 1 | 2; usd: number; result: string };
+/** How much to move to wallet `to` when it is `short` dollars short, or why not. Pure. */
+export function rebalancePlan(to: 1 | 2, short: number, giverFree: number, moves: CashMove[], now: number): { usd: number } | { why: string } {
+  // a move whose answer was lost may still land: never another on a guess for a few minutes
+  if (moves.some((m) => (m.result === "tried" || m.result.startsWith("not known")) && now - m.at < REB_LOST)) return { why: "a move's answer was lost a few minutes ago" };
+  const usd = Math.max(REB_USD, Math.ceil(short));
+  if (!(giverFree - usd >= REB_KEEP)) return { why: `the other wallet has only $${Math.max(0, giverFree).toFixed(2)} free` };
+  return { usd };
+}
+/** Both wallets' accounts as read this look (wallet 2 null when not read). */
+let pair: { 1: Account; 2: Account | null } | null = null;
+/** Make room for a copy needing `need` free dollars in wallet `w`: "" when there is (now) enough, else why not. */
+async function ensureCash(d: HlDeps, w: 1 | 2, acct: Account, need: number, now: number): Promise<string> {
+  if (acct.freeUsd >= need) return "";
+  const other = pair?.[w === 1 ? 2 : 1];
+  if (!d.move || !other || !d.venue2) return "not enough free money";
+  const plan = rebalancePlan(w, need - acct.freeUsd, other.freeUsd, state.moves ?? [], now);
+  if ("why" in plan) return "not enough free money";
+  const from: 1 | 2 = w === 1 ? 2 : 1;
+  const row: CashMove = { at: now, from, usd: plan.usd, result: "tried" };
+  state.moves = [...(state.moves ?? []), row].slice(-50);
+  save(); // written before the money moves: a lost answer never sends twice in a row
+  row.result = await d
+    .move(from, plan.usd)
+    .then((r) => (r ? `refused: ${r}` : "sent"))
+    .catch((e) => `not known: ${String((e as Error)?.message ?? e).replace(/0x[0-9a-fA-F]{40,}/g, "…").slice(0, 100)}`);
+  save();
+  if (row.result !== "sent") return "not enough free money";
+  acct.freeUsd += plan.usd;
+  other.freeUsd -= plan.usd;
+  return acct.freeUsd >= need ? "" : "not enough free money";
+}
+/** For tests only. */
+export const _rebTest = { setPair: (p: typeof pair) => void (pair = p), ensureCash, moves: () => state.moves ?? [], reset: () => void (state.moves = []) };
+
 /** Open one copy. Returns "" when it is open, else why not. */
 async function open(d: HlDeps, x: PaperOpen, collateralUsd: number, coins: Record<string, Coin>, mids: Record<string, number>, acct: Account, now: number, late = false, w: 1 | 2 = 1): Promise<string> {
   const venue = w === 2 ? d.venue2 : d.venue;
@@ -628,7 +681,8 @@ async function open(d: HlDeps, x: PaperOpen, collateralUsd: number, coins: Recor
   // copy is made at the smallest size Hyperliquid takes (about $11) instead.
   const sz = roundSz(Math.max(collateralUsd * lev, MIN_ORDER_USD) / px, coin.szDecimals);
   if (sz * px < MIN_ORDER_USD - 1) return "position too small for Hyperliquid";
-  if (acct.freeUsd < collateralUsd + 1) return "not enough free money";
+  const cash = await ensureCash(d, w, acct, collateralUsd + 1, now);
+  if (cash) return cash;
   const lv = await venue.setLeverage(coin, lev);
   if (lv) return `leverage not set`;
   const f = await venue.order(coin, x.dir > 0, px * (1 + x.dir * OPEN_SLIP), sz, false);
@@ -667,6 +721,8 @@ export function hlLiveSummary(cfg: HlLiveConfig = fileCfg(), meetsBar: (rule: st
     // both wallets as one (the worth counts them as one), and each beside it
     account: state.account && state.account2 ? { at: Math.min(state.account.at, state.account2.at), valueUsd: r2(state.account.valueUsd + state.account2.valueUsd), freeUsd: r2(state.account.freeUsd + state.account2.freeUsd) } : (state.account ?? null),
     second: cfg.second || state.account2 ? { on: !!cfg.second?.on, account: state.account2 ?? null, first: state.account ?? null, keyNamed: !!state.agentOk2, test: state.test2 ?? null, open: state.opens.filter((p) => p.w).length, lastError: state.lastError2 ?? "" } : null,
+    // cash moved between the two wallets so a copy was not skipped (26 Nov 2026): amounts only, no addresses
+    moves: (state.moves ?? []).slice(-5),
     netUsd: state.netUsd,
     // force-closed positions: what closing locked in, and what holding until the trader closed would have added (after
     // our close; fees left out). Open ghosts are at the price now.
