@@ -37,7 +37,8 @@
 import { entryGapPct, gapStats, PROVEN_CUT_N, provenCut } from "./skill.js";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { ROOT } from "../config.js";
+import { DATA, ROOT } from "../config.js";
+import { seal } from "../solana/sendout.js";
 import { loadJson, saveJson } from "../store.js";
 import { cutReason, perpLadder, realRecord, standing, type RealRecord } from "../solana/realfirst.js";
 import type { Coin, Fill } from "./exchange.js";
@@ -721,6 +722,16 @@ export function hlLiveSummary(cfg: HlLiveConfig = fileCfg(), meetsBar: (rule: st
     // both wallets as one (the worth counts them as one), and each beside it
     account: state.account && state.account2 ? { at: Math.min(state.account.at, state.account2.at), valueUsd: r2(state.account.valueUsd + state.account2.valueUsd), freeUsd: r2(state.account.freeUsd + state.account2.freeUsd) } : (state.account ?? null),
     second: cfg.second || state.account2 ? { on: !!cfg.second?.on, account: state.account2 ?? null, first: state.account ?? null, keyNamed: !!state.agentOk2, test: state.test2 ?? null, open: state.opens.filter((p) => p.w).length, lastError: state.lastError2 ?? "" } : null,
+    // 26 Nov 2026: both wallets' value and free cash, sealed with the server's jev key (the public status carries no
+    // balance; deploy/report.py drops "account"): MAIN opens it to answer enrique's "free cash in both wallets"
+    cashSealed: (() => {
+      try {
+        const k = readFileSync(join(DATA, "jev-key.txt"), "utf8").trim();
+        return k && state.account ? seal(JSON.stringify({ w1: state.account, w2: state.account2 ?? null }), k) : null;
+      } catch {
+        return null;
+      }
+    })(),
     // cash moved between the two wallets so a copy was not skipped (26 Nov 2026): amounts only, no addresses
     moves: (state.moves ?? []).slice(-5),
     netUsd: state.netUsd,
