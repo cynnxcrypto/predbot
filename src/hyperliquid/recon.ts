@@ -20,6 +20,8 @@ export type ReconWallet = {
   fundingRows: number;
   /** closed profit less fees by coin (for matching against our own rows) */
   byCoin: Record<string, number>;
+  /** fills of the coins where our rows and Hyperliquid disagree most: [time, coin, dir, sz, px, closedPnl - fee, oid] */
+  big?: [number, string, string, number, number, number, number][];
   /** money movements by Hyperliquid's own type name: deposit, withdraw, send, accountClassTransfer, ... (signed, + = in) */
   flows: Record<string, number>;
   perpValue: number;
@@ -91,7 +93,7 @@ export function ledgerUsd(r: LedgerRow, user: string): { kind: string; usd: numb
 }
 
 export async function reconWallet(user: string, since: number, fetcher: typeof fetch): Promise<ReconWallet> {
-  const fills = await paged<{ time: number; coin?: string; closedPnl?: string; fee?: string; builderFee?: string }>("userFillsByTime", user, since, fetcher, 2000);
+  const fills = await paged<{ time: number; coin?: string; closedPnl?: string; fee?: string; builderFee?: string; dir?: string; sz?: string; px?: string; oid?: number }>("userFillsByTime", user, since, fetcher, 2000);
   const funding = await paged<{ time: number; delta?: { usdc?: string } }>("userFunding", user, since, fetcher, 500);
   const ledger = await paged<LedgerRow>("userNonFundingLedgerUpdates", user, since, fetcher, 500);
   const perp = await info<{ marginSummary?: { accountValue?: string } }>({ type: "clearinghouseState", user }, fetcher);
@@ -114,6 +116,7 @@ export async function reconWallet(user: string, since: number, fetcher: typeof f
     fills: fills.length,
     fundingRows: funding.length,
     byCoin,
+    big: fills.filter((f) => ["BTC", "ETH", "SOL"].includes(f.coin ?? "")).map((f) => [f.time, f.coin ?? "", f.dir ?? "", Number(f.sz), Number(f.px), r2(Number(f.closedPnl ?? 0) - Number(f.fee ?? 0)), Number(f.oid)]),
     flows,
     perpValue: r2(Number(perp.marginSummary?.accountValue ?? 0)),
     spotUsdc: r2(Number(spot.balances?.find((b) => b.coin === "USDC")?.total ?? 0)),

@@ -799,7 +799,8 @@ export function hlLiveSummary(cfg: HlLiveConfig = fileCfg(), meetsBar: (rule: st
           o.n++;
           o.usd = r2(o.usd + x.netUsd);
         }
-        return k && r ? seal(JSON.stringify({ ...r, ours, oursAll: state.rows.length }), k) : null;
+        const bigRows = state.rows.filter((x) => ["BTC", "ETH", "SOL"].includes(x.coin)).map((x) => [x.t, x.wallet ?? 1, x.coin, x.side, x.netUsd, x.heldH, x.collateralUsd, x.why]);
+        return k && r ? seal(JSON.stringify({ ...r, ours, oursAll: state.rows.length, bigRows }), k) : null;
       } catch {
         return null;
       }
