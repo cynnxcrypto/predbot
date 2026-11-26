@@ -628,7 +628,7 @@ export async function worthView(cash: number | null, claim: number, solBal: numb
     /* no list: our own books only */
   }
   if (!memo || Date.now() - memo.at > 15_000) {
-    const [bets, px, slow] = await Promise.all([openWorth().catch(() => ({ n: 0, positions: 0, stake: 0, value: 0, priced: 0, days: {} })), solUsd(), solSlowView().catch(() => null)]);
+    const [bets, px, slow] = await Promise.all([openWorth().catch(() => ({ n: 0, positions: 0, stake: 0, value: 0, priced: 0, unpricedStake: 0, days: {} })), solUsd(), solSlowView().catch(() => null)]);
     const open0 = ((slow as { open?: { stage: string; worthSol: number | null; stakeSol?: number | null; name?: string; t?: number }[] } | null)?.open ?? []).filter((c) => c.stage !== "waiting");
     // A coin whose quote fails this time keeps its last price (kept across restarts); one never priced at all and held
     // over 30 min counts at cost, as it has every time, so it moves nothing. 17 Nov 2026: dead coins with no sale route
@@ -651,7 +651,9 @@ export async function worthView(cash: number | null, claim: number, solBal: numb
     const solPart = px != null ? ((solNow ?? 0) + coinsSol) * px : 0;
     // Unpriced bets fall back to what was paid: with more than a tenth unpriced (bets, or the spot copy's coins), or the
     // SOL balance not read, the total is not a reading, so it is shown but not added to the chart.
-    const priced = (bets.n === 0 || bets.priced >= bets.n * 0.9) && coinsPriced && solBal != null;
+    // ... or the unpriced bets' stake is small (26 Nov 2026: 2 WTI bets of $6.11 with no price were 2 of 16 bets once most
+    // had settled, so from 19:00 KST no reading counted at all and "today" froze for every wallet, Hyperliquid too)
+    const priced = (bets.n === 0 || bets.priced >= bets.n * 0.9 || (bets.unpricedStake ?? Infinity) <= 10) && coinsPriced && solBal != null;
     // A strategy wallet that could not be read this time keeps its last reading, so the total does not dip.
     const usd = (sol: number | null | undefined, usdc: number | null | undefined, last: number | null) => ((sol == null || usdc == null) && last != null ? last : sol == null && usdc == null ? null : px != null || !sol ? (sol ?? 0) * (px ?? 0) + (usdc ?? 0) : last);
     // In positions: the coins the spot rules hold and the perps collateral with its result so far. Counted in the
