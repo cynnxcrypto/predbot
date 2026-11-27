@@ -188,3 +188,20 @@ test("our own bridge moves are transfers: never a win or a loss on any wallet's 
   assert.equal(t.sr?.usd, -0.66);
   assert.equal(Math.abs(t.pp?.usd ?? 1), 0);
 });
+
+import { moveLegs } from "./bridge/bridge.js";
+test("own moves: money leaves when each part is sent, not when the move starts", () => {
+  const log = [
+    { t: 100, what: "moving 95.56 USDC" },
+    { t: 5000, what: "sent the test part: 8 USDC (layerswap)" },
+    { t: 5100, what: "test arrived: 8 USDC sent, about 7.96 USDC in" },
+    { t: 6000, what: "sent the rest part: 87.56 USDC (layerswap)" },
+    { t: 6200, what: "rest arrived: 87.56 USDC sent, about 86.8 USDC in" },
+  ];
+  const legs = moveLegs(log);
+  assert.deepEqual(legs, [[5000, 5100, 8], [6000, 6200, 87.56]]);
+  const f = ownMoveFlows([{ from: "polymarket", to: "hyperliquid", startedAt: 100, endedAt: 6200, arrivedUsd: 94.77, legs }]);
+  assert.deepEqual(f.map((x) => x[0]), [5000, 5100, 6000, 6200]);
+  assert.equal(Math.round(f.filter((x) => x[1] < 0).reduce((a, x) => a + x[1], 0) * 100) / 100, -94.77);
+  assert.equal(Math.round(f.filter((x) => x[1] > 0).reduce((a, x) => a + x[1], 0) * 100) / 100, 94.77);
+});

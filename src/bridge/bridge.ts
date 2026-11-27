@@ -512,8 +512,28 @@ export async function bridgeTick(d: Deps): Promise<Report | null> {
 }
 
 /** For the public status: places, dollars and fixed words. No address, no transaction id. */
+/** Each part of a move as it really went: [when it left, when it arrived (null = not yet), amount in the source token],
+ * from the move's own log. Pure. (27 Nov 2026: the worth booked a move's money as leaving at the move's START; pm-to-hl-9
+ * waited 3 h 45 min for claims before sending, so a 24 h window starting in between read -$95 that was never lost.) */
+export function moveLegs(log: { t: number; what: string }[]): [number, number | null, number][] {
+  const out: [number, number | null, number][] = [];
+  for (const e of log) {
+    const s = /^sent the (\w+) part: ([0-9.]+)/.exec(e.what);
+    if (s) {
+      out.push([e.t, null, Number(s[2])]);
+      continue;
+    }
+    const a = /^(\w+) arrived: /.exec(e.what);
+    if (a) {
+      const leg = out.find((l) => l[1] == null);
+      if (leg) leg[1] = e.t;
+    }
+  }
+  return out.filter((l) => l[2] > 0);
+}
+
 export function bridgePublic() {
-  const moves = Object.values(loadBridge().moves).map((m) => ({ id: m.id, from: m.from, to: m.to, usd: m.usd, stage: m.stage, why: m.why ?? null, startedAt: m.startedAt, endedAt: m.endedAt ?? null, sent: r4(m.sent), arrived: r4(m.arrived), arrivedUsd: m.arrivedUsd != null ? r2(m.arrivedUsd) : null, inTransit: m.pending ? { part: m.pending.part, amount: m.pending.amount, since: m.pending.at, sent: !!m.pending.tx } : null }));
+  const moves = Object.values(loadBridge().moves).map((m) => ({ legs: moveLegs(m.log ?? []), id: m.id, from: m.from, to: m.to, usd: m.usd, stage: m.stage, why: m.why ?? null, startedAt: m.startedAt, endedAt: m.endedAt ?? null, sent: r4(m.sent), arrived: r4(m.arrived), arrivedUsd: m.arrivedUsd != null ? r2(m.arrivedUsd) : null, inTransit: m.pending ? { part: m.pending.part, amount: m.pending.amount, since: m.pending.at, sent: !!m.pending.tx } : null }));
   return { now: last, dryRuns, moves };
 }
 

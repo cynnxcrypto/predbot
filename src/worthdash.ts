@@ -97,7 +97,7 @@ export function depositCheck(fl: Flow[], since: number) {
  * the bridge's fee stays on the wallet that paid it. A move to or from a wallet outside these (Base) books its one side.
  * Moves inside Hyperliquid (to the second wallet) need nothing: both accounts are one Hyperliquid figure. Set from status.ts.
  */
-export type OwnMove = { from: string; to: string; startedAt: number; endedAt: number | null; arrivedUsd: number };
+export type OwnMove = { from: string; to: string; startedAt: number; endedAt: number | null; arrivedUsd: number; legs?: [number, number | null, number][] };
 const PLACE_LABEL: Record<string, string> = { hyperliquid: "Hyperliquid", polymarket: "Polymarket", "solana-perps": "Solana perps", "solana-spot-rules": "Solana spot rules", "solana-spot-copy": "Solana spot copy" };
 let movesSrc: () => OwnMove[] = () => [];
 export const setOwnMoves = (f: typeof movesSrc) => void (movesSrc = f);
@@ -107,6 +107,19 @@ export function ownMoveFlows(moves: OwnMove[]): Flow[] {
   for (const m of moves) {
     if (m.endedAt == null || !(m.arrivedUsd > 0)) continue;
     const usd = Math.round(m.arrivedUsd * 100) / 100;
+    // each part out when it was really sent and in when it arrived (bridge.ts moveLegs), its share of what arrived
+    const legs = (m.legs ?? []).filter((l) => l[2] > 0);
+    const total = legs.reduce((a, l) => a + l[2], 0);
+    if (legs.length && total > 0) {
+      let done = 0;
+      legs.forEach((l, i) => {
+        const part = i === legs.length - 1 ? Math.round((usd - done) * 100) / 100 : Math.round(((usd * l[2]) / total) * 100) / 100;
+        done += part;
+        if (PLACE_LABEL[m.from]) out.push([l[0], -part, PLACE_LABEL[m.from]]);
+        if (PLACE_LABEL[m.to]) out.push([l[1] ?? (m.endedAt as number), part, PLACE_LABEL[m.to]]);
+      });
+      continue;
+    }
     if (PLACE_LABEL[m.from]) out.push([m.startedAt, -usd, PLACE_LABEL[m.from]]);
     if (PLACE_LABEL[m.to]) out.push([m.endedAt, usd, PLACE_LABEL[m.to]]);
   }
