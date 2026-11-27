@@ -834,7 +834,9 @@ export function hlLiveSummary(cfg: HlLiveConfig = fileCfg(), meetsBar: (rule: st
           o.usd = r2(o.usd + x.netUsd);
         }
         const bigRows = state.rows.filter((x) => ["BTC", "ETH", "SOL"].includes(x.coin)).map((x) => [x.t, x.wallet ?? 1, x.coin, x.side, x.netUsd, x.heldH, x.collateralUsd, x.why]);
-        return k && r ? seal(JSON.stringify({ ...r, ours, oursAll: state.rows.length, bigRows }), k) : null;
+        // every closed copy, compact, for replays of sizing rules (27 Nov 2026): [closed at, trader, coin, collateral, net, held h, wallet]
+        const allRows = state.rows.map((x) => [x.t, x.rule, x.coin, x.collateralUsd ?? null, x.netUsd, x.heldH, x.wallet ?? 1]);
+        return k && r ? seal(JSON.stringify({ ...r, ours, oursAll: state.rows.length, bigRows, allRows }), k) : null;
       } catch {
         return null;
       }
