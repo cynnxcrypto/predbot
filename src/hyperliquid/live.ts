@@ -96,6 +96,9 @@ export interface HlLiveConfig {
    *  own history"): with real copies since its last cut, a trader stays only while they average perCopyUsd or more;
    *  with none, only while its own Hyperliquid history averages histPct % or more a position. Open copies are untouched. */
   keepBar?: { perCopyUsd: number; histPct: number };
+  /** traders cut by enrique's word (27 Nov 2026: "sure cut that one"): never copied for real again until taken off this
+   *  list; their open copies close when the trader closes, as always */
+  cut?: string[];
   /** SKILL BAR (25 Nov 2026, enrique: "push skill bar: HL history traders must pass the skill test, passers get cash
    *  first"): a trader approved on its own history must also pass the skill test (src/hyperliquid/skill.ts: 20+
    *  closed, beats BTC by 2+ standard errors, ahead without its best 3, ahead in 2 of 3 periods); in each look skill
@@ -138,7 +141,8 @@ export function parseHlLive(text: string): HlLiveConfig {
     const lateWithin = clamp(num(p.lateWithinPct, 0), 0, HARD_LATE_PCT) / 100;
     const kb = p.keepBar && typeof p.keepBar === "object" ? (p.keepBar as Record<string, unknown>) : null;
     const keepBar = kb ? { keepBar: { perCopyUsd: clamp(num(kb.perCopyUsd, 0.5), 0, 50), histPct: clamp(num(kb.histPct, 2), 0, 50) } } : {};
-    return { on: true, collateralUsd, maxLossUsd, testOnce, lateWithin, ...keepBar, ...(p.historyBar === true ? { historyBar: true, historyTop: Math.floor(clamp(num(p.historyTop, 5), 0, HARD_HISTORY_TOP)) } : {}), ...(p.skillBar === true ? { skillBar: true } : {}), ...(num(p.provenT, 0) > 0 ? { provenT: clamp(num(p.provenT, 0), 1, 10) } : {}), ...closeAll, ...(s2 ? { second: { on: s2.on === true, testOnce: name(s2.testOnce), maxOpen: Math.floor(clamp(num(s2.maxOpen, SECOND_MAX_OPEN), 1, HARD_SECOND_MAX_OPEN)) } } : {}), ...third, maxOpen: Math.floor(clamp(num(p.maxOpen, 5), 1, HARD_MAX_OPEN)), traderStopUsd: clamp(num(p.traderStopUsd, 9), 1, HARD_TRADER_STOP_USD) };
+    const cut = Array.isArray(p.cut) ? { cut: (p.cut as unknown[]).filter((x): x is string => typeof x === "string" && /^copy-[0-9a-f]{6,}$/.test(x)) } : {};
+    return { on: true, collateralUsd, maxLossUsd, testOnce, lateWithin, ...keepBar, ...cut, ...(p.historyBar === true ? { historyBar: true, historyTop: Math.floor(clamp(num(p.historyTop, 5), 0, HARD_HISTORY_TOP)) } : {}), ...(p.skillBar === true ? { skillBar: true } : {}), ...(num(p.provenT, 0) > 0 ? { provenT: clamp(num(p.provenT, 0), 1, 10) } : {}), ...closeAll, ...(s2 ? { second: { on: s2.on === true, testOnce: name(s2.testOnce), maxOpen: Math.floor(clamp(num(s2.maxOpen, SECOND_MAX_OPEN), 1, HARD_SECOND_MAX_OPEN)) } } : {}), ...third, maxOpen: Math.floor(clamp(num(p.maxOpen, 5), 1, HARD_MAX_OPEN)), traderStopUsd: clamp(num(p.traderStopUsd, 9), 1, HARD_TRADER_STOP_USD) };
   } catch {
     return OFF;
   }
@@ -477,7 +481,7 @@ export async function hlLiveTick(d: HlDeps, now = Date.now()): Promise<void> {
     // proven tier: real until PROVEN_CUT_N+ real copies (all of them, through any old cut) are behind
     const allOf = (rule: string) => realRecord(state.rows.filter((x) => x.rule === rule && !isFlip(x)).map((x) => x.netUsd));
     const isProven = (rule: string) => !!cfg.provenT && !!d.proven?.(rule, cfg.provenT);
-    const isReal = (rule: string) => isProven(rule) ? !provenCut(allOf(rule).trades, allOf(rule).net) : standing(realOf(rule), d.meetsBar(rule, state.demoted[rule] ?? 0, now), state.demotedWhy[rule]).real && keepsTrader(realOf(rule), d.histAvgPct?.(rule) ?? null, cfg.keepBar).ok;
+    const isReal = (rule: string) => cfg.cut?.includes(rule) ? false : isProven(rule) ? !provenCut(allOf(rule).trades, allOf(rule).net) : standing(realOf(rule), d.meetsBar(rule, state.demoted[rule] ?? 0, now), state.demotedWhy[rule]).real && keepsTrader(realOf(rule), d.histAvgPct?.(rule) ?? null, cfg.keepBar).ok;
     // a trader already behind under the sooner cut is cut now, not only at its next close
     for (const rule of new Set(state.rows.map((x) => x.rule))) {
       if (rule === TEST_RULE || isProven(rule)) continue;
@@ -856,7 +860,7 @@ export function hlLiveSummary(cfg: HlLiveConfig = fileCfg(), meetsBar: (rule: st
       const all = realRecord(state.rows.filter((x) => x.rule === rule).map((x) => x.netUsd));
       const allNoFlip = realRecord(state.rows.filter((x) => x.rule === rule && !isFlip(x)).map((x) => x.netUsd));
       const pv = !!cfg.provenT && provenOf(rule);
-      const st = pv ? (provenCut(allNoFlip.trades, allNoFlip.net) ? { real: false, why: `paper: proven tier, but behind after ${allNoFlip.trades} real copies` } : { real: true, why: `real: proven tier (skill ${cfg.provenT}+ standard errors), cut only after ${PROVEN_CUT_N}+ real copies behind` }) : st0.real && !kept.ok ? { real: false, why: kept.why } : st0;
+      const st = cfg.cut?.includes(rule) ? { real: false, why: "paper: cut on enrique's word" } : pv ? (provenCut(allNoFlip.trades, allNoFlip.net) ? { real: false, why: `paper: proven tier, but behind after ${allNoFlip.trades} real copies` } : { real: true, why: `real: proven tier (skill ${cfg.provenT}+ standard errors), cut only after ${PROVEN_CUT_N}+ real copies behind` }) : st0.real && !kept.ok ? { real: false, why: kept.why } : st0;
       // trades, won, netUsd: every real trade ever made with this trader, kept through a cut (what it made us);
       // sinceCut: the record the keep-or-cut rule looks at, which starts again at a cut
       return { trader: rule, real: st.real, why: st.why, proven: pv, trades: all.trades, won: all.won, netUsd: r2(all.net), cutAt: state.demoted[rule] ?? null, sinceCut: { trades: real.trades, won: real.won, netUsd: r2(real.net) } };

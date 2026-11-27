@@ -26,3 +26,9 @@ test("gone: a liquidation is booked at what Hyperliquid's fills say, not the ope
   assert.equal(readGone(fills.slice(0, 2), "BTC", 1, T, 1), null, "not closed in the record yet");
   assert.equal(readGone(fills, "ETH", 1, T, null), null);
 });
+
+import { fileCfg } from "./live.js";
+test("cut list: read from live-rules", () => {
+  const c = fileCfg();
+  assert.ok(!c.on || (c.cut ?? []).includes("copy-ecb63caa"));
+});
