@@ -528,6 +528,22 @@ def down_report(err):
             "service": run(["systemctl", "is-active", "predbot"]), "journal": log.splitlines()[-60:]}
 
 
+def post_link(url):
+    """28 Nov 2026, enrique: "the link changed again wtf is it now". The quick tunnel's address changes whenever the
+    tunnel restarts. Post just the address to server/link.json (tiny) when it changes, so a fixed page (docs/index.html,
+    served by GitHub Pages) can always forward to the current one. The dashboard itself stays password protected."""
+    if not url:
+        return
+    code, cur = gh("GET", f"contents/server/link.json?ref={BRANCH}")
+    if code == 200 and cur:
+        try:
+            if json.loads(base64.b64decode(cur.get("content", "")).decode()).get("url") == url:
+                return
+        except ValueError:
+            pass
+    print(f"dashboard link now {url}: GitHub {put('server/link.json', {'url': url, 'at': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())})}")
+
+
 def main():
     code, _ = gh("GET", "")
     if code != 200:
@@ -543,6 +559,10 @@ def main():
         put("server/down.json", down_report(e))
         sys.exit(f"bot status page not answering ({e}); posted server/down.json")
     code = put("server/status.json", status)
+    try:
+        post_link(status.get("dashboardUrl"))
+    except Exception as e:  # noqa: BLE001 - never let the link post break the status report
+        print(f"link post failed: {e}")
     try:
         upload_books()
     except Exception as e:  # noqa: BLE001 - never let the book upload break the status report

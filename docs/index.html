@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Pred bot dashboard</title>
+<style>body{margin:0;background:#0b0d12;color:#e7e9ee;font:15px system-ui,sans-serif;display:flex;min-height:100vh;align-items:center;justify-content:center;padding:16px;box-sizing:border-box;text-align:center}a{color:#7cc4ff}</style>
+</head><body><div id="m">Finding the dashboard…</div>
+<script>
+// 28 Nov 2026: a fixed address that forwards to the dashboard's current tunnel link (the server posts it to
+// server/link.json on the server-data branch whenever it changes). The dashboard itself is password protected.
+(function(){
+  var m=document.getElementById("m"),t=Date.now();
+  var go=function(u){if(!/^https:\/\/[a-z0-9-]+\.trycloudflare\.com\/?$/.test(u))return false;m.innerHTML='Opening <a href="'+u+'">'+u+'</a>';location.replace(u);return true};
+  var raw=function(){return fetch("https://raw.githubusercontent.com/cynnxcrypto/predbot/server-data/server/link.json?t="+t,{cache:"no-store"}).then(function(r){return r.json()})};
+  fetch("https://api.github.com/repos/cynnxcrypto/predbot/contents/server/link.json?ref=server-data",{cache:"no-store",headers:{Accept:"application/vnd.github.raw+json"}})
+    .then(function(r){if(!r.ok)throw 0;return r.json()}).catch(raw)
+    .then(function(j){if(!go(j&&j.url))throw 0})
+    .catch(function(){m.textContent="Couldn't find the link right now. Try again in a minute."});
+})();
+</script></body></html>
