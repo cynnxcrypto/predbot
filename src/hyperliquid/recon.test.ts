@@ -32,3 +32,16 @@ test("cut list: read from live-rules", () => {
   const c = fileCfg();
   assert.ok(!c.on || (c.cut ?? []).includes("copy-ecb63caa"));
 });
+import { flatSize, parseHlLive } from "./live.js";
+test("flat size: $30 position, never above 5x, cash = position / leverage", () => {
+  const f = { positionUsd: 30, maxLev: 5 };
+  assert.deepEqual(flatSize(1, f), { lev: 1, collateralUsd: 30 });
+  assert.deepEqual(flatSize(3, f), { lev: 3, collateralUsd: 10 });
+  assert.deepEqual(flatSize(20, f), { lev: 5, collateralUsd: 6 });
+  const c = parseHlLive(JSON.stringify({ hyperliquid: { trade: { on: true, maxLossUsd: 50, positionUsd: 30, maxLeverage: 5, fromHighUsd: 100 } } }));
+  assert.deepEqual(c.flat, { positionUsd: 30, maxLev: 5 });
+  assert.equal(c.fromHighUsd, 100);
+  const h = parseHlLive(JSON.stringify({ hyperliquid: { trade: { on: true, maxLossUsd: 50, positionUsd: 900, maxLeverage: 40 } } }));
+  assert.deepEqual(h.flat, { positionUsd: 60, maxLev: 5 });
+  assert.equal(parseHlLive(JSON.stringify({ hyperliquid: { trade: { on: true, maxLossUsd: 50 } } })).flat, undefined);
+});
